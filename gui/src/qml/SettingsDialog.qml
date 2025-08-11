@@ -66,238 +66,142 @@ DialogView {
     }
 
     Item {
-        TabBar {
-            id: bar
+        // Container for tab bar with LB/RB buttons
+        Rectangle {
+            id: tabBarContainer
             anchors {
                 top: parent.top
                 left: parent.left
                 right: parent.right
-                topMargin: 5
+                topMargin: 15
+                leftMargin: 20
+                rightMargin: 20
             }
+            height: 60
+            color: Qt.rgba(255, 255, 255, 0.05)
+            radius: 12
+            border.color: Qt.rgba(0, 212/255, 255/255, 0.2)
+            border.width: 1
 
-            TabButton {
-                id: general
-                text: qsTr("General")
-                focusPolicy: Qt.NoFocus
-                Image {
-                    anchors {
-                        left: general.right
-                        verticalCenter: parent.verticalCenter
-                        leftMargin: -15
-                    }
-                    width: 28
-                    height: 28
-                    sourceSize: Qt.size(width, height)
-                    source: "qrc:/icons/l1.svg"
-                    visible: bar.currentIndex == 1
-                }
-            }
+            RowLayout {
+                anchors.fill: parent
+                anchors.margins: 8
+                spacing: 0
 
-            TabButton {
-                id: video
-                text: qsTr("Video")
-                focusPolicy: Qt.NoFocus
-                Image {
-                    anchors {
-                        right: video.left
-                        verticalCenter: parent.verticalCenter
-                        rightMargin: -15
+                // Left L1 button
+                Button {
+                    Layout.preferredWidth: 40
+                    Layout.fillHeight: true
+                    focusPolicy: Qt.NoFocus
+                    enabled: bar.currentIndex > 0
+                    onClicked: bar.currentIndex = Math.max(0, bar.currentIndex - 1)
+                    
+                    background: Rectangle {
+                        radius: 6
+                        color: "transparent"
+                        opacity: parent.enabled ? 1.0 : 0.3
                     }
-                    width: 28
-                    height: 28
-                    sourceSize: Qt.size(width, height)
-                    source: "qrc:/icons/r1.svg"
-                    visible: bar.currentIndex == 0
-                }
-                Image {
-                    anchors {
-                        left: video.right
-                        verticalCenter: parent.verticalCenter
-                        leftMargin: -15
+                    
+                    Image {
+                        anchors.centerIn: parent
+                        width: 28
+                        height: 28
+                        sourceSize: Qt.size(width, height)
+                        source: "qrc:/icons/l1.svg"
+                        opacity: parent.enabled ? 1.0 : 0.3
                     }
-                    width: 28
-                    height: 28
-                    sourceSize: Qt.size(width, height)
-                    source: "qrc:/icons/l1.svg"
-                    visible: bar.currentIndex == 2
                 }
-            }
 
-            TabButton {
-                id: stream
-                text: qsTr("Stream")
-                focusPolicy: Qt.NoFocus
-                Image {
-                    anchors {
-                        right: stream.left
-                        verticalCenter: parent.verticalCenter
-                        rightMargin: -15
-                    }
-                    width: 28
-                    height: 28
-                    sourceSize: Qt.size(width, height)
-                    source: "qrc:/icons/r1.svg"
-                    visible: bar.currentIndex == 1
-                }
-                Image {
-                    anchors {
-                        left: stream.right
-                        verticalCenter: parent.verticalCenter
-                        leftMargin: -15
-                    }
-                    width: 28
-                    height: 28
-                    sourceSize: Qt.size(width, height)
-                    source: "qrc:/icons/l1.svg"
-                    visible: bar.currentIndex == 3
-                }
-            }
+                // Tab bar in the center
+                TabBar {
+                    id: bar
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    background: Rectangle { color: "transparent" }
 
-            TabButton {
-                text: qsTr("Audio/Wifi")
-                id: audio
-                focusPolicy: Qt.NoFocus
-                Image {
-                    anchors {
-                        right: audio.left
-                        verticalCenter: parent.verticalCenter
-                        rightMargin: -15
+                    TabButton {
+                        id: general
+                        text: qsTr("General")
+                        focusPolicy: Qt.NoFocus
                     }
-                    width: 28
-                    height: 28
-                    sourceSize: Qt.size(width, height)
-                    source: "qrc:/icons/r1.svg"
-                    visible: bar.currentIndex == 2
-                }
-                Image {
-                    anchors {
-                        left: audio.right
-                        verticalCenter: parent.verticalCenter
-                        leftMargin: -15
-                    }
-                    width: 28
-                    height: 28
-                    sourceSize: Qt.size(width, height)
-                    source: "qrc:/icons/l1.svg"
-                    visible: bar.currentIndex == 4
-                }
-            }
 
-            TabButton {
-                text: qsTr("Consoles")
-                id: consoles
-                focusPolicy: Qt.NoFocus
-                Image {
-                    anchors {
-                        right: consoles.left
-                        verticalCenter: parent.verticalCenter
-                        rightMargin: -15
+                    TabButton {
+                        id: video
+                        text: qsTr("Video")
+                        focusPolicy: Qt.NoFocus
                     }
-                    width: 28
-                    height: 28
-                    sourceSize: Qt.size(width, height)
-                    source: "qrc:/icons/r1.svg"
-                    visible: bar.currentIndex == 3
-                }
-                Image {
-                    anchors {
-                        left: consoles.right
-                        verticalCenter: parent.verticalCenter
-                        leftMargin: -15
-                    }
-                    width: 28
-                    height: 28
-                    sourceSize: Qt.size(width, height)
-                    source: "qrc:/icons/l1.svg"
-                    visible: bar.currentIndex == 5
-                }
-            }
 
-            TabButton {
-                text: qsTr("Keys")
-                id: keys
-                focusPolicy: Qt.NoFocus
-                Image {
-                    anchors {
-                        right: keys.left
-                        verticalCenter: parent.verticalCenter
-                        rightMargin: -15
+                    TabButton {
+                        id: stream
+                        text: qsTr("Stream")
+                        focusPolicy: Qt.NoFocus
                     }
-                    width: 28
-                    height: 28
-                    sourceSize: Qt.size(width, height)
-                    source: "qrc:/icons/r1.svg"
-                    visible: bar.currentIndex == 4
-                }
-                Image {
-                    anchors {
-                        left: keys.right
-                        verticalCenter: parent.verticalCenter
-                        leftMargin: -15
-                    }
-                    width: 28
-                    height: 28
-                    sourceSize: Qt.size(width, height)
-                    source: "qrc:/icons/l1.svg"
-                    visible: bar.currentIndex == 6
-                }
-            }
 
-            TabButton {
-                text: qsTr("Controllers")
-                id: controllers
-                focusPolicy: Qt.NoFocus
-                Image {
-                    anchors {
-                        right: controllers.left
-                        verticalCenter: parent.verticalCenter
-                        rightMargin: -15
+                    TabButton {
+                        text: qsTr("Audio/Wifi")
+                        id: audio
+                        focusPolicy: Qt.NoFocus
                     }
-                    width: 28
-                    height: 28
-                    sourceSize: Qt.size(width, height)
-                    source: "qrc:/icons/r1.svg"
-                    visible: bar.currentIndex == 5
-                }
-                Image {
-                    anchors {
-                        left: controllers.right
-                        verticalCenter: parent.verticalCenter
-                        leftMargin: -15
-                    }
-                    width: 28
-                    height: 28
-                    sourceSize: Qt.size(width, height)
-                    source: "qrc:/icons/l1.svg"
-                    visible: bar.currentIndex == 7
-                }
-            }
 
-            TabButton {
-                text: qsTr("Config")
-                id: config
-                focusPolicy: Qt.NoFocus
-                Image {
-                    anchors {
-                        right: config.left
-                        verticalCenter: parent.verticalCenter
-                        rightMargin: -15
+                    TabButton {
+                        text: qsTr("Consoles")
+                        id: consoles
+                        focusPolicy: Qt.NoFocus
                     }
-                    width: 28
-                    height: 28
-                    sourceSize: Qt.size(width, height)
-                    source: "qrc:/icons/r1.svg"
-                    visible: bar.currentIndex == 6
+
+                    TabButton {
+                        text: qsTr("Keys")
+                        id: keys
+                        focusPolicy: Qt.NoFocus
+                    }
+
+                    TabButton {
+                        text: qsTr("Controllers")
+                        id: controllers
+                        focusPolicy: Qt.NoFocus
+                    }
+
+                    TabButton {
+                        text: qsTr("Config")
+                        id: config
+                        focusPolicy: Qt.NoFocus
+                    }
+                }
+
+                // Right R1 button
+                Button {
+                    Layout.preferredWidth: 40
+                    Layout.fillHeight: true
+                    focusPolicy: Qt.NoFocus
+                    enabled: bar.currentIndex < bar.count - 1
+                    onClicked: bar.currentIndex = Math.min(bar.count - 1, bar.currentIndex + 1)
+                    
+                    background: Rectangle {
+                        radius: 6
+                        color: "transparent"
+                        opacity: parent.enabled ? 1.0 : 0.3
+                    }
+                    
+                    Image {
+                        anchors.centerIn: parent
+                        width: 28
+                        height: 28
+                        sourceSize: Qt.size(width, height)
+                        source: "qrc:/icons/r1.svg"
+                        opacity: parent.enabled ? 1.0 : 0.3
+                    }
                 }
             }
         }
 
         StackLayout {
+            id: stackLayout
             anchors {
-                top: bar.bottom
+                top: tabBarContainer.bottom
                 left: parent.left
                 right: parent.right
                 bottom: parent.bottom
+                topMargin: 10
             }
             currentIndex: bar.currentIndex
             onCurrentIndexChanged: nextItemInFocusChain().forceActiveFocus(Qt.TabFocusReason)

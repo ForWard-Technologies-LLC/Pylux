@@ -38,7 +38,8 @@ podman start "$container_name" >/dev/null
 chmod +x scripts/build-appimage-incremental.sh
 
 # Run incremental build in container (ensure writable dirs and privileged install)
-podman exec -it --env SKIP_APPIMAGE=${SKIP_APPIMAGE:-0} "$container_name" /bin/bash -lc 'set -xe; \
+SKIP_VAL="${SKIP_APPIMAGE:-0}"
+podman exec --env SKIP_APPIMAGE="$SKIP_VAL" "$container_name" /bin/bash -lc 'set -xe; \
   sudo chown -R user:user /build/chiaki/appimage /build/chiaki/build_appimage || true; \
   sudo -E scripts/build-appimage-incremental.sh /build/chiaki/appimage/appdir' | tee /tmp/appimage_fast.log
 

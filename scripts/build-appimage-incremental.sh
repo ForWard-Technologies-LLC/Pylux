@@ -75,13 +75,13 @@ if [ ! -f "${APPIMAGETOOL_RUNTIME}" ]; then
   curl -L -o "${APPIMAGETOOL_RUNTIME}" "https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-${ARCH}" || true
 fi
 
-./linuxdeploy-${ARCH}.AppImage \
+timeout 300 ./linuxdeploy-${ARCH}.AppImage \
   --appdir="${appdir}" \
   -e "${appdir}/usr/bin/chiaki" \
   -d "${appdir}/usr/share/applications/chiaking.desktop" \
   --plugin qt \
   --exclude-library='libva*' \
-  --exclude-library='libvulkan*'
+  --exclude-library='libvulkan*' || { echo "linuxdeploy timed out or failed"; exit 1; }
 
 # Optionally skip creating the AppImage and leave a runnable AppDir
 if [ "${SKIP_APPIMAGE:-0}" != "1" ]; then

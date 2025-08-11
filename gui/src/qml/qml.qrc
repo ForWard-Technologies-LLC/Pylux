@@ -3,6 +3,8 @@
     <file>qtquickcontrols2.conf</file>
     <file>Main.qml</file>
     <file>MainView.qml</file>
+    <file>SparkleBackground.qml</file>
+    <file>CleanBlueBackground.qml</file>
     <file>StreamView.qml</file>
     <file>ConfirmDialog.qml</file>
     <file>RemindDialog.qml</file>
@@ -27,5 +29,6 @@
     <file>controls/RadioButton.qml</file>
     <file>controls/Slider.qml</file>
     <file>controls/TextField.qml</file>
+
   </qresource>
 </RCC>

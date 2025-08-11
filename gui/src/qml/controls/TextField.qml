@@ -1,12 +1,50 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
+import QtQuick.Effects
 
 TextField {
     property bool firstInFocusChain: false
     property bool lastInFocusChain: false
     property bool sendOutput: false
     readOnly: true
+    
+    // Enhanced futuristic styling
+    background: Rectangle {
+        radius: 8
+        color: parent.activeFocus ? Qt.rgba(0, 212/255, 255/255, 0.15) : Qt.rgba(0, 212/255, 255/255, 0.05)
+        border.color: parent.activeFocus ? "#00d4ff" : Qt.rgba(0, 212/255, 255/255, 0.3)
+        border.width: parent.activeFocus ? 2 : 1
+        
+        Behavior on color { ColorAnimation { duration: 200 } }
+        Behavior on border.color { ColorAnimation { duration: 200 } }
+        Behavior on border.width { NumberAnimation { duration: 200 } }
+        
+        // Glow effect for focused text fields
+        Rectangle {
+            anchors.fill: parent
+            radius: parent.radius
+            color: "transparent"
+            border.color: "#00d4ff"
+            border.width: 2
+            opacity: parent.parent.activeFocus ? 0.5 : 0
+            visible: opacity > 0
+            
+            layer.enabled: parent.parent.activeFocus
+            layer.effect: MultiEffect {
+                blurEnabled: true
+                blurMax: 10
+                blur: 0.6
+            }
+            
+            Behavior on opacity { NumberAnimation { duration: 200 } }
+        }
+    }
+    
+    color: "#ffffff"
+    placeholderTextColor: Qt.rgba(255, 255, 255, 0.5)
+    selectionColor: "#00d4ff"
+    selectedTextColor: "#000000"
 
     onActiveFocusChanged: {
         if (!activeFocus)

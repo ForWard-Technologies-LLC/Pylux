@@ -10,7 +10,7 @@ Item {
     property list<Item> restoreFocusItems
     property bool initialAsk: false
     Material.theme: Material.Dark
-    Material.accent: "#00a7ff"
+    Material.accent: "#00d4ff"
 
     function controllerButton(name) {
         let type = "deck";
@@ -217,8 +217,8 @@ Item {
             stack.replace(stack.get(0), autoConnectViewComponent, {}, StackView.Immediate);
     }
 
-    Pane {
-        anchors.fill: parent
+    // Sparkle background for non-video states
+    SparkleBackground {
         visible: !Chiaki.window.hasVideo && !Chiaki.window.keepVideo
     }
 
@@ -256,7 +256,13 @@ Item {
         width: 1200
         anchors.top: parent.top
         anchors.horizontalCenter: parent.horizontalCenter
-        color: Material.background
+        color: "transparent"
+        
+        // Sparkle background for settings
+        SparkleBackground {
+            anchors.fill: parent
+            opacity: 0.8
+        }
         Loader {
             anchors.fill: parent
             id: placeboSettingsLoader
@@ -271,7 +277,13 @@ Item {
         height: 500
         width: 1200
         visible: opacity
-        color: Material.background
+        color: "transparent"
+        
+        // Sparkle background for settings
+        SparkleBackground {
+            anchors.fill: parent
+            opacity: 0.8
+        }
         Loader {
             anchors.fill: parent
             id: displaySettingsLoader
@@ -286,7 +298,13 @@ Item {
         height: 600
         width: 1200
         visible: opacity
-        color: Material.background
+        color: "transparent"
+        
+        // Sparkle background for settings
+        SparkleBackground {
+            anchors.fill: parent
+            opacity: 0.8
+        }
         Loader {
             anchors.fill: parent
             id: colorMappingSettingsLoader
