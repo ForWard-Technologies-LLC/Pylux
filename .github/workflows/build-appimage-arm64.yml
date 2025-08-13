@@ -37,12 +37,6 @@ jobs:
             -t docker.io/streetpea/chiaki-ng-builder:qt6.7 \
             /bin/bash -c "sudo -E scripts/build-appimage.sh /build/appdir"
           
-      # Package Steam build (outside container where zip is available)
-      - name: Package Steam portable build
-        working-directory: chiaki-ng/appimage
-        run: |
-          zip -r chiaki-ng-steam-linux.zip chiaki-ng-steam-linux
-
       # Upload traditional AppImage
       - name: Upload AppImage Artifact
         uses: actions/upload-artifact@v4
@@ -52,11 +46,11 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      # Upload Steam-compatible portable build
+      # Upload Steam-compatible portable build (GitHub Actions will compress it)
       - name: Upload Steam Portable Linux Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: chiaki-ng-steam-linux-arm64
-          path: chiaki-ng/appimage/chiaki-ng-steam-linux.zip
+          name: PSStream-arm64
+          path: chiaki-ng/appimage/PSStream/
           if-no-files-found: error
           retention-days: 7

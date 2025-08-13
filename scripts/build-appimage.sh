@@ -74,7 +74,7 @@ mv chiaki-ng-${ARCH}.AppImage chiaki-ng.AppImage
 # === STEAM BUILD CREATION (ADDED) ===
 # This runs AFTER AppImage is complete to avoid any interference
 echo "Creating Steam-compatible portable Linux build..."
-PORTABLE_DIR="chiaki-ng-steam-linux"
+PORTABLE_DIR="PSStream"
 
 # Copy the complete appdir that was used for AppImage
 cp -r "${appdir}" "${PORTABLE_DIR}"

@@ -37,12 +37,6 @@ jobs:
             -t docker.io/streetpea/chiaki-ng-builder:qt6.9 \
             /bin/bash -c "sudo -E scripts/build-appimage.sh /build/appdir"
           
-      # Package Steam build (outside container where zip is available)
-      - name: Package Steam portable build
-        working-directory: chiaki-ng/appimage
-        run: |
-          zip -r chiaki-ng-steam-linux.zip chiaki-ng-steam-linux
-
       # Upload traditional AppImage
       - name: Upload AppImage Artifact
         uses: actions/upload-artifact@v4
@@ -52,12 +46,12 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      # Upload Steam-compatible portable build
+      # Upload Steam-compatible portable build (GitHub Actions will compress it)
       - name: Upload Steam Portable Linux Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: chiaki-ng-steam-linux
-          path: chiaki-ng/appimage/chiaki-ng-steam-linux.zip
+          name: PSStream
+          path: chiaki-ng/appimage/PSStream/
           if-no-files-found: error
           retention-days: 7
 
@@ -73,13 +67,14 @@ jobs:
           echo "  - Use \`APPIMAGE_EXTRACT_AND_RUN=1\` if Steam has issues" >> build-summary.md
           echo "" >> build-summary.md
           echo "### Steam Distribution (Recommended)" >> build-summary.md
-          echo "- **Portable ZIP**: \`chiaki-ng-steam-linux.zip\`" >> build-summary.md
+          echo "- **Portable Directory**: \`PSStream.zip\`" >> build-summary.md
           echo "  - Optimized for Steam runtime compatibility" >> build-summary.md
           echo "  - Set executable to: \`linux/launch.sh\`" >> build-summary.md
           echo "  - No launch options needed" >> build-summary.md
           echo "" >> build-summary.md
           echo "### File Sizes" >> build-summary.md
-          ls -lh appimage/chiaki-ng.AppImage appimage/chiaki-ng-steam-linux.zip >> build-summary.md || true
+          ls -lh appimage/chiaki-ng.AppImage >> build-summary.md || true
+          du -sh appimage/PSStream >> build-summary.md || true
           
       - name: Upload build summary
         uses: actions/upload-artifact@v4
