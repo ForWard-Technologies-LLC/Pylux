@@ -67,4 +67,39 @@ chmod +x linuxdeploy-plugin-qt-${ARCH}.AppImage
     --exclude-library='libva*' \
     --exclude-library='libvulkan*' \
     --output appimage
+
+# Standard AppImage creation (unchanged)
 mv chiaki-ng-${ARCH}.AppImage chiaki-ng.AppImage
+
+# === STEAM BUILD CREATION (ADDED) ===
+# This runs AFTER AppImage is complete to avoid any interference
+echo "Creating Steam-compatible portable Linux build..."
+PORTABLE_DIR="chiaki-ng-steam-linux"
+
+# Copy the complete appdir that was used for AppImage
+cp -r "${appdir}" "${PORTABLE_DIR}"
+
+# Flatten directory structure for easier Steam deployment
+cd "${PORTABLE_DIR}"
+mv usr/* .
+rmdir usr
+
+# Ensure cpp-steam-tools library is included
+cp ../build_appimage/third-party/cpp-steam-tools/libcpp-steam-tools.so lib/ 2>/dev/null || true
+
+# Create minimal launch script
+cat > launch.sh << 'EOF'
+#!/bin/bash
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export LD_LIBRARY_PATH="${DIR}/lib:${LD_LIBRARY_PATH}"
+export QT_PLUGIN_PATH="${DIR}/plugins"
+exec "${DIR}/bin/chiaki" "$@"
+EOF
+
+chmod +x launch.sh
+
+cd ..
+
+# Package portable build
+zip -r chiaki-ng-steam-linux.zip "${PORTABLE_DIR}"
+# === END STEAM BUILD CREATION ===

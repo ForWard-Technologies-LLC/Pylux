@@ -9,10 +9,10 @@ jobs:
     runs-on: ubuntu-24.04-arm
     
     steps:
-      - name: Setup Podman
+      - name: Setup Podman and tools
         run: |
           sudo apt update
-          sudo apt-get -y install podman
+          sudo apt-get -y install podman zip
 
       - name: Checkout code
         uses: actions/checkout@v4
@@ -37,10 +37,20 @@ jobs:
             -t docker.io/streetpea/chiaki-ng-builder:qt6.7 \
             /bin/bash -c "sudo -E scripts/build-appimage.sh /build/appdir"
 
-      - name: Upload chiaki-ng Artifact
+      # Upload traditional AppImage
+      - name: Upload AppImage Artifact
         uses: actions/upload-artifact@v4
         with:
           name: chiaki-ng.AppImage_arm64
           path: chiaki-ng/appimage/chiaki-ng.AppImage
+          if-no-files-found: error
+          retention-days: 7
+
+      # Upload Steam-compatible portable build
+      - name: Upload Steam Portable Linux Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chiaki-ng-steam-linux-arm64
+          path: chiaki-ng/appimage/chiaki-ng-steam-linux.zip
           if-no-files-found: error
           retention-days: 7

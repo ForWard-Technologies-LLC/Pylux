@@ -9,10 +9,10 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - name: Setup Podman
+      - name: Setup Podman and tools
         run: |
           sudo apt update
-          sudo apt-get -y install podman
+          sudo apt-get -y install podman zip
 
       - name: Checkout code
         uses: actions/checkout@v4
@@ -38,10 +38,46 @@ jobs:
             /bin/bash -c "sudo -E scripts/build-appimage.sh /build/appdir"
           
 
-      - name: Upload chiaki-ng Artifact
+      # Upload traditional AppImage
+      - name: Upload AppImage Artifact
         uses: actions/upload-artifact@v4
         with:
           name: chiaki-ng.AppImage_x86_64
           path: chiaki-ng/appimage/chiaki-ng.AppImage
           if-no-files-found: error
           retention-days: 7
+
+      # Upload Steam-compatible portable build
+      - name: Upload Steam Portable Linux Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chiaki-ng-steam-linux
+          path: chiaki-ng/appimage/chiaki-ng-steam-linux.zip
+          if-no-files-found: error
+          retention-days: 7
+
+      # Create combined release info
+      - name: Create build summary
+        working-directory: chiaki-ng
+        run: |
+          echo "## Build Artifacts Created" > build-summary.md
+          echo "" >> build-summary.md
+          echo "### Traditional Distribution" >> build-summary.md
+          echo "- **AppImage**: \`chiaki-ng.AppImage\`" >> build-summary.md
+          echo "  - Single file, works on most Linux distributions" >> build-summary.md
+          echo "  - Use \`APPIMAGE_EXTRACT_AND_RUN=1\` if Steam has issues" >> build-summary.md
+          echo "" >> build-summary.md
+          echo "### Steam Distribution (Recommended)" >> build-summary.md
+          echo "- **Portable ZIP**: \`chiaki-ng-steam-linux.zip\`" >> build-summary.md
+          echo "  - Optimized for Steam runtime compatibility" >> build-summary.md
+          echo "  - Set executable to: \`linux/launch.sh\`" >> build-summary.md
+          echo "  - No launch options needed" >> build-summary.md
+          echo "" >> build-summary.md
+          echo "### File Sizes" >> build-summary.md
+          ls -lh appimage/chiaki-ng.AppImage appimage/chiaki-ng-steam-linux.zip >> build-summary.md || true
+          
+      - name: Upload build summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-summary
+          path: chiaki-ng/build-summary.md
