@@ -36,6 +36,12 @@ jobs:
             --cap-add SYS_ADMIN \
             -t docker.io/streetpea/chiaki-ng-builder:qt6.7 \
             /bin/bash -c "sudo -E scripts/build-appimage.sh /build/appdir"
+          
+      # Package Steam build (outside container where zip is available)
+      - name: Package Steam portable build
+        working-directory: chiaki-ng/appimage
+        run: |
+          zip -r chiaki-ng-steam-linux.zip chiaki-ng-steam-linux
 
       # Upload traditional AppImage
       - name: Upload AppImage Artifact

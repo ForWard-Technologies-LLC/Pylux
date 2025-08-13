@@ -100,6 +100,5 @@ chmod +x launch.sh
 
 cd ..
 
-# Package portable build
-zip -r chiaki-ng-steam-linux.zip "${PORTABLE_DIR}"
+# Don't package here - will be done outside container where zip is available
 # === END STEAM BUILD CREATION ===
