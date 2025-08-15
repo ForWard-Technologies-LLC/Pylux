@@ -17,6 +17,10 @@
 #include <QWebEngineUrlRequestInterceptor>
 #endif
 
+#ifdef CHIAKI_ENABLE_STEAMWORKS
+class SteamworksWrapper;
+#endif
+
 class SystemdInhibit;
 #ifdef Q_OS_MACOS
     class MacWakeSleep;
@@ -190,6 +194,7 @@ public:
     Q_INVOKABLE void setConsolePin(int index, QString console_pin);
     Q_INVOKABLE QString openPsnLink();
     Q_INVOKABLE QString openPlaceboOptionsLink();
+    Q_INVOKABLE bool openPsnLoginInSteamOverlay();
     Q_INVOKABLE void initPsnAuth(const QUrl &url, const QJSValue &callback);
     Q_INVOKABLE void psnCancel(bool stop_thread);
     Q_INVOKABLE void refreshPsnToken();
@@ -323,5 +328,8 @@ private:
     QMap<QString, PsnHost> psn_nickname_hosts = {};
 #ifdef CHIAKI_HAVE_WEBENGINE
     SecUaRequestInterceptor * request_interceptor = {};
+#endif
+#ifdef CHIAKI_ENABLE_STEAMWORKS
+    SteamworksWrapper * steamworks_wrapper = {};
 #endif
 };

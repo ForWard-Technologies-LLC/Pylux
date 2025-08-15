@@ -19,10 +19,10 @@ podman image exists docker.io/streetpea/chiaki-ng-builder:qt6.9 || podman pull d
 mkdir -p gui/src/qml
 cp -f scripts/qtwebengine_import.qml gui/src/qml/ || true
 
-# Persistent container
+# Persistent container (run with sudo like CI to handle volume permissions)
 container_name="chiaki-ng-dev"
-if ! podman container exists "$container_name"; then
-  podman create --name "$container_name" \
+if ! sudo podman container exists "$container_name"; then
+  sudo podman create --name "$container_name" \
     -v "$(pwd):/build/chiaki:Z" \
     -w /build/chiaki \
     --device /dev/fuse \
@@ -32,18 +32,26 @@ if ! podman container exists "$container_name"; then
     sleep infinity
 fi
 
-podman start "$container_name" >/dev/null
+sudo podman start "$container_name" >/dev/null
 
 # Ensure incremental script exists/executable
 chmod +x scripts/build-appimage-incremental.sh
 
-# Run incremental build in container (ensure writable dirs and privileged install)
-SKIP_VAL="${SKIP_APPIMAGE:-0}"
-podman exec --env SKIP_APPIMAGE="$SKIP_VAL" "$container_name" /bin/bash -lc 'set -xe; \
-  sudo chown -R user:user /build/chiaki/appimage /build/chiaki/build_appimage || true; \
-  sudo -E scripts/build-appimage-incremental.sh /build/chiaki/appimage/appdir' | tee /tmp/appimage_fast.log
+# Pre-create directories with correct permissions to avoid container permission issues
+mkdir -p appimage/appdir build_appimage
 
-# Skip host chown to avoid sudo prompts; files are executable as-is
+# Run incremental build in container
+SKIP_VAL="${SKIP_APPIMAGE:-0}"
+
+# Use trap to ensure ownership is always fixed, even on failure
+cleanup_ownership() {
+    echo "Fixing ownership of build artifacts..."
+    sudo chown -R "$(id -un)":"$(id -gn)" appimage build_appimage 2>/dev/null || true
+}
+trap cleanup_ownership EXIT
+
+sudo podman exec --env SKIP_APPIMAGE="$SKIP_VAL" "$container_name" /bin/bash -lc 'set -xe; \
+  sudo -E scripts/build-appimage-incremental.sh /build/chiaki/appimage/appdir' | tee /tmp/appimage_fast.log
 
 # Launch either the unpackaged binary (from AppDir) or the AppImage
 if [ "${SKIP_APPIMAGE:-0}" = "1" ]; then

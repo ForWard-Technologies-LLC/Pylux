@@ -90,3 +90,7 @@ endif()
 if(CHIAKI_ENABLE_STEAM_SHORTCUT)
 	add_subdirectory(cpp-steam-tools)
 endif()
+
+if(CHIAKI_ENABLE_STEAMWORKS)
+	add_subdirectory(steamworks)
+endif()

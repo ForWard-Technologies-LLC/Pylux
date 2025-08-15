@@ -141,6 +141,7 @@ jobs:
           -DCHIAKI_ENABLE_CLI=OFF `
           -DCHIAKI_GUI_ENABLE_SDL_GAMECONTROLLER=ON `
           -DCHIAKI_ENABLE_STEAMDECK_NATIVE=OFF `
+          -DCHIAKI_ENABLE_STEAMWORKS=ON `
           -DPYTHON_EXECUTABLE="${{ env.pythonLocation }}\python.exe" `
           -DCMAKE_PREFIX_PATH="${{ github.workspace }}\${{ env.dep_folder }};${{ env.VULKAN_SDK }}"
 
@@ -153,6 +154,7 @@ jobs:
           mkdir chiaki-ng-Win
           cp build\gui\chiaki.exe chiaki-ng-Win
           cp build\third-party\cpp-steam-tools\cpp-steam-tools.dll chiaki-ng-Win
+          cp third-party\steamworks\steamworks_sdk\redistributable_bin\win64\steam_api64.dll chiaki-ng-Win
           cp scripts\qtwebengine_import.qml gui\src\qml\
           cp "${env:VCPKG_INSTALLED_DIR}\${{ env.triplet }}\bin\libcrypto-*-x64.dll" chiaki-ng-Win
           cp "${env:VCPKG_INSTALLED_DIR}\${{ env.triplet }}\bin\libssl-*-x64.dll" chiaki-ng-Win

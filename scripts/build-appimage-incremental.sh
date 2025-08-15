@@ -8,6 +8,11 @@ if [ "$(uname -m)" = "aarch64" ]; then GCC_STRING="gcc_arm64"; else GCC_STRING="
 QT_DIR="$(find "${QT_PATH}" -maxdepth 1 -type d -name "${QT_VERSION}")"
 export PATH="${QT_DIR}/${GCC_STRING}/bin:$PATH"
 
+# Activate Python virtual environment if available (needed for meson)
+if [ -f "${HOME}/chiaki-venv/bin/activate" ]; then
+   source "${HOME}/chiaki-venv/bin/activate"
+fi
+
 appdir="${1:-"$(pwd)/appimage/appdir"}"
 mkdir -p "appimage" "${appdir}"
 
@@ -37,6 +42,7 @@ if [ ! -f build_appimage/CMakeCache.txt ]; then
       -DCHIAKI_ENABLE_TESTS=ON \
       -DCHIAKI_ENABLE_GUI=ON \
       -DCHIAKI_GUI_ENABLE_SDL_GAMECONTROLLER=ON \
+      -DCHIAKI_ENABLE_STEAMWORKS=ON \
       -DCMAKE_INSTALL_PREFIX=/usr \
       ..
   )
@@ -55,7 +61,7 @@ DESTDIR="${appdir}" ninja -C build_appimage install
 # Package with linuxdeploy (download once)
 ARCH="$(uname -m)"
 pushd appimage >/dev/null
-export LD_LIBRARY_PATH="${QT_DIR}/${GCC_STRING}/lib:$(pwd)/../build_appimage/third-party/cpp-steam-tools:${LD_LIBRARY_PATH-}"
+export LD_LIBRARY_PATH="${QT_DIR}/${GCC_STRING}/lib:$(pwd)/../build_appimage/third-party/cpp-steam-tools:$(pwd)/../third-party/steamworks/steamworks_sdk/redistributable_bin/linux64:${LD_LIBRARY_PATH-}"
 export QML_SOURCES_PATHS="$(pwd)/../gui/src/qml"
 export EXTRA_QT_MODULES="waylandclient;waylandcompositor"
 export EXTRA_PLATFORM_PLUGINS="libqwayland-egl.so;libqwayland-generic.so;libqeglfs.so;libqminimal.so;libqminimalegl.so;libqvkkhrdisplay.so;libqvnc.so;libqoffscreen.so;libqlinuxfb.so"

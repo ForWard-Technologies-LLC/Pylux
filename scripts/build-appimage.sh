@@ -36,6 +36,7 @@ qt-cmake \
 	-DCHIAKI_ENABLE_TESTS=ON \
 	-DCHIAKI_ENABLE_GUI=ON \
 	-DCHIAKI_GUI_ENABLE_SDL_GAMECONTROLLER=ON \
+	-DCHIAKI_ENABLE_STEAMWORKS=ON \
 	-DCMAKE_INSTALL_PREFIX=/usr \
 	..
 cd ..
@@ -53,7 +54,7 @@ export ARCH="$(uname -m)"
 curl -L -O https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-${ARCH}.AppImage
 chmod +x linuxdeploy-${ARCH}.AppImage
 
-export LD_LIBRARY_PATH="${QT_DIR}/${GCC_STRING}/lib:$(pwd)/../build_appimage/third-party/cpp-steam-tools:$LD_LIBRARY_PATH"
+export LD_LIBRARY_PATH="${QT_DIR}/${GCC_STRING}/lib:$(pwd)/../build_appimage/third-party/cpp-steam-tools:$(pwd)/../third-party/steamworks/steamworks_sdk/redistributable_bin/linux64:$LD_LIBRARY_PATH"
 export QML_SOURCES_PATHS="$(pwd)/../gui/src/qml"
 export EXTRA_QT_MODULES="waylandclient;waylandcompositor"
 export EXTRA_PLATFORM_PLUGINS="libqwayland-egl.so;libqwayland-generic.so;libqeglfs.so;libqminimal.so;libqminimalegl.so;libqvkkhrdisplay.so;libqvnc.so;libqoffscreen.so;libqlinuxfb.so"
@@ -86,6 +87,9 @@ rmdir usr
 
 # Ensure cpp-steam-tools library is included
 cp ../build_appimage/third-party/cpp-steam-tools/libcpp-steam-tools.so lib/ 2>/dev/null || true
+
+# Ensure Steamworks library is included
+cp ../third-party/steamworks/steamworks_sdk/redistributable_bin/linux64/libsteam_api.so lib/ 2>/dev/null || true
 
 # Create minimal launch script
 cat > launch.sh << 'EOF'

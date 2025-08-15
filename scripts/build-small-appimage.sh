@@ -23,6 +23,7 @@ qt-cmake \
 	-DCHIAKI_ENABLE_TESTS=ON \
 	-DCHIAKI_ENABLE_GUI=ON \
 	-DCHIAKI_GUI_ENABLE_SDL_GAMECONTROLLER=ON \
+	-DCHIAKI_ENABLE_STEAMWORKS=ON \
 	-DCMAKE_INSTALL_PREFIX=/usr \
 	..
 cd ..
@@ -42,7 +43,7 @@ chmod +x linuxdeploy-${ARCH}.AppImage
 curl -L -O https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-${ARCH}.AppImage
 chmod +x linuxdeploy-plugin-qt-${ARCH}.AppImage
 
-export LD_LIBRARY_PATH="${QT_PATH}/${QT_VERSION}/${GCC_STRING}/lib:$(pwd)/../build_appimage/third-party/cpp-steam-tools:$LD_LIBRARY_PATH"
+export LD_LIBRARY_PATH="${QT_PATH}/${QT_VERSION}/${GCC_STRING}/lib:$(pwd)/../build_appimage/third-party/cpp-steam-tools:$(pwd)/../third-party/steamworks/steamworks_sdk/redistributable_bin/linux64:$LD_LIBRARY_PATH"
 export QML_SOURCES_PATHS="$(pwd)/../gui/src/qml"
 if [ "$(uname -m)" = "aarch64" ]
 then

@@ -15,6 +15,9 @@
 #if CHIAKI_GUI_ENABLE_STEAM_SHORTCUT
 #include "steamtools.h"
 #endif
+#ifdef CHIAKI_ENABLE_STEAMWORKS
+#include "steamworks/steamworks_wrapper.h"
+#endif
 
 #ifdef CHIAKI_HAVE_WEBENGINE
 #if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
@@ -2133,6 +2136,35 @@ QString QmlBackend::openPsnLink()
         qCWarning(chiakiGui) << "Could not launch browser.";
         return QString(url.toEncoded());
     }
+}
+
+bool QmlBackend::openPsnLoginInSteamOverlay()
+{
+#ifdef CHIAKI_ENABLE_STEAMWORKS
+    // Initialize Steamworks if not already done
+    if (!steamworks_wrapper) {
+        steamworks_wrapper = new SteamworksWrapper(this);
+        // Use the default App ID from SteamworksWrapper constructor (3946320)
+        if (!steamworks_wrapper->initialize(3946320)) {
+            qCWarning(chiakiGui) << "Failed to initialize Steamworks";
+            delete steamworks_wrapper;
+            steamworks_wrapper = nullptr;
+            return false;
+        }
+    }
+    
+    if (!steamworks_wrapper->isSteamAvailable()) {
+        qCWarning(chiakiGui) << "Steam client not available";
+        return false;
+    }
+    
+    // Get PSN login URL and activate Steam overlay
+    QUrl psnUrl = psnLoginUrl();
+    return steamworks_wrapper->activateGameOverlayToWebPage(psnUrl.toString());
+#else
+    qCWarning(chiakiGui) << "Steamworks support not compiled in";
+    return false;
+#endif
 }
 
 QString QmlBackend::openPlaceboOptionsLink()

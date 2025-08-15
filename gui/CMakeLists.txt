@@ -70,6 +70,13 @@ if(CHIAKI_ENABLE_STEAMDECK_NATIVE AND LINUX)
 	)
 endif()
 
+if(CHIAKI_ENABLE_STEAMWORKS)
+	list(APPEND SOURCE_FILES
+		include/steamworks/steamworks_wrapper.h
+		src/steamworks/steamworks_api.cpp
+	)
+endif()
+
 if(APPLE)
 	list(APPEND SOURCE_FILES
 		include/macMicPermission.h
@@ -128,6 +135,10 @@ endif()
 if(CHIAKI_ENABLE_STEAM_SHORTCUT)
 	target_link_libraries(chiaki cpp-steam-tools)
 	target_compile_definitions(chiaki PRIVATE CHIAKI_GUI_ENABLE_STEAM_SHORTCUT)
+endif()
+if(CHIAKI_ENABLE_STEAMWORKS)
+	target_link_libraries(chiaki steamworks)
+	target_compile_definitions(chiaki PRIVATE CHIAKI_ENABLE_STEAMWORKS)
 endif()
 if(NOT CHIAKI_ENABLE_FFMPEG_DECODER)
 	message(FATAL_ERROR "Chiaki GUI requires CHIAKI_ENABLE_FFMPEG_DECODER=ON")
