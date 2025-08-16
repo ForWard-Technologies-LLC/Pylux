@@ -10,7 +10,7 @@ int main(int argc, char *argv[]) { return real_main(argc, argv); }
 #include <discoverymanager.h>
 #include <qmlmainwindow.h>
 #include <QApplication>
-#include <QtTypes>
+// QtTypes removed - not needed in Qt6
 
 #ifdef CHIAKI_ENABLE_CLI
 #include <chiaki-cli.h>
@@ -74,7 +74,16 @@ int real_main(int argc, char *argv[])
 #endif
 		QGuiApplication::setDesktopFileName("chiaki-ng");
 
-	qputenv("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu");
+	QString webengine_flags = "--disable-gpu";
+	
+#ifdef CHIAKI_ENABLE_STEAMWORKS
+	// Disable sandbox when Steamworks is enabled AND running on Steam Deck
+	if (qEnvironmentVariableIsSet("SteamDeck")) {
+		webengine_flags += " --no-sandbox --disable-dev-shm-usage --disable-setuid-sandbox --single-process";
+	}
+#endif
+	
+	qputenv("QTWEBENGINE_CHROMIUM_FLAGS", webengine_flags.toUtf8());
 #if defined(Q_OS_WIN)
 	const size_t cSize = strlen(argv[0])+1;
 	wchar_t wc[cSize];

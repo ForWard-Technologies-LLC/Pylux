@@ -2427,16 +2427,7 @@ DialogView {
                         id: openPsnLogin
                         text: qsTr("Login to PSN")
                         onClicked: {
-                            // TODO: Add a setting to enable/disable Steam overlay usage
-                            var useSteamOverlay = true; // Set this bool based on your preference
-                            
-                            if (useSteamOverlay && Chiaki.openPsnLoginInSteamOverlay()) {
-                                // Successfully opened in Steam overlay
-                                console.log("Opened PSN login in Steam overlay");
-                            } else {
-                                // Fallback to normal PSN dialog
-                                root.showPSNTokenDialog(false);
-                            }
+                            root.showPSNTokenDialog(false);
                         }
                         Material.roundedScale: Material.SmallScale
                         visible: !Chiaki.settings.psnRefreshToken || !Chiaki.settings.psnAuthToken || !Chiaki.settings.psnAuthTokenExpiry || !Chiaki.settings.psnAccountId

@@ -12,6 +12,7 @@
 #include <QUrl>
 #include <QFutureWatcher>
 #include <QFuture>
+
 #ifdef CHIAKI_HAVE_WEBENGINE
 #include <QQuickWebEngineProfile>
 #include <QWebEngineUrlRequestInterceptor>
@@ -194,7 +195,7 @@ public:
     Q_INVOKABLE void setConsolePin(int index, QString console_pin);
     Q_INVOKABLE QString openPsnLink();
     Q_INVOKABLE QString openPlaceboOptionsLink();
-    Q_INVOKABLE bool openPsnLoginInSteamOverlay();
+
     Q_INVOKABLE void initPsnAuth(const QUrl &url, const QJSValue &callback);
     Q_INVOKABLE void psnCancel(bool stop_thread);
     Q_INVOKABLE void refreshPsnToken();
@@ -245,6 +246,7 @@ signals:
     void registDialogRequested(const QString &host, bool ps5, const QString &duid);
     void psnLoginAccountIdDone(const QString &accountId);
     void psnLoginAccountIdError(const QString &error);
+
 
 private:
     struct DisplayServer {
@@ -332,4 +334,5 @@ private:
 #ifdef CHIAKI_ENABLE_STEAMWORKS
     SteamworksWrapper * steamworks_wrapper = {};
 #endif
+
 };
