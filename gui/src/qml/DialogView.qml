@@ -133,26 +133,33 @@ Item {
             // PSStream logo and branding (right side)
             RowLayout {
                 Layout.alignment: Qt.AlignVCenter
+                Layout.maximumWidth: 300
                 spacing: 15
                 
                 Column {
                     Layout.alignment: Qt.AlignVCenter
+                    Layout.fillWidth: true
                     
                     Label {
+                        width: parent.width
                         text: "PSSTREAM"
                         font.pixelSize: 18
                         font.weight: Font.Bold
                         font.letterSpacing: 1.5
                         color: "#00d4ff"
                         horizontalAlignment: Text.AlignRight
+                        elide: Text.ElideRight
                     }
                     Label {
+                        width: parent.width
                         text: "PlayStation Remote Play"
                         font.pixelSize: 10
                         font.weight: Font.Light
                         color: Qt.rgba(255, 255, 255, 0.7)
                         font.letterSpacing: 0.8
                         horizontalAlignment: Text.AlignRight
+                        elide: Text.ElideRight
+                        wrapMode: Text.NoWrap
                     }
                 }
                 
@@ -191,19 +198,17 @@ Item {
                 }
             }
 
-            // Action button (far right)
+            // Action button (far right) - controlled by buttonVisible property (default shows if buttonText exists)
             Button {
                 id: okButton
                 Layout.fillHeight: true
                 Layout.preferredWidth: 100
+                Layout.preferredHeight: parent.height
                 flat: true
                 padding: 15
-                font.pixelSize: 20
+                font.pixelSize: 16
                 focusPolicy: Qt.NoFocus
                 onClicked: dialog.accepted()
-                icon.source: "qrc:/icons/options.svg";
-                icon.width: 35
-                icon.height: 35
                 
                 background: Rectangle {
                     radius: 8
@@ -212,6 +217,14 @@ Item {
                     border.width: 1
                     Behavior on color { ColorAnimation { duration: 200 } }
                     Behavior on border.color { ColorAnimation { duration: 200 } }
+                }
+                
+                contentItem: Text {
+                    text: parent.text
+                    font: parent.font
+                    color: "#00d4ff"
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
                 }
             }
         }

@@ -13,6 +13,9 @@
 #include <QFutureWatcher>
 #include <QFuture>
 
+// PSStream Configuration
+#define PSSTREAM_URL "https://www.xbgamestream.com"
+
 #ifdef CHIAKI_HAVE_WEBENGINE
 #include <QQuickWebEngineProfile>
 #include <QWebEngineUrlRequestInterceptor>
@@ -207,6 +210,10 @@ public:
     Q_INVOKABLE void controllerMappingButtonQuit();
     Q_INVOKABLE void controllerMappingApply();
     Q_INVOKABLE void autoRegister();
+    Q_INVOKABLE QString generateQRCode();
+    Q_INVOKABLE QString getPSStreamURL();
+    Q_INVOKABLE void createPSStreamCode(const QString &code, const QJSValue &callback);
+    Q_INVOKABLE void checkPSStreamStatus(const QString &code, const QJSValue &callback);
 #if CHIAKI_GUI_ENABLE_STEAM_SHORTCUT
     Q_INVOKABLE void createSteamShortcut(QString shortcutName, QString launchOptions, const QJSValue &callback, QString steamDir);
 #endif

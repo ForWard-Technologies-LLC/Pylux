@@ -142,6 +142,8 @@ Item {
         confirmDialog.open();
     }
 
+
+
     function showRemindDialog(title, text, remotePlay, callback) {
         remindDialog.title = title;
         remindDialog.text = text;
@@ -203,7 +205,16 @@ Item {
     }
 
     function showPSNTokenDialog(psnurl, expired) {
-        stack.push(psnTokenDialogComponent, {psnurl: psnurl, expired: expired});
+        // Show QR login dialog first, then fallback to token dialog if needed
+        stack.push("QRLoginDialog.qml", {callback: (id) => {
+            // If QR login succeeds with an account ID, we're done
+            if (id) {
+                console.log("QR login successful, account ID:", id);
+                return;
+            }
+            // If user chooses "Login on This Device" (callback called with null), show the token dialog
+            stack.push(psnTokenDialogComponent, {psnurl: psnurl, expired: expired});
+        }});
     }
 
     function showControllerMappingDialog() {
@@ -354,6 +365,8 @@ Item {
         id: confirmDialog
     }
 
+
+
     RemindDialog {
         id: remindDialog
     }
@@ -465,6 +478,8 @@ Item {
         id: psnTokenDialogComponent
         PSNTokenDialog { }
     }
+
+
 
     Component {
         id: registDialogComponent

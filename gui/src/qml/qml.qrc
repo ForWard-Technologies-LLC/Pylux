@@ -20,6 +20,7 @@
     <file>ConsolePinDialog.qml</file>
     <file>PSNLoginDialog.qml</file>
     <file>PSNTokenDialog.qml</file>
+    <file>QRLoginDialog.qml</file>
     <file>ControllerMappingDialog.qml</file>
     <file>AutoConnectView.qml</file>
     <file>PsnView.qml</file>

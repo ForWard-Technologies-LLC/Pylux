@@ -33,6 +33,12 @@
 #include <QProcessEnvironment>
 #include <QDesktopServices>
 #include <QtConcurrent>
+#include <QRandomGenerator>
+#include <QNetworkAccessManager>
+#include <QNetworkRequest>
+#include <QNetworkReply>
+#include <QJsonDocument>
+#include <QJsonObject>
 
 #define PSN_DEVICES_TRIES 2
 #define MAX_PSN_RECONNECT_TRIES 6
@@ -165,6 +171,7 @@ QmlBackend::QmlBackend(Settings *settings, QmlMainWindow *window)
     wakeup_start_timer->setSingleShot(true);
     if(autoConnect() && !auto_connect_nickname.isEmpty())
     {
+        
         connect(psn_auto_connect_timer, &QTimer::timeout, this, [this]
         {
             int i = 0;
@@ -2290,6 +2297,164 @@ void QmlBackend::refreshPsnToken()
         refreshAuth();
     else
         updatePsnHosts();
+}
+
+QString QmlBackend::generateQRCode()
+{
+    // Generate 6-digit alphanumeric code
+    const QString chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    QString code;
+    
+    // Use QRandomGenerator (Qt 5.10+)
+    QRandomGenerator *rng = QRandomGenerator::global();
+    
+    for (int i = 0; i < 6; ++i) {
+        code += chars.at(rng->bounded(chars.length()));
+    }
+    
+    return code;
+}
+
+QString QmlBackend::getPSStreamURL()
+{
+    return QString(PSSTREAM_URL);
+}
+
+void QmlBackend::createPSStreamCode(const QString &code, const QJSValue &callback)
+{
+    qDebug() << "Creating PSStream code:" << code;
+    
+    // Create network access manager
+    QNetworkAccessManager *manager = new QNetworkAccessManager(this);
+    
+    // Prepare the request
+    QNetworkRequest request;
+    request.setUrl(QUrl(QString(PSSTREAM_URL) + "/psstream/create-code"));
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    
+    // Prepare the JSON payload
+    QJsonObject json;
+    json["code"] = code;
+    QJsonDocument doc(json);
+    QByteArray data = doc.toJson();
+    
+    qDebug() << "Sending create-code request with payload:" << data;
+    
+    // Make the POST request
+    QNetworkReply *reply = manager->post(request, data);
+    
+    // Handle the response
+    connect(reply, &QNetworkReply::finished, [this, reply, callback, manager]() {
+        QJSValue cb = callback;
+        
+        qDebug() << "Create-code response received, HTTP status:" << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        
+        if (reply->error() == QNetworkReply::NoError) {
+            // Parse the response
+            QByteArray responseData = reply->readAll();
+            qDebug() << "Create-code response data:" << responseData;
+            
+            QJsonDocument responseDoc = QJsonDocument::fromJson(responseData);
+            QJsonObject responseObj = responseDoc.object();
+            
+            if (responseObj["result"].toString() == "success") {
+                // Success
+                qDebug() << "PSStream code created successfully";
+                if (cb.isCallable()) {
+                    cb.call({true, QString("")});
+                }
+            } else {
+                // Server returned an error
+                QString errorMsg = responseObj["error"].toString();
+                if (errorMsg.isEmpty()) {
+                    errorMsg = "Unknown server error";
+                }
+                qDebug() << "PSStream code creation failed:" << errorMsg;
+                if (cb.isCallable()) {
+                    cb.call({false, errorMsg});
+                }
+            }
+        } else {
+            // Network error
+            QString errorMsg = QString("Network error: %1").arg(reply->errorString());
+            qDebug() << "Network error creating PSStream code:" << errorMsg;
+            if (cb.isCallable()) {
+                cb.call({false, errorMsg});
+            }
+        }
+        
+        reply->deleteLater();
+        manager->deleteLater();
+    });
+}
+
+void QmlBackend::checkPSStreamStatus(const QString &code, const QJSValue &callback)
+{
+    qDebug() << "Checking PSStream status for code:" << code;
+    
+    // Create network access manager
+    QNetworkAccessManager *manager = new QNetworkAccessManager(this);
+    
+    // Prepare the request
+    QNetworkRequest request;
+    request.setUrl(QUrl(QString(PSSTREAM_URL) + "/psstream/get-tokens"));
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    
+    // Prepare the JSON payload
+    QJsonObject json;
+    json["code"] = code;
+    QJsonDocument doc(json);
+    QByteArray data = doc.toJson();
+    
+    qDebug() << "Sending get-tokens request with payload:" << data;
+    
+    // Make the POST request
+    QNetworkReply *reply = manager->post(request, data);
+    
+    // Handle the response
+    connect(reply, &QNetworkReply::finished, [this, reply, callback, manager]() {
+        QJSValue cb = callback;
+        
+        qDebug() << "Get-tokens response received, HTTP status:" << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        
+        if (reply->error() == QNetworkReply::NoError) {
+            // Parse the response
+            QByteArray responseData = reply->readAll();
+            qDebug() << "Get-tokens response data:" << responseData;
+            
+            QJsonDocument responseDoc = QJsonDocument::fromJson(responseData);
+            QJsonObject responseObj = responseDoc.object();
+            
+            if (responseObj["result"].toString() == "success") {
+                // Success - we got tokens
+                QString tokens = responseObj["tokens"].toString();
+                qDebug() << "PSStream tokens received successfully:" << tokens;
+                if (cb.isCallable()) {
+                    cb.call({true, QString(""), tokens});
+                }
+            } else {
+                // Server returned an error
+                QString errorMsg = responseObj["error"].toString();
+                if (errorMsg.isEmpty()) {
+                    errorMsg = "Unknown server error";
+                }
+                qDebug() << "PSStream get-tokens failed:" << errorMsg;
+                if (cb.isCallable()) {
+                    cb.call({false, errorMsg, QString("")});
+                }
+            }
+        } else {
+            // Network error
+            QString errorMsg = QString("Network error: %1").arg(reply->errorString());
+            qDebug() << "Network error checking PSStream status:" << errorMsg;
+            if (cb.isCallable()) {
+                cb.call({false, errorMsg, QString("")});
+            }
+        }
+        
+        reply->deleteLater();
+        manager->deleteLater();
+    });
 }
 
 void PsnConnectionWorker::ConnectPsnConnection(StreamSession *session, const QString &duid, const bool &ps5)

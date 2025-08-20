@@ -88,8 +88,17 @@ rmdir usr
 # Ensure cpp-steam-tools library is included
 cp ../build_appimage/third-party/cpp-steam-tools/libcpp-steam-tools.so lib/ 2>/dev/null || true
 
-# Ensure Steamworks library is included
-cp ../third-party/steamworks/steamworks_sdk/redistributable_bin/linux64/libsteam_api.so lib/ 2>/dev/null || true
+# Ensure Steamworks library is included (handle both x64 and arm64)
+if [ "$(uname -m)" = "aarch64" ]; then
+    # For ARM64, we still use linux64 as Steamworks doesn't provide ARM64 specific binaries
+    # The linux64 x86_64 binary should work under x86_64 emulation on most ARM64 systems
+    cp ../third-party/steamworks/steamworks_sdk/redistributable_bin/linux64/libsteam_api.so lib/ 2>/dev/null || true
+else
+    cp ../third-party/steamworks/steamworks_sdk/redistributable_bin/linux64/libsteam_api.so lib/ 2>/dev/null || true
+fi
+if [ ! -f lib/libsteam_api.so ]; then
+    echo "Warning: libsteam_api.so not found for Steam build"
+fi
 
 # Create minimal launch script
 cat > launch.sh << 'EOF'

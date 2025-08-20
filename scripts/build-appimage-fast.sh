@@ -56,16 +56,13 @@ sudo podman exec --env SKIP_APPIMAGE="$SKIP_VAL" "$container_name" /bin/bash -lc
 # Launch either the unpackaged binary (from AppDir) or the AppImage
 if [ "${SKIP_APPIMAGE:-0}" = "1" ]; then
   if [ -x appimage/appdir/usr/bin/chiaki ]; then
-    nohup env LD_LIBRARY_PATH=appimage/appdir/usr/lib:${LD_LIBRARY_PATH-} \
+    echo "Starting application in foreground..."
+    env LD_LIBRARY_PATH=appimage/appdir/usr/lib:${LD_LIBRARY_PATH-} \
       QT_PLUGIN_PATH=appimage/appdir/usr/plugins \
       QML2_IMPORT_PATH=appimage/appdir/usr/qml \
       QT_QPA_PLATFORM_PLUGIN_PATH=appimage/appdir/usr/plugins/platforms \
       QTWEBENGINEPROCESS_PATH=appimage/appdir/usr/libexec/QtWebEngineProcess \
-      appimage/appdir/usr/bin/chiaki > /tmp/chiaki_run.log 2>&1 &
-    echo $! > /tmp/chiaki_app.pid
-    echo "Launched (AppDir). PID $(cat /tmp/chiaki_app.pid)"
-    echo "Build log: /tmp/appimage_fast.log"
-    echo "Run log:   /tmp/chiaki_run.log"
+      appimage/appdir/usr/bin/chiaki
     exit 0
   else
     echo "ERROR: AppDir launcher not found: appimage/appdir/usr/bin/chiaki" >&2

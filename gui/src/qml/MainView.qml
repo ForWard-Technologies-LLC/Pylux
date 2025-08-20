@@ -66,17 +66,17 @@ Pane {
     Keys.onLeftPressed: {
         if(hostsView.currentItem && hostsView.currentItem.visible)
         {
-            hostsView.decrementCurrentIndex()
+            hostsView.currentIndex = Math.max(0, hostsView.currentIndex - 1);
             while(hostsView.currentItem && !hostsView.currentItem.visible && hostsView.currentIndex > 0)
-                hostsView.decrementCurrentIndex()
+                hostsView.currentIndex = Math.max(0, hostsView.currentIndex - 1);
         }
     }
     Keys.onRightPressed: {
         if(hostsView.currentItem && hostsView.currentItem.visible)
         {
-            hostsView.incrementCurrentIndex()
+            hostsView.currentIndex = Math.min(hostsView.count - 1, hostsView.currentIndex + 1);
             while(hostsView.currentItem && !hostsView.currentItem.visible && hostsView.currentIndex < hostsView.count - 1)
-                 hostsView.incrementCurrentIndex()
+                hostsView.currentIndex = Math.min(hostsView.count - 1, hostsView.currentIndex + 1);
         }
     }
     Keys.onMenuPressed: settingsButton.clicked()
@@ -93,7 +93,11 @@ Pane {
             event.accepted = true;
             break;
         case Qt.Key_PageDown:
-            if (Chiaki.settings.psnAuthToken) Chiaki.refreshPsnToken();
+            if (Chiaki.settings.psnAuthToken) {
+                Chiaki.refreshPsnToken();
+            } else {
+                root.showPSNTokenDialog("", false);
+            }
             event.accepted = true;
             break;
         case Qt.Key_F1:
@@ -274,8 +278,8 @@ Pane {
             Button {
                     id: manuallyAddHeaderButton
                     Layout.preferredHeight: 45
-                    Layout.preferredWidth: 160
-                    text: qsTr("Manually Add")
+                    Layout.preferredWidth: 200
+                    text: qsTr("Add Console Manually")
                     font.pixelSize: 14
                     font.weight: Font.Medium
                     focusPolicy: Qt.StrongFocus
@@ -328,13 +332,19 @@ Pane {
 
             Button {
                     Layout.preferredHeight: 45
-                    Layout.preferredWidth: 180
-                    text: qsTr("Refresh PSN")
+                    Layout.preferredWidth: 210
+                    text: Chiaki.settings.psnAuthToken ? qsTr("Refresh PSN") : qsTr("Add Consoles by Login")
                     font.pixelSize: 14
                     font.weight: Font.Medium
                 focusPolicy: Qt.NoFocus
-                    onClicked: Chiaki.refreshPsnToken()
-                    visible: Chiaki.settings.psnAuthToken
+                    onClicked: {
+                        if (Chiaki.settings.psnAuthToken) {
+                            Chiaki.refreshPsnToken()
+                        } else {
+                            root.showPSNTokenDialog("", false)
+                        }
+                    }
+                    // Always visible now
                     
                     background: Rectangle {
                         radius: 8
@@ -513,15 +523,15 @@ Pane {
         model: Chiaki.hosts
             
         onCountChanged: {
-            if(!hostsView.currentItem)
-                hostsView.incrementCurrentIndex();
+            if(!hostsView.currentItem && hostsView.count > 0)
+                hostsView.currentIndex = 0;
             if(!hostsView.currentItem)
                 return;
             if(!hostsView.currentItem.visible)
             {
                 for(var i = 0; i < hostsView.count; i++)
                 {
-                    hostsView.incrementCurrentIndex()
+                    hostsView.currentIndex = (hostsView.currentIndex + 1) % hostsView.count;
                     if(hostsView.currentItem.visible)
                     {
                         break;
@@ -531,7 +541,8 @@ Pane {
         }
             
             delegate: Item {
-            visible: modelData.display
+                id: delegateItem
+                visible: modelData.display
                 width: hostsView.cellWidth
                 height: hostsView.cellHeight
                 
@@ -575,7 +586,7 @@ Pane {
                         hoverEnabled: true
                         onClicked: {
                             hostsView.currentIndex = index;
-                            connectToHost();
+                            delegateItem.connectToHost();
                         }
                         
                         onEntered: {
@@ -587,31 +598,7 @@ Pane {
                             }
                         }
                     }
-
-            function connectToHost() {
-                if(modelData.discovered)
-                    Chiaki.connectToHost(index, modelData.name);
-                else
-                    Chiaki.connectToHost(index);
-            }
-
-            function wakeUpHost() {
-                if(!modelData.discovered && !modelData.duid)
-                    Chiaki.wakeUpHost(index);
-            }
-
-            function deleteHost() {
-                if (modelData.manual)
-                    root.showConfirmDialog(qsTr("Delete Console"), qsTr("Are you sure you want to delete this console?"), () => {Chiaki.deleteHost(index)});
-                        
-                else if (modelData.discovered && !modelData.registered)
-                    root.showConfirmDialog(qsTr("Hide Console"), qsTr("Are you sure you want to hide this console?") + "\n\n" + qsTr("Note: You can unhide from the Consoles section of the Settings under Hidden Consoles"), () => Chiaki.hideHost(modelData.mac, modelData.name));
-            }
-
-            function setConsolePin() {
-                root.showConsolePinDialog(index);
-            }
-
+                    
                     ColumnLayout {
                 anchors {
                     fill: parent
@@ -734,7 +721,7 @@ Pane {
                                 font.pixelSize: 10
                                 visible: modelData.manual || (modelData.discovered && !modelData.registered)
                         focusPolicy: Qt.NoFocus
-                                onClicked: consoleCard.deleteHost()
+                                onClicked: delegateItem.deleteHost()
                                 
                                 background: Rectangle {
                                     radius: 4
@@ -759,7 +746,7 @@ Pane {
                                 font.pixelSize: 10
                         visible: modelData.registered && !modelData.duid && !modelData.discovered
                         focusPolicy: Qt.NoFocus
-                                onClicked: consoleCard.wakeUpHost()
+                                onClicked: delegateItem.wakeUpHost()
                                 
                                 background: Rectangle {
                                     radius: 4
@@ -784,7 +771,7 @@ Pane {
                                 font.pixelSize: 10
                         visible: modelData.registered
                         focusPolicy: Qt.NoFocus
-                                onClicked: consoleCard.setConsolePin()
+                                onClicked: delegateItem.setConsolePin()
                                 
                                 background: Rectangle {
                                     radius: 4
@@ -804,6 +791,30 @@ Pane {
                         }
                     }
                 } 
+                
+                function connectToHost() {
+                    if(modelData.discovered)
+                        Chiaki.connectToHost(index, modelData.name);
+                    else
+                        Chiaki.connectToHost(index);
+                }
+
+                function wakeUpHost() {
+                    if(!modelData.discovered && !modelData.duid)
+                        Chiaki.wakeUpHost(index);
+                }
+
+                function deleteHost() {
+                    if (modelData.manual)
+                        root.showConfirmDialog(qsTr("Delete Console"), qsTr("Are you sure you want to delete this console?"), () => {Chiaki.deleteHost(index)});
+                            
+                    else if (modelData.discovered && !modelData.registered)
+                        root.showConfirmDialog(qsTr("Hide Console"), qsTr("Are you sure you want to hide this console?") + "\n\n" + qsTr("Note: You can unhide from the Consoles section of the Settings under Hidden Consoles"), () => Chiaki.hideHost(modelData.mac, modelData.name));
+                }
+
+                function setConsolePin() {
+                    root.showConsolePinDialog(index);
+                }
             } 
         }
     }     
@@ -936,9 +947,9 @@ Pane {
                 // Manual Add Console Button
                 Button {
                     id: manualAddButton
-                    Layout.preferredWidth: 160
+                    Layout.preferredWidth: 200
                     Layout.preferredHeight: 40
-                    text: qsTr("Manually Add")
+                    text: qsTr("Add Console Manually")
                     font.pixelSize: 14
                     font.weight: Font.Medium
                     onClicked: root.showManualHostDialog()
@@ -986,9 +997,9 @@ Pane {
                 // Auto Add Console Button (PSN Login) - DEFAULT SELECTED
                 Button {
                     id: autoAddButton
-                    Layout.preferredWidth: 160
+                    Layout.preferredWidth: 200
                     Layout.preferredHeight: 40
-                    text: qsTr("Auto Add")
+                    text: qsTr("Add Consoles by Login")
                     font.pixelSize: 14
                     font.weight: Font.Medium
                     onClicked: root.showPSNTokenDialog("", false)
