@@ -130,11 +130,12 @@ Item {
 
             Item { Layout.fillWidth: true }
 
-            // PSStream logo and branding (right side)
+            // PSStream logo and branding (right side) - hide when button is visible
             RowLayout {
                 Layout.alignment: Qt.AlignVCenter
                 Layout.maximumWidth: 300
                 spacing: 15
+                visible: !okButton.visible
                 
                 Column {
                     Layout.alignment: Qt.AlignVCenter
@@ -202,29 +203,69 @@ Item {
             Button {
                 id: okButton
                 Layout.fillHeight: true
-                Layout.preferredWidth: 100
+                Layout.preferredWidth: 120
                 Layout.preferredHeight: parent.height
                 flat: true
                 padding: 15
                 font.pixelSize: 16
-                focusPolicy: Qt.NoFocus
+                font.weight: Font.Medium
+                focusPolicy: Qt.StrongFocus
                 onClicked: dialog.accepted()
+                
+                // Navigate down to the first focusable item in the main content
+                KeyNavigation.down: dialog.mainItem ? dialog.mainItem.nextItemInFocusChain() : null
                 
                 background: Rectangle {
                     radius: 8
-                    color: parent.hovered ? Qt.rgba(0, 212/255, 255/255, 0.1) : "transparent"
-                    border.color: parent.hovered ? "#00d4ff" : "transparent"
-                    border.width: 1
+                    color: {
+                        if (!parent.enabled) return Qt.rgba(0.3, 0.3, 0.3, 0.2);
+                        if (parent.hovered || parent.activeFocus) return Qt.rgba(0, 212/255, 255/255, 0.2);
+                        return Qt.rgba(0, 212/255, 255/255, 0.1);
+                    }
+                    border.color: {
+                        if (!parent.enabled) return Qt.rgba(0.5, 0.5, 0.5, 0.5);
+                        if (parent.hovered || parent.activeFocus) return "#00d4ff";
+                        return Qt.rgba(0, 212/255, 255/255, 0.8);
+                    }
+                    border.width: 2
+                    opacity: parent.enabled ? 1.0 : 0.6
+                    
                     Behavior on color { ColorAnimation { duration: 200 } }
                     Behavior on border.color { ColorAnimation { duration: 200 } }
+                    Behavior on opacity { NumberAnimation { duration: 200 } }
+                    
+                    // Glow effect when enabled
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: parent.radius
+                        color: "transparent"
+                        border.color: parent.enabled ? "#00d4ff" : "transparent"
+                        border.width: 1
+                        opacity: parent.enabled ? (parent.activeFocus ? 0.6 : 0.4) : 0
+                        visible: parent.enabled
+                        
+                        layer.enabled: parent.enabled
+                        layer.effect: MultiEffect {
+                            blurEnabled: true
+                            blurMax: 6
+                            blur: 0.3
+                        }
+                        
+                        Behavior on opacity { NumberAnimation { duration: 200 } }
+                    }
                 }
                 
                 contentItem: Text {
                     text: parent.text
                     font: parent.font
-                    color: "#00d4ff"
+                    color: {
+                        if (!parent.enabled) return Qt.rgba(0.7, 0.7, 0.7, 0.8);
+                        return "#00d4ff";
+                    }
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
+                    
+                    Behavior on color { ColorAnimation { duration: 200 } }
                 }
             }
         }

@@ -9,6 +9,8 @@ import org.streetpea.chiaking
 Pane {
     padding: 0
     id: consolePane
+    focus: true
+    activeFocusOnTab: true
     
     // Clean blue background
     CleanBlueBackground {
@@ -23,6 +25,8 @@ Pane {
         } else {
             discoveryButton.forceActiveFocus(Qt.TabFocusReason);
         }
+        // Ensure main pane can receive key events
+        consolePane.forceActiveFocus();
         
         if(!Chiaki.autoConnect && !root.initialAsk && !Chiaki.window.directStream)
         {
@@ -39,46 +43,10 @@ Pane {
         }
     }
     
-    Keys.onUpPressed: {
-        if(hostsView.currentItem && hostsView.currentItem.visible)
-        {
-            let itemsPerRow = Math.floor(hostsView.width / hostsView.cellWidth);
-            let newIndex = Math.max(0, hostsView.currentIndex - itemsPerRow);
-            hostsView.currentIndex = newIndex;
-            while(hostsView.currentItem && !hostsView.currentItem.visible && hostsView.currentIndex > 0)
-            {
-                hostsView.currentIndex = Math.max(0, hostsView.currentIndex - 1);
-            }
-        }
-    }
-    Keys.onDownPressed: {
-        if(hostsView.currentItem && hostsView.currentItem.visible)
-        {
-            let itemsPerRow = Math.floor(hostsView.width / hostsView.cellWidth);
-            let newIndex = Math.min(hostsView.count - 1, hostsView.currentIndex + itemsPerRow);
-            hostsView.currentIndex = newIndex;
-            while(hostsView.currentItem && !hostsView.currentItem.visible && hostsView.currentIndex < hostsView.count - 1)
-            {
-                hostsView.currentIndex = Math.min(hostsView.count - 1, hostsView.currentIndex + 1);
-            }
-        }
-    }
-    Keys.onLeftPressed: {
-        if(hostsView.currentItem && hostsView.currentItem.visible)
-        {
-            hostsView.currentIndex = Math.max(0, hostsView.currentIndex - 1);
-            while(hostsView.currentItem && !hostsView.currentItem.visible && hostsView.currentIndex > 0)
-                hostsView.currentIndex = Math.max(0, hostsView.currentIndex - 1);
-        }
-    }
-    Keys.onRightPressed: {
-        if(hostsView.currentItem && hostsView.currentItem.visible)
-        {
-            hostsView.currentIndex = Math.min(hostsView.count - 1, hostsView.currentIndex + 1);
-            while(hostsView.currentItem && !hostsView.currentItem.visible && hostsView.currentIndex < hostsView.count - 1)
-                hostsView.currentIndex = Math.min(hostsView.count - 1, hostsView.currentIndex + 1);
-        }
-    }
+
+
+
+
     Keys.onMenuPressed: settingsButton.clicked()
     Keys.onReturnPressed: if (hostsView.currentItem) hostsView.currentItem.connectToHost()
     Keys.onYesPressed: if (hostsView.currentItem) hostsView.currentItem.wakeUpHost()
@@ -245,6 +213,19 @@ Pane {
                     KeyNavigation.right: manuallyAddHeaderButton
                     KeyNavigation.down: hostsView.count === 0 ? autoAddButton : hostsView
                     
+                    // When navigating down to GridView, ensure it has focus and a current item
+                    Keys.onDownPressed: {
+                        if (hostsView.count > 0) {
+                            hostsView.currentIndex = 0;  // Always go to first card
+                            hostsView.selectedIndex = 0;  // Set custom selection
+                            hostsView.forceActiveFocus();
+                            event.accepted = true;
+                        } else {
+                            autoAddButton.forceActiveFocus();
+                            event.accepted = true;
+                        }
+                    }
+                    
                     background: Rectangle {
                         radius: 25
                         color: {
@@ -287,8 +268,21 @@ Pane {
                     
                     // Keyboard navigation
                     KeyNavigation.left: discoveryButton
-                    KeyNavigation.right: settingsButton
+                    KeyNavigation.right: psnLoginHeaderButton
                     KeyNavigation.down: hostsView.count === 0 ? autoAddButton : hostsView
+                    
+                    // When navigating down to GridView, ensure it has focus and a current item
+                    Keys.onDownPressed: {
+                        if (hostsView.count > 0) {
+                            hostsView.currentIndex = 0;  // Always go to first card
+                            hostsView.selectedIndex = 0;  // Set custom selection
+                            hostsView.forceActiveFocus();
+                            event.accepted = true;
+                        } else {
+                            autoAddButton.forceActiveFocus();
+                            event.accepted = true;
+                        }
+                    }
                     
                     background: Rectangle {
                         radius: 8
@@ -331,12 +325,30 @@ Pane {
             }
 
             Button {
+                id: psnLoginHeaderButton
                     Layout.preferredHeight: 45
                     Layout.preferredWidth: 210
                     text: Chiaki.settings.psnAuthToken ? qsTr("Refresh PSN") : qsTr("Add Consoles by Login")
                     font.pixelSize: 14
                     font.weight: Font.Medium
-                focusPolicy: Qt.NoFocus
+                focusPolicy: Qt.StrongFocus
+                
+                // Keyboard navigation
+                KeyNavigation.left: manuallyAddHeaderButton
+                KeyNavigation.right: settingsButton
+                KeyNavigation.down: hostsView.count === 0 ? autoAddButton : hostsView
+                
+                // When navigating down to GridView, ensure it has focus and a current item
+                Keys.onDownPressed: {
+                    if (hostsView.count > 0) {
+                        hostsView.currentIndex = 0;  // Always go to first card
+                        hostsView.forceActiveFocus();
+                        event.accepted = true;
+                    } else {
+                        autoAddButton.forceActiveFocus();
+                        event.accepted = true;
+                    }
+                }
                     onClicked: {
                         if (Chiaki.settings.psnAuthToken) {
                             Chiaki.refreshPsnToken()
@@ -348,9 +360,9 @@ Pane {
                     
                     background: Rectangle {
                         radius: 8
-                        color: Qt.rgba(0, 212/255, 255/255, 0.1)
-                        border.color: "#00d4ff"
-                        border.width: 1
+                        color: parent.activeFocus ? Qt.rgba(0, 212/255, 255/255, 0.2) : Qt.rgba(0, 212/255, 255/255, 0.1)
+                        border.color: parent.activeFocus ? "#ffffff" : "#00d4ff"
+                        border.width: parent.activeFocus ? 2 : 1
                         
                         Rectangle {
                             anchors.fill: parent
@@ -359,14 +371,30 @@ Pane {
                             opacity: parent.parent.hovered ? 0.2 : 0
                             Behavior on opacity { NumberAnimation { duration: 200 } }
                         }
+                        
+                        // Focus glow effect
+                        Rectangle {
+                            anchors.fill: parent
+                            radius: parent.radius
+                            color: "transparent"
+                            border.color: "#00d4ff"
+                            border.width: 2
+                            opacity: parent.parent.activeFocus ? 0.5 : 0
+                            Behavior on opacity { NumberAnimation { duration: 200 } }
+                        }
+                        
+                        Behavior on color { ColorAnimation { duration: 200 } }
+                        Behavior on border.color { ColorAnimation { duration: 200 } }
+                        Behavior on border.width { NumberAnimation { duration: 200 } }
                     }
                     
                     contentItem: Text {
                         text: parent.text
                         font: parent.font
-                        color: "#00d4ff"
+                        color: parent.activeFocus ? "#ffffff" : "#00d4ff"
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
+                        Behavior on color { ColorAnimation { duration: 200 } }
                     }
             }
 
@@ -384,9 +412,21 @@ Pane {
                 onClicked: root.showSettingsDialog()
                 
                 // Keyboard navigation
-                KeyNavigation.left: manuallyAddHeaderButton
+                KeyNavigation.left: psnLoginHeaderButton
                 KeyNavigation.right: closeButton
                 KeyNavigation.down: hostsView.count === 0 ? autoAddButton : hostsView
+                
+                // When navigating down to GridView, ensure it has focus and a current item
+                Keys.onDownPressed: {
+                    if (hostsView.count > 0) {
+                        hostsView.currentIndex = 0;  // Always go to first card
+                        hostsView.forceActiveFocus();
+                        event.accepted = true;
+                    } else {
+                        autoAddButton.forceActiveFocus();
+                        event.accepted = true;
+                    }
+                }
                     
                     background: Rectangle {
                         radius: 25
@@ -436,6 +476,19 @@ Pane {
                     // Keyboard navigation
                     KeyNavigation.left: settingsButton
                     KeyNavigation.down: hostsView.count === 0 ? autoAddButton : hostsView
+                    
+                    // When navigating down to GridView, ensure it has focus and a current item
+                    Keys.onDownPressed: {
+                        if (hostsView.count > 0) {
+                            hostsView.currentIndex = 0;  // Always go to first card
+                            hostsView.selectedIndex = 0;  // Set custom selection
+                            hostsView.forceActiveFocus();
+                            event.accepted = true;
+                        } else {
+                            autoAddButton.forceActiveFocus();
+                            event.accepted = true;
+                        }
+                    }
                     
                     background: Rectangle {
                         radius: 8
@@ -520,11 +573,72 @@ Pane {
             keyNavigationWraps: true
             cellWidth: Math.floor(width / Math.max(1, Math.floor(width / 380)))
             cellHeight: 220
-        model: Chiaki.hosts
+            model: Chiaki.hosts
+            
+            // Custom property to track selected card for highlighting
+            property int selectedIndex: -1
+            
+            // When GridView gets focus, ensure we have a valid current item
+            onActiveFocusChanged: {
+                if (activeFocus && count > 0 && currentIndex < 0) {
+                    currentIndex = 0;
+                    selectedIndex = 0;
+                }
+            }
+            
+            // Handle key navigation for console cards
+            Keys.onLeftPressed: {
+                if (selectedIndex > 0) {
+                    selectedIndex = selectedIndex - 1;
+                    currentIndex = selectedIndex;
+                }
+            }
+            
+            Keys.onRightPressed: {
+                if (selectedIndex < count - 1) {
+                    selectedIndex = selectedIndex + 1;
+                    currentIndex = selectedIndex;
+                }
+            }
+            
+            Keys.onUpPressed: {
+                let itemsPerRow = Math.floor(width / cellWidth);
+                let newIndex = Math.max(0, selectedIndex - itemsPerRow);
+                if (newIndex === selectedIndex) {
+                    // We're in top row, go to header
+                    discoveryButton.forceActiveFocus();
+                    selectedIndex = -1;
+                } else {
+                    selectedIndex = newIndex;
+                    currentIndex = selectedIndex;
+                }
+            }
+            
+            Keys.onDownPressed: {
+                let itemsPerRow = Math.floor(width / cellWidth);
+                let newIndex = Math.min(count - 1, selectedIndex + itemsPerRow);
+                selectedIndex = newIndex;
+                currentIndex = selectedIndex;
+            }
+            
+            Keys.onReturnPressed: {
+                if (currentItem && currentItem.connectToHost) {
+                    currentItem.connectToHost();
+                }
+            }
+            
+            Keys.onEscapePressed: {
+                // Pass ESC up to parent for quit dialog
+                event.accepted = false;
+            }
+
+                                      // Remove GridView highlight - using per-card highlighting instead
             
         onCountChanged: {
-            if(!hostsView.currentItem && hostsView.count > 0)
+            if(!hostsView.currentItem && hostsView.count > 0) {
                 hostsView.currentIndex = 0;
+                hostsView.selectedIndex = 0;
+            }
             if(!hostsView.currentItem)
                 return;
             if(!hostsView.currentItem.visible)
@@ -546,6 +660,25 @@ Pane {
                 width: hostsView.cellWidth
                 height: hostsView.cellHeight
                 
+                // Make the delegate focusable
+                focus: hostsView.selectedIndex === index
+                activeFocusOnTab: true
+                
+
+                
+                // Key navigation within the console card
+                Keys.onReturnPressed: delegateItem.connectToHost()
+                Keys.onTabPressed: {
+                    // Navigate to first button in the card
+                    if (hideButton.visible) {
+                        hideButton.forceActiveFocus();
+                    } else if (wakeButton.visible) {
+                        wakeButton.forceActiveFocus();
+                    } else if (pinButton.visible) {
+                        pinButton.forceActiveFocus();
+                    }
+                }
+                
                 // Console Card
                 Rectangle {
                     id: consoleCard
@@ -554,48 +687,50 @@ Pane {
                         margins: 15
                     }
                     radius: 12
-                    color: Qt.rgba(0, 212/255, 255/255, GridView.isCurrentItem ? 0.15 : 0.05)
-                    border.color: GridView.isCurrentItem ? "#00d4ff" : Qt.rgba(255, 255, 255, 0.1)
-                    border.width: GridView.isCurrentItem ? 2 : 1
+                    color: {
+                        if (hostsView.selectedIndex === index) return Qt.rgba(0, 212/255, 255/255, 0.4);
+                        if (mouseArea.containsMouse) return Qt.rgba(0, 212/255, 255/255, 0.1);
+                        return Qt.rgba(0, 212/255, 255/255, 0.05);
+                    }
+                    border.color: hostsView.selectedIndex === index ? "#00d4ff" : Qt.rgba(255, 255, 255, 0.1)
+                    border.width: hostsView.selectedIndex === index ? 4 : 1
                     
                     Behavior on color { ColorAnimation { duration: 200 } }
                     Behavior on border.color { ColorAnimation { duration: 200 } }
                     
-                    // Glow effect for current item
+                    // Strong glow effect for current item
                     Rectangle {
                         anchors.fill: parent
-                        radius: parent.radius
+                        anchors.margins: -2
+                        radius: parent.radius + 2
                         color: "transparent"
                         border.color: "#00d4ff"
-                        border.width: 2
-                        opacity: GridView.isCurrentItem ? 0.5 : 0
+                        border.width: 3
+                        opacity: hostsView.selectedIndex === index ? 1.0 : 0
                         visible: opacity > 0
+                        z: 10
                         
-                        layer.enabled: GridView.isCurrentItem
+                        layer.enabled: hostsView.selectedIndex === index
                         layer.effect: MultiEffect {
                             blurEnabled: true
-                            blurMax: 16
-                            blur: 0.6
+                            blurMax: 20
+                            blur: 0.8
                         }
                         
                         Behavior on opacity { NumberAnimation { duration: 200 } }
                     }
                     
+
+                    
                     MouseArea {
+                        id: mouseArea
                         anchors.fill: parent
                         hoverEnabled: true
                         onClicked: {
                             hostsView.currentIndex = index;
+                            hostsView.selectedIndex = index;
+                            hostsView.forceActiveFocus();  // Ensure GridView has focus
                             delegateItem.connectToHost();
-                        }
-                        
-                        onEntered: {
-                            consoleCard.color = Qt.rgba(0, 212/255, 255/255, 0.1);
-                        }
-                        onExited: {
-                            if (!GridView.isCurrentItem) {
-                                consoleCard.color = Qt.rgba(0, 212/255, 255/255, 0.05);
-                            }
                         }
                     }
                     
@@ -715,19 +850,27 @@ Pane {
                             spacing: 8
 
                     Button {
+                                id: hideButton
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 30
                         text: modelData.manual ? qsTr("Delete") : qsTr("Hide")
                                 font.pixelSize: 10
                                 visible: modelData.manual || (modelData.discovered && !modelData.registered)
-                        focusPolicy: Qt.NoFocus
+                        focusPolicy: Qt.StrongFocus
                                 onClicked: delegateItem.deleteHost()
+                                
+                                KeyNavigation.right: wakeButton.visible ? wakeButton : (pinButton.visible ? pinButton : null)
+                                KeyNavigation.backtab: delegateItem
                                 
                                 background: Rectangle {
                                     radius: 4
-                                    color: Qt.rgba(255, 100/255, 100/255, 0.1)
-                                    border.color: Qt.rgba(255, 100/255, 100/255, 0.5)
-                                    border.width: 1
+                                    color: Qt.rgba(255, 100/255, 100/255, parent.activeFocus ? 0.3 : 0.1)
+                                    border.color: Qt.rgba(255, 100/255, 100/255, parent.activeFocus ? 1.0 : 0.5)
+                                    border.width: parent.activeFocus ? 2 : 1
+                                    
+                                    Behavior on color { ColorAnimation { duration: 150 } }
+                                    Behavior on border.color { ColorAnimation { duration: 150 } }
+                                    Behavior on border.width { NumberAnimation { duration: 150 } }
                                 }
                                 
                                 contentItem: Text {
@@ -740,19 +883,28 @@ Pane {
                     }
 
                     Button {
+                                id: wakeButton
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 30
                                 text: qsTr("Wake")
                                 font.pixelSize: 10
                         visible: modelData.registered && !modelData.duid && !modelData.discovered
-                        focusPolicy: Qt.NoFocus
+                        focusPolicy: Qt.StrongFocus
                                 onClicked: delegateItem.wakeUpHost()
+                                
+                                KeyNavigation.left: hideButton.visible ? hideButton : null
+                                KeyNavigation.right: pinButton.visible ? pinButton : null
+                                KeyNavigation.backtab: delegateItem
                                 
                                 background: Rectangle {
                                     radius: 4
-                                    color: Qt.rgba(255, 200/255, 0, 0.1)
-                                    border.color: Qt.rgba(255, 200/255, 0, 0.5)
-                                    border.width: 1
+                                    color: Qt.rgba(255, 200/255, 0, parent.activeFocus ? 0.3 : 0.1)
+                                    border.color: Qt.rgba(255, 200/255, 0, parent.activeFocus ? 1.0 : 0.5)
+                                    border.width: parent.activeFocus ? 2 : 1
+                                    
+                                    Behavior on color { ColorAnimation { duration: 150 } }
+                                    Behavior on border.color { ColorAnimation { duration: 150 } }
+                                    Behavior on border.width { NumberAnimation { duration: 150 } }
                                 }
                                 
                                 contentItem: Text {
@@ -765,19 +917,27 @@ Pane {
                     }
 
                     Button {
+                                id: pinButton
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 30
                                 text: qsTr("Pin")
                                 font.pixelSize: 10
                         visible: modelData.registered
-                        focusPolicy: Qt.NoFocus
+                        focusPolicy: Qt.StrongFocus
                                 onClicked: delegateItem.setConsolePin()
+                                
+                                KeyNavigation.left: wakeButton.visible ? wakeButton : (hideButton.visible ? hideButton : null)
+                                KeyNavigation.backtab: delegateItem
                                 
                                 background: Rectangle {
                                     radius: 4
-                                    color: Qt.rgba(0, 212/255, 255/255, 0.1)
-                                    border.color: "#00d4ff"
-                                    border.width: 1
+                                    color: Qt.rgba(0, 212/255, 255/255, parent.activeFocus ? 0.3 : 0.1)
+                                    border.color: parent.activeFocus ? "#00d4ff" : "#00d4ff"
+                                    border.width: parent.activeFocus ? 2 : 1
+                                    
+                                    Behavior on color { ColorAnimation { duration: 150 } }
+                                    Behavior on border.color { ColorAnimation { duration: 150 } }
+                                    Behavior on border.width { NumberAnimation { duration: 150 } }
                                 }
                                 
                                 contentItem: Text {
@@ -867,8 +1027,8 @@ Pane {
     Rectangle {
         id: noConsolesDialog
         anchors.centerIn: parent
-        width: 400
-        height: 300
+        width: 420
+        height: 450
         radius: 12
         color: Qt.rgba(10/255, 15/255, 26/255, 0.9)
         border.color: Qt.rgba(0, 212/255, 255/255, 0.3)
@@ -883,8 +1043,9 @@ Pane {
         }
         
         ColumnLayout {
-            anchors.centerIn: parent
-            spacing: 20
+            anchors.fill: parent
+            anchors.margins: 30
+            spacing: 25
             
             Rectangle {
                 Layout.alignment: Qt.AlignHCenter
@@ -932,30 +1093,31 @@ Pane {
             Label {
                 Layout.alignment: Qt.AlignHCenter
                 Layout.preferredWidth: 350
-                text: qsTr("Enable discovery or add a console manually to get started with PSStream")
+                text: qsTr("Choose how to find your PlayStation consoles:")
                 font.pixelSize: 14
                 color: Qt.rgba(255, 255, 255, 0.7)
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.WordWrap
             }
             
-            // Button row for console addition options
-            RowLayout {
+            // Button column for console addition options
+            ColumnLayout {
                 Layout.alignment: Qt.AlignHCenter
-                spacing: 20
+                Layout.topMargin: 15
+                spacing: 18
                 
-                // Manual Add Console Button
+                // PSN Login Button (Primary option)
                 Button {
-                    id: manualAddButton
-                    Layout.preferredWidth: 200
-                    Layout.preferredHeight: 40
-                    text: qsTr("Add Console Manually")
+                    id: autoAddButton
+                    Layout.preferredWidth: 300
+                    Layout.preferredHeight: 50
+                    text: qsTr("Login to PSN (Recommended)")
                     font.pixelSize: 14
                     font.weight: Font.Medium
-                    onClicked: root.showManualHostDialog()
+                    onClicked: root.showPSNTokenDialog("", false)
                     
                     // Keyboard navigation
-                    KeyNavigation.right: autoAddButton
+                    KeyNavigation.down: manualAddButton
                     KeyNavigation.up: discoveryButton
                     
                     background: Rectangle {
@@ -994,49 +1156,53 @@ Pane {
                     }
                 }
                 
-                // Auto Add Console Button (PSN Login) - DEFAULT SELECTED
+                // Description for PSN Login
+                Label {
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.preferredWidth: 300
+                    Layout.topMargin: -12
+                    text: qsTr("Finds all your consoles, including remote ones")
+                    font.pixelSize: 12
+                    color: Qt.rgba(255, 255, 255, 0.6)
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.WordWrap
+                }
+                
+                // Local Discovery Button (Secondary option)
                 Button {
-                    id: autoAddButton
-                    Layout.preferredWidth: 200
-                    Layout.preferredHeight: 40
-                    text: qsTr("Add Consoles by Login")
+                    id: manualAddButton
+                    Layout.preferredWidth: 300
+                    Layout.preferredHeight: 50
+                    text: qsTr("Enable Local Discovery")
                     font.pixelSize: 14
                     font.weight: Font.Medium
-                    onClicked: root.showPSNTokenDialog("", false)
+                    onClicked: Chiaki.discoveryEnabled = true
                     
                     // Keyboard navigation
-                    KeyNavigation.left: manualAddButton
-                    KeyNavigation.up: manuallyAddHeaderButton
-                    
-                    // Set as default focus when dialog becomes visible
-                    Component.onCompleted: {
-                        if (parent.parent.parent.visible) {
-                            forceActiveFocus(Qt.TabFocusReason);
-                        }
-                    }
+                    KeyNavigation.up: autoAddButton
                     
                     background: Rectangle {
                         radius: 8
-                        color: parent.activeFocus ? Qt.rgba(0, 212/255, 255/255, 0.3) : Qt.rgba(0, 212/255, 255/255, 0.15)
+                        color: parent.activeFocus ? Qt.rgba(0, 212/255, 255/255, 0.2) : Qt.rgba(0, 212/255, 255/255, 0.1)
                         border.color: parent.activeFocus ? "#ffffff" : "#00d4ff"
-                        border.width: parent.activeFocus ? 3 : 2
+                        border.width: parent.activeFocus ? 2 : 1
                         
                         Rectangle {
                             anchors.fill: parent
                             radius: parent.radius
                             color: "#00d4ff"
-                            opacity: parent.parent.hovered ? 0.3 : 0.1
+                            opacity: parent.parent.hovered ? 0.2 : 0
                             Behavior on opacity { NumberAnimation { duration: 200 } }
                         }
                         
-                        // Focus glow effect for default button
+                        // Focus glow effect
                         Rectangle {
                             anchors.fill: parent
                             radius: parent.radius
                             color: "transparent"
                             border.color: "#00d4ff"
-                            border.width: 3
-                            opacity: parent.parent.activeFocus ? 0.7 : 0
+                            border.width: 2
+                            opacity: parent.parent.activeFocus ? 0.5 : 0
                             Behavior on opacity { NumberAnimation { duration: 200 } }
                         }
                     }
@@ -1050,6 +1216,23 @@ Pane {
                         Behavior on color { ColorAnimation { duration: 200 } }
                     }
                 }
+                
+                // Description for Local Discovery
+                Label {
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.preferredWidth: 300
+                    Layout.topMargin: -12
+                    text: qsTr("Automatically finds consoles on your local network")
+                    font.pixelSize: 12
+                    color: Qt.rgba(255, 255, 255, 0.6)
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.WordWrap
+                }
+            }
+
+            // Spacer to push content up
+            Item {
+                Layout.fillHeight: true
             }
         }
     }
