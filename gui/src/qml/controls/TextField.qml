@@ -54,21 +54,25 @@ TextField {
     Keys.onPressed: (event) => {
         switch (event.key) {
         case Qt.Key_Up:
-            if (!firstInFocusChain && readOnly) {
-                let item = nextItemInFocusChain(false);
-                if (item)
-                    item.forceActiveFocus(Qt.TabFocusReason);
-                if(!sendOutput)
-                    event.accepted = true;
+            if (!firstInFocusChain) {
+                if (readOnly || (!readOnly && cursorPosition === 0 && selectionStart === selectionEnd)) {
+                    let item = nextItemInFocusChain(false);
+                    if (item)
+                        item.forceActiveFocus(Qt.TabFocusReason);
+                    if(!sendOutput)
+                        event.accepted = true;
+                }
             }
             break;
         case Qt.Key_Down:
-            if (!lastInFocusChain && readOnly) {
-                let item = nextItemInFocusChain();
-                if (item)
-                    item.forceActiveFocus(Qt.TabFocusReason);
-                if(!sendOutput)
-                    event.accepted = true;
+            if (!lastInFocusChain) {
+                if (readOnly || (!readOnly && cursorPosition === length && selectionStart === selectionEnd)) {
+                    let item = nextItemInFocusChain();
+                    if (item)
+                        item.forceActiveFocus(Qt.TabFocusReason);
+                    if(!sendOutput)
+                        event.accepted = true;
+                }
             }
             break;
         case Qt.Key_Return:

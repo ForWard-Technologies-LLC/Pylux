@@ -544,7 +544,10 @@ QVariantList QmlBackend::hosts() const
         m["registered"] = registered;
         m["display"] = hidden ? false : true;
         discovered_nicknames.append(host.host_name);
-        out.append(m);
+        // Only add hosts that should be displayed
+        if (!hidden) {
+            out.append(m);
+        }
         if(!host.ps5 && registered)
             registered_discovered_ps4s++;
     }
@@ -557,7 +560,8 @@ QVariantList QmlBackend::hosts() const
         m["address"] = host.GetHost();
         m["state"] = "unknown";
         m["registered"] = false;
-        m["display"] = discovered_manual_hosts.contains(host) ? false : true;
+        bool should_display = !discovered_manual_hosts.contains(host);
+        m["display"] = should_display;
         if (host.GetRegistered() && settings->GetRegisteredHostRegistered(host.GetMAC())) {
             auto registered = settings->GetRegisteredHost(host.GetMAC());
             m["registered"] = true;
@@ -565,7 +569,10 @@ QVariantList QmlBackend::hosts() const
             m["ps5"] = chiaki_target_is_ps5(registered.GetTarget());
             m["mac"] = registered.GetServerMAC().ToString();
         }
-        out.append(m);
+        // Only add hosts that should be displayed
+        if (should_display) {
+            out.append(m);
+        }
     }
     if(registered_discovered_ps4s >= settings->GetPS4RegisteredHostsRegistered())
         discovered_nicknames.append(QString("Main PS4 Console"));

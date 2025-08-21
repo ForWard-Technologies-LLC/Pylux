@@ -6,6 +6,8 @@ import QtQuick.Effects
 
 import org.streetpea.chiaking
 
+import "controls" as C
+
 Pane {
     padding: 0
     id: consolePane
@@ -23,7 +25,10 @@ Pane {
         if (hostsView.count === 0) {
             // Focus will be handled by noConsolesDialog.onVisibleChanged
         } else {
-            discoveryButton.forceActiveFocus(Qt.TabFocusReason);
+            // Focus on first console instead of discovery button
+            hostsView.currentIndex = 0;
+            hostsView.selectedIndex = 0;
+            hostsView.forceActiveFocus(Qt.TabFocusReason);
         }
         // Ensure main pane can receive key events
         consolePane.forceActiveFocus();
@@ -48,17 +53,28 @@ Pane {
 
 
     Keys.onMenuPressed: settingsButton.clicked()
-    Keys.onReturnPressed: if (hostsView.currentItem) hostsView.currentItem.connectToHost()
-    Keys.onYesPressed: if (hostsView.currentItem) hostsView.currentItem.wakeUpHost()
-    Keys.onNoPressed: if (hostsView.currentItem) hostsView.currentItem.deleteHost()
+    Keys.onReturnPressed: {
+        // Only handle console connection if hostsView has focus
+        if (hostsView.activeFocus && hostsView.currentItem) {
+            hostsView.currentItem.connectToHost();
+        } else {
+            // Let the focused element handle the key
+            event.accepted = false;
+        }
+    }
+    // Y and N keys are now handled by the GridView directly
     Keys.onEscapePressed: root.showConfirmDialog(qsTr("Quit"), qsTr("Are you sure you want to quit?"), () => Qt.quit())
     Keys.onPressed: (event) => {
         if (event.modifiers)
             return;
         switch (event.key) {
         case Qt.Key_PageUp:
-            if (hostsView.currentItem) hostsView.currentItem.setConsolePin();
+            // X key is now handled by the GridView directly
+            // PageUp still handled here for global shortcuts
+            if (hostsView.activeFocus && hostsView.currentItem) {
+                hostsView.currentItem.setConsolePin();
             event.accepted = true;
+            }
             break;
         case Qt.Key_PageDown:
             if (Chiaki.settings.psnAuthToken) {
@@ -553,7 +569,7 @@ Pane {
             id: hostsView
             keyNavigationWraps: true
             cellWidth: Math.floor(width / Math.max(1, Math.floor(width / 380)))
-            cellHeight: 220
+            cellHeight: 240
             model: Chiaki.hosts
             
             // Custom property to track selected card for highlighting
@@ -608,9 +624,35 @@ Pane {
                 }
             }
             
+            // Console action shortcuts - perform the action directly (no button click)
+            Keys.onPressed: (event) => {
+                if (event.modifiers)
+                    return;
+                switch (event.key) {
+                // Support both Settings mapping keys (Backslash/C) and QmlController fallbacks (No/Yes)
+                case Qt.Key_Backslash:
+                case Qt.Key_No:
+                    if (currentItem && currentItem.triggerFirstAction && currentItem.triggerFirstAction())
+                        event.accepted = true;
+                    break;
+                case Qt.Key_C:
+                case Qt.Key_Yes:
+                    if (currentItem && currentItem.triggerSecondAction && currentItem.triggerSecondAction())
+                        event.accepted = true;
+                    break;
+                case Qt.Key_Backspace:
+                    if (currentItem && currentItem.canHide) {
+                        currentItem.deleteHost();
+                        event.accepted = true;
+                    }
+                    break;
+                }
+            }
+            
             Keys.onEscapePressed: {
-                // Pass ESC up to parent for quit dialog
-                event.accepted = false;
+                // Always pass ESC up to parent for quit dialog
+                // Force the main pane to handle quit dialog
+                root.showConfirmDialog(qsTr("Quit"), qsTr("Are you sure you want to quit?"), () => Qt.quit());
             }
 
                                       // Remove GridView highlight - using per-card highlighting instead
@@ -637,7 +679,6 @@ Pane {
             
             delegate: Item {
                 id: delegateItem
-                visible: modelData.display
                 width: hostsView.cellWidth
                 height: hostsView.cellHeight
                 
@@ -645,10 +686,29 @@ Pane {
                 focus: hostsView.selectedIndex === index
                 activeFocusOnTab: true
                 
+                // Booleans to express availability of actions without exposing buttons
+                property bool canHide: modelData.manual || (modelData.discovered && !modelData.registered)
+                property bool canWake: modelData.registered && !modelData.duid && !modelData.discovered
+                property bool canPin: modelData.registered
+
+                // Trigger first/second available actions directly
+                function triggerFirstAction() {
+                    if (canHide) { deleteHost(); return true; }
+                    if (canWake) { wakeUpHost(); return true; }
+                    if (canPin) { setConsolePin(); return true; }
+                    return false;
+                }
+                function triggerSecondAction() {
+                    var seen = 0;
+                    if (canHide) { seen++; if (seen === 2) { deleteHost(); return true; } }
+                    if (canWake) { seen++; if (seen === 2) { wakeUpHost(); return true; } }
+                    if (canPin)  { seen++; if (seen === 2) { setConsolePin(); return true; } }
+                    return false;
+                }
 
                 
                 // Key navigation within the console card
-                Keys.onReturnPressed: delegateItem.connectToHost()
+                // Return key is handled by the GridView
                 Keys.onTabPressed: {
                     // Navigate to first button in the card
                     if (hideButton.visible) {
@@ -679,27 +739,7 @@ Pane {
                     Behavior on color { ColorAnimation { duration: 200 } }
                     Behavior on border.color { ColorAnimation { duration: 200 } }
                     
-                    // Strong glow effect for current item
-                    Rectangle {
-                        anchors.fill: parent
-                        anchors.margins: -2
-                        radius: parent.radius + 2
-                        color: "transparent"
-                        border.color: "#00d4ff"
-                        border.width: 3
-                        opacity: hostsView.selectedIndex === index ? 1.0 : 0
-                        visible: opacity > 0
-                        z: 10
-                        
-                        layer.enabled: hostsView.selectedIndex === index
-                        layer.effect: MultiEffect {
-                            blurEnabled: true
-                            blurMax: 20
-                            blur: 0.8
-                        }
-                        
-                        Behavior on opacity { NumberAnimation { duration: 200 } }
-                    }
+                    // removed outer glow to avoid blue rectangle outside card
                     
 
                     
@@ -718,18 +758,19 @@ Pane {
                     ColumnLayout {
                 anchors {
                     fill: parent
-                            margins: 20
+                            margins: 22
+                            bottomMargin: 15
                         }
                         spacing: 15
                         
-                        // Console icon and status
+                        // Console icon and status with gamepad shortcuts in top right
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: 15
                             
                             Rectangle {
-                                Layout.preferredWidth: 80
-                                Layout.preferredHeight: 80
+                                Layout.preferredWidth: 100
+                                Layout.preferredHeight: 100
                                 radius: 8
                                 color: Qt.rgba(0, 212/255, 255/255, 0.1)
                                 border.color: Qt.rgba(0, 212/255, 255/255, 0.3)
@@ -737,22 +778,22 @@ Pane {
 
                 Image {
                                     anchors.centerIn: parent
-                                    width: 60
-                                    height: 60
+                                    width: 80
+                                    height: 80
                     fillMode: Image.PreserveAspectFit
                     source: "image://svg/console-ps" + (modelData.ps5 ? "5" : "4") + (modelData.state == "standby" ? "#light_standby" : "#light_on")
-                                    sourceSize: Qt.size(60, 60)
+                                    sourceSize: Qt.size(80, 80)
                                 }
                             }
                             
                             ColumnLayout {
                                 Layout.fillWidth: true
-                                spacing: 5
+                                spacing: 8
                                 
                                 Label {
                                     Layout.fillWidth: true
                                     text: modelData.name || qsTr("Unknown Console")
-                                    font.pixelSize: 18
+                                    font.pixelSize: 24
                                     font.weight: Font.Bold
                                     color: "#ffffff"
                                     elide: Text.ElideRight
@@ -770,7 +811,7 @@ Pane {
                                         if (modelData.registered) status += " • " + qsTr("Registered");
                                         return status;
                                     }
-                                    font.pixelSize: 12
+                                    font.pixelSize: 16
                                     color: "#00d4ff"
                                     elide: Text.ElideRight
                                 }
@@ -778,158 +819,148 @@ Pane {
                                 Label {
                                     Layout.fillWidth: true
                                     text: qsTr("State: %1").arg(modelData.state)
-                                    font.pixelSize: 11
+                                    font.pixelSize: 15
                                     color: Qt.rgba(255, 255, 255, 0.7)
                                     elide: Text.ElideRight
+                            }
+                        }
+                        
+                                                        // Gamepad shortcuts indicators (top right corner)
+                            Item {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 32
+                                Layout.alignment: Qt.AlignTop
+                                visible: canHide || canWake || canPin
+                                
+                                // First action indicator (Square/X)
+                                Item {
+                                    anchors.right: parent.right
+                                    anchors.rightMargin: 8
+                                    anchors.top: parent.top
+                                    width: firstActionText.width + firstActionImage.width + 6
+                                    height: 20
+                                    visible: canHide || canWake || canPin
+                                    
+                                    Image {
+                                        id: firstActionImage
+                                        anchors.left: parent.left
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: 20
+                                        height: 20
+                                        sourceSize: Qt.size(40, 40)
+                                        source: root.controllerButton("box")
+                                        opacity: 0.85
+                                        smooth: true
+                                        antialiasing: true
+                                    }
+                                    
+                                    Text {
+                                        id: firstActionText
+                                        anchors.left: firstActionImage.right
+                                        anchors.leftMargin: 6
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: canHide ? (modelData.manual ? "Delete" : "Hide") : (canWake ? "Wake" : "PIN")
+                                        font.pixelSize: 14
+                                        font.weight: Font.Medium
+                                        color: Qt.rgba(255, 255, 255, 0.8)
+                                    }
+                                    
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        onClicked: {
+                                            if (canHide) {
+                                                delegateItem.deleteHost();
+                                            } else if (canWake) {
+                                                delegateItem.wakeUpHost();
+                                            } else if (canPin) {
+                                                delegateItem.setConsolePin();
+                                            }
+                                        }
+                                        cursorShape: Qt.PointingHandCursor
+                                        z: 200
+                                        hoverEnabled: true
+                                    }
+                                }
+                                
+                                // Second action indicator (Triangle/Y) - if multiple actions available
+                                Item {
+                                    anchors.right: parent.right
+                                    anchors.rightMargin: 120
+                                    anchors.top: parent.top
+                                    width: secondActionText.width + secondActionImage.width + 6
+                                    height: 20
+                                    visible: (canHide?1:0) + (canWake?1:0) + (canPin?1:0) >= 2
+                                    
+                                    Image {
+                                        id: secondActionImage
+                                        anchors.left: parent.left
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: 20
+                                        height: 20
+                                        sourceSize: Qt.size(40, 40)
+                                        source: root.controllerButton("pyramid")
+                                        opacity: 0.85
+                                        smooth: true
+                                        antialiasing: true
+                                    }
+                                    
+                                    Text {
+                                        id: secondActionText
+                                        anchors.left: secondActionImage.right
+                                        anchors.leftMargin: 6
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: (canHide && canWake) ? "Wake" : (canHide && !canWake && canPin) ? "PIN" : (!canHide && canWake && canPin) ? "PIN" : ""
+                                        font.pixelSize: 14
+                                        font.weight: Font.Medium
+                                        color: Qt.rgba(255, 255, 255, 0.8)
+                                    }
+                                    
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        onClicked: {
+                                            var actionCount = 0;
+                                            if (canHide) actionCount++;
+                                            if (canWake) actionCount++;
+                                            if (canPin) actionCount++;
+
+                                            if (actionCount >= 2) {
+                                                if (canHide && canWake) {
+                                                    delegateItem.wakeUpHost();
+                                                } else if (canHide && canPin) {
+                                                    delegateItem.setConsolePin();
+                                                } else if (canWake && canPin) {
+                                                    delegateItem.setConsolePin();
+                                                }
+                                            }
+                                        }
+                                        cursorShape: Qt.PointingHandCursor
+                                        z: 200
+                                        hoverEnabled: true
+                                    }
                                 }
                             }
                         }
                         
-                        // Console details
+                        // Console details (IP only, smaller)
                         Rectangle {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 60
+                                Layout.fillWidth: true
+                            Layout.preferredHeight: 38
                             radius: 6
                             color: Qt.rgba(0, 0, 0, 0.2)
                             
-                            ColumnLayout {
+                            Label {
                                 anchors {
                                     fill: parent
-                                    margins: 10
+                                    margins: 8
                                 }
-                                spacing: 3
-                                
-                                Label {
-                                    Layout.fillWidth: true
                                     text: modelData.address ? qsTr("IP: %1").arg(Chiaki.settings.streamerMode ? "hidden" : modelData.address) : ""
-                                    font.pixelSize: 10
-                                    color: Qt.rgba(255, 255, 255, 0.6)
+                                    font.pixelSize: 14
+                                    color: Qt.rgba(255, 255, 255, 0.7)
                                     elide: Text.ElideRight
-                                }
-                                
-                                Label {
-                                    Layout.fillWidth: true
-                                    text: modelData.app ? qsTr("App: %1").arg(modelData.app) : ""
-                                    font.pixelSize: 10
-                                    color: Qt.rgba(255, 255, 255, 0.6)
-                                    elide: Text.ElideRight
-                }
-
-                Label {
-                                    Layout.fillWidth: true
-                                    text: modelData.titleId ? qsTr("Title: %1").arg(modelData.titleId) : ""
-                                    font.pixelSize: 10
-                                    color: Qt.rgba(255, 255, 255, 0.6)
-                                    elide: Text.ElideRight
+                                    verticalAlignment: Text.AlignVCenter
                                 }
                             }
-                        }
                         
-                        // Action buttons row
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 8
-
-                    Button {
-                                id: hideButton
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: 30
-                        text: modelData.manual ? qsTr("Delete") : qsTr("Hide")
-                                font.pixelSize: 10
-                                visible: modelData.manual || (modelData.discovered && !modelData.registered)
-                        focusPolicy: Qt.StrongFocus
-                                onClicked: delegateItem.deleteHost()
-                                
-                                KeyNavigation.right: wakeButton.visible ? wakeButton : (pinButton.visible ? pinButton : null)
-                                KeyNavigation.backtab: delegateItem
-                                
-                                background: Rectangle {
-                                    radius: 4
-                                    color: Qt.rgba(255, 100/255, 100/255, parent.activeFocus ? 0.3 : 0.1)
-                                    border.color: Qt.rgba(255, 100/255, 100/255, parent.activeFocus ? 1.0 : 0.5)
-                                    border.width: parent.activeFocus ? 2 : 1
-                                    
-                                    Behavior on color { ColorAnimation { duration: 150 } }
-                                    Behavior on border.color { ColorAnimation { duration: 150 } }
-                                    Behavior on border.width { NumberAnimation { duration: 150 } }
-                                }
-                                
-                                contentItem: Text {
-                                    text: parent.text
-                                    font: parent.font
-                                    color: Qt.rgba(255, 150/255, 150/255, 1)
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
-                        }
-                    }
-
-                    Button {
-                                id: wakeButton
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: 30
-                                text: qsTr("Wake")
-                                font.pixelSize: 10
-                        visible: modelData.registered && !modelData.duid && !modelData.discovered
-                        focusPolicy: Qt.StrongFocus
-                                onClicked: delegateItem.wakeUpHost()
-                                
-                                KeyNavigation.left: hideButton.visible ? hideButton : null
-                                KeyNavigation.right: pinButton.visible ? pinButton : null
-                                KeyNavigation.backtab: delegateItem
-                                
-                                background: Rectangle {
-                                    radius: 4
-                                    color: Qt.rgba(255, 200/255, 0, parent.activeFocus ? 0.3 : 0.1)
-                                    border.color: Qt.rgba(255, 200/255, 0, parent.activeFocus ? 1.0 : 0.5)
-                                    border.width: parent.activeFocus ? 2 : 1
-                                    
-                                    Behavior on color { ColorAnimation { duration: 150 } }
-                                    Behavior on border.color { ColorAnimation { duration: 150 } }
-                                    Behavior on border.width { NumberAnimation { duration: 150 } }
-                                }
-                                
-                                contentItem: Text {
-                                    text: parent.text
-                                    font: parent.font
-                                    color: Qt.rgba(255, 200/255, 0, 1)
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
-                        }
-                    }
-
-                    Button {
-                                id: pinButton
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: 30
-                                text: qsTr("Pin")
-                                font.pixelSize: 10
-                        visible: modelData.registered
-                        focusPolicy: Qt.StrongFocus
-                                onClicked: delegateItem.setConsolePin()
-                                
-                                KeyNavigation.left: wakeButton.visible ? wakeButton : (hideButton.visible ? hideButton : null)
-                                KeyNavigation.backtab: delegateItem
-                                
-                                background: Rectangle {
-                                    radius: 4
-                                    color: Qt.rgba(0, 212/255, 255/255, parent.activeFocus ? 0.3 : 0.1)
-                                    border.color: parent.activeFocus ? "#00d4ff" : "#00d4ff"
-                                    border.width: parent.activeFocus ? 2 : 1
-                                    
-                                    Behavior on color { ColorAnimation { duration: 150 } }
-                                    Behavior on border.color { ColorAnimation { duration: 150 } }
-                                    Behavior on border.width { NumberAnimation { duration: 150 } }
-                                }
-                                
-                                contentItem: Text {
-                                    text: parent.text
-                                    font: parent.font
-                                    color: "#00d4ff"
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
-                                }
-                            }
-                        }
                     }
                 } 
                 

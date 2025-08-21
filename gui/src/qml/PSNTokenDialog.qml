@@ -420,16 +420,10 @@ DialogView {
                 text: qsTr("Redirect URL from Web Browser")
             }
 
-            TextField {
+            C.TextField {
                 id: url
                 echoMode: Chiaki.settings.streamerMode ? TextInput.Password : TextInput.Normal
                 Layout.preferredWidth: 400
-                KeyNavigation.priority: {
-                    if(readOnly)
-                        KeyNavigation.BeforeItem
-                    else
-                        KeyNavigation.AfterItem
-                }
                 KeyNavigation.up: {
                     if(psnurl)
                         copyUrl
@@ -438,6 +432,18 @@ DialogView {
                 }
                 KeyNavigation.down: url
                 KeyNavigation.right: pasteUrl
+                
+                // Allow navigation to header button
+                Keys.onPressed: (event) => {
+                    if (event.key === Qt.Key_Up && readOnly) {
+                        // Navigate to header button when at top
+                        let headerButton = dialog.headerItem.children[dialog.headerItem.children.length - 1];
+                        if (headerButton && headerButton.visible) {
+                            headerButton.forceActiveFocus(Qt.TabFocusReason);
+                            event.accepted = true;
+                        }
+                    }
+                }
                 C.Button {
                     id: pasteUrl
                     text: qsTr("Click to Paste URL")
@@ -456,6 +462,18 @@ DialogView {
                             pasteUrl
                     }
                     KeyNavigation.down: pasteUrl
+                    
+                    // Allow navigation to header button
+                    Keys.onPressed: (event) => {
+                        if (event.key === Qt.Key_Up) {
+                            // Navigate to header button when at top
+                            let headerButton = dialog.headerItem.children[dialog.headerItem.children.length - 1];
+                            if (headerButton && headerButton.visible) {
+                                headerButton.forceActiveFocus(Qt.TabFocusReason);
+                                event.accepted = true;
+                            }
+                        }
+                    }
                 }
             }
         }
