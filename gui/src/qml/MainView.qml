@@ -138,35 +138,16 @@ Pane {
                 Layout.fillHeight: true
                 spacing: 15
                 
-                Rectangle {
+                Image {
                     Layout.preferredWidth: 60
                     Layout.preferredHeight: 60
-                    radius: 8
-                    color: "#00d4ff"
-                    
-                    Text {
-                        anchors.centerIn: parent
-                        text: "PS"
-                        font.pixelSize: 20
-                        font.weight: Font.Bold
-                        color: "#000000"
-                    }
-                    
-                    Rectangle {
-                        anchors.fill: parent
-                        radius: parent.radius
-                        color: "transparent"
-                        border.color: "#00d4ff"
-                        border.width: 2
-                        opacity: 0.5
-                        
-                        layer.enabled: true
-                        layer.effect: MultiEffect {
-                            blurEnabled: true
-                            blurMax: 8
-                            blur: 0.4
-                        }
-                    }
+                    source: "qrc:icons/chiaking.png"
+                    fillMode: Image.PreserveAspectFit
+                    smooth: true
+                    antialiasing: true
+                    mipmap: true
+                    sourceSize.width: 120
+                    sourceSize.height: 120
                 }
                 
                 Column {
@@ -180,7 +161,7 @@ Pane {
                         color: "#00d4ff"
                     }
                     Label {
-                        text: "PlayStation Remote Play"
+                        text: "Remote Play"
                         font.pixelSize: 12
                         font.weight: Font.Light
                         color: Qt.rgba(255, 255, 255, 0.7)

@@ -23,8 +23,8 @@ nav:
     - Developing chiaki-ng on Steam Deck: diy/steamdeckdev.md
 
 theme:
-  favicon: images/chiaking.svg
-  logo: images/chiaking-logo-white.svg
+  favicon: images/chiaking.png
+  logo: images/chiaking-logo-white.png
   features:
     - header.autohide
     - navigation.sections

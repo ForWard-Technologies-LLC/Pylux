@@ -72,70 +72,128 @@ DialogView {
                 }
             }
             anchors.fill: parent
-            ToolBar {
+            Rectangle {
                 id: psnTokenToolbar
                 anchors {
-                    top: parent.top
+                    bottom: parent.bottom
                     left: parent.left
                     right: parent.right
+                    bottomMargin: 20
+                    leftMargin: 20
+                    rightMargin: 20
                 }
-                height: 80
+                height: 70
+                z: 10
+                radius: 12
+                color: Qt.rgba(10/255, 15/255, 26/255, 0.95)
+                border.color: Qt.rgba(0, 212/255, 255/255, 0.4)
+                border.width: 1
+
+                // Subtle glow effect
+                Rectangle {
+                    anchors.fill: parent
+                    anchors.margins: -2
+                    radius: parent.radius + 1
+                    color: "transparent"
+                    border.color: Qt.rgba(0, 212/255, 255/255, 0.2)
+                    border.width: 1
+                    z: -1
+                }
 
                 RowLayout {
                     anchors {
                         fill: parent
-                        leftMargin: 10
-                        rightMargin: 10
+                        leftMargin: 15
+                        rightMargin: 15
+                        topMargin: 10
+                        bottomMargin: 10
                     }
+                    spacing: 15
+                    
                     Button {
                         id: reloadButton
                         Layout.fillHeight: true
-                        Layout.preferredWidth: 350
-                        flat: true
-                        text: "reload + clear cookies"
-                        Image {
-                            anchors {
-                                left: parent.left
-                                verticalCenter: parent.verticalCenter
-                                leftMargin: 12
-                            }
-                            width: 28
-                            height: 28
-                            sourceSize: Qt.size(width, height)
-                            source: "qrc:/icons/l1.svg"
-                        }
+                        Layout.preferredWidth: 220
+                        text: "Reload + Clear Cookies"
+                        font.pixelSize: 12
+                        font.weight: Font.Medium
                         onClicked: reloadTimer.start()
-                        Material.roundedScale: Material.SmallScale
                         focusPolicy: Qt.NoFocus
+                        
+                        background: Rectangle {
+                            radius: 8
+                            color: parent.pressed ? Qt.rgba(0, 212/255, 255/255, 0.3) : 
+                                   parent.hovered ? Qt.rgba(0, 212/255, 255/255, 0.2) : 
+                                   Qt.rgba(0, 212/255, 255/255, 0.1)
+                            border.color: Qt.rgba(0, 212/255, 255/255, 0.6)
+                            border.width: 1
+                            
+                            Behavior on color { ColorAnimation { duration: 150 } }
+                            Behavior on border.color { ColorAnimation { duration: 150 } }
+                        }
+                        
+                        contentItem: RowLayout {
+                            spacing: 8
+                            
+                            Image {
+                                Layout.preferredWidth: 20
+                                Layout.preferredHeight: 20
+                                sourceSize: Qt.size(width, height)
+                                source: "qrc:/icons/l1.svg"
+                            }
+                            
+                            Text {
+                                Layout.fillWidth: true
+                                text: parent.parent.text
+                                font: parent.parent.font
+                                color: "#00d4ff"
+                                horizontalAlignment: Text.AlignLeft
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                        }
                     }
-                    ProgressBar {
-                        id: browserProgresss
-                        Layout.fillHeight: true
-                        Layout.preferredWidth: 300
-                        from: 0
-                        to: 100
-                        value: webView.web.loadProgress
-                        Material.roundedScale: Material.SmallScale
-                        focusPolicy: Qt.NoFocus
+                    
+                    // Spacer to push buttons to edges
+                    Item {
+                        Layout.fillWidth: true
+                        
+                        ProgressBar {
+                            id: browserProgresss
+                            anchors.centerIn: parent
+                            width: 150
+                            height: 6
+                            from: 0
+                            to: 100
+                            value: webView.web ? webView.web.loadProgress : 0
+                            focusPolicy: Qt.NoFocus
+                            
+                            background: Rectangle {
+                                radius: 3
+                                color: Qt.rgba(255, 255, 255, 0.1)
+                                border.color: Qt.rgba(255, 255, 255, 0.2)
+                                border.width: 1
+                            }
+                            
+                            contentItem: Item {
+                                Rectangle {
+                                    width: parent.width * (browserProgresss.value / 100)
+                                    height: parent.height
+                                    radius: 3
+                                    color: Qt.rgba(0, 212/255, 255/255, 0.8)
+                                    
+                                    Behavior on width { NumberAnimation { duration: 100 } }
+                                }
+                            }
+                        }
                     }
                     Button {
                         id: extBrowserButton
                         Layout.fillHeight: true
-                        Layout.preferredWidth: 300
-                        flat: true
-                        Image {
-                            anchors {
-                                left: parent.left
-                                verticalCenter: parent.verticalCenter
-                                leftMargin: 12
-                            }
-                            width: 28
-                            height: 28
-                            sourceSize: Qt.size(width, height)
-                            source: "qrc:/icons/r1.svg"
-                        }
+                        Layout.preferredWidth: 220
+                        text: "Use External Browser"
+                        font.pixelSize: 12
+                        font.weight: Font.Medium
                         focusPolicy: Qt.NoFocus
-                        text: "Use external browser"
                         onClicked: {
                             nativeTokenForm.visible = false;
                             psnTokenToolbar.visible = false;
@@ -150,6 +208,38 @@ DialogView {
                                 openurl.copy();
                             }
                             pasteUrl.forceActiveFocus(Qt.TabFocusReason);
+                        }
+                        
+                        background: Rectangle {
+                            radius: 8
+                            color: parent.pressed ? Qt.rgba(100/255, 100/255, 100/255, 0.4) : 
+                                   parent.hovered ? Qt.rgba(100/255, 100/255, 100/255, 0.3) : 
+                                   Qt.rgba(100/255, 100/255, 100/255, 0.2)
+                            border.color: Qt.rgba(150/255, 150/255, 150/255, 0.5)
+                            border.width: 1
+                            
+                            Behavior on color { ColorAnimation { duration: 150 } }
+                            Behavior on border.color { ColorAnimation { duration: 150 } }
+                        }
+                        
+                        contentItem: RowLayout {
+                            spacing: 8
+                            
+                            Image {
+                                Layout.preferredWidth: 20
+                                Layout.preferredHeight: 20
+                                sourceSize: Qt.size(width, height)
+                                source: "qrc:/icons/r1.svg"
+                            }
+                            
+                            Text {
+                                Layout.fillWidth: true
+                                text: parent.parent.text
+                                font: parent.parent.font
+                                color: Qt.rgba(200/255, 200/255, 200/255, 1)
+                                horizontalAlignment: Text.AlignLeft
+                                verticalAlignment: Text.AlignVCenter
+                            }
                         }
                     }
                 }
@@ -227,8 +317,8 @@ DialogView {
                 id: webView
                 property Item web: null
                 anchors {
-                    top: psnTokenToolbar.bottom
-                    bottom: parent.bottom
+                    top: parent.top
+                    bottom: psnTokenToolbar.top
                     left: parent.left
                     right: parent.right
                     leftMargin: 10

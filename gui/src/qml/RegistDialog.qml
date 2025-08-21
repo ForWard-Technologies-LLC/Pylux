@@ -100,7 +100,18 @@ DialogView {
                     text: qsTr("By Login")
                     Layout.preferredWidth: 195
                     height: 40
-                    onClicked: stack.push("QRLoginDialog.qml", {callback: (id) => accountId.text = id})
+                    onClicked: {
+                        // Use the same pattern as showPSNTokenDialog for consistent behavior
+                        stack.push("QRLoginDialog.qml", {callback: (id) => {
+                            // If QR login succeeds with an account ID, use it
+                            if (id) {
+                                accountId.text = id;
+                                return;
+                            }
+                            // If user chooses "Login on This Device" (callback called with null), show the token dialog
+                            stack.push(psnTokenDialogComponent, {psnurl: "", expired: false});
+                        }});
+                    }
                     Material.roundedScale: Material.MediumScale
                     font.pixelSize: 14
                     
@@ -296,6 +307,11 @@ DialogView {
         Component {
             id: psnLoginDialogComponent
             PSNLoginDialog { }
+        }
+
+        Component {
+            id: psnTokenDialogComponent
+            PSNTokenDialog { }
         }
     }
 }

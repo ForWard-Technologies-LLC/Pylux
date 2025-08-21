@@ -2518,7 +2518,7 @@ DialogView {
             parent: Overlay.overlay
             x: Math.round((root.width - width) / 2)
             y: Math.round((root.height - height) / 2)
-            title: qsTr("About %1-ng").arg(Qt.application.name)
+            title: qsTr("About PSStream")
             modal: true
             standardButtons: Dialog.Ok
             Material.roundedScale: Material.MediumScale
@@ -2534,15 +2534,14 @@ DialogView {
                     Layout.preferredWidth: 200
                     fillMode: Image.PreserveAspectFit
                     verticalAlignment: Image.AlignTop
-                    source: "qrc:icons/chiaking-logo.svg"
+                    source: "qrc:icons/chiaking-logo.png"
                 }
 
                 Label {
                     Layout.preferredWidth: 400
                     verticalAlignment: Text.AlignTop
                     wrapMode: Text.Wrap
-                    text: "<h1>chiaki-ng</h1> by Street Pea, version %1
-                        <h2>Fork of Chiaki</h2> by Florian Markl at version 2.1.1
+                    text: "<h1>PSStream</h1> version %1
 
                         <p>This program is free software: you can redistribute it and/or modify
                         it under the terms of the GNU Affero General Public License version 3

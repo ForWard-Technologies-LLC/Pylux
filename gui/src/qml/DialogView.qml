@@ -153,7 +153,7 @@ Item {
                     }
                     Label {
                         width: parent.width
-                        text: "PlayStation Remote Play"
+                        text: "Remote Play"
                         font.pixelSize: 10
                         font.weight: Font.Light
                         color: Qt.rgba(255, 255, 255, 0.7)
@@ -164,38 +164,16 @@ Item {
                     }
                 }
                 
-                Rectangle {
+                Image {
                     Layout.preferredWidth: 50
                     Layout.preferredHeight: 50
-                    radius: 8
-                    color: Qt.rgba(0, 212/255, 255/255, 0.1)
-                    border.color: "#00d4ff"
-                    border.width: 2
-                    opacity: 0.8
-                    
-                    Text {
-                        anchors.centerIn: parent
-                        text: "PS"
-                        font.pixelSize: 18
-                        font.weight: Font.Bold
-                        color: "#00d4ff"
-                    }
-                    
-                    Rectangle {
-                        anchors.fill: parent
-                        radius: parent.radius
-                        color: "transparent"
-                        border.color: "#00d4ff"
-                        border.width: 2
-                        opacity: 0.3
-                        
-                        layer.enabled: true
-                        layer.effect: MultiEffect {
-                            blurEnabled: true
-                            blurMax: 8
-                            blur: 0.4
-                        }
-                    }
+                    source: "qrc:icons/chiaking.png"
+                    fillMode: Image.PreserveAspectFit
+                    smooth: true
+                    antialiasing: true
+                    mipmap: true
+                    sourceSize.width: 100
+                    sourceSize.height: 100
                 }
             }
 

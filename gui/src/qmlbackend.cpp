@@ -2376,10 +2376,31 @@ void QmlBackend::createPSStreamCode(const QString &code, const QJSValue &callbac
             }
         } else {
             // Network error
-            QString errorMsg = QString("Network error: %1").arg(reply->errorString());
-            qDebug() << "Network error creating PSStream code:" << errorMsg;
+            QByteArray responseData = reply->readAll();
+            QString responseBody = QString::fromUtf8(responseData);
+            
+            // Log detailed error information for debugging
+            qDebug() << "Network error creating PSStream code:" << reply->errorString();
+            qDebug() << "HTTP status code:" << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            qDebug() << "Response body:" << responseBody;
+            
+            // User-friendly error message with server details if available
+            QString userErrorMsg = tr("Failed to connect to server to verify QR code. Please check your internet connection and try again.");
+            if (!responseBody.isEmpty()) {
+                // Try to parse JSON error message
+                QJsonDocument errorDoc = QJsonDocument::fromJson(responseData);
+                if (!errorDoc.isNull() && errorDoc.isObject()) {
+                    QJsonObject errorObj = errorDoc.object();
+                    QString serverError = errorObj["error"].toString();
+                    if (!serverError.isEmpty()) {
+                        userErrorMsg += tr("\n\nDetails: %1").arg(serverError);
+                    }
+                } else if (!responseBody.isEmpty()) {
+                    userErrorMsg += tr("\n\nDetails: %1").arg(responseBody);
+                }
+            }
             if (cb.isCallable()) {
-                cb.call({false, errorMsg});
+                cb.call({false, userErrorMsg});
             }
         }
         
@@ -2445,10 +2466,31 @@ void QmlBackend::checkPSStreamStatus(const QString &code, const QJSValue &callba
             }
         } else {
             // Network error
-            QString errorMsg = QString("Network error: %1").arg(reply->errorString());
-            qDebug() << "Network error checking PSStream status:" << errorMsg;
+            QByteArray responseData = reply->readAll();
+            QString responseBody = QString::fromUtf8(responseData);
+            
+            // Log detailed error information for debugging
+            qDebug() << "Network error checking PSStream status:" << reply->errorString();
+            qDebug() << "HTTP status code:" << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            qDebug() << "Response body:" << responseBody;
+            
+            // User-friendly error message with server details if available
+            QString userErrorMsg = tr("Failed to connect to server to check login status. Please check your internet connection and try again.");
+            if (!responseBody.isEmpty()) {
+                // Try to parse JSON error message
+                QJsonDocument errorDoc = QJsonDocument::fromJson(responseData);
+                if (!errorDoc.isNull() && errorDoc.isObject()) {
+                    QJsonObject errorObj = errorDoc.object();
+                    QString serverError = errorObj["error"].toString();
+                    if (!serverError.isEmpty()) {
+                        userErrorMsg += tr("\n\nDetails: %1").arg(serverError);
+                    }
+                } else if (!responseBody.isEmpty()) {
+                    userErrorMsg += tr("\n\nDetails: %1").arg(responseBody);
+                }
+            }
             if (cb.isCallable()) {
-                cb.call({false, errorMsg, QString("")});
+                cb.call({false, userErrorMsg, QString("")});
             }
         }
         

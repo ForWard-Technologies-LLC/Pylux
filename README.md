@@ -1,5 +1,5 @@
 
-![chiaki-ng Logo](gui/res/chiaking-logo.svg)
+![chiaki-ng Logo](gui/res/chiaking-logo.png)
 
 # [chiaki-ng](https://streetpea.github.io/chiaki-ng/)
 
