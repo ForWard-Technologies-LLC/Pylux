@@ -1361,6 +1361,18 @@ bool QmlBackend::handlePsnLoginRedirect(const QUrl &url)
     }
     PSNAccountID *psnId = new PSNAccountID(settings, this);
     connect(psnId, &PSNAccountID::AccountIDResponse, this, [this, psnId](const QString &accountId) {
+        // Safely trigger QML property change notifications if UI is available
+        if (settings_qml) {
+            try {
+                settings_qml->setPsnAuthToken(settings->GetPsnAuthToken());
+                settings_qml->setPsnRefreshToken(settings->GetPsnRefreshToken());
+                settings_qml->setPsnAuthTokenExpiry(settings->GetPsnAuthTokenExpiry());
+                settings_qml->setPsnAccountId(settings->GetPsnAccountId());
+            } catch (...) {
+                qCWarning(chiakiGui) << "Failed to update QML settings properties - UI may not be available";
+            }
+        }
+        
         emit psnLoginAccountIdDone(accountId);
     });
     connect(psnId, &PSNAccountID::AccountIDResponse, this, &QmlBackend::updatePsnHosts);
@@ -2205,17 +2217,22 @@ void QmlBackend::initPsnAuth(const QUrl &url, const QJSValue &callback)
 
 void QmlBackend::refreshAuth()
 {
+    QString refresh_token = settings->GetPsnRefreshToken();
+    if(refresh_token.isEmpty()) {
+        qCWarning(chiakiGui) << "No refresh token available for PSN token refresh";
+        return;
+    }
+    
     PSNToken *psnToken = new PSNToken(settings, this);
     connect(psnToken, &PSNToken::PSNTokenError, this, [this](const QString &error) {
-        qCWarning(chiakiGui) << "Could not refresh token. Automatic PSN Connection Unavailable!" << error;
+        qCWarning(chiakiGui) << "PSN token refresh failed:" << error;
     });
-    connect(psnToken, &PSNToken::UnauthorizedError, this, &QmlBackend::psnCredsExpired);
-    connect(psnToken, &PSNToken::PSNTokenSuccess, this, []() {
-        qCWarning(chiakiGui) << "PSN Remote Connection Tokens Refreshed.";
+    connect(psnToken, &PSNToken::UnauthorizedError, this, [this]() {
+        qCWarning(chiakiGui) << "PSN token refresh failed: Unauthorized (tokens expired)";
+        psnCredsExpired();
     });
     connect(psnToken, &PSNToken::PSNTokenSuccess, this, &QmlBackend::updatePsnHosts);
     connect(psnToken, &PSNToken::Finished, psnToken, &QObject::deleteLater);
-    QString refresh_token = settings->GetPsnRefreshToken();
     psnToken->RefreshPsnToken(std::move(refresh_token));
 }
 
@@ -2241,6 +2258,7 @@ void QmlBackend::updatePsnHostsThread()
     size_t num_devices_ps5 = 0;
     ChiakiLog backend_log;
     chiaki_log_init(&backend_log, settings->GetLogLevelMask(), chiaki_log_cb_print, nullptr);
+    
     for(int i = 0; i < PSN_DEVICES_TRIES; i++)
     {
         ChiakiErrorCode err = chiaki_holepunch_list_devices(psn_token.toUtf8().constData(), CHIAKI_HOLEPUNCH_CONSOLE_TYPE_PS5, &device_info_ps5, &num_devices_ps5, &backend_log);
@@ -2248,26 +2266,30 @@ void QmlBackend::updatePsnHostsThread()
         {
             if(PSN_DEVICES_TRIES - i > 1)
             {
-                qCWarning(chiakiGui) << "Failed to get PS5 devices trying again";
+                qCWarning(chiakiGui) << "Failed to get PS5 devices (error code:" << err << "), trying again";
                 continue;
             }
             else
             {
-                qCWarning(chiakiGui) << "Failed to get PS5 devices after max tries: " << PSN_DEVICES_TRIES;
+                qCWarning(chiakiGui) << "Failed to get PS5 devices after max tries:" << PSN_DEVICES_TRIES << "(error code:" << err << ")";
                 num_devices_ps5 = 0;
             }
         }
         break;
     }
+    size_t consoles_with_remote_play = 0;
     for (size_t i = 0; i < num_devices_ps5; i++)
     {
         ChiakiHolepunchDeviceInfo dev = device_info_ps5[i];
         // skip devices that don't have remote play enabled
         if(!dev.remoteplay_enabled)
+            qCInfo(chiakiGui) << "Skipping device with remote play disabled";
             continue;
+        consoles_with_remote_play++;
         QByteArray duid_bytes(reinterpret_cast<char*>(dev.device_uid), sizeof(dev.device_uid));
         QString duid = QString(duid_bytes.toHex());
         QString name = QString(dev.device_name);
+        qCInfo(chiakiGui) << "Adding PSN host" << name << duid;
         bool ps5 = true;
         PsnHost psn_host(duid, name, ps5);
         if(!psn_nickname_hosts.contains(name))
@@ -2284,6 +2306,12 @@ void QmlBackend::updatePsnHostsThread()
         psn_nickname_hosts.insert(name, psn_host);
     if(!psn_hosts.contains(duid) && (settings->GetPS4RegisteredHostsRegistered() > 0))
         psn_hosts.insert(duid, psn_host);
+
+    // Check if no consoles with remote play enabled were found
+    bool has_ps4_registered = settings->GetPS4RegisteredHostsRegistered() > 0;
+    if (consoles_with_remote_play == 0 && !has_ps4_registered) {
+        emit psnNoConsolesFound();
+    }
 
     emit hostsChanged();
     qCInfo(chiakiGui) << "Updated PSN hosts";
@@ -2329,8 +2357,6 @@ QString QmlBackend::getPSStreamURL()
 
 void QmlBackend::createPSStreamCode(const QString &code, const QJSValue &callback)
 {
-    qDebug() << "Creating PSStream code:" << code;
-    
     // Create network access manager
     QNetworkAccessManager *manager = new QNetworkAccessManager(this);
     
@@ -2345,8 +2371,6 @@ void QmlBackend::createPSStreamCode(const QString &code, const QJSValue &callbac
     QJsonDocument doc(json);
     QByteArray data = doc.toJson();
     
-    qDebug() << "Sending create-code request with payload:" << data;
-    
     // Make the POST request
     QNetworkReply *reply = manager->post(request, data);
     
@@ -2354,19 +2378,14 @@ void QmlBackend::createPSStreamCode(const QString &code, const QJSValue &callbac
     connect(reply, &QNetworkReply::finished, [this, reply, callback, manager]() {
         QJSValue cb = callback;
         
-        qDebug() << "Create-code response received, HTTP status:" << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        
         if (reply->error() == QNetworkReply::NoError) {
             // Parse the response
             QByteArray responseData = reply->readAll();
-            qDebug() << "Create-code response data:" << responseData;
-            
             QJsonDocument responseDoc = QJsonDocument::fromJson(responseData);
             QJsonObject responseObj = responseDoc.object();
             
             if (responseObj["result"].toString() == "success") {
                 // Success
-                qDebug() << "PSStream code created successfully";
                 if (cb.isCallable()) {
                     cb.call({true, QString("")});
                 }
@@ -2376,7 +2395,6 @@ void QmlBackend::createPSStreamCode(const QString &code, const QJSValue &callbac
                 if (errorMsg.isEmpty()) {
                     errorMsg = "Unknown server error";
                 }
-                qDebug() << "PSStream code creation failed:" << errorMsg;
                 if (cb.isCallable()) {
                     cb.call({false, errorMsg});
                 }
@@ -2418,8 +2436,6 @@ void QmlBackend::createPSStreamCode(const QString &code, const QJSValue &callbac
 
 void QmlBackend::checkPSStreamStatus(const QString &code, const QJSValue &callback)
 {
-    qDebug() << "Checking PSStream status for code:" << code;
-    
     // Create network access manager
     QNetworkAccessManager *manager = new QNetworkAccessManager(this);
     
@@ -2434,8 +2450,6 @@ void QmlBackend::checkPSStreamStatus(const QString &code, const QJSValue &callba
     QJsonDocument doc(json);
     QByteArray data = doc.toJson();
     
-    qDebug() << "Sending get-tokens request with payload:" << data;
-    
     // Make the POST request
     QNetworkReply *reply = manager->post(request, data);
     
@@ -2443,20 +2457,15 @@ void QmlBackend::checkPSStreamStatus(const QString &code, const QJSValue &callba
     connect(reply, &QNetworkReply::finished, [this, reply, callback, manager]() {
         QJSValue cb = callback;
         
-        qDebug() << "Get-tokens response received, HTTP status:" << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        
         if (reply->error() == QNetworkReply::NoError) {
             // Parse the response
             QByteArray responseData = reply->readAll();
-            qDebug() << "Get-tokens response data:" << responseData;
-            
             QJsonDocument responseDoc = QJsonDocument::fromJson(responseData);
             QJsonObject responseObj = responseDoc.object();
             
             if (responseObj["result"].toString() == "success") {
                 // Success - we got tokens
                 QString tokens = responseObj["tokens"].toString();
-                qDebug() << "PSStream tokens received successfully:" << tokens;
                 if (cb.isCallable()) {
                     cb.call({true, QString(""), tokens});
                 }
@@ -2466,7 +2475,6 @@ void QmlBackend::checkPSStreamStatus(const QString &code, const QJSValue &callba
                 if (errorMsg.isEmpty()) {
                     errorMsg = "Unknown server error";
                 }
-                qDebug() << "PSStream get-tokens failed:" << errorMsg;
                 if (cb.isCallable()) {
                     cb.call({false, errorMsg, QString("")});
                 }
@@ -2477,9 +2485,6 @@ void QmlBackend::checkPSStreamStatus(const QString &code, const QJSValue &callba
             QString responseBody = QString::fromUtf8(responseData);
             
             // Log detailed error information for debugging
-            qDebug() << "Network error checking PSStream status:" << reply->errorString();
-            qDebug() << "HTTP status code:" << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-            qDebug() << "Response body:" << responseBody;
             
             // User-friendly error message with server details if available
             QString userErrorMsg = tr("Failed to connect to server to check login status. Please check your internet connection and try again.");

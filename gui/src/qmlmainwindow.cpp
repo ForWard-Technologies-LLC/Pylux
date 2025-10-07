@@ -25,7 +25,7 @@
 #include <objc/message.h>
 #endif
 
-Q_LOGGING_CATEGORY(chiakiGui, "chiaki.gui", QtInfoMsg);
+Q_LOGGING_CATEGORY(chiakiGui, "chiaki.gui");
 
 static void placebo_log_cb(void *user, pl_log_level level, const char *msg)
 {

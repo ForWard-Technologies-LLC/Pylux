@@ -371,6 +371,8 @@ static ChiakiErrorCode get_websocket_fqdn(
     Session *session, char **fqdn);
 static inline size_t curl_write_cb(
     void* ptr, size_t size, size_t nmemb, void* userdata);
+static int chiaki_curl_debug_callback(CURL *handle, curl_infotype type, char *data, size_t size, void *userptr);
+static CURL* chiaki_curl_easy_init_with_logging(ChiakiLog *log);
 static ChiakiErrorCode hex_to_bytes(const char* hex_str, uint8_t* bytes, size_t max_len);
 static void bytes_to_hex(const uint8_t* bytes, size_t len, char* hex_str, size_t max_len);
 static void random_uuidv4(char* out);
@@ -438,7 +440,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_list_devices(
     ChiakiHolepunchDeviceInfo **devices, size_t *device_count,
     ChiakiLog *log)
 {
-    CURL *curl = curl_easy_init();
+    CURL *curl = chiaki_curl_easy_init_with_logging(log);
     if(!curl)
     {
         CHIAKI_LOGE(log, "Curl could not init");
@@ -1911,6 +1913,61 @@ static inline size_t curl_write_cb(
     return realsize;
 }
 
+/**
+ * CURL debug callback to log ALL HTTP requests and responses
+ * This captures every single API call made by the application
+ */
+static int chiaki_curl_debug_callback(CURL *handle, curl_infotype type, char *data, size_t size, void *userptr) {
+    ChiakiLog *log = (ChiakiLog*)userptr;
+    
+    // Only log if verbose logging is enabled
+    if (!(log->level_mask & CHIAKI_LOG_VERBOSE))
+        return 0;
+    
+    switch (type) {
+        case CURLINFO_TEXT:
+            // CURL debug info
+            break;
+        case CURLINFO_HEADER_OUT:
+            // Request headers
+            CHIAKI_LOGV(log, ">>> HTTP Request Headers:");
+            CHIAKI_LOGV(log, "%.*s", (int)size, data);
+            break;
+        case CURLINFO_DATA_OUT:
+            // Request body
+            CHIAKI_LOGV(log, ">>> HTTP Request Body:");
+            CHIAKI_LOGV(log, "%.*s", (int)size, data);
+            break;
+        case CURLINFO_HEADER_IN:
+            // Response headers
+            CHIAKI_LOGV(log, "<<< HTTP Response Headers:");
+            CHIAKI_LOGV(log, "%.*s", (int)size, data);
+            break;
+        case CURLINFO_DATA_IN:
+            // Response body
+            CHIAKI_LOGV(log, "<<< HTTP Response Body:");
+            CHIAKI_LOGV(log, "%.*s", (int)size, data);
+            break;
+        default:
+            break;
+    }
+    return 0;
+}
+
+/**
+ * Universal CURL initialization with automatic HTTP logging
+ * This replaces curl_easy_init() to add logging to ALL requests automatically
+ */
+static CURL* chiaki_curl_easy_init_with_logging(ChiakiLog *log) {
+    CURL *curl = curl_easy_init();
+    if (curl && log && (log->level_mask & CHIAKI_LOG_VERBOSE)) {
+        curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+        curl_easy_setopt(curl, CURLOPT_DEBUGFUNCTION, chiaki_curl_debug_callback);
+        curl_easy_setopt(curl, CURLOPT_DEBUGDATA, log);
+    }
+    return curl;
+}
+
 static ChiakiErrorCode hex_to_bytes(const char* hex_str, uint8_t* bytes, size_t max_len) {
     size_t len = strlen(hex_str);
     if (len > max_len * 2) {
@@ -2743,7 +2800,7 @@ static ChiakiErrorCode http_create_session(Session *session)
         .size = 0,
     };
 
-    CURL* curl = curl_easy_init();
+    CURL* curl = chiaki_curl_easy_init_with_logging(session->log);
     if(!curl)
     {
         free(response_data.data);

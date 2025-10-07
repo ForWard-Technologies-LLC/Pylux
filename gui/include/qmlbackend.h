@@ -253,6 +253,7 @@ signals:
     void registDialogRequested(const QString &host, bool ps5, const QString &duid);
     void psnLoginAccountIdDone(const QString &accountId);
     void psnLoginAccountIdError(const QString &error);
+    void psnNoConsolesFound();
 
 
 private:

@@ -21,17 +21,33 @@ Pane {
     }
     
     StackView.onActivated: {
-        // Set initial focus based on what's visible
-        if (hostsView.count === 0) {
-            // Focus will be handled by noConsolesDialog.onVisibleChanged
-        } else {
-            // Focus on first console instead of discovery button
-            hostsView.currentIndex = 0;
-            hostsView.selectedIndex = 0;
-            hostsView.forceActiveFocus(Qt.TabFocusReason);
+        // Set contextual focus based on current state
+        Qt.callLater(() => {
+            if (hostsView.count > 0) {
+                // Has consoles - focus first console
+                hostsView.currentIndex = 0;
+                hostsView.selectedIndex = 0;
+                hostsView.forceActiveFocus(Qt.TabFocusReason);
+            } else {
+                // No consoles - focus most relevant dialog button
+                if (addManuallyButton.visible) {
+                    addManuallyButton.forceActiveFocus(Qt.TabFocusReason);
+                } else if (enableLocalDiscoveryButton.visible) {
+                    enableLocalDiscoveryButton.forceActiveFocus(Qt.TabFocusReason);
+                } else {
+                    // Fallback to discovery button in header
+                    discoveryButton.forceActiveFocus(Qt.TabFocusReason);
+                }
+            }
+        })
+        
+        // Show setup guide on first launch
+        if (!Chiaki.settings.setupGuideShown && !Chiaki.autoConnect && !Chiaki.window.directStream) {
+            Qt.callLater(() => {
+                root.showConsoleSetupWalkthrough();
+                Chiaki.settings.setupGuideShown = true;
+            });
         }
-        // Ensure main pane can receive key events
-        consolePane.forceActiveFocus();
         
         if(!Chiaki.autoConnect && !root.initialAsk && !Chiaki.window.directStream)
         {
@@ -197,7 +213,7 @@ Pane {
                     id: discoveryButton
                     Layout.preferredHeight: 50
                     Layout.preferredWidth: 50
-                    flat: true
+                flat: true
                     icon.source: "qrc:/icons/discover-" + (checked ? "" : "off-") + "24px.svg"
                     icon.width: 24
                     icon.height: 24
@@ -208,7 +224,7 @@ Pane {
                     
                     // Keyboard navigation
                     KeyNavigation.right: manuallyAddHeaderButton
-                    KeyNavigation.down: hostsView.count === 0 ? autoAddButton : hostsView
+                    KeyNavigation.down: hostsView.count === 0 ? (addManuallyButton.visible ? addManuallyButton : enableLocalDiscoveryButton.visible ? enableLocalDiscoveryButton : setupGuideButton) : hostsView
                     
                     // When navigating down to GridView, ensure it has focus and a current item
                     Keys.onDownPressed: {
@@ -218,7 +234,13 @@ Pane {
                             hostsView.forceActiveFocus();
                             event.accepted = true;
                         } else {
-                            autoAddButton.forceActiveFocus();
+                            if (addManuallyButton.visible) {
+                            addManuallyButton.forceActiveFocus();
+                        } else if (enableLocalDiscoveryButton.visible) {
+                            enableLocalDiscoveryButton.forceActiveFocus();
+                        } else {
+                            setupGuideButton.forceActiveFocus();
+                        }
                             event.accepted = true;
                         }
                     }
@@ -261,12 +283,12 @@ Pane {
                     font.pixelSize: 14
                     font.weight: Font.Medium
                     focusPolicy: Qt.StrongFocus
-                    onClicked: root.showManualHostDialog()
+                onClicked: root.showManualHostDialog()
                     
                     // Keyboard navigation
                     KeyNavigation.left: discoveryButton
                     KeyNavigation.right: psnLoginHeaderButton
-                    KeyNavigation.down: hostsView.count === 0 ? autoAddButton : hostsView
+                    KeyNavigation.down: hostsView.count === 0 ? (addManuallyButton.visible ? addManuallyButton : enableLocalDiscoveryButton.visible ? enableLocalDiscoveryButton : setupGuideButton) : hostsView
                     
                     // When navigating down to GridView, ensure it has focus and a current item
                     Keys.onDownPressed: {
@@ -276,7 +298,13 @@ Pane {
                             hostsView.forceActiveFocus();
                             event.accepted = true;
                         } else {
-                            autoAddButton.forceActiveFocus();
+                            if (addManuallyButton.visible) {
+                            addManuallyButton.forceActiveFocus();
+                        } else if (enableLocalDiscoveryButton.visible) {
+                            enableLocalDiscoveryButton.forceActiveFocus();
+                        } else {
+                            setupGuideButton.forceActiveFocus();
+                        }
                             event.accepted = true;
                         }
                     }
@@ -342,7 +370,13 @@ Pane {
                         hostsView.forceActiveFocus();
                         event.accepted = true;
                     } else {
-                        autoAddButton.forceActiveFocus();
+                        if (enableRemotePlayButton.visible) {
+                            enableRemotePlayButton.forceActiveFocus();
+                        } else if (autoAddButton.visible) {
+                            autoAddButton.forceActiveFocus();
+                        } else {
+                            manualAddButton.forceActiveFocus();
+                        }
                         event.accepted = true;
                     }
                 }
@@ -420,7 +454,13 @@ Pane {
                         hostsView.forceActiveFocus();
                         event.accepted = true;
                     } else {
-                        autoAddButton.forceActiveFocus();
+                        if (enableRemotePlayButton.visible) {
+                            enableRemotePlayButton.forceActiveFocus();
+                        } else if (autoAddButton.visible) {
+                            autoAddButton.forceActiveFocus();
+                        } else {
+                            manualAddButton.forceActiveFocus();
+                        }
                         event.accepted = true;
                     }
                 }
@@ -472,7 +512,7 @@ Pane {
                     
                     // Keyboard navigation
                     KeyNavigation.left: settingsButton
-                    KeyNavigation.down: hostsView.count === 0 ? autoAddButton : hostsView
+                    KeyNavigation.down: hostsView.count === 0 ? (addManuallyButton.visible ? addManuallyButton : enableLocalDiscoveryButton.visible ? enableLocalDiscoveryButton : setupGuideButton) : hostsView
                     
                     // When navigating down to GridView, ensure it has focus and a current item
                     Keys.onDownPressed: {
@@ -482,7 +522,13 @@ Pane {
                             hostsView.forceActiveFocus();
                             event.accepted = true;
                         } else {
-                            autoAddButton.forceActiveFocus();
+                            if (addManuallyButton.visible) {
+                            addManuallyButton.forceActiveFocus();
+                        } else if (enableLocalDiscoveryButton.visible) {
+                            enableLocalDiscoveryButton.forceActiveFocus();
+                        } else {
+                            setupGuideButton.forceActiveFocus();
+                        }
                             event.accepted = true;
                         }
                     }
@@ -568,9 +614,9 @@ Pane {
         GridView {
             id: hostsView
             keyNavigationWraps: true
-            cellWidth: Math.floor(width / Math.max(1, Math.floor(width / 380)))
+            cellWidth: width / 2
             cellHeight: 240
-            model: Chiaki.hosts
+        model: Chiaki.hosts
             
             // Custom property to track selected card for highlighting
             property int selectedIndex: -1
@@ -963,29 +1009,29 @@ Pane {
                         
                     }
                 } 
-                
-                function connectToHost() {
-                    if(modelData.discovered)
-                        Chiaki.connectToHost(index, modelData.name);
-                    else
-                        Chiaki.connectToHost(index);
-                }
 
-                function wakeUpHost() {
-                    if(!modelData.discovered && !modelData.duid)
-                        Chiaki.wakeUpHost(index);
-                }
+            function connectToHost() {
+                if(modelData.discovered)
+                    Chiaki.connectToHost(index, modelData.name);
+                else
+                    Chiaki.connectToHost(index);
+            }
 
-                function deleteHost() {
-                    if (modelData.manual)
-                        root.showConfirmDialog(qsTr("Delete Console"), qsTr("Are you sure you want to delete this console?"), () => {Chiaki.deleteHost(index)});
-                            
-                    else if (modelData.discovered && !modelData.registered)
-                        root.showConfirmDialog(qsTr("Hide Console"), qsTr("Are you sure you want to hide this console?") + "\n\n" + qsTr("Note: You can unhide from the Consoles section of the Settings under Hidden Consoles"), () => Chiaki.hideHost(modelData.mac, modelData.name));
-                }
+            function wakeUpHost() {
+                if(!modelData.discovered && !modelData.duid)
+                    Chiaki.wakeUpHost(index);
+            }
 
-                function setConsolePin() {
-                    root.showConsolePinDialog(index);
+            function deleteHost() {
+                if (modelData.manual)
+                    root.showConfirmDialog(qsTr("Delete Console"), qsTr("Are you sure you want to delete this console?"), () => {Chiaki.deleteHost(index)});
+                        
+                else if (modelData.discovered && !modelData.registered)
+                    root.showConfirmDialog(qsTr("Hide Console"), qsTr("Are you sure you want to hide this console?") + "\n\n" + qsTr("Note: You can unhide from the Consoles section of the Settings under Hidden Consoles"), () => Chiaki.hideHost(modelData.mac, modelData.name));
+            }
+
+            function setConsolePin() {
+                root.showConsolePinDialog(index);
                 }
             } 
         }
@@ -1010,12 +1056,12 @@ Pane {
             }
             height: 1
             color: Qt.rgba(0, 212/255, 255/255, 0.3)
-        }
-        
-        RowLayout {
-            anchors {
-                fill: parent
-                leftMargin: 30
+            }
+
+            RowLayout {
+                anchors {
+                    fill: parent
+                    leftMargin: 30
                 rightMargin: 30
     }
 
@@ -1026,8 +1072,8 @@ Pane {
             }
             
             Item { Layout.fillWidth: true }
-            
-            Label {
+
+                Label {
                 text: qsTr("Use ↑↓ to navigate • Enter to connect • Menu for settings")
                 font.pixelSize: 11
                 color: Qt.rgba(255, 255, 255, 0.5)
@@ -1039,60 +1085,50 @@ Pane {
     Rectangle {
         id: noConsolesDialog
         anchors.centerIn: parent
-        width: 420
-        height: 450
+        width: Math.max(480, contentColumn.implicitWidth + 60)
+        height: contentColumn.implicitHeight + 60
         radius: 12
         color: Qt.rgba(10/255, 15/255, 26/255, 0.9)
         border.color: Qt.rgba(0, 212/255, 255/255, 0.3)
         border.width: 1
         visible: hostsView.count === 0
         
-        // Auto-focus the Auto Add button when dialog becomes visible
+        // Focus management for keyboard/gamepad navigation
         onVisibleChanged: {
             if (visible) {
-                autoAddButton.forceActiveFocus(Qt.TabFocusReason);
+                // Set focus to the most relevant button when dialog appears
+                Qt.callLater(() => {
+                    if (addManuallyButton.visible) {
+                        addManuallyButton.forceActiveFocus()
+                    } else if (enableLocalDiscoveryButton.visible) {
+                        enableLocalDiscoveryButton.forceActiveFocus()
+                    }
+                })
             }
         }
         
-        ColumnLayout {
-            anchors.fill: parent
-            anchors.margins: 30
-            spacing: 25
-            
-            Rectangle {
-                Layout.alignment: Qt.AlignHCenter
-                Layout.preferredWidth: 80
-                Layout.preferredHeight: 80
-                radius: 12
-                color: Qt.rgba(0, 212/255, 255/255, 0.1)
-                border.color: "#00d4ff"
-                border.width: 2
-                opacity: 0.5
+        // Update dialog when hosts are added/removed
+        Connections {
+            target: Chiaki
+            function onHostsChanged() {
+                console.log("MainView: Hosts changed, count is now:", hostsView.count);
                 
-                Text {
-                    anchors.centerIn: parent
-                    text: "PS"
-                    font.pixelSize: 28
-                    font.weight: Font.Bold
-                    color: "#00d4ff"
-                }
-                
-                Rectangle {
-                    anchors.fill: parent
-                    radius: parent.radius
-                    color: "transparent"
-                    border.color: "#00d4ff"
-                    border.width: 2
-                    opacity: 0.3
-                    
-                    layer.enabled: true
-                    layer.effect: MultiEffect {
-                        blurEnabled: true
-                        blurMax: 12
-                        blur: 0.6
-                    }
+                // If consoles were found, focus the first one
+                if (hostsView.count > 0) {
+                    Qt.callLater(() => {
+                        hostsView.currentIndex = 0;
+                        hostsView.selectedIndex = 0;
+                        hostsView.forceActiveFocus();
+                    });
                 }
             }
+        }
+
+                ColumnLayout {
+            id: contentColumn
+            anchors.centerIn: parent
+            width: 450
+            spacing: 20
             
             Label {
                 Layout.alignment: Qt.AlignHCenter
@@ -1102,35 +1138,85 @@ Pane {
                 color: "#00d4ff"
             }
             
+            // Main description text
             Label {
                 Layout.alignment: Qt.AlignHCenter
-                Layout.preferredWidth: 350
-                text: qsTr("Choose how to find your PlayStation consoles:")
-                font.pixelSize: 14
+                Layout.fillWidth: true
+                Layout.maximumWidth: 420
+                text: qsTr("Make sure Remote Play is enabled on your console and you're connected to the same WiFi network.")
+                font.pixelSize: 13
                 color: Qt.rgba(255, 255, 255, 0.7)
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.WordWrap
             }
             
+            // Remote Play Setup Instructions
+            Rectangle {
+                Layout.alignment: Qt.AlignHCenter
+                Layout.preferredWidth: 420
+                Layout.preferredHeight: instructionsColumn.implicitHeight + 30
+                radius: 8
+                color: Qt.rgba(0, 212/255, 255/255, 0.05)
+                border.color: Qt.rgba(0, 212/255, 255/255, 0.2)
+                border.width: 1
+                
+                Column {
+                    id: instructionsColumn
+                    anchors.centerIn: parent
+                    width: parent.width - 30
+                    spacing: 16
+                    
+                    Label {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: qsTr("Enable Remote Play on your console:")
+                        font.pixelSize: 14
+                        font.weight: Font.Medium
+                        color: "#00d4ff"
+                    }
+                    
+                    Column {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        spacing: 8
+                        
+                        Label {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            text: qsTr("PS5: Settings → System → Remote Play")
+                            font.pixelSize: 12
+                            color: Qt.rgba(255, 255, 255, 0.85)
+                            font.family: "monospace"
+                            horizontalAlignment: Text.AlignHCenter
+                        }
+                        
+                        Label {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            text: qsTr("PS4: Settings → Remote Play Connection Settings")
+                            font.pixelSize: 12
+                            color: Qt.rgba(255, 255, 255, 0.85)
+                            font.family: "monospace"
+                            horizontalAlignment: Text.AlignHCenter
+                        }
+                    }
+                }
+            }
+            
             // Button column for console addition options
             ColumnLayout {
                 Layout.alignment: Qt.AlignHCenter
-                Layout.topMargin: 15
-                spacing: 18
+                Layout.topMargin: 10
+                spacing: 12
                 
-                // PSN Login Button (Primary option)
-                Button {
-                    id: autoAddButton
+                // Add Manually Button (Primary option)
+                    Button {
+                    id: addManuallyButton
                     Layout.preferredWidth: 300
                     Layout.preferredHeight: 50
-                    text: qsTr("Login to PSN (Recommended)")
+                    text: qsTr("Add Console Manually")
                     font.pixelSize: 14
                     font.weight: Font.Medium
-                    onClicked: root.showPSNTokenDialog("", false)
+                    onClicked: root.showManualHostDialog()
                     
                     // Keyboard navigation
-                    KeyNavigation.down: manualAddButton
-                    KeyNavigation.up: discoveryButton
+                    KeyNavigation.down: enableLocalDiscoveryButton.visible ? enableLocalDiscoveryButton : setupGuideButton
                     
                     background: Rectangle {
                         radius: 8
@@ -1168,30 +1254,33 @@ Pane {
                     }
                 }
                 
-                // Description for PSN Login
+                // Description for Add Manually
                 Label {
                     Layout.alignment: Qt.AlignHCenter
-                    Layout.preferredWidth: 300
+                    Layout.fillWidth: true
+                    Layout.maximumWidth: 300
                     Layout.topMargin: -12
-                    text: qsTr("Finds all your consoles, including remote ones")
+                    text: qsTr("Only needed if automatic discovery doesn't work")
                     font.pixelSize: 12
                     color: Qt.rgba(255, 255, 255, 0.6)
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.WordWrap
                 }
                 
-                // Local Discovery Button (Secondary option)
+                // Enable Local Discovery Button (Secondary option)
                 Button {
-                    id: manualAddButton
+                    id: enableLocalDiscoveryButton
                     Layout.preferredWidth: 300
                     Layout.preferredHeight: 50
                     text: qsTr("Enable Local Discovery")
                     font.pixelSize: 14
                     font.weight: Font.Medium
+                    visible: !Chiaki.discoveryEnabled
                     onClicked: Chiaki.discoveryEnabled = true
                     
                     // Keyboard navigation
-                    KeyNavigation.up: autoAddButton
+                    KeyNavigation.up: addManuallyButton
+                    KeyNavigation.down: setupGuideButton
                     
                     background: Rectangle {
                         radius: 8
@@ -1230,21 +1319,72 @@ Pane {
                 }
                 
                 // Description for Local Discovery
-                Label {
+    Label {
                     Layout.alignment: Qt.AlignHCenter
-                    Layout.preferredWidth: 300
+                    Layout.fillWidth: true
+                    Layout.maximumWidth: 300
                     Layout.topMargin: -12
                     text: qsTr("Automatically finds consoles on your local network")
                     font.pixelSize: 12
                     color: Qt.rgba(255, 255, 255, 0.6)
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.WordWrap
+                    visible: !Chiaki.discoveryEnabled
                 }
-            }
-
-            // Spacer to push content up
-            Item {
-                Layout.fillHeight: true
+                
+                // Setup Guide Button (Tertiary option)
+                Button {
+                    id: setupGuideButton
+                    Layout.preferredWidth: 300
+                    Layout.preferredHeight: 50
+                    text: qsTr("Setup Guide")
+                    font.pixelSize: 14
+                    font.weight: Font.Medium
+                    onClicked: {
+                        console.log("Setup Guide button clicked - calling showConsoleSetupWalkthrough");
+                        root.showConsoleSetupWalkthrough();
+                    }
+                    
+                    // Keyboard navigation
+                    KeyNavigation.up: enableLocalDiscoveryButton.visible ? enableLocalDiscoveryButton : addManuallyButton
+                    
+                    background: Rectangle {
+                        radius: 6
+                        color: parent.activeFocus ? Qt.rgba(255, 255, 255, 0.1) : Qt.rgba(255, 255, 255, 0.05)
+                        border.color: parent.activeFocus ? Qt.rgba(255, 255, 255, 0.5) : Qt.rgba(255, 255, 255, 0.2)
+                        border.width: 1
+                        
+                        Rectangle {
+                            anchors.fill: parent
+                            radius: parent.radius
+                            color: Qt.rgba(255, 255, 255, 0.1)
+                            opacity: parent.parent.hovered ? 1 : 0
+                            Behavior on opacity { NumberAnimation { duration: 200 } }
+                        }
+                    }
+                    
+                    contentItem: Text {
+                        text: parent.text
+                        font: parent.font
+                        color: parent.activeFocus ? "#ffffff" : Qt.rgba(255, 255, 255, 0.7)
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        Behavior on color { ColorAnimation { duration: 200 } }
+                    }
+                }
+                
+                // Description for Setup Guide
+                Label {
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.fillWidth: true
+                    Layout.maximumWidth: 300
+                    Layout.topMargin: -8
+                    text: qsTr("Complete walkthrough for setting up consoles")
+                    font.pixelSize: 11
+                    color: Qt.rgba(255, 255, 255, 0.5)
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.WordWrap
+                }
             }
         }
     }

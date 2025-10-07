@@ -4,6 +4,9 @@
 #include <QJsonDocument>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
+#include <QLoggingCategory>
+
+Q_DECLARE_LOGGING_CATEGORY(chiakiGui)
 
 class JsonRequester : public QObject {
     Q_OBJECT

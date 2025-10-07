@@ -221,6 +221,10 @@ Item {
         stack.push(controllerMappingDialogComponent)
     }
 
+    function showConsoleSetupWalkthrough() {
+        stack.push(consoleSetupWalkthroughComponent)
+    }
+
     Component.onCompleted: {
         if (Chiaki.session)
             stack.replace(stack.get(0), streamViewComponent, {}, StackView.Immediate);
@@ -323,10 +327,11 @@ Item {
         }
     }
     Rectangle {
+        id: errorToast
         anchors {
             bottom: parent.bottom
             horizontalCenter: parent.horizontalCenter
-            bottomMargin: 30
+            bottomMargin: 80
         }
         color: Material.accent
         width: errorLayout.width + 40
@@ -335,6 +340,7 @@ Item {
         opacity: errorHideTimer.running ? 0.8 : 0.0
 
         Behavior on opacity { NumberAnimation { duration: 500 } }
+        Behavior on color { ColorAnimation { duration: 300 } }
 
         ColumnLayout {
             id: errorLayout
@@ -394,6 +400,8 @@ Item {
         function onError(title, text) {
             errorTitleLabel.text = title;
             errorTextLabel.text = text;
+            // Reset to default color for regular errors
+            errorToast.color = Material.accent;
             errorHideTimer.start();
         }
 
@@ -411,6 +419,14 @@ Item {
 
         function onWakeupStartInitiated() {
             stack.replace(stack.get(0), autoConnectViewComponent, {}, StackView.Immediate);
+        }
+
+        function onPsnNoConsolesFound() {
+            errorTitleLabel.text = qsTr("No Consoles Found");
+            errorTextLabel.text = qsTr("No consoles detected. Please ensure your PlayStation console has Remote Play enabled and is connected to the internet.");
+            // Set warning color for this specific message
+            errorToast.color = "#ff9800"; // Orange warning color
+            errorHideTimer.start();
         }
     }
 
@@ -489,5 +505,10 @@ Item {
     Component {
         id: controllerMappingDialogComponent
         ControllerMappingDialog { }
+    }
+
+    Component {
+        id: consoleSetupWalkthroughComponent
+        ConsoleSetupWalkthrough { }
     }
 }

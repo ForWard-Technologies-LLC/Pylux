@@ -56,12 +56,14 @@ sudo podman exec --env SKIP_APPIMAGE="$SKIP_VAL" "$container_name" /bin/bash -lc
 # Launch either the unpackaged binary (from AppDir) or the AppImage
 if [ "${SKIP_APPIMAGE:-0}" = "1" ]; then
   if [ -x appimage/appdir/usr/bin/chiaki ]; then
-    echo "Starting application in foreground..."
+    echo "Starting application in foreground with verbose logging enabled..."
+    echo "Note: All PSN HTTP requests and responses will be logged to the terminal."
     env LD_LIBRARY_PATH=appimage/appdir/usr/lib:${LD_LIBRARY_PATH-} \
       QT_PLUGIN_PATH=appimage/appdir/usr/plugins \
       QML2_IMPORT_PATH=appimage/appdir/usr/qml \
       QT_QPA_PLATFORM_PLUGIN_PATH=appimage/appdir/usr/plugins/platforms \
       QTWEBENGINEPROCESS_PATH=appimage/appdir/usr/libexec/QtWebEngineProcess \
+      QT_LOGGING_RULES="chiaki.gui.debug=true" \
       appimage/appdir/usr/bin/chiaki
     exit 0
   else

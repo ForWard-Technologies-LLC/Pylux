@@ -48,6 +48,17 @@ void QmlSettings::setAddSteamShortcutAsk(bool asked)
     emit addSteamShortcutAskChanged();
 }
 
+bool QmlSettings::setupGuideShown() const
+{
+    return settings->GetSetupGuideShown();
+}
+
+void QmlSettings::setSetupGuideShown(bool shown)
+{
+    settings->SetSetupGuideShown(shown);
+    emit setupGuideShownChanged();
+}
+
 bool QmlSettings::hideCursor() const
 {
     return settings->GetHideCursor();

@@ -2394,17 +2394,17 @@ DialogView {
 
             Item {
                 // Config (PSN Remote Connection Setup and Import/Export)
-                GridLayout {
+                ColumnLayout {
                     anchors {
                         top: parent.top
-                        horizontalCenter: parent.horizontalCenter
+                        left: parent.left
+                        right: parent.right
                         topMargin: 50
                     }
-                    columns: 1
-                    rowSpacing: 20
-                    columnSpacing: 10
+                    spacing: 20
 
                     Label {
+                        Layout.alignment: Qt.AlignHCenter
                         text: {
                             if(Chiaki.settings.currentProfile)
                                 qsTr("Current Profile: ") + Chiaki.settings.currentProfile
@@ -2416,6 +2416,10 @@ DialogView {
                     C.Button {
                         id: profile
                         firstInFocusChain: true
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.fillWidth: true
+                        Layout.maximumWidth: 400
+                        Layout.preferredHeight: 50
                         text: qsTr("Manage Profiles")
                         onClicked: {
                             root.showProfileDialog()
@@ -2425,6 +2429,10 @@ DialogView {
 
                     C.Button {
                         id: openPsnLogin
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.fillWidth: true
+                        Layout.maximumWidth: 400
+                        Layout.preferredHeight: 50
                         text: qsTr("Login to PSN")
                         onClicked: {
                             root.showPSNTokenDialog(false);
@@ -2435,10 +2443,10 @@ DialogView {
 
                     C.Button {
                         id: resetPsnTokens
-                        topPadding: 26
-                        leftPadding: 30
-                        rightPadding: 30
-                        bottomPadding: 26
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.fillWidth: true
+                        Layout.maximumWidth: 400
+                        Layout.preferredHeight: 50
                         text: qsTr("Clear PSN Token")
                         onClicked: {
                             Chiaki.settings.psnRefreshToken = ""
@@ -2453,6 +2461,10 @@ DialogView {
 
                     C.Button {
                         id: exportButton
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.fillWidth: true
+                        Layout.maximumWidth: 400
+                        Layout.preferredHeight: 50
                         text: qsTr("Export settings to file")
                         onClicked: {
                             Chiaki.settings.exportSettings();
@@ -2462,6 +2474,10 @@ DialogView {
 
                     C.Button {
                         id: importButton
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.fillWidth: true
+                        Layout.maximumWidth: 400
+                        Layout.preferredHeight: 50
                         text: qsTr("Import settings from file")
                         onClicked: {
                             Chiaki.settings.importSettings();
@@ -2470,13 +2486,30 @@ DialogView {
                     }
 
                     C.Button {
+                        id: setupGuideButton
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.fillWidth: true
+                        Layout.maximumWidth: 400
+                        Layout.preferredHeight: 50
+                        text: qsTr("Console Setup Guide")
+                        onClicked: root.showConsoleSetupWalkthrough()
+                        Material.roundedScale: Material.SmallScale
+                    }
+
+                    C.Button {
                         id: aboutButton
-                        text: qsTr("About %1-ng").arg(Qt.application.name)
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.fillWidth: true
+                        Layout.maximumWidth: 400
+                        Layout.preferredHeight: 50
+                        text: qsTr("About")
                         onClicked: aboutDialog.open()
                         Material.roundedScale: Material.SmallScale
                     }
 
                     C.CheckBox {
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.topMargin: 10
                         text: qsTr("Verbose Logging (unchecked)")
                         checked: Chiaki.settings.logVerbose
                         lastInFocusChain: true

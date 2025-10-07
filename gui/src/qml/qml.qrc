@@ -22,6 +22,7 @@
     <file>PSNTokenDialog.qml</file>
     <file>QRLoginDialog.qml</file>
     <file>ControllerMappingDialog.qml</file>
+    <file>ConsoleSetupWalkthrough.qml</file>
     <file>AutoConnectView.qml</file>
     <file>PsnView.qml</file>
     <file>controls/Button.qml</file>
