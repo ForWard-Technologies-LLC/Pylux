@@ -2277,15 +2277,15 @@ void QmlBackend::updatePsnHostsThread()
         }
         break;
     }
-    size_t consoles_with_remote_play = 0;
     for (size_t i = 0; i < num_devices_ps5; i++)
     {
         ChiakiHolepunchDeviceInfo dev = device_info_ps5[i];
         // skip devices that don't have remote play enabled
         if(!dev.remoteplay_enabled)
+        {
             qCInfo(chiakiGui) << "Skipping device with remote play disabled";
             continue;
-        consoles_with_remote_play++;
+        }
         QByteArray duid_bytes(reinterpret_cast<char*>(dev.device_uid), sizeof(dev.device_uid));
         QString duid = QString(duid_bytes.toHex());
         QString name = QString(dev.device_name);
@@ -2307,11 +2307,7 @@ void QmlBackend::updatePsnHostsThread()
     if(!psn_hosts.contains(duid) && (settings->GetPS4RegisteredHostsRegistered() > 0))
         psn_hosts.insert(duid, psn_host);
 
-    // Check if no consoles with remote play enabled were found
-    bool has_ps4_registered = settings->GetPS4RegisteredHostsRegistered() > 0;
-    if (consoles_with_remote_play == 0 && !has_ps4_registered) {
-        emit psnNoConsolesFound();
-    }
+    // Removed PSN no consoles found error message - users can add consoles manually
 
     emit hostsChanged();
     qCInfo(chiakiGui) << "Updated PSN hosts";

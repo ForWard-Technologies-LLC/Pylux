@@ -421,13 +421,6 @@ Item {
             stack.replace(stack.get(0), autoConnectViewComponent, {}, StackView.Immediate);
         }
 
-        function onPsnNoConsolesFound() {
-            errorTitleLabel.text = qsTr("No Consoles Found");
-            errorTextLabel.text = qsTr("No consoles detected. Please ensure your PlayStation console has Remote Play enabled and is connected to the internet.");
-            // Set warning color for this specific message
-            errorToast.color = "#ff9800"; // Orange warning color
-            errorHideTimer.start();
-        }
     }
 
     Component {
