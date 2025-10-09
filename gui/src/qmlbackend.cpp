@@ -39,6 +39,8 @@
 #include <QNetworkReply>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonArray>
+#include <QSet>
 
 #define PSN_DEVICES_TRIES 2
 #define MAX_PSN_RECONNECT_TRIES 6
@@ -2259,9 +2261,11 @@ void QmlBackend::updatePsnHostsThread()
     ChiakiLog backend_log;
     chiaki_log_init(&backend_log, settings->GetLogLevelMask(), chiaki_log_cb_print, nullptr);
     
+    bool sync_games = settings->GetPsnGamesSyncEnabled();
+    
     for(int i = 0; i < PSN_DEVICES_TRIES; i++)
     {
-        ChiakiErrorCode err = chiaki_holepunch_list_devices(psn_token.toUtf8().constData(), CHIAKI_HOLEPUNCH_CONSOLE_TYPE_PS5, &device_info_ps5, &num_devices_ps5, &backend_log);
+        ChiakiErrorCode err = chiaki_holepunch_list_devices(psn_token.toUtf8().constData(), CHIAKI_HOLEPUNCH_CONSOLE_TYPE_PS5, &device_info_ps5, &num_devices_ps5, sync_games, &backend_log);
         if (err != CHIAKI_ERR_SUCCESS)
         {
             if(PSN_DEVICES_TRIES - i > 1)
@@ -2309,10 +2313,261 @@ void QmlBackend::updatePsnHostsThread()
 
     // Removed PSN no consoles found error message - users can add consoles manually
 
+    // Save installed games list per device BEFORE emitting hostsChanged
+    // so that the games data is available when the frontend responds
+    if (sync_games && num_devices_ps5 > 0 && device_info_ps5)
+        savePsnGamesFromDevices(device_info_ps5, num_devices_ps5);
+    
     emit hostsChanged();
     qCInfo(chiakiGui) << "Updated PSN hosts";
+    
     if(device_info_ps5)
         chiaki_holepunch_free_device_list(&device_info_ps5);
+}
+
+/**
+ * Save PSN installed games data from device list to persistent storage.
+ * 
+ * This function performs the following operations:
+ * 
+ * 1. **Load Previous Games**: Retrieves the previously saved games JSON from settings
+ *    to build a set of all title IDs we've seen before. This allows us to detect
+ *    which games are newly installed. Also loads the existing device structure to
+ *    merge with new data.
+ * 
+ * 2. **Parse Device Games**: Iterates through each device in the provided array and:
+ *    - Extracts the device unique ID (DUID) as a hex string for use as a lookup key
+ *    - Parses the games JSON array from each device's installed_games_json field
+ *    - Filters games to only include displayLocationSpace=="game" (excludes media apps)
+ *    - Counts total games and tracks which ones are new
+ * 
+ * 3. **Merge Games Per Device**: For each device, merges the new games with previously
+ *    known games (indexed by titleId). This preserves games that might be temporarily
+ *    uninstalled or on different storage. Creates a JSON structure:
+ *    {
+ *      "abc123...": {
+ *        "deviceName": "PS5",
+ *        "games": [
+ *          { "titleId": "PPSA01325", "comment": "Game Name", ... },
+ *          ...
+ *        ]
+ *      },
+ *      ...
+ *    }
+ * 
+ * 4. **Save and Notify**: Saves the merged structure to QSettings and emits
+ *    the psnGamesSynced signal with the count of newly discovered games (or total
+ *    games if this is the first sync).
+ * 
+ * @param devices Array of ChiakiHolepunchDeviceInfo containing device and games data
+ * @param device_count Number of devices in the array
+ */
+void QmlBackend::savePsnGamesFromDevices(ChiakiHolepunchDeviceInfo *devices, size_t device_count)
+{
+    qCInfo(chiakiGui) << "savePsnGamesFromDevices called with" << device_count << "devices";
+    
+    // Step 1: Load previous games and devices structure
+    QString previous_games_json = settings->GetPsnGamesJson();
+    QSet<QString> previous_game_ids;
+    QJsonObject devices_obj;  // Start with existing devices
+    
+    if (!previous_games_json.isEmpty())
+    {
+        QJsonParseError parse_error;
+        QJsonDocument prev_doc = QJsonDocument::fromJson(previous_games_json.toUtf8(), &parse_error);
+        
+        // Safety check: verify JSON parsing succeeded
+        if (parse_error.error != QJsonParseError::NoError)
+        {
+            qCWarning(chiakiGui) << "Failed to parse existing games JSON:" << parse_error.errorString() 
+                                 << "at offset" << parse_error.offset;
+            // Continue with empty devices_obj - will rebuild from scratch
+        }
+        else if (prev_doc.isObject())
+        {
+            devices_obj = prev_doc.object();  // Load existing structure
+            
+            // Build set of known title IDs across all devices
+            for (const QString &device_id : devices_obj.keys())
+            {
+                QJsonValue device_val = devices_obj.value(device_id);
+                
+                // Safety check: ensure device is an object
+                if (!device_val.isObject())
+                {
+                    qCWarning(chiakiGui) << "Skipping invalid device entry for" << device_id;
+                    continue;
+                }
+                
+                QJsonObject device = device_val.toObject();
+                QJsonValue games_val = device.value("games");
+                
+                // Safety check: ensure games is an array
+                if (!games_val.isArray())
+                {
+                    qCWarning(chiakiGui) << "Skipping device" << device_id << "- games field is not an array";
+                    continue;
+                }
+                
+                QJsonArray games = games_val.toArray();
+                for (const QJsonValue &game_val : games)
+                {
+                    // Safety check: ensure game is an object
+                    if (!game_val.isObject())
+                        continue;
+                    
+                    QJsonObject game = game_val.toObject();
+                    QString title_id = game.value("titleId").toString();
+                    if (!title_id.isEmpty())
+                        previous_game_ids.insert(title_id);
+                }
+            }
+        }
+        else
+        {
+            qCWarning(chiakiGui) << "Existing games JSON is not an object, will rebuild from scratch";
+        }
+    }
+    
+    // Step 2 & 3: Parse device games and merge with existing data
+    int new_games_count = 0;
+    int total_games_count = 0;
+    
+    qCInfo(chiakiGui) << "Previous game IDs count:" << previous_game_ids.size();
+    
+    for (size_t i = 0; i < device_count; i++)
+    {
+        ChiakiHolepunchDeviceInfo dev = devices[i];
+        
+        // Only process devices that have games data
+        if (dev.installed_games_json)
+        {
+            // Convert device UID bytes to hex string for use as JSON key
+            QByteArray duid_bytes(reinterpret_cast<char*>(dev.device_uid), sizeof(dev.device_uid));
+            QString duid = QString(duid_bytes.toHex());
+            QString device_name = QString(dev.device_name);
+            
+            qCInfo(chiakiGui) << "Processing device" << device_name << "with DUID" << duid;
+            
+            // Get existing games for this device (if any)
+            QMap<QString, QJsonObject> existing_games_map;
+            if (devices_obj.contains(duid))
+            {
+                QJsonValue existing_device_val = devices_obj.value(duid);
+                
+                // Safety check: ensure existing device is an object
+                if (existing_device_val.isObject())
+                {
+                    QJsonObject existing_device = existing_device_val.toObject();
+                    QJsonValue existing_games_val = existing_device.value("games");
+                    
+                    // Safety check: ensure games is an array
+                    if (existing_games_val.isArray())
+                    {
+                        QJsonArray existing_games = existing_games_val.toArray();
+                        for (const QJsonValue &game_val : existing_games)
+                        {
+                            // Safety check: ensure game is an object
+                            if (!game_val.isObject())
+                                continue;
+                            
+                            QJsonObject game = game_val.toObject();
+                            QString title_id = game.value("titleId").toString();
+                            if (!title_id.isEmpty())
+                                existing_games_map[title_id] = game;
+                        }
+                    }
+                }
+            }
+            
+            // Parse the new games JSON array
+            QJsonParseError parse_error;
+            QJsonDocument games_doc = QJsonDocument::fromJson(QByteArray(dev.installed_games_json), &parse_error);
+            
+            // Safety check: verify JSON parsing succeeded
+            if (parse_error.error != QJsonParseError::NoError)
+            {
+                qCWarning(chiakiGui) << "Failed to parse games JSON for device" << device_name 
+                                     << ":" << parse_error.errorString() << "at offset" << parse_error.offset;
+            }
+            else if (games_doc.isArray())
+            {
+                QJsonArray new_games_array = games_doc.array();
+                
+                // Merge new games into existing games map
+                for (const QJsonValue &game_val : new_games_array)
+                {
+                    // Safety check: ensure game is an object
+                    if (!game_val.isObject())
+                    {
+                        qCWarning(chiakiGui) << "Skipping invalid game entry for device" << device_name;
+                        continue;
+                    }
+                    
+                    QJsonObject game = game_val.toObject();
+                    QString title_id = game.value("titleId").toString();
+                    
+                    if (!title_id.isEmpty())
+                    {
+                        // Check if this is a new game
+                        if (!previous_game_ids.contains(title_id))
+                            new_games_count++;
+                        
+                        // Update or add the game (new data overwrites old for same titleId)
+                        existing_games_map[title_id] = game;
+                    }
+                    else
+                    {
+                        qCWarning(chiakiGui) << "Skipping game with empty titleId for device" << device_name;
+                    }
+                }
+                
+                // Convert merged games map back to array
+                QJsonArray merged_games_array;
+                for (const QJsonObject &game : existing_games_map)
+                    merged_games_array.append(game);
+                
+                total_games_count += merged_games_array.size();
+                
+                // Create/update device entry with name and merged games array
+                QJsonObject device_entry;
+                device_entry["deviceName"] = device_name;
+                device_entry["games"] = merged_games_array;
+                devices_obj[duid] = device_entry;
+            }
+            else
+            {
+                qCWarning(chiakiGui) << "Games JSON for device" << device_name << "is not an array";
+            }
+            
+            // Free the C-allocated JSON string
+            free(dev.installed_games_json);
+        }
+    }
+    
+    // Step 4: Save to settings and notify frontend
+    if (!devices_obj.isEmpty())
+    {
+        QJsonDocument doc(devices_obj);
+        settings->SetPsnGamesJson(doc.toJson(QJsonDocument::Compact));
+        qCInfo(chiakiGui) << "Saved" << total_games_count << "installed games to settings";
+        qCInfo(chiakiGui) << "New games count:" << new_games_count << ", Previous games was empty:" << previous_game_ids.isEmpty();
+        
+        // Emit signal with count of new games (or total if first sync)
+        if (new_games_count > 0 || previous_game_ids.isEmpty())
+        {
+            qCInfo(chiakiGui) << "Emitting psnGamesSynced signal with count:" << (new_games_count > 0 ? new_games_count : total_games_count);
+            emit psnGamesSynced(new_games_count > 0 ? new_games_count : total_games_count);
+        }
+        else
+        {
+            qCInfo(chiakiGui) << "Not emitting psnGamesSynced - no new games detected";
+        }
+    }
+    else
+    {
+        qCWarning(chiakiGui) << "devices_obj is empty - no games data to save";
+    }
 }
 
 void QmlBackend::refreshPsnToken()
@@ -2328,6 +2583,45 @@ void QmlBackend::refreshPsnToken()
         refreshAuth();
     else
         updatePsnHosts();
+}
+
+QString QmlBackend::getPsnInstalledGames()
+{
+    QString games_json = settings->GetPsnGamesJson();
+    return games_json.isEmpty() ? QString("{}") : games_json;
+}
+
+void QmlBackend::clearPsnGames()
+{
+    // Count games before clearing
+    QString games_json = settings->GetPsnGamesJson();
+    int games_count = 0;
+    
+    if (!games_json.isEmpty())
+    {
+        QJsonDocument doc = QJsonDocument::fromJson(games_json.toUtf8());
+        if (doc.isObject())
+        {
+            QJsonObject devices_obj = doc.object();
+            for (const QString &device_id : devices_obj.keys())
+            {
+                QJsonValue device_val = devices_obj.value(device_id);
+                if (device_val.isObject())
+                {
+                    QJsonObject device = device_val.toObject();
+                    QJsonValue games_val = device.value("games");
+                    if (games_val.isArray())
+                    {
+                        games_count += games_val.toArray().size();
+                    }
+                }
+            }
+        }
+    }
+    
+    settings->ClearPsnGamesJson();
+    qCInfo(chiakiGui) << "Cleared" << games_count << "saved games";
+    emit psnGamesCleared(games_count);
 }
 
 QString QmlBackend::generateQRCode()

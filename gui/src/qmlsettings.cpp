@@ -647,6 +647,17 @@ void QmlSettings::setPsnAccountId(const QString &account_id)
     emit psnAccountIdChanged();
 }
 
+bool QmlSettings::psnGamesSyncEnabled() const
+{
+    return settings->GetPsnGamesSyncEnabled();
+}
+
+void QmlSettings::setPsnGamesSyncEnabled(bool enabled)
+{
+    settings->SetPsnGamesSyncEnabled(enabled);
+    emit psnGamesSyncEnabledChanged();
+}
+
 bool QmlSettings::mouseTouchEnabled() const
 {
     return settings->GetMouseTouchEnabled();

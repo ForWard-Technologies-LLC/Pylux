@@ -202,6 +202,8 @@ public:
     Q_INVOKABLE void initPsnAuth(const QUrl &url, const QJSValue &callback);
     Q_INVOKABLE void psnCancel(bool stop_thread);
     Q_INVOKABLE void refreshPsnToken();
+    Q_INVOKABLE QString getPsnInstalledGames();
+    Q_INVOKABLE void clearPsnGames();
     Q_INVOKABLE void creatingControllerMapping(bool creating_controller_mapping);
     Q_INVOKABLE void updateButton(int chiaki_button, QString physical_button, int new_index);
     Q_INVOKABLE void controllerMappingSelectButton();
@@ -241,6 +243,8 @@ signals:
     void hiddenHostsChanged();
     void psnTokenChanged();
     void psnCredsExpired();
+    void psnGamesSynced(int newGamesCount);
+    void psnGamesCleared(int gamesCount);
     void autoConnectChanged();
     void wakeupStartInitiated();
     void wakeupStartFailed();
@@ -281,6 +285,7 @@ private:
     void updateDiscoveryHosts();
     void updatePsnHosts();
     void updatePsnHostsThread();
+    void savePsnGamesFromDevices(ChiakiHolepunchDeviceInfo *devices, size_t device_count);
     void updateAudioVolume();
     void resumeFromSleep();
     uint32_t getStreamShortcut() const;

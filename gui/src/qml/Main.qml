@@ -405,6 +405,28 @@ Item {
             errorHideTimer.start();
         }
 
+        function onPsnGamesSynced(newGamesCount) {
+            errorTitleLabel.text = qsTr("Games Synced");
+            errorTextLabel.text = newGamesCount === 1 
+                ? qsTr("1 game added") 
+                : qsTr("%1 games added").arg(newGamesCount);
+            // Use a success green color for positive notifications
+            errorToast.color = "#4CAF50";
+            errorHideTimer.start();
+        }
+
+        function onPsnGamesCleared(gamesCount) {
+            errorTitleLabel.text = qsTr("Games Cleared");
+            errorTextLabel.text = gamesCount === 0 
+                ? qsTr("No saved games to clear")
+                : gamesCount === 1 
+                    ? qsTr("1 game cleared") 
+                    : qsTr("%1 games cleared").arg(gamesCount);
+            // Use a blue color for informational notifications
+            errorToast.color = "#2196F3";
+            errorHideTimer.start();
+        }
+
         function onRegistDialogRequested(host, ps5, duid) {
             if(!duid)
                 showRegistDialog(host, ps5);

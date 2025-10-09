@@ -435,6 +435,11 @@ class Settings : public QObject
 
 		QString GetPsnAccountId() const;
 		void SetPsnAccountId(QString account_id);
+		QString GetPsnGamesJson() const;
+		void SetPsnGamesJson(const QString &games_json);
+		bool GetPsnGamesSyncEnabled() const;
+		void SetPsnGamesSyncEnabled(bool enabled);
+		void ClearPsnGamesJson();
 
 		QString GetTimeFormat() const     { return time_format; }
 		void ClearKeyMapping();

@@ -72,6 +72,7 @@ typedef struct chiaki_holepunch_device_info_t
     char device_name[32];
     uint8_t device_uid[32];
     bool remoteplay_enabled;
+    char* installed_games_json;  // JSON array of installed games, must be freed with free()
 } ChiakiHolepunchDeviceInfo;
 
 /** Port types used for remote play. */
@@ -96,7 +97,7 @@ typedef enum chiaki_holepunch_port_type_t
 CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_list_devices(
     const char* psn_oauth2_token,
     ChiakiHolepunchConsoleType console_type, ChiakiHolepunchDeviceInfo** devices,
-    size_t* device_count, ChiakiLog *log);
+    size_t* device_count, bool sync_games, ChiakiLog *log);
 
 /**
  * Free the memory allocated for a device list.

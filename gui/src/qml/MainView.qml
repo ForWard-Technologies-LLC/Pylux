@@ -353,7 +353,7 @@ Pane {
                 id: psnLoginHeaderButton
                     Layout.preferredHeight: 45
                     Layout.preferredWidth: 210
-                    text: Chiaki.settings.psnAuthToken ? qsTr("Refresh PSN") : qsTr("Add Consoles by Login")
+                    text: Chiaki.settings.psnAuthToken ? qsTr("Refresh PSN") : qsTr("Login to PSN")
                     font.pixelSize: 14
                     font.weight: Font.Medium
                 focusPolicy: Qt.StrongFocus

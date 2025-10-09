@@ -353,6 +353,7 @@ DialogView {
                             text: qsTr("Streamer Mode (Hides Info)")
                         }
                         C.CheckBox {
+                            id: streamerMode
                             checked: Chiaki.settings.streamerMode
                             onToggled: Chiaki.settings.streamerMode = !Chiaki.settings.streamerMode
                         }
@@ -371,14 +372,35 @@ DialogView {
                             checked: Chiaki.settings.streamMenuEnabled
                             onToggled: Chiaki.settings.streamMenuEnabled = !Chiaki.settings.streamMenuEnabled
                             KeyNavigation.priority: KeyNavigation.BeforeItem
-                            KeyNavigation.up: openButton
+                            KeyNavigation.up: streamerMode
                             KeyNavigation.left: streamMenu
                             KeyNavigation.right: streamMenu
+                            KeyNavigation.down: psnGamesSyncCheckbox
+                        }
+
+                        Label {
+                            Layout.alignment: Qt.AlignRight
+                            text: qsTr("(Checked)")
+                        }
+
+                        Label {
+                            Layout.alignment: Qt.AlignRight
+                            text: qsTr("Sync Console Game Data")
+                        }
+                        C.CheckBox {
+                            id: psnGamesSyncCheckbox
+                            text: qsTr("Save game list for main screen")
+                            checked: Chiaki.settings.psnGamesSyncEnabled
+                            onToggled: Chiaki.settings.psnGamesSyncEnabled = checked
+                            KeyNavigation.priority: KeyNavigation.BeforeItem
+                            KeyNavigation.up: streamMenu
+                            KeyNavigation.left: psnGamesSyncCheckbox
+                            KeyNavigation.right: psnGamesSyncCheckbox
                             KeyNavigation.down: {
                                 if(streamMenuShortcut1.visible)
                                     streamMenuShortcut1
                                 else
-                                    streamMenu
+                                    psnGamesSyncCheckbox
                             }
                         }
 
@@ -409,7 +431,7 @@ DialogView {
                                 else
                                     KeyNavigation.AfterItem
                             }
-                            KeyNavigation.up: streamMenu
+                            KeyNavigation.up: psnGamesSyncCheckbox
                             KeyNavigation.down: streamMenuShortcut1
                             KeyNavigation.left: streamMenuShortcut1
                             KeyNavigation.right: streamMenuShortcut2
@@ -428,7 +450,7 @@ DialogView {
                                 else
                                     KeyNavigation.AfterItem
                             }
-                            KeyNavigation.up: streamMenu
+                            KeyNavigation.up: psnGamesSyncCheckbox
                             KeyNavigation.down: streamMenuShortcut2
                             KeyNavigation.left: streamMenuShortcut1
                             KeyNavigation.right: streamMenuShortcut3
@@ -447,7 +469,7 @@ DialogView {
                                 else
                                     KeyNavigation.AfterItem
                             }
-                            KeyNavigation.up: streamMenu
+                            KeyNavigation.up: psnGamesSyncCheckbox
                             KeyNavigation.down: streamMenuShortcut3
                             KeyNavigation.left: streamMenuShortcut2
                             KeyNavigation.right: streamMenuShortcut4
@@ -466,7 +488,7 @@ DialogView {
                                 else
                                     KeyNavigation.AfterItem
                             }
-                            KeyNavigation.up: streamMenu
+                            KeyNavigation.up: psnGamesSyncCheckbox
                             KeyNavigation.down: streamMenuShortcut4
                             KeyNavigation.left: streamMenuShortcut3
                             KeyNavigation.right: streamMenuShortcut4
@@ -2457,6 +2479,19 @@ DialogView {
                         }
                         Material.roundedScale: Material.SmallScale
                         visible: Chiaki.settings.psnRefreshToken && Chiaki.settings.psnAuthToken && Chiaki.settings.psnAuthTokenExpiry && Chiaki.settings.psnAccountId
+                    }
+
+                    C.Button {
+                        id: clearPsnGamesButton
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.fillWidth: true
+                        Layout.maximumWidth: 400
+                        Layout.preferredHeight: 50
+                        text: qsTr("Clear Saved Game Data")
+                        onClicked: {
+                            Chiaki.clearPsnGames();
+                        }
+                        Material.roundedScale: Material.SmallScale
                     }
 
                     C.Button {

@@ -917,6 +917,31 @@ void Settings::SetPsnAccountId(QString account_id)
 	settings.setValue("settings/psn_account_id", account_id);
 }
 
+QString Settings::GetPsnGamesJson() const
+{
+	return settings.value("psn_games/devices_json").toString();
+}
+
+void Settings::SetPsnGamesJson(const QString &games_json)
+{
+	settings.setValue("psn_games/devices_json", games_json);
+}
+
+bool Settings::GetPsnGamesSyncEnabled() const
+{
+	return settings.value("psn_games/sync_enabled", true).toBool();
+}
+
+void Settings::SetPsnGamesSyncEnabled(bool enabled)
+{
+	settings.setValue("psn_games/sync_enabled", enabled);
+}
+
+void Settings::ClearPsnGamesJson()
+{
+	settings.remove("psn_games/devices_json");
+}
+
 ChiakiConnectVideoProfile Settings::GetVideoProfileLocalPS4()
 {
 	ChiakiConnectVideoProfile profile = {};

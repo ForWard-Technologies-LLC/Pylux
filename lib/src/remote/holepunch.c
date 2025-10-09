@@ -93,7 +93,6 @@ static const char oauth_header_fmt[] = "Authorization: Bearer %s";
 static const char session_id_header_fmt[] = "X-PSN-SESSION-MANAGER-SESSION-IDS: %s";
 
 // Endpoints we're using
-static const char device_list_url_fmt[] = "https://web.np.playstation.com/api/cloudAssistedNavigation/v2/users/me/clients?platform=%s&includeFields=device&limit=10&offset=0";
 static const char ws_fqdn_api_url[] = "https://mobile-pushcl.np.communication.playstation.net/np/serveraddr?version=2.1&fields=keepAliveStatus&keepAliveStatusType=3";
 static const char session_create_url[] = "https://web.np.playstation.com/api/sessionManager/v1/remotePlaySessions";
 static const char session_view_url[] = "https://web.np.playstation.com/api/sessionManager/v1/remotePlaySessions?view=v1.0";
@@ -435,10 +434,129 @@ static ChiakiErrorCode send_response_ps(Session *session, uint8_t *req, chiaki_s
 static ChiakiErrorCode send_responseto_ps(Session *session, uint8_t *req, chiaki_socket_t *sock,
     Candidate *candidate, struct sockaddr *addr, socklen_t len);
 
+static char* extract_installed_games_json(json_object *client, ChiakiLog *log)
+{
+    // Safety check: ensure client is a valid object
+    if (!client || !json_object_is_type(client, json_type_object))
+    {
+        CHIAKI_LOGV(log, "extract_installed_games_json: Invalid client object");
+        return NULL;
+    }
+    
+    // Safety check: verify systemData exists and is an object
+    json_object *system_data;
+    if (!json_object_object_get_ex(client, "systemData", &system_data) ||
+        !json_object_is_type(system_data, json_type_object))
+    {
+        CHIAKI_LOGV(log, "extract_installed_games_json: No systemData found");
+        return NULL;
+    }
+    
+    // Safety check: verify installedTitles exists and is an object
+    json_object *installed_titles;
+    if (!json_object_object_get_ex(system_data, "installedTitles", &installed_titles) ||
+        !json_object_is_type(installed_titles, json_type_object))
+    {
+        CHIAKI_LOGV(log, "extract_installed_games_json: No installedTitles found");
+        return NULL;
+    }
+    
+    // Safety check: verify titles exists and is an array
+    json_object *titles;
+    if (!json_object_object_get_ex(installed_titles, "titles", &titles) || 
+        !json_object_is_type(titles, json_type_array))
+    {
+        CHIAKI_LOGV(log, "extract_installed_games_json: No titles array found");
+        return NULL;
+    }
+    
+    // Filter only games (not media apps)
+    json_object *games_array = json_object_new_array();
+    if (!games_array)
+    {
+        CHIAKI_LOGE(log, "extract_installed_games_json: Failed to create games array");
+        return NULL;
+    }
+    
+    size_t num_titles = json_object_array_length(titles);
+    
+    for (size_t i = 0; i < num_titles; i++)
+    {
+        json_object *title = json_object_array_get_idx(titles, i);
+        
+        // Safety check: ensure title is a valid object
+        if (!title || !json_object_is_type(title, json_type_object))
+        {
+            CHIAKI_LOGV(log, "extract_installed_games_json: Skipping invalid title at index %zu", i);
+            continue;
+        }
+        
+        json_object *display_location;
+        
+        // Only include items where displayLocationSpace == "game"
+        if (json_object_object_get_ex(title, "displayLocationSpace", &display_location))
+        {
+            // Safety check: ensure displayLocationSpace is a string
+            if (!json_object_is_type(display_location, json_type_string))
+            {
+                CHIAKI_LOGV(log, "extract_installed_games_json: displayLocationSpace is not a string at index %zu", i);
+                continue;
+            }
+            
+            const char *location = json_object_get_string(display_location);
+            if (location && strcmp(location, "game") == 0)
+            {
+                // Deep copy the title object safely
+                const char *title_json_str = json_object_to_json_string(title);
+                if (!title_json_str)
+                {
+                    CHIAKI_LOGV(log, "extract_installed_games_json: Failed to serialize title at index %zu", i);
+                    continue;
+                }
+                
+                json_object *title_copy = json_tokener_parse(title_json_str);
+                if (title_copy)
+                {
+                    json_object_array_add(games_array, title_copy);
+                }
+                else
+                {
+                    CHIAKI_LOGV(log, "extract_installed_games_json: Failed to parse title copy at index %zu", i);
+                }
+            }
+        }
+    }
+    
+    // Convert games array to JSON string
+    size_t games_count = json_object_array_length(games_array);
+    const char *games_json_str = json_object_to_json_string_ext(games_array, JSON_C_TO_STRING_PRETTY);
+    
+    // Safety check: ensure JSON serialization succeeded
+    if (!games_json_str)
+    {
+        CHIAKI_LOGE(log, "extract_installed_games_json: Failed to serialize games array");
+        json_object_put(games_array);
+        return NULL;
+    }
+    
+    char *result = strdup(games_json_str);
+    json_object_put(games_array);
+    
+    // Safety check: ensure strdup succeeded
+    if (!result)
+    {
+        CHIAKI_LOGE(log, "extract_installed_games_json: Failed to allocate memory for result");
+        return NULL;
+    }
+    
+    CHIAKI_LOGI(log, "extract_installed_games_json: Successfully extracted %zu games", games_count);
+    return result;
+}
+
 CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_list_devices(
     const char* psn_oauth2_token, ChiakiHolepunchConsoleType console_type,
     ChiakiHolepunchDeviceInfo **devices, size_t *device_count,
-    ChiakiLog *log)
+    bool sync_games, ChiakiLog *log)
 {
     CURL *curl = chiaki_curl_easy_init_with_logging(log);
     if(!curl)
@@ -446,7 +564,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_list_devices(
         CHIAKI_LOGE(log, "Curl could not init");
         return CHIAKI_ERR_MEMORY;
     }
-    char url[133];
+    char url[160];
     char platform[4];
     if (console_type != CHIAKI_HOLEPUNCH_CONSOLE_TYPE_PS5) {
         CHIAKI_LOGW(log, "Only PS5 is supported by the list devices function!");
@@ -454,7 +572,12 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_list_devices(
         return CHIAKI_ERR_INVALID_DATA;
     }
     snprintf(platform, sizeof(platform), "%s", "PS5");
-    snprintf(url, sizeof(url), device_list_url_fmt, platform);
+    
+    // Conditionally include systemData based on sync_games setting
+    const char* include_fields = sync_games ? "device,systemData" : "device";
+    snprintf(url, sizeof(url), 
+        "https://web.np.playstation.com/api/cloudAssistedNavigation/v2/users/me/clients?platform=%s&includeFields=%s&limit=10&offset=0",
+        platform, include_fields);
 
     char* oauth_header = NULL;
     ChiakiErrorCode err = make_oauth2_header(&oauth_header, psn_oauth2_token);
@@ -547,6 +670,11 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_list_devices(
     CHIAKI_LOGV(log, console_type == CHIAKI_HOLEPUNCH_CONSOLE_TYPE_PS5 ? "PS5 devices: ": "PS4 devices: ");
     const char *json_str = json_object_to_json_string_ext(clients, JSON_C_TO_STRING_PRETTY);
     CHIAKI_LOGV(log, "chiaki_holepunch_list_devices: retrieved devices \n%s", json_str);
+    
+    // Log the full JSON response for systemData visibility
+    const char *full_json_str = json_object_to_json_string_ext(json, JSON_C_TO_STRING_PRETTY);
+    CHIAKI_LOGV(log, "chiaki_holepunch_list_devices: full response \n%s", full_json_str);
+    
     size_t num_clients = json_object_array_length(clients);
     *devices = malloc(sizeof(ChiakiHolepunchDeviceInfo) * num_clients);
     if(!(*devices))
@@ -559,6 +687,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_list_devices(
     {
         ChiakiHolepunchDeviceInfo device;
         device.type = console_type;
+        device.installed_games_json = NULL;  // Initialize to NULL
 
         json_object *client = json_object_array_get_idx(clients, i);
         json_object *duid;
@@ -631,6 +760,11 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_list_devices(
             goto cleanup_devices;
         }
         strncpy(device.device_name, json_object_get_string(device_name), sizeof(device.device_name));
+        
+        // Extract installed games for this device (only if sync_games is enabled)
+        if (sync_games)
+            device.installed_games_json = extract_installed_games_json(client, log);
+        
         (*devices)[i] = device;
     }
 
@@ -650,8 +784,13 @@ cleanup:
 
 CHIAKI_EXPORT void chiaki_holepunch_free_device_list(ChiakiHolepunchDeviceInfo** devices)
 {
-    free(*devices);
-    *devices = NULL;
+    if (*devices)
+    {
+        // Note: We don't know the count here, so caller must free individual games JSON if needed
+        // before calling this function
+        free(*devices);
+        *devices = NULL;
+    }
 }
 
 CHIAKI_EXPORT ChiakiHolepunchRegistInfo chiaki_get_regist_info(Session *session)

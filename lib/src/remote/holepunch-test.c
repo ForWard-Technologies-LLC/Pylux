@@ -63,13 +63,13 @@ int main(int argc, char **argv)
     ChiakiHolepunchDeviceInfo *device_info_ps4;
     size_t num_devices_ps4;
 
-    ChiakiErrorCode err = chiaki_holepunch_list_devices(oauth_token, CHIAKI_HOLEPUNCH_CONSOLE_TYPE_PS5, &device_info_ps5, &num_devices_ps5, &log);
+    ChiakiErrorCode err = chiaki_holepunch_list_devices(oauth_token, CHIAKI_HOLEPUNCH_CONSOLE_TYPE_PS5, &device_info_ps5, &num_devices_ps5, true, &log);
     if (err != CHIAKI_ERR_SUCCESS)
     {
         fprintf(stderr, "!! Failed to get PS5 devices\n");
         return 1;
     }
-    err = chiaki_holepunch_list_devices(oauth_token, CHIAKI_HOLEPUNCH_CONSOLE_TYPE_PS4, &device_info_ps4, &num_devices_ps4, &log);
+    err = chiaki_holepunch_list_devices(oauth_token, CHIAKI_HOLEPUNCH_CONSOLE_TYPE_PS4, &device_info_ps4, &num_devices_ps4, true, &log);
     if (err != CHIAKI_ERR_SUCCESS)
     {
         fprintf(stderr, "!! Failed to get PS4 devices\n");
