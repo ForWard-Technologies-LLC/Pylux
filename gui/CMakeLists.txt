@@ -42,6 +42,8 @@ set(SOURCE_FILES
 	src/qmlmainwindow.cpp
 	include/qmlbackend.h
 	src/qmlbackend.cpp
+	include/qmlgamesbackend.h
+	src/qmlgamesbackend.cpp
 	include/qmlcontroller.h
 	src/qmlcontroller.cpp
 	include/qmlsettings.h

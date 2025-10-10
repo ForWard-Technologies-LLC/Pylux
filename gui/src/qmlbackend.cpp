@@ -1,4 +1,5 @@
 #include "qmlbackend.h"
+#include "qmlgamesbackend.h"
 #include "qmlsettings.h"
 #include "qmlmainwindow.h"
 #include "streamsession.h"
@@ -41,6 +42,9 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QSet>
+#include <QDateTime>
+#include <QTimer>
+#include <algorithm>
 
 #define PSN_DEVICES_TRIES 2
 #define MAX_PSN_RECONNECT_TRIES 6
@@ -120,6 +124,7 @@ QmlBackend::QmlBackend(Settings *settings, QmlMainWindow *window)
 
     const char *uri = "org.streetpea.chiaking";
     qmlRegisterSingletonInstance(uri, 1, 0, "Chiaki", this);
+    qmlRegisterSingletonInstance(uri, 1, 0, "ChiakiGames", new QmlGamesBackend(settings, this));
     qmlRegisterUncreatableType<QmlMainWindow>(uri, 1, 0, "ChiakiWindow", {});
     qmlRegisterUncreatableType<QmlSettings>(uri, 1, 0, "ChiakiSettings", {});
     qmlRegisterUncreatableType<StreamSession>(uri, 1, 0, "ChiakiSession", {});

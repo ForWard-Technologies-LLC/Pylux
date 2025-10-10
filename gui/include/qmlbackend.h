@@ -13,6 +13,8 @@
 #include <QFutureWatcher>
 #include <QFuture>
 
+class QNetworkAccessManager;
+
 // PSStream Configuration
 #define PSSTREAM_URL "https://www.xbgamestream.com"
 

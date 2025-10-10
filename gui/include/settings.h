@@ -440,6 +440,8 @@ class Settings : public QObject
 		bool GetPsnGamesSyncEnabled() const;
 		void SetPsnGamesSyncEnabled(bool enabled);
 		void ClearPsnGamesJson();
+		QString GetGameImageCache(const QString &key) const;
+		void SetGameImageCache(const QString &key, const QString &value);
 
 		QString GetTimeFormat() const     { return time_format; }
 		void ClearKeyMapping();

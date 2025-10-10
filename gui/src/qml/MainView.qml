@@ -736,6 +736,28 @@ Pane {
                 property bool canHide: modelData.manual || (modelData.discovered && !modelData.registered)
                 property bool canWake: modelData.registered && !modelData.duid && !modelData.discovered
                 property bool canPin: modelData.registered
+                property bool hasGames: {
+                    if (!modelData.duid) {
+                        console.log("No duid for", modelData.name)
+                        return false
+                    }
+                    let gamesJson = Chiaki.getPsnInstalledGames()
+                    if (!gamesJson || gamesJson === "{}") {
+                        console.log("No games JSON for", modelData.name)
+                        return false
+                    }
+                    try {
+                        let devices = JSON.parse(gamesJson)
+                        console.log("Checking games for duid:", modelData.duid, "in devices:", Object.keys(devices))
+                        let device = devices[modelData.duid]
+                        let result = device && device.games && device.games.length > 0
+                        console.log("hasGames result for", modelData.name, ":", result)
+                        return result
+                    } catch (e) {
+                        console.error("Error checking games for", modelData.name, ":", e)
+                        return false
+                    }
+                }
 
                 // Trigger first/second available actions directly
                 function triggerFirstAction() {
@@ -880,8 +902,9 @@ Pane {
                                 
                                 // First action indicator (Square/X)
                                 Item {
+                                    id: firstActionIndicator
                                     anchors.right: parent.right
-                                    anchors.rightMargin: 8
+                                    anchors.rightMargin: 12
                                     anchors.top: parent.top
                                     width: firstActionText.width + firstActionImage.width + 6
                                     height: 20
@@ -930,9 +953,11 @@ Pane {
                                 
                                 // Second action indicator (Triangle/Y) - if multiple actions available
                                 Item {
+                                    id: secondActionIndicator
                                     anchors.right: parent.right
-                                    anchors.rightMargin: 120
-                                    anchors.top: parent.top
+                                    anchors.rightMargin: 12
+                                    anchors.top: firstActionIndicator.bottom
+                                    anchors.topMargin: 4
                                     width: secondActionText.width + secondActionImage.width + 6
                                     height: 20
                                     visible: (canHide?1:0) + (canWake?1:0) + (canPin?1:0) >= 2
@@ -978,6 +1003,52 @@ Pane {
                                                     delegateItem.setConsolePin();
                                                 }
                                             }
+                                        }
+                                        cursorShape: Qt.PointingHandCursor
+                                        z: 200
+                                        hoverEnabled: true
+                                    }
+                                }
+                                
+                                // Games button (Triangle/Y) - shown if console has games
+                                Item {
+                                    id: gamesButton
+                                    anchors.right: parent.right
+                                    anchors.rightMargin: 12
+                                    anchors.top: secondActionIndicator.visible ? secondActionIndicator.bottom : firstActionIndicator.bottom
+                                    anchors.topMargin: 4
+                                    width: gamesText.width + gamesImage.width + 6
+                                    height: 20
+                                    visible: hasGames  // Only show if console actually has games
+                                    
+                                    Image {
+                                        id: gamesImage
+                                        anchors.left: parent.left
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: 20
+                                        height: 20
+                                        sourceSize: Qt.size(40, 40)
+                                        source: root.controllerButton("pyramid")
+                                        opacity: 0.85
+                                        smooth: true
+                                        antialiasing: true
+                                    }
+                                    
+                                    Text {
+                                        id: gamesText
+                                        anchors.left: gamesImage.right
+                                        anchors.leftMargin: 6
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: "Games"
+                                        font.pixelSize: 14
+                                        font.weight: Font.Medium
+                                        color: Qt.rgba(255, 255, 255, 0.8)
+                                    }
+                                    
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        onClicked: {
+                                            delegateItem.viewGames()
                                         }
                                         cursorShape: Qt.PointingHandCursor
                                         z: 200
@@ -1032,8 +1103,14 @@ Pane {
 
             function setConsolePin() {
                 root.showConsolePinDialog(index);
+            }
+            
+            function viewGames() {
+                if (modelData.duid) {
+                    root.showGamesView(modelData.duid, modelData.name);
                 }
-            } 
+            }
+        } 
         }
     }     
 

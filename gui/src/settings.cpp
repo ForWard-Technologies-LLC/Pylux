@@ -942,6 +942,16 @@ void Settings::ClearPsnGamesJson()
 	settings.remove("psn_games/devices_json");
 }
 
+QString Settings::GetGameImageCache(const QString &key) const
+{
+	return settings.value(key).toString();
+}
+
+void Settings::SetGameImageCache(const QString &key, const QString &value)
+{
+	settings.setValue(key, value);
+}
+
 ChiakiConnectVideoProfile Settings::GetVideoProfileLocalPS4()
 {
 	ChiakiConnectVideoProfile profile = {};

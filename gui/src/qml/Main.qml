@@ -129,6 +129,10 @@ Item {
         stack.replace(stack.get(0), psnViewComponent, {}, StackView.Immediate)
     }
 
+    function showGamesView(deviceId, deviceName) {
+        stack.push(gamesViewComponent, {deviceId: deviceId, deviceName: deviceName})
+    }
+
     function showManualHostDialog() {
         stack.push(manualHostDialogComponent);
     }
@@ -463,6 +467,11 @@ Item {
     Component {
         id: psnViewComponent
         PsnView {}
+    }
+
+    Component {
+        id: gamesViewComponent
+        GamesView {}
     }
 
     Component {

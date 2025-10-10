@@ -25,6 +25,9 @@
     <file>ConsoleSetupWalkthrough.qml</file>
     <file>AutoConnectView.qml</file>
     <file>PsnView.qml</file>
+    <file>GamesView.qml</file>
+    <file>GameCard.qml</file>
+    <file>TrophyListDialog.qml</file>
     <file>controls/Button.qml</file>
     <file>controls/CheckBox.qml</file>
     <file>controls/ComboBox.qml</file>
