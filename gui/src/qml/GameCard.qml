@@ -10,18 +10,49 @@ Rectangle {
     
     property var gameData
     property bool isHovered: false
-    property bool hasFocus: activeFocus
+    property bool isCurrentItem: GridView.isCurrentItem || false
+    property bool hasFocus: isCurrentItem && GridView.view.activeFocus
+    property string cachedImageUrl: ""
     
     signal launchGame(string titleId)
     signal createShortcut(string titleId)
     signal viewTrophies(string titleId, string npCommunicationId)
     
-    color: isHovered || hasFocus ? Qt.lighter(Material.dialogColor, 1.1) : Material.dialogColor
-    radius: 8
-    border.width: hasFocus ? 3 : 1
-    border.color: hasFocus ? Material.accent : Qt.rgba(1, 1, 1, 0.1)
+    // Generate controller button icon path
+    function getControllerIcon(buttonName) {
+        let type = "deck";
+        for (let i = 0; i < Chiaki.controllers.length; ++i) {
+            if (Chiaki.controllers[i].playStation) {
+                type = "ps";
+                break;
+            }
+        }
+        return `image://svg/button-${type}#${buttonName}`;
+    }
     
-    Behavior on border.width { NumberAnimation { duration: 150 } }
+    // Listen for image updates from backend
+    Connections {
+        target: ChiakiGames
+        
+        function onGameImageUpdated(titleId) {
+            if (gameData && gameData.titleId === titleId) {
+                cachedImageUrl = ChiakiGames.getGameImage(titleId)
+            }
+        }
+    }
+    
+    // Initial image load
+    Component.onCompleted: {
+        if (gameData && gameData.titleId) {
+            cachedImageUrl = ChiakiGames.getGameImage(gameData.titleId)
+        }
+    }
+    
+    color: isHovered || isCurrentItem ? Qt.lighter(Material.dialogColor, 1.1) : Material.dialogColor
+    radius: 8
+    border.width: 0
+    border.color: "transparent"
+    
     Behavior on color { ColorAnimation { duration: 150 } }
     
     MouseArea {
@@ -31,7 +62,7 @@ Rectangle {
         
         onEntered: isHovered = true
         onExited: isHovered = false
-        onClicked: card.forceActiveFocus()
+        onClicked: parent.GridView.view.currentIndex = index
     }
     
     ColumnLayout {
@@ -42,7 +73,7 @@ Rectangle {
         // Game Image
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: 140
+            Layout.preferredHeight: 180
             color: "#1a1a1a"
             radius: 4
             
@@ -54,11 +85,7 @@ Rectangle {
                 asynchronous: true
                 cache: true
                 
-                source: {
-                    if (!gameData || !gameData.titleId) return ""
-                    // Request image from games backend
-                    return ChiakiGames.getGameImage(gameData.titleId)
-                }
+                source: cachedImageUrl
                 
                 BusyIndicator {
                     anchors.centerIn: parent
@@ -80,7 +107,14 @@ Rectangle {
         // Game Title
         Label {
             Layout.fillWidth: true
-            text: gameData && gameData.comment ? gameData.comment : qsTr("Unknown Game")
+            text: {
+                if (gameData) {
+                    if (gameData.comment) return gameData.comment
+                    if (gameData.title) return gameData.title
+                    if (gameData.name) return gameData.name
+                }
+                return qsTr("Unknown Game")
+            }
             font.pixelSize: 16
             font.bold: true
             elide: Text.ElideRight
@@ -89,69 +123,165 @@ Rectangle {
         }
         
         // Trophy Progress
-        RowLayout {
+        Label {
             Layout.fillWidth: true
-            spacing: 8
-            visible: gameData && gameData.npTitleId
-            
-            Image {
-                Layout.preferredWidth: 16
-                Layout.preferredHeight: 16
-                source: "qrc:/icons/trophy.png"
-                visible: false // TODO: Add trophy icon
+            text: {
+                if (gameData && gameData.npTitleId && gameData.trophyProgress !== undefined) {
+                    return qsTr("%1% Trophies").arg(gameData.trophyProgress)
+                }
+                return ""
             }
-            
-            Label {
-                text: qsTr("Trophies")
-                font.pixelSize: 12
-                opacity: 0.7
-            }
-            
-            Item { Layout.fillWidth: true }
+            font.pixelSize: 12
+            opacity: 0.7
+            color: Material.accent
+            visible: !!(gameData && gameData.npTitleId && gameData.trophyProgress !== undefined)
         }
         
         Item { Layout.fillHeight: true }
         
-        // Action Buttons (shown on hover/focus)
+        // Action Buttons
         ColumnLayout {
             Layout.fillWidth: true
-            spacing: 6
-            visible: isHovered || hasFocus
+            spacing: 8
+            visible: true
             
-            Button {
+            // Launch Game button
+            Rectangle {
                 Layout.fillWidth: true
-                text: qsTr("Launch Game")
-                Material.background: Material.accent
-                onClicked: {
-                    if (gameData && gameData.titleId) {
-                        launchGame(gameData.titleId)
+                Layout.preferredHeight: 40
+                radius: 6
+                color: launchMouseArea.containsMouse ? Qt.lighter(Material.accent, 1.2) : Material.accent
+                
+                Behavior on color { ColorAnimation { duration: 150 } }
+                
+                MouseArea {
+                    id: launchMouseArea
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    
+                    onClicked: {
+                        if (gameData && gameData.titleId) {
+                            launchGame(gameData.titleId)
+                        }
                     }
+                }
+                
+                Label {
+                    anchors.centerIn: parent
+                    text: qsTr("Launch Game")
+                    font.pixelSize: 14
+                    font.weight: Font.DemiBold
+                    color: "white"
                 }
             }
             
             RowLayout {
                 Layout.fillWidth: true
-                spacing: 6
+                spacing: 10
                 
-                Button {
+                // Shortcut button with Square/X icon
+                Rectangle {
                     Layout.fillWidth: true
-                    text: qsTr("Add Shortcut")
-                    flat: true
-                    onClicked: {
-                        if (gameData && gameData.titleId) {
-                            createShortcut(gameData.titleId)
+                    Layout.preferredHeight: 36
+                    radius: 6
+                    color: shortcutMouseArea.containsMouse ? Qt.rgba(255, 255, 255, 0.3) : Qt.rgba(255, 255, 255, 0.15)
+                    border.width: 1
+                    border.color: Qt.rgba(255, 255, 255, 0.2)
+                    
+                    Behavior on color { ColorAnimation { duration: 150 } }
+                    
+                    MouseArea {
+                        id: shortcutMouseArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        
+                        onClicked: {
+                            if (gameData && gameData.titleId) {
+                                createShortcut(gameData.titleId)
+                            }
+                        }
+                    }
+                    
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 12
+                        anchors.rightMargin: 12
+                        spacing: 8
+                        
+                        Label {
+                            Layout.fillWidth: true
+                            text: qsTr("Shortcut")
+                            font.pixelSize: 13
+                            font.weight: Font.Medium
+                            color: "white"
+                            horizontalAlignment: Text.AlignLeft
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                        
+                        Image {
+                            Layout.preferredWidth: 22
+                            Layout.preferredHeight: 22
+                            sourceSize: Qt.size(44, 44)
+                            source: getControllerIcon("box")
+                            opacity: 0.9
+                            smooth: true
+                            antialiasing: true
                         }
                     }
                 }
                 
-                Button {
+                // Trophies button with Triangle/Y icon
+                Rectangle {
                     Layout.fillWidth: true
-                    text: qsTr("View Trophies")
-                    flat: true
-                    visible: gameData && gameData.npTitleId
-                    onClicked: {
-                        if (gameData && gameData.titleId && gameData.npTitleId) {
-                            viewTrophies(gameData.titleId, gameData.npTitleId)
+                    Layout.preferredHeight: 36
+                    radius: 6
+                    color: trophiesMouseArea.containsMouse ? Qt.rgba(255, 255, 255, 0.3) : Qt.rgba(255, 255, 255, 0.15)
+                    border.width: 1
+                    border.color: Qt.rgba(255, 255, 255, 0.2)
+                    visible: !!(gameData && gameData.npTitleId)
+                    
+                    Behavior on color { ColorAnimation { duration: 150 } }
+                    
+                    MouseArea {
+                        id: trophiesMouseArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        enabled: !!(gameData && gameData.npTitleId)
+                        
+                        onClicked: {
+                            if (gameData && gameData.titleId && gameData.npTitleId) {
+                                viewTrophies(gameData.titleId, gameData.npTitleId)
+                            }
+                        }
+                    }
+                    
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 12
+                        anchors.rightMargin: 12
+                        spacing: 8
+                        
+                        Label {
+                            Layout.fillWidth: true
+                            text: qsTr("Trophies")
+                            font.pixelSize: 13
+                            font.weight: Font.Medium
+                            color: "white"
+                            horizontalAlignment: Text.AlignLeft
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                        
+                        Image {
+                            Layout.preferredWidth: 22
+                            Layout.preferredHeight: 22
+                            sourceSize: Qt.size(44, 44)
+                            source: getControllerIcon("pyramid")
+                            opacity: 0.9
+                            smooth: true
+                            antialiasing: true
                         }
                     }
                 }
@@ -159,15 +289,27 @@ Rectangle {
         }
     }
     
-    Keys.onReturnPressed: {
-        if (gameData && gameData.titleId) {
-            launchGame(gameData.titleId)
+    Keys.onPressed: (event) => {
+        // Cross/A button (Enter/Space) - Launch game
+        if (event.key === Qt.Key_Return || event.key === Qt.Key_Space || event.key === Qt.Key_Enter) {
+            if (gameData && gameData.titleId) {
+                launchGame(gameData.titleId)
+                event.accepted = true
+            }
         }
-    }
-    
-    Keys.onSpacePressed: {
-        if (gameData && gameData.titleId) {
-            launchGame(gameData.titleId)
+        // Square/X button (X key) - Create shortcut
+        else if (event.key === Qt.Key_X) {
+            if (gameData && gameData.titleId) {
+                createShortcut(gameData.titleId)
+                event.accepted = true
+            }
+        }
+        // Triangle/Y button (Y key) - View trophies
+        else if (event.key === Qt.Key_Y) {
+            if (gameData && gameData.titleId && gameData.npTitleId) {
+                viewTrophies(gameData.titleId, gameData.npTitleId)
+                event.accepted = true
+            }
         }
     }
 }

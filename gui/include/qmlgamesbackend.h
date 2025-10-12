@@ -5,6 +5,8 @@
 #include <QObject>
 #include <QString>
 #include <QList>
+#include <QJSValue>
+#include <QPixmap>
 
 class QNetworkAccessManager;
 
@@ -21,8 +23,11 @@ public:
     ~QmlGamesBackend();
 
     Q_INVOKABLE QString getGameImage(const QString &titleId);
-    Q_INVOKABLE void fetchTrophyData(const QString &npCommunicationId);
+    Q_INVOKABLE void fetchTrophyData(const QString &npTitleId, bool forceRefresh = false);
     Q_INVOKABLE QString getGamesForDevice(const QString &deviceId);
+    Q_INVOKABLE QString getCachedStoreResponse(const QString &titleId);
+    Q_INVOKABLE void createGameSteamShortcut(const QString &titleId, const QString &gameName, 
+                                              const QJSValue &callback, const QString &steamDir);
 
 signals:
     void trophyDataReceived(const QString &npCommunicationId, const QString &jsonData);
@@ -30,10 +35,28 @@ signals:
 
 private:
     void fetchGameImageFromPsn(const QString &titleId);
+    void fetchTrophyGroups(const QString &npCommunicationId, const QString &npTitleId, const QString &psn_token, const QJsonObject &trophy_title);
+    void fetchAllTrophyGroups(const QString &npCommunicationId, const QString &npTitleId, const QString &psn_token, 
+                               const QJsonObject &trophy_title, const QJsonArray &groups, int currentGroupIndex);
     bool canMakePsnRequest();
+    QPixmap downloadImageFromUrl(const QString &url, int timeoutMs = 10000);
 
+    struct TrophyCache {
+        QString jsonData;
+        qint64 timestamp;
+    };
+    
+    struct GameImageCache {
+        QString jsonData;  // Full Store API response
+        qint64 timestamp;
+    };
+    
     Settings *settings;
     QNetworkAccessManager *network_manager;
     QList<qint64> psn_request_times;  // For rate limiting
+    QMap<QString, TrophyCache> trophy_cache;  // Trophy data cache (npTitleId -> cached data)
+    QMap<QString, GameImageCache> game_image_cache;  // Game image cache (titleId -> cached API response)
+    static constexpr qint64 TROPHY_CACHE_DURATION_MS = 24 * 60 * 60 * 1000;  // 24 hours
+    static constexpr qint64 GAME_IMAGE_CACHE_DURATION_MS = 30LL * 24 * 60 * 60 * 1000;  // 30 days
 };
 

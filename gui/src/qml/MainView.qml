@@ -910,9 +910,20 @@ Pane {
                                     height: 20
                                     visible: canHide || canWake || canPin
                                     
+                                    Text {
+                                        id: firstActionText
+                                        anchors.right: firstActionImage.left
+                                        anchors.rightMargin: 6
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: canHide ? (modelData.manual ? "Delete" : "Hide") : (canWake ? "Wake" : "PIN")
+                                        font.pixelSize: 14
+                                        font.weight: Font.Medium
+                                        color: Qt.rgba(255, 255, 255, 0.8)
+                                    }
+                                    
                                     Image {
                                         id: firstActionImage
-                                        anchors.left: parent.left
+                                        anchors.right: parent.right
                                         anchors.verticalCenter: parent.verticalCenter
                                         width: 20
                                         height: 20
@@ -921,17 +932,6 @@ Pane {
                                         opacity: 0.85
                                         smooth: true
                                         antialiasing: true
-                                    }
-                                    
-                                    Text {
-                                        id: firstActionText
-                                        anchors.left: firstActionImage.right
-                                        anchors.leftMargin: 6
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        text: canHide ? (modelData.manual ? "Delete" : "Hide") : (canWake ? "Wake" : "PIN")
-                                        font.pixelSize: 14
-                                        font.weight: Font.Medium
-                                        color: Qt.rgba(255, 255, 255, 0.8)
                                     }
                                     
                                     MouseArea {
@@ -962,9 +962,20 @@ Pane {
                                     height: 20
                                     visible: (canHide?1:0) + (canWake?1:0) + (canPin?1:0) >= 2
                                     
+                                    Text {
+                                        id: secondActionText
+                                        anchors.right: secondActionImage.left
+                                        anchors.rightMargin: 6
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: (canHide && canWake) ? "Wake" : (canHide && !canWake && canPin) ? "PIN" : (!canHide && canWake && canPin) ? "PIN" : ""
+                                        font.pixelSize: 14
+                                        font.weight: Font.Medium
+                                        color: Qt.rgba(255, 255, 255, 0.8)
+                                    }
+                                    
                                     Image {
                                         id: secondActionImage
-                                        anchors.left: parent.left
+                                        anchors.right: parent.right
                                         anchors.verticalCenter: parent.verticalCenter
                                         width: 20
                                         height: 20
@@ -973,17 +984,6 @@ Pane {
                                         opacity: 0.85
                                         smooth: true
                                         antialiasing: true
-                                    }
-                                    
-                                    Text {
-                                        id: secondActionText
-                                        anchors.left: secondActionImage.right
-                                        anchors.leftMargin: 6
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        text: (canHide && canWake) ? "Wake" : (canHide && !canWake && canPin) ? "PIN" : (!canHide && canWake && canPin) ? "PIN" : ""
-                                        font.pixelSize: 14
-                                        font.weight: Font.Medium
-                                        color: Qt.rgba(255, 255, 255, 0.8)
                                     }
                                     
                                     MouseArea {
@@ -1021,9 +1021,20 @@ Pane {
                                     height: 20
                                     visible: hasGames  // Only show if console actually has games
                                     
+                                    Text {
+                                        id: gamesText
+                                        anchors.right: gamesImage.left
+                                        anchors.rightMargin: 6
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: "Games"
+                                        font.pixelSize: 14
+                                        font.weight: Font.Medium
+                                        color: Qt.rgba(255, 255, 255, 0.8)
+                                    }
+                                    
                                     Image {
                                         id: gamesImage
-                                        anchors.left: parent.left
+                                        anchors.right: parent.right
                                         anchors.verticalCenter: parent.verticalCenter
                                         width: 20
                                         height: 20
@@ -1032,17 +1043,6 @@ Pane {
                                         opacity: 0.85
                                         smooth: true
                                         antialiasing: true
-                                    }
-                                    
-                                    Text {
-                                        id: gamesText
-                                        anchors.left: gamesImage.right
-                                        anchors.leftMargin: 6
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        text: "Games"
-                                        font.pixelSize: 14
-                                        font.weight: Font.Medium
-                                        color: Qt.rgba(255, 255, 255, 0.8)
                                     }
                                     
                                     MouseArea {
