@@ -129,8 +129,8 @@ Item {
         stack.replace(stack.get(0), psnViewComponent, {}, StackView.Immediate)
     }
 
-    function showGamesView(deviceId, deviceName) {
-        stack.push(gamesViewComponent, {deviceId: deviceId, deviceName: deviceName})
+    function showGamesView(deviceId, deviceName, serverIndex) {
+        stack.push(gamesViewComponent, {deviceId: deviceId, deviceName: deviceName, serverIndex: serverIndex})
     }
 
     function showManualHostDialog() {

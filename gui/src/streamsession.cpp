@@ -3,6 +3,7 @@
 #include <streamsession.h>
 #include <settings.h>
 #include <controllermanager.h>
+#include <gamelauncher.h>
 
 #include <chiaki/base64.h>
 #include <chiaki/streamconnection.h>
@@ -476,6 +477,13 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 			emit AveragePacketLossChanged();
 		}
 	});
+
+	// Initialize GameLauncher if game_name is set
+	if(!connect_info.game_name.isEmpty())
+	{
+		GameLauncher *launcher = new GameLauncher(this, connect_info.game_name, this);
+		launcher->start();
+	}
 }
 
 StreamSession::~StreamSession()

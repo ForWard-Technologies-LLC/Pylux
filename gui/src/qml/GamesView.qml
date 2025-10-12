@@ -12,6 +12,7 @@ Pane {
     
     property string deviceId: ""  // Device ID to filter games for
     property string deviceName: ""
+    property int serverIndex: -1  // Server index for connecting
     property int currentPage: 0
     property int gamesPerPage: 25
     property var allGames: []
@@ -236,20 +237,29 @@ Pane {
                     focus: true
                     activeFocusOnTab: true
                     
-                    onLaunchGame: (titleId) => {
-                        console.log("Launch game:", titleId)
-                        // TODO: Implement game launch
-                    }
+                onLaunchGame: (titleId) => {
+                    console.log("Launch game:", titleId)
+                    let game = modelData
+                    let gameName = game.comment || game.titleName || "Unknown Game"
+                    console.log("Launching game:", gameName, "on device:", root.deviceId)
                     
-                    onCreateShortcut: (titleId) => {
-                        console.log("GamesView: onCreateShortcut called with titleId:", titleId)
-                        let game = modelData
-                        let gameName = game.comment || game.titleName || "Unknown Game"
-                        console.log("GamesView: gameName:", gameName)
-                        console.log("GamesView: calling gameShortcutDialog.showDialog")
-                        gameShortcutDialog.showDialog(gameName, titleId)
-                        console.log("GamesView: showDialog call returned")
+                    if (root.serverIndex >= 0) {
+                        // Connect to host with game name to trigger automation
+                        Chiaki.connectToHost(root.serverIndex, "", gameName)
+                    } else {
+                        console.error("No server index available for launching game")
                     }
+                }
+                    
+                onCreateShortcut: (titleId) => {
+                    console.log("GamesView: onCreateShortcut called with titleId:", titleId)
+                    let game = modelData
+                    let gameName = game.comment || game.titleName || "Unknown Game"
+                    console.log("GamesView: gameName:", gameName)
+                    console.log("GamesView: calling gameShortcutDialog.showDialog")
+                    gameShortcutDialog.showDialog(gameName, titleId, root.deviceName)
+                    console.log("GamesView: showDialog call returned")
+                }
                     
                     onViewTrophies: (titleId, npCommunicationId) => {
                         trophyDialog.showTrophies(titleId, npCommunicationId)

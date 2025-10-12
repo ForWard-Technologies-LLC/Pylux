@@ -112,6 +112,7 @@ struct StreamSessionConnectInfo
 	uint dpad_touch_shortcut2;
 	uint dpad_touch_shortcut3;
 	uint dpad_touch_shortcut4;
+	QString game_name;
 
 	StreamSessionConnectInfo() {}
 	StreamSessionConnectInfo(
@@ -310,8 +311,9 @@ class StreamSession : public QObject
 		ChiakiErrorCode ConnectPsnConnection(QString duid, bool ps5);
 		void CancelPsnConnection(bool stop_thread);
 
-		ChiakiLog *GetChiakiLog()				{ return log.GetChiakiLog(); }
-		QList<Controller *> GetControllers()	{ return controllers.values(); }
+	ChiakiLog *GetChiakiLog()				{ return log.GetChiakiLog(); }
+	ChiakiSession *GetChiakiSession()		{ return &session; }
+	QList<Controller *> GetControllers()	{ return controllers.values(); }
 		ChiakiFfmpegDecoder *GetFfmpegDecoder()	{ return ffmpeg_decoder; }
 #if CHIAKI_LIB_ENABLE_PI_DECODER
 		ChiakiPiDecoder *GetPiDecoder()	{ return pi_decoder; }

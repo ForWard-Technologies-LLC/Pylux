@@ -519,7 +519,7 @@ QPixmap QmlGamesBackend::downloadImageFromUrl(const QString &url, int timeoutMs)
 }
 
 void QmlGamesBackend::createGameSteamShortcut(const QString &titleId, const QString &gameName, 
-                                               const QJSValue &callback, const QString &steamDir)
+                                               const QJSValue &callback, const QString &steamDir, const QString &deviceName)
 {
     qWarning() << "=== CREATE STEAM SHORTCUT START ===";
     qWarning() << "Title ID:" << titleId;
@@ -694,7 +694,15 @@ void QmlGamesBackend::createGameSteamShortcut(const QString &titleId, const QStr
     qCInfo(chiakiGuiGames) << "Building launch options...";
     QString escaped_game_name = gameName;
     escaped_game_name.replace("\"", "\\\"");  // Escape quotes
-    QString launch_options = QString("--title-id=%1 --game=\"%2\"").arg(titleId).arg(escaped_game_name);
+    QString launch_options = QString("--game=\"%1\"").arg(escaped_game_name);
+    
+    // Add device name if provided
+    if (!deviceName.isEmpty()) {
+        QString escaped_device_name = deviceName;
+        escaped_device_name.replace("\"", "\\\"");  // Escape quotes
+        launch_options += QString(" --nickname=\"%1\"").arg(escaped_device_name);
+        qCInfo(chiakiGuiGames) << "Added device name to launch options:" << deviceName;
+    }
     
     qCInfo(chiakiGuiGames) << "Launch options:" << launch_options;
     infoLambda(QString("[I] Creating Steam shortcut with launch options: %1").arg(launch_options));

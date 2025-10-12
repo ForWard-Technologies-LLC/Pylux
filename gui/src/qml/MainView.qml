@@ -1107,7 +1107,7 @@ Pane {
             
             function viewGames() {
                 if (modelData.duid) {
-                    root.showGamesView(modelData.duid, modelData.name);
+                    root.showGamesView(modelData.duid, modelData.name, index);
                 }
             }
         } 

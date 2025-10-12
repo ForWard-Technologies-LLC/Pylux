@@ -12,6 +12,7 @@ Dialog {
     
     property string titleId: ""
     property string gameName: ""
+    property string deviceName: ""
     property bool opening: false
     property bool succeeded: false
     property string steamBasePath: ""
@@ -90,7 +91,8 @@ Dialog {
                                 logDialog.standardButtons = Dialog.Close
                             }
                         },
-                        steamBasePath
+                        steamBasePath,
+                        deviceName
                     )
                     console.log("createGameSteamShortcut call finished")
                 })
@@ -98,10 +100,11 @@ Dialog {
         }
     }
     
-    function showDialog(gameTitle, gameTitleId) {
-        console.log("GameShortcutDialog.showDialog called with:", gameTitle, gameTitleId)
+    function showDialog(gameTitle, gameTitleId, consoleDeviceName) {
+        console.log("GameShortcutDialog.showDialog called with:", gameTitle, gameTitleId, consoleDeviceName)
         titleId = gameTitleId
         gameName = gameTitle
+        deviceName = consoleDeviceName || ""
         
         try {
             gameNameField.text = gameTitle
@@ -113,7 +116,12 @@ Dialog {
         // Build launch options
         try {
             let escaped_name = gameTitle.replace(/"/g, '\\"')
-            launchOptionsField.text = `--title-id=${gameTitleId} --game="${escaped_name}"`
+            let escaped_console = consoleDeviceName ? consoleDeviceName.replace(/"/g, '\\"') : ""
+            let options = `--game="${escaped_name}"`
+            if (escaped_console) {
+                options += ` --nickname="${escaped_console}"`
+            }
+            launchOptionsField.text = options
             console.log("Set launchOptionsField.text to:", launchOptionsField.text)
         } catch (e) {
             console.error("Error setting launchOptionsField.text:", e)
@@ -219,6 +227,19 @@ Dialog {
                 columns: 2
                 rowSpacing: 20
                 columnSpacing: 15
+                
+                Label {
+                    Layout.alignment: Qt.AlignRight | Qt.AlignTop
+                    text: qsTr("Console")
+                    font.weight: Font.Medium
+                }
+                
+                Label {
+                    Layout.fillWidth: true
+                    text: deviceName || qsTr("(Unknown)")
+                    wrapMode: Text.Wrap
+                    font.pixelSize: 14
+                }
                 
                 Label {
                     Layout.alignment: Qt.AlignRight | Qt.AlignTop

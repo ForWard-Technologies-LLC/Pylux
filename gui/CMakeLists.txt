@@ -52,6 +52,8 @@ set(SOURCE_FILES
 	src/qmlsvgprovider.cpp
 	include/systemdinhibit.h
 	src/systemdinhibit.cpp
+	include/gamelauncher.h
+	src/gamelauncher.cpp
 	)
 set(RESOURCE_FILES "")
 
