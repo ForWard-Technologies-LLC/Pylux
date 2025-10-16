@@ -737,24 +737,14 @@ Pane {
                 property bool canWake: modelData.registered && !modelData.duid && !modelData.discovered
                 property bool canPin: modelData.registered
                 property bool hasGames: {
-                    if (!modelData.duid) {
-                        console.log("No duid for", modelData.name)
-                        return false
-                    }
+                    if (!modelData.duid) return false
                     let gamesJson = Chiaki.getPsnInstalledGames()
-                    if (!gamesJson || gamesJson === "{}") {
-                        console.log("No games JSON for", modelData.name)
-                        return false
-                    }
+                    if (!gamesJson || gamesJson === "{}") return false
                     try {
                         let devices = JSON.parse(gamesJson)
-                        console.log("Checking games for duid:", modelData.duid, "in devices:", Object.keys(devices))
                         let device = devices[modelData.duid]
-                        let result = device && device.games && device.games.length > 0
-                        console.log("hasGames result for", modelData.name, ":", result)
-                        return result
+                        return device && device.games && device.games.length > 0
                     } catch (e) {
-                        console.error("Error checking games for", modelData.name, ":", e)
                         return false
                     }
                 }

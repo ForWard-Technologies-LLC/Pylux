@@ -534,13 +534,11 @@ QVariantList QmlBackend::hosts() const
         m["manual"] = manual;
         m["name"] = host.host_name;
         QString duid = "";
-        if(!registered)
-        {
-            if(psn_nickname_hosts.contains(host.host_name))
-                duid = psn_nickname_hosts.value(host.host_name).GetDuid();
-            else if(!host.ps5)
-                duid =  psn_nickname_hosts.value(QString("Main PS4 Console")).GetDuid();
-        }
+        // Always set duid from PSN data if available (needed for games list feature)
+        if(psn_nickname_hosts.contains(host.host_name))
+            duid = psn_nickname_hosts.value(host.host_name).GetDuid();
+        else if(!host.ps5)
+            duid = psn_nickname_hosts.value(QString("Main PS4 Console")).GetDuid();
         m["duid"] = duid;
         m["address"] = host.host_addr;
         m["ps5"] = host.ps5;

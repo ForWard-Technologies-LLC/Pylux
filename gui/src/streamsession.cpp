@@ -110,7 +110,7 @@ StreamSessionConnectInfo::StreamSessionConnectInfo(
 	this->stretch = stretch;
 	this->keyboard_controller_enabled = settings->GetKeyboardEnabled();
 	this->mouse_touch_enabled = settings->GetMouseTouchEnabled();
-	this->enable_keyboard = false; // TODO: from settings
+	this->enable_keyboard = false;  // Will be set based on game_name when creating session
 	this->enable_dualsense = true;
 	this->rumble_haptics_intensity = settings->GetRumbleHapticsIntensity();
 	this->buttons_by_pos = settings->GetButtonsByPosition();
@@ -271,7 +271,8 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 	chiaki_connect_info.host = host_str.constData();
 	chiaki_connect_info.video_profile = connect_info.video_profile;
 	chiaki_connect_info.video_profile_auto_downgrade = true;
-	chiaki_connect_info.enable_keyboard = false;
+	// Only enable PS5 keyboard dialog support when launching a game
+	chiaki_connect_info.enable_keyboard = !connect_info.game_name.isEmpty();
 	chiaki_connect_info.enable_dualsense = connect_info.enable_dualsense;
 	chiaki_connect_info.packet_loss_max = connect_info.packet_loss_max;
 	chiaki_connect_info.auto_regist = connect_info.auto_regist;
@@ -481,6 +482,7 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 	// Initialize GameLauncher if game_name is set
 	if(!connect_info.game_name.isEmpty())
 	{
+		CHIAKI_LOGI(log.GetChiakiLog(), "StreamSession: game_name detected: '%s', starting GameLauncher", connect_info.game_name.toUtf8().constData());
 		GameLauncher *launcher = new GameLauncher(this, connect_info.game_name, this);
 		launcher->start();
 	}

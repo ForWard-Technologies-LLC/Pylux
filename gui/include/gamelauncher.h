@@ -5,6 +5,9 @@
 
 #include <QObject>
 #include <QTimer>
+#include <QString>
+#include <functional>
+#include <vector>
 #include <chiaki/session.h>
 
 class StreamSession;
@@ -32,17 +35,28 @@ class GameLauncher : public QObject
 	Q_OBJECT
 
 private:
+	// Action represents a single step in the automation sequence
+	struct Action {
+		std::function<void(std::function<void()>)> execute; // Function that takes a 'next' callback
+	};
+
 	StreamSession *session;
 	QString game_name;
-	int step;
-	int sub_step;
 	ChiakiLog *log;
+	qint64 start_timestamp;
+	std::vector<Action> actions;
+	size_t current_action_index;
 
-	void executeNextStep();
-	void pressButton(ChiakiControllerButton button, int duration_ms);
-	void releaseAllButtons();
-	void scheduleNext(int delay_ms);
+	// Helper methods
+	void pressButtonAndContinue(ChiakiControllerButton button, const char *action_name, int press_duration, int pause_after, std::function<void()> next);
+	void holdAnalogStickAndContinue(int16_t left_x, int16_t left_y, const char *action_name, int hold_duration, int pause_after, std::function<void()> next);
+	void sendKeyboardTextAndContinue(const QString &text, int pause_after, std::function<void()> next);
 	void logAction(const char *action);
+	
+	// Action execution
+	void runAll(std::vector<Action> action_list);
+	void runNextAction();
+	void onComplete();
 
 private slots:
 	void onConnectedChanged();

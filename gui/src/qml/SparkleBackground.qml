@@ -24,9 +24,11 @@ Rectangle {
             property real baseOpacity: Math.random() * 0.8 + 0.4
             property real animationSpeed: Math.random() * 3000 + 2000
             property real twinkleSpeed: Math.random() * 2000 + 1000
+            property real initialX: Math.random() * sparkleBackground.width
+            property real initialY: Math.random() * sparkleBackground.height
             
-            x: Math.random() * parent.width
-            y: Math.random() * parent.height
+            x: initialX
+            y: initialY
             width: sparkleSize * 2
             height: sparkleSize * 2
             
@@ -88,49 +90,54 @@ Rectangle {
             }
             
             // Twinkling animation
+            property real targetOpacityLow: baseOpacity * 0.2
+            property real targetOpacityHigh: baseOpacity * 1.5
             SequentialAnimation on baseOpacity {
                 running: true
                 loops: Animation.Infinite
                 NumberAnimation {
-                    to: parent.baseOpacity * 0.2
-                    duration: parent.twinkleSpeed
+                    to: targetOpacityLow
+                    duration: twinkleSpeed
                     easing.type: Easing.InOutQuad
                 }
                 NumberAnimation {
-                    to: parent.baseOpacity * 1.5
-                    duration: parent.twinkleSpeed
+                    to: targetOpacityHigh
+                    duration: twinkleSpeed
                     easing.type: Easing.InOutQuad
                 }
             }
             
             // Gentle floating movement
+            property real yOffset: Math.random() * 30 - 15
+            property real targetY: initialY + yOffset
             SequentialAnimation on y {
                 running: true
                 loops: Animation.Infinite
                 NumberAnimation {
-                    to: parent.y + (Math.random() * 30 - 15)
-                    duration: parent.animationSpeed
+                    to: targetY
+                    duration: animationSpeed
                     easing.type: Easing.InOutSine
                 }
                 NumberAnimation {
-                    to: parent.y
-                    duration: parent.animationSpeed
+                    to: initialY
+                    duration: animationSpeed
                     easing.type: Easing.InOutSine
                 }
             }
             
             // Scale animation for breathing effect
+            property real scaleDuration: twinkleSpeed * 1.5
             SequentialAnimation on scale {
                 running: true
                 loops: Animation.Infinite
                 NumberAnimation {
                     to: 0.7
-                    duration: parent.twinkleSpeed * 1.5
+                    duration: scaleDuration
                     easing.type: Easing.InOutQuad
                 }
                 NumberAnimation {
                     to: 1.3
-                    duration: parent.twinkleSpeed * 1.5
+                    duration: scaleDuration
                     easing.type: Easing.InOutQuad
                 }
             }
@@ -145,9 +152,11 @@ Rectangle {
             property real particleSize: Math.random() * 3 + 1
             property real baseOpacity: Math.random() * 0.6 + 0.2
             property real animationSpeed: Math.random() * 8000 + 4000
+            property real initialX: Math.random() * sparkleBackground.width
+            property real initialY: Math.random() * sparkleBackground.height
             
-            x: Math.random() * parent.width
-            y: Math.random() * parent.height
+            x: initialX
+            y: initialY
             width: particleSize
             height: particleSize
             radius: particleSize / 2
@@ -163,33 +172,38 @@ Rectangle {
             }
             
             // Gentle movement
+            property real xOffset: Math.random() * 40 - 20
+            property real targetX: initialX + xOffset
             SequentialAnimation on x {
                 running: true
                 loops: Animation.Infinite
                 NumberAnimation {
-                    to: parent.x + (Math.random() * 40 - 20)
-                    duration: parent.animationSpeed
+                    to: targetX
+                    duration: animationSpeed
                     easing.type: Easing.InOutSine
                 }
                 NumberAnimation {
-                    to: parent.x
-                    duration: parent.animationSpeed
+                    to: initialX
+                    duration: animationSpeed
                     easing.type: Easing.InOutSine
                 }
             }
             
             // Shimmer effect
+            property real shimmerSpeed: Math.random() * 2000 + 1000
+            property real targetOpacityLow: baseOpacity * 0.1
+            property real targetOpacityHigh: baseOpacity * 1.8
             SequentialAnimation on opacity {
                 running: true
                 loops: Animation.Infinite
                 NumberAnimation {
-                    to: parent.baseOpacity * 0.1
-                    duration: Math.random() * 2000 + 1000
+                    to: targetOpacityLow
+                    duration: shimmerSpeed
                     easing.type: Easing.InOutQuad
                 }
                 NumberAnimation {
-                    to: parent.baseOpacity * 1.8
-                    duration: Math.random() * 2000 + 1000
+                    to: targetOpacityHigh
+                    duration: shimmerSpeed
                     easing.type: Easing.InOutQuad
                 }
             }

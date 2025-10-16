@@ -245,7 +245,8 @@ Pane {
                     
                     if (root.serverIndex >= 0) {
                         // Connect to host with game name to trigger automation
-                        Chiaki.connectToHost(root.serverIndex, "", gameName)
+                        // Pass deviceName (console nickname) for wakeup support
+                        Chiaki.connectToHost(root.serverIndex, root.deviceName, gameName)
                     } else {
                         console.error("No server index available for launching game")
                     }
