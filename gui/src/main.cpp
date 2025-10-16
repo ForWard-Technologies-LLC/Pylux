@@ -133,6 +133,7 @@ int real_main(int argc, char *argv[])
 	
 	QStringList cmds;
 	cmds.append("stream");
+	cmds.append("shortcutStream");
 	cmds.append("list");
 #ifdef CHIAKI_ENABLE_CLI
 	cmds.append(cli_commands.keys());
@@ -142,6 +143,7 @@ int real_main(int argc, char *argv[])
 	parser.addPositionalArgument("nickname", "Needed for stream command to get credentials for connecting. "
 			"Use 'list' to get the nickname.");
 	parser.addPositionalArgument("host", "Address to connect to (when using the stream command).");
+	parser.addPositionalArgument("game", "Game name (when using the shortcutStream command).");
 
 	QCommandLineOption profile_option("profile", "", "profile", "Configuration profile");
 	parser.addOption(profile_option);
@@ -192,6 +194,89 @@ int real_main(int argc, char *argv[])
 		for(const auto &host : settings.GetRegisteredHosts())
 			printf("Host: %s \n", host.GetServerNickname().toLocal8Bit().constData());
 		return 0;
+	}
+	if(args[0] == "shortcutStream")
+	{
+		if(args.length() < 3)
+			parser.showHelp(1);
+
+		QString nickname = args[1];
+		QString game_name = args[2];
+		
+		// Check that only one display mode option is set
+		if ((parser.isSet(stretch_option) && (parser.isSet(zoom_option) || parser.isSet(fullscreen_option))) || (parser.isSet(zoom_option) && parser.isSet(fullscreen_option)))
+		{
+			fprintf(stderr, "ERROR: Must choose between fullscreen, zoom or stretch option.\n");
+			return 1;
+		}
+		
+		// Handle passcode option
+		QString initial_login_passcode;
+		if(parser.value(passcode_option).isEmpty())
+		{
+			initial_login_passcode = QString("");
+		}
+		else
+		{
+			initial_login_passcode = parser.value(passcode_option);
+			if(initial_login_passcode.length() != 4)
+			{
+				fprintf(stderr, "ERROR: Login passcode must be 4 digits. You entered %" PRIdQSIZETYPE " digits\n", initial_login_passcode.length());
+				return 1;
+			}
+		}
+		
+		// Find the host by nickname and get its last known IP
+		bool found = false;
+		ChiakiTarget target = CHIAKI_TARGET_PS4_10;
+		QByteArray regist_key;
+		QByteArray morning;
+		QString host;
+		QString console_pin;
+		
+		for(const auto &temphost : settings.GetRegisteredHosts())
+		{
+			if(temphost.GetServerNickname() == nickname)
+			{
+				found = true;
+				morning = temphost.GetRPKey();
+				regist_key = temphost.GetRPRegistKey();
+				target = temphost.GetTarget();
+				host = temphost.GetLastHostIP();
+				console_pin = temphost.GetConsolePin();
+				break;
+			}
+		}
+		
+		if(!found)
+		{
+			fprintf(stderr, "ERROR: No configuration found for console nickname '%s'\n", nickname.toLocal8Bit().constData());
+			return 1;
+		}
+		
+		if(host.isEmpty())
+		{
+			fprintf(stderr, "ERROR: No last known IP for console '%s'. Please connect to it normally first.\n", nickname.toLocal8Bit().constData());
+			return 1;
+		}
+		
+		// Create session with game launch parameters
+		StreamSessionConnectInfo connect_info(
+				use_alt_settings ? &alt_settings : &settings,
+				target,
+				host,
+				QString(), // nickname not needed for direct connection
+				std::move(regist_key),
+				std::move(morning),
+				initial_login_passcode.isEmpty() ? console_pin : initial_login_passcode,
+				QString(), // duid
+				false,
+				parser.isSet(fullscreen_option),
+				parser.isSet(zoom_option),
+				parser.isSet(stretch_option));
+		connect_info.game_name = game_name;
+		
+		return RunStream(app, connect_info);
 	}
 	if(args[0] == "stream")
 	{

@@ -690,19 +690,20 @@ void QmlGamesBackend::createGameSteamShortcut(const QString &titleId, const QStr
     artwork.insert("icon", new QPixmap(icon));
     artwork.insert("logo", new QPixmap(logo));
     
-    // Build launch options with properly escaped game name
-    qCInfo(chiakiGuiGames) << "Building launch options...";
-    QString escaped_game_name = gameName;
-    escaped_game_name.replace("\"", "\\\"");  // Escape quotes
-    QString launch_options = QString("--game=\"%1\"").arg(escaped_game_name);
-    
-    // Add device name if provided
-    if (!deviceName.isEmpty()) {
-        QString escaped_device_name = deviceName;
-        escaped_device_name.replace("\"", "\\\"");  // Escape quotes
-        launch_options += QString(" --nickname=\"%1\"").arg(escaped_device_name);
-        qCInfo(chiakiGuiGames) << "Added device name to launch options:" << deviceName;
+    // Validate required parameters
+    if (deviceName.isEmpty()) {
+        errorLambda("[E] Console name is required for shortcut creation");
+        return;
     }
+    
+    // Build launch options using shortcutStream command
+    qCInfo(chiakiGuiGames) << "Building launch options with shortcutStream command...";
+    QString escaped_game_name = gameName;
+    escaped_game_name.replace("\"", "\\\"");  // Escape quotes for shell safety
+    QString escaped_device_name = deviceName;
+    escaped_device_name.replace("\"", "\\\"");  // Escape quotes for shell safety
+    
+    QString launch_options = QString("shortcutStream \"%1\" \"%2\"").arg(escaped_device_name, escaped_game_name);
     
     qCInfo(chiakiGuiGames) << "Launch options:" << launch_options;
     infoLambda(QString("[I] Creating Steam shortcut with launch options: %1").arg(launch_options));

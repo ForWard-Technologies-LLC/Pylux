@@ -102,9 +102,23 @@ Dialog {
     
     function showDialog(gameTitle, gameTitleId, consoleDeviceName) {
         console.log("GameShortcutDialog.showDialog called with:", gameTitle, gameTitleId, consoleDeviceName)
+        
+        // Validate required parameters
+        if (!consoleDeviceName) {
+            console.error("Missing console device name")
+            dialog.showToast(qsTr("⚠ Error: Console name is required for shortcut creation"), "#F44336")
+            return
+        }
+        
+        if (!gameTitle) {
+            console.error("Missing game title")
+            dialog.showToast(qsTr("⚠ Error: Game title is required for shortcut creation"), "#F44336")
+            return
+        }
+        
         titleId = gameTitleId
         gameName = gameTitle
-        deviceName = consoleDeviceName || ""
+        deviceName = consoleDeviceName
         
         try {
             gameNameField.text = gameTitle
@@ -113,14 +127,12 @@ Dialog {
             console.error("Error setting gameNameField.text:", e)
         }
         
-        // Build launch options
+        // Build launch options using shortcutStream command
         try {
+            // Escape quotes in the strings for shell safety
             let escaped_name = gameTitle.replace(/"/g, '\\"')
-            let escaped_console = consoleDeviceName ? consoleDeviceName.replace(/"/g, '\\"') : ""
-            let options = `--game="${escaped_name}"`
-            if (escaped_console) {
-                options += ` --nickname="${escaped_console}"`
-            }
+            let escaped_console = consoleDeviceName.replace(/"/g, '\\"')
+            let options = `shortcutStream "${escaped_console}" "${escaped_name}"`
             launchOptionsField.text = options
             console.log("Set launchOptionsField.text to:", launchOptionsField.text)
         } catch (e) {

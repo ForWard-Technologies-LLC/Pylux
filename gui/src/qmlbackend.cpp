@@ -549,6 +549,17 @@ QVariantList QmlBackend::hosts() const
         m["registered"] = registered;
         m["display"] = hidden ? false : true;
         discovered_nicknames.append(host.host_name);
+        
+        // Update last known IP for registered hosts
+        if (registered) {
+            auto reg_host = settings->GetRegisteredHost(host_mac);
+            if (reg_host.GetLastHostIP() != host.host_addr) {
+                qCInfo(chiakiGui) << "Updating last known IP for" << host.host_name << "from" << reg_host.GetLastHostIP() << "to" << host.host_addr;
+                reg_host.SetLastHostIP(host.host_addr);
+                settings->AddRegisteredHost(reg_host);
+            }
+        }
+        
         // Only add hosts that should be displayed
         if (!hidden) {
             out.append(m);

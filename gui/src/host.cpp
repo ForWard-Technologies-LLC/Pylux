@@ -19,7 +19,8 @@ RegisteredHost::RegisteredHost(const RegisteredHost &o)
 	server_mac(o.server_mac),
 	server_nickname(o.server_nickname),
 	rp_key_type(o.rp_key_type),
-	console_pin(o.console_pin)
+	console_pin(o.console_pin),
+	last_host_ip(o.last_host_ip)
 {
 	memcpy(rp_regist_key, o.rp_regist_key, sizeof(rp_regist_key));
 	memcpy(rp_key, o.rp_key, sizeof(rp_key));
@@ -58,6 +59,7 @@ void RegisteredHost::SaveToSettings(QSettings *settings) const
 	settings->setValue("rp_key_type", rp_key_type);
 	settings->setValue("rp_key", QByteArray((const char *)rp_key, sizeof(rp_key)));
 	settings->setValue("console_pin", console_pin);
+	settings->setValue("last_host_ip", last_host_ip);
 }
 
 RegisteredHost RegisteredHost::LoadFromSettings(QSettings *settings)
@@ -80,6 +82,7 @@ RegisteredHost RegisteredHost::LoadFromSettings(QSettings *settings)
 	if(rp_key.size() == sizeof(r.rp_key))
 		memcpy(r.rp_key, rp_key.constData(), sizeof(r.rp_key));
 	r.console_pin = settings->value("console_pin").toString();
+	r.last_host_ip = settings->value("last_host_ip").toString();
 	return r;
 }
 

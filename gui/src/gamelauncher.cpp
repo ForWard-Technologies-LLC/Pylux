@@ -10,9 +10,9 @@
 
 // Timing constants - adjust these to change all timings at once
 static constexpr int INITIAL_DELAY = 1000;           // Initial delay before starting automation
-static constexpr int BUTTON_PRESS_DURATION = 50;     // Standard button press duration
-static constexpr int LONG_PRESS_DURATION = 1000;     // Long press (PS button)
-static constexpr int PAUSE_BETWEEN_ACTIONS = 200;    // Pause between each action
+static constexpr int BUTTON_PRESS_DURATION = 100;     // Standard button press duration
+static constexpr int LONG_PRESS_DURATION = 500;     // Long press (PS button)
+static constexpr int PAUSE_BETWEEN_ACTIONS = 300;    // Pause between each action
 static constexpr int KEYBOARD_WAIT = 500;            // Wait for keyboard to open
 static constexpr int KEYBOARD_TEXT_PAUSE = 1000;     // Pause after sending text before accepting
 static constexpr int CLEANUP_DELAY = 1000;           // Delay before cleanup

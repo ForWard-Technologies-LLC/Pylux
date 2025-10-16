@@ -67,6 +67,7 @@ class RegisteredHost
 		uint32_t rp_key_type;
 		uint8_t rp_key[0x10];
 		QString console_pin;
+		QString last_host_ip;
 
 	public:
 		RegisteredHost();
@@ -80,6 +81,8 @@ class RegisteredHost
 		const QByteArray GetRPRegistKey() const	{ return QByteArray(rp_regist_key, sizeof(rp_regist_key)); }
 		const QByteArray GetRPKey() const		{ return QByteArray((const char *)rp_key, sizeof(rp_key)); }
 		const QString GetConsolePin() const				{ return console_pin; }
+		const QString &GetLastHostIP() const	{ return last_host_ip; }
+		void SetLastHostIP(const QString &ip)	{ last_host_ip = ip; }
 
 		void SaveToSettings(QSettings *settings) const;
 		static RegisteredHost LoadFromSettings(QSettings *settings);
