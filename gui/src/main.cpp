@@ -170,12 +170,6 @@ int real_main(int argc, char *argv[])
 	QCommandLineOption passcode_option("passcode", "Automatically send your PlayStation login passcode (only affects users with a login passcode set on their PlayStation console).", "passcode");
 	parser.addOption(passcode_option);
 
-	QCommandLineOption game_option("game", "Automatically launch a specific game by name.", "game");
-	parser.addOption(game_option);
-
-	QCommandLineOption nickname_option("nickname", "Console nickname to connect to (for use with --game).", "nickname");
-	parser.addOption(nickname_option);
-
 	parser.process(app);
 	QStringList args = parser.positionalArguments();
 
@@ -191,62 +185,7 @@ int real_main(int argc, char *argv[])
 		use_alt_settings = true;
 
 	if(args.length() == 0)
-	{
-		// Check if we have --game and --nickname for direct game launch via shortcut
-		if(parser.isSet(game_option) && parser.isSet(nickname_option))
-		{
-			QString nickname = parser.value(nickname_option);
-			QString game_name = parser.value(game_option);
-			
-			// Find the host by nickname
-			bool found = false;
-			ChiakiTarget target = CHIAKI_TARGET_PS4_10;
-			QString host;
-			QByteArray regist_key;
-			QByteArray morning;
-			QString console_pin;
-			
-			for(const auto &temphost : settings.GetRegisteredHosts())
-			{
-				if(temphost.GetServerNickname() == nickname)
-				{
-					found = true;
-					morning = temphost.GetRPKey();
-					regist_key = temphost.GetRPRegistKey();
-					target = temphost.GetTarget();
-					host = temphost.GetServerMAC().ToString(); // Use MAC as placeholder, will be discovered
-					console_pin = temphost.GetConsolePin();
-					break;
-				}
-			}
-			
-			if(!found)
-			{
-				printf("No configuration found for console nickname '%s'\n", nickname.toLocal8Bit().constData());
-				return 1;
-			}
-			
-			// Create session with game launch parameters
-			StreamSessionConnectInfo connect_info(
-					use_alt_settings ? &alt_settings : &settings,
-					target,
-					QString(), // Empty host for discovery
-					std::move(nickname),
-					std::move(regist_key),
-					std::move(morning),
-					std::move(console_pin),
-					QString(), // Empty duid
-					false,
-					false, // fullscreen
-					false, // zoom
-					false); // stretch
-			connect_info.game_name = game_name;
-			
-			return RunStream(app, connect_info);
-		}
-		
 		return RunMain(app, use_alt_settings ? &alt_settings : &settings, exit_app_on_stream_exit);
-	}
 
 	if(args[0] == "list")
 	{
@@ -331,25 +270,19 @@ int real_main(int argc, char *argv[])
 			}
 		}
 		
-	StreamSessionConnectInfo connect_info(
-			use_alt_settings ? &alt_settings : &settings,
-			target,
-			std::move(host),
-			QString(),
-			std::move(regist_key),
-			std::move(morning),
-			std::move(initial_login_passcode),
-			QString(),
-			false,
-			parser.isSet(fullscreen_option),
-			parser.isSet(zoom_option),
-			parser.isSet(stretch_option));
-
-		// Set game launch parameters if provided
-		if(parser.isSet(game_option))
-		{
-			connect_info.game_name = parser.value(game_option);
-		}
+		StreamSessionConnectInfo connect_info(
+				use_alt_settings ? &alt_settings : &settings,
+				target,
+				std::move(host),
+				QString(),
+				std::move(regist_key),
+				std::move(morning),
+				std::move(initial_login_passcode),
+				QString(),
+				false,
+				parser.isSet(fullscreen_option),
+				parser.isSet(zoom_option),
+				parser.isSet(stretch_option));
 
 		return RunStream(app, connect_info);
 	}
