@@ -8,6 +8,7 @@
 #include <QString>
 #include <functional>
 #include <vector>
+#include <memory>
 #include <chiaki/session.h>
 
 class StreamSession;
@@ -46,8 +47,11 @@ private:
 	qint64 start_timestamp;
 	std::vector<Action> actions;
 	size_t current_action_index;
+	std::shared_ptr<bool> is_shutting_down;
 
 	// Helper methods
+	bool shouldAbort() const { return *is_shutting_down; }
+	void scheduleSafe(int msec, std::function<void()> callback);
 	void pressButtonAndContinue(ChiakiControllerButton button, const char *action_name, int press_duration, int pause_after, std::function<void()> next);
 	void holdAnalogStickAndContinue(int16_t left_x, int16_t left_y, const char *action_name, int hold_duration, int pause_after, std::function<void()> next);
 	void sendKeyboardTextAndContinue(const QString &text, int pause_after, std::function<void()> next);
@@ -60,6 +64,9 @@ private:
 
 private slots:
 	void onConnectedChanged();
+
+signals:
+	void automationCompleted();
 
 public:
 	explicit GameLauncher(StreamSession *session, const QString &game_name, QObject *parent = nullptr);

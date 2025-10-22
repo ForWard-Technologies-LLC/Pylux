@@ -22,7 +22,7 @@ public:
     explicit QmlGamesBackend(Settings *settings, QObject *parent = nullptr);
     ~QmlGamesBackend();
 
-    Q_INVOKABLE QString getGameImage(const QString &titleId);
+    Q_INVOKABLE QString getGameImage(const QString &titleId, const QString &type = "portrait");
     Q_INVOKABLE void fetchTrophyData(const QString &npTitleId, bool forceRefresh = false);
     Q_INVOKABLE QString getGamesForDevice(const QString &deviceId);
     Q_INVOKABLE QString getCachedStoreResponse(const QString &titleId);

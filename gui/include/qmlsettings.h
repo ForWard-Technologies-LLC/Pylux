@@ -30,6 +30,7 @@ class QmlSettings : public QObject
     Q_PROPERTY(int echoSuppressLevel READ echoSuppressLevel WRITE setEchoSuppressLevel NOTIFY echoSuppressLevelChanged)
 #endif
     Q_PROPERTY(bool showStreamStats READ showStreamStats WRITE setShowStreamStats NOTIFY showStreamStatsChanged)
+    Q_PROPERTY(bool showGameImageDuringLaunch READ showGameImageDuringLaunch WRITE setShowGameImageDuringLaunch NOTIFY showGameImageDuringLaunchChanged)
     Q_PROPERTY(bool streamerMode READ streamerMode WRITE setStreamerMode NOTIFY streamerModeChanged)
     Q_PROPERTY(float hapticOverride READ hapticOverride WRITE setHapticOverride NOTIFY hapticOverrideChanged)
     Q_PROPERTY(int displayTargetContrast READ displayTargetContrast WRITE setDisplayTargetContrast NOTIFY displayTargetContrastChanged)
@@ -167,6 +168,9 @@ public:
 
     bool showStreamStats() const;
     void setShowStreamStats(bool enabled);
+
+    bool showGameImageDuringLaunch() const;
+    void setShowGameImageDuringLaunch(bool show);
 
     bool streamerMode() const;
     void setStreamerMode(bool enabled);
@@ -599,6 +603,7 @@ signals:
     void hapticOverrideChanged();
     void audioVideoDisabledChanged();
     void showStreamStatsChanged();
+    void showGameImageDuringLaunchChanged();
     void streamerModeChanged();
     void fpsLocalPS4Changed();
     void fpsRemotePS4Changed();

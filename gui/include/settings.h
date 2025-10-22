@@ -250,6 +250,9 @@ class Settings : public QObject
 		bool GetShowStreamStats() const            { return settings.value("settings/show_stream_stats", false).toBool(); }
 		void SetShowStreamStats(bool enabled)      { settings.setValue("settings/show_stream_stats", enabled); }
 
+		bool GetShowGameImageDuringLaunch() const  { return settings.value("settings/show_game_image_during_launch", true).toBool(); }
+		void SetShowGameImageDuringLaunch(bool show) { settings.setValue("settings/show_game_image_during_launch", show); }
+
 		bool GetStreamerMode() const		{ return settings.value("settings/streamer_mode", false).toBool(); }
 		void SetStreamerMode(bool enabled)	{ settings.setValue("settings/streamer_mode", enabled); }
 

@@ -361,7 +361,7 @@ Pane {
                 // Keyboard navigation
                 KeyNavigation.left: manuallyAddHeaderButton
                 KeyNavigation.right: settingsButton
-                KeyNavigation.down: hostsView.count === 0 ? autoAddButton : hostsView
+                KeyNavigation.down: hostsView.count === 0 ? addManuallyButton : hostsView
                 
                 // When navigating down to GridView, ensure it has focus and a current item
                 Keys.onDownPressed: {
@@ -372,8 +372,8 @@ Pane {
                     } else {
                         if (enableRemotePlayButton.visible) {
                             enableRemotePlayButton.forceActiveFocus();
-                        } else if (autoAddButton.visible) {
-                            autoAddButton.forceActiveFocus();
+                        } else if (addManuallyButton.visible) {
+                            addManuallyButton.forceActiveFocus();
                         } else {
                             manualAddButton.forceActiveFocus();
                         }
@@ -445,7 +445,7 @@ Pane {
                 // Keyboard navigation
                 KeyNavigation.left: psnLoginHeaderButton
                 KeyNavigation.right: closeButton
-                KeyNavigation.down: hostsView.count === 0 ? autoAddButton : hostsView
+                KeyNavigation.down: hostsView.count === 0 ? addManuallyButton : hostsView
                 
                 // When navigating down to GridView, ensure it has focus and a current item
                 Keys.onDownPressed: {
@@ -456,8 +456,8 @@ Pane {
                     } else {
                         if (enableRemotePlayButton.visible) {
                             enableRemotePlayButton.forceActiveFocus();
-                        } else if (autoAddButton.visible) {
-                            autoAddButton.forceActiveFocus();
+                        } else if (addManuallyButton.visible) {
+                            addManuallyButton.forceActiveFocus();
                         } else {
                             manualAddButton.forceActiveFocus();
                         }

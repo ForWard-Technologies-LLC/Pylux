@@ -13,6 +13,21 @@ Item {
     property bool sessionError: false
     property bool sessionLoading: true
     property list<Item> restoreFocusItems
+    
+    // Computed property: are we launching a game directly?
+    property bool launchingGame: Chiaki.session !== null 
+        && Chiaki.session.titleId !== undefined 
+        && Chiaki.session.titleId !== null
+        && Chiaki.session.titleId !== ""
+        && Chiaki.settings.showGameImageDuringLaunch
+    
+    // Watch for game launch to mute audio temporarily
+    onLaunchingGameChanged: {
+        if (launchingGame && Chiaki.session) {
+            // Mute session audio (doesn't persist to settings)
+            Chiaki.session.SetAudioVolume(0);
+        }
+    }
 
     function grabInput(item) {
         Chiaki.window.grabInput();
@@ -31,12 +46,76 @@ Item {
     StackView.onActivating: Chiaki.window.keepVideo = true
     StackView.onDeactivated: Chiaki.window.keepVideo = false
 
+    Component.onCompleted: {
+        if (Chiaki.session) {
+            Chiaki.session.GameLaunchCompleted.connect(function() {
+                // Hide game background and stop loading indicator
+                gameBackgroundLoader.active = false;
+                sessionLoading = false;
+                
+                // Restore audio volume from settings (doesn't modify persisted settings)
+                Chiaki.session.SetAudioVolume(Chiaki.settings.audioVolume);
+            });
+        }
+    }
+
+    // Black background for game image feature (only when launching game)
+    Rectangle {
+        anchors.fill: parent
+        color: "black"
+        opacity: {
+            if (sessionError || (Chiaki.settings.audioVideoDisabled & 0x02))
+                return 1.0;
+            // Show black background only when launching game
+            if (sessionLoading && launchingGame)
+                return 1.0;
+            return 0.0;
+        }
+        visible: opacity > 0
+        z: 0
+        Behavior on opacity { NumberAnimation { duration: 250 } }
+    }
+
+    // Game background image - independent overlay, stays until GameLauncher completes
+    Loader {
+        id: gameBackgroundLoader
+        anchors.fill: parent
+        z: 1
+        active: launchingGame
+        
+        sourceComponent: Component {
+            Item {
+                anchors.fill: parent
+                
+                Image {
+                    id: gameImage
+                    anchors.centerIn: parent
+                    width: parent.width
+                    height: parent.height
+                    source: (Chiaki.session && Chiaki.session.titleId) 
+                            ? ChiakiGames.getGameImage(Chiaki.session.titleId, "landscape") 
+                            : ""
+                    fillMode: Image.PreserveAspectFit
+                    cache: false
+                    
+                    // Dark overlay for spinner visibility
+                    Rectangle {
+                        anchors.fill: parent
+                        color: "black"
+                        opacity: 0.4
+                    }
+                }
+            }
+        }
+    }
+
     Rectangle {
         id: loadingView
         anchors.fill: parent
-        color: "black"
+        color: "transparent"
         opacity: sessionError || sessionLoading || (Chiaki.settings.audioVideoDisabled & 0x02) ? 1.0 : 0.0
         visible: opacity
+        z: 2
 
         Behavior on opacity { NumberAnimation { duration: 250 } }
 
@@ -47,13 +126,14 @@ Item {
                 right: parent.right
                 bottom: parent.bottom
             }
+            z: 3
 
             BusyIndicator {
                 id: spinner
                 anchors.centerIn: parent
                 width: 70
                 height: width
-                visible: sessionLoading
+                visible: sessionLoading && launchingGame
             }
 
             Label {
@@ -78,7 +158,7 @@ Item {
                             qsTr("Press %1 to open stream menu").arg(Chiaki.controllers.length ? Chiaki.settings.stringForStreamMenuShortcut() : "Ctrl+O")
                     }
                 }
-                visible: sessionLoading
+                visible: sessionLoading && launchingGame
             }
 
             Label {
@@ -830,8 +910,13 @@ Item {
         target: Chiaki.window
 
         function onHasVideoChanged() {
-            if (Chiaki.window.hasVideo)
-                sessionLoading = false;
+            if (Chiaki.window.hasVideo) {
+                // If not launching a game directly, stop loading when video appears
+                // If launching a game, keep loading until GameLaunchCompleted
+                if (!launchingGame) {
+                    sessionLoading = false;
+                }
+            }
         }
 
         function onMenuRequested() {
@@ -842,8 +927,11 @@ Item {
     }
     Connections {
         target: Chiaki.session
+        enabled: Chiaki.session !== null
 
         function onConnectedChanged() {
+            // If video is disabled, stop loading immediately
+            // Otherwise, keep loading until GameLaunchCompleted (if launching a game) or hasVideo (if not)
             if (Chiaki.settings.audioVideoDisabled & 0x02)
                 sessionLoading = false;
         }

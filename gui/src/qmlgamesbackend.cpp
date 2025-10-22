@@ -53,7 +53,7 @@ bool QmlGamesBackend::canMakePsnRequest()
     return true;
 }
 
-QString QmlGamesBackend::getGameImage(const QString &titleId)
+QString QmlGamesBackend::getGameImage(const QString &titleId, const QString &type)
 {
     if (titleId.isEmpty()) {
         return QString();
@@ -68,12 +68,20 @@ QString QmlGamesBackend::getGameImage(const QString &titleId)
         QJsonDocument doc = QJsonDocument::fromJson(cached_json.toUtf8());
         if (doc.isArray()) {
             QJsonArray images = doc.array();
-            // Find best image (type 10 = box art, 12 = portrait, 13 = landscape)
-            for (const int type : {10, 12, 13}) {
+            // Find best image based on type parameter
+            // type 10 = box art, 12 = landscape HD, 13 = landscape SD
+            QVector<int> type_priority;
+            if (type == "landscape") {
+                type_priority = {12, 13, 10};  // Prefer landscape (HD, then SD)
+            } else {
+                type_priority = {10, 12, 13};  // Default: prefer box art
+            }
+            
+            for (const int img_type : type_priority) {
                 for (const QJsonValue &img_val : images) {
                     if (img_val.isObject()) {
                         QJsonObject img = img_val.toObject();
-                        if (img.value("type").toInt() == type) {
+                        if (img.value("type").toInt() == img_type) {
                             return img.value("url").toString();
                         }
                     }
@@ -702,8 +710,10 @@ void QmlGamesBackend::createGameSteamShortcut(const QString &titleId, const QStr
     escaped_game_name.replace("\"", "\\\"");  // Escape quotes for shell safety
     QString escaped_device_name = deviceName;
     escaped_device_name.replace("\"", "\\\"");  // Escape quotes for shell safety
+    QString escaped_title_id = titleId;
+    escaped_title_id.replace("\"", "\\\"");  // Escape quotes for shell safety
     
-    QString launch_options = QString("shortcutStream \"%1\" \"%2\"").arg(escaped_device_name, escaped_game_name);
+    QString launch_options = QString("shortcutStream \"%1\" --game \"%2\" --title-id \"%3\"").arg(escaped_device_name, escaped_game_name, escaped_title_id);
     
     qCInfo(chiakiGuiGames) << "Launch options:" << launch_options;
     infoLambda(QString("[I] Creating Steam shortcut with launch options: %1").arg(launch_options));

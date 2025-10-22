@@ -264,6 +264,7 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 	mouse_touch_enabled = connect_info.mouse_touch_enabled;
 	keyboard_controller_enabled = connect_info.keyboard_controller_enabled;
 	host = connect_info.host;
+	title_id = connect_info.title_id;
 	QByteArray host_str = connect_info.host.toUtf8();
 
 	ChiakiConnectInfo chiaki_connect_info = {};
@@ -483,13 +484,28 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 	if(!connect_info.game_name.isEmpty())
 	{
 		CHIAKI_LOGI(log.GetChiakiLog(), "StreamSession: game_name detected: '%s', starting GameLauncher", connect_info.game_name.toUtf8().constData());
-		GameLauncher *launcher = new GameLauncher(this, connect_info.game_name, this);
-		launcher->start();
+		game_launcher = new GameLauncher(this, connect_info.game_name, this);
+		connect(game_launcher, &GameLauncher::automationCompleted, this, &StreamSession::OnGameLauncherCompleted);
+		game_launcher->start();
 	}
+}
+
+void StreamSession::OnGameLauncherCompleted()
+{
+	emit GameLaunchCompleted();
 }
 
 StreamSession::~StreamSession()
 {
+	// Explicitly delete GameLauncher first, before we tear down the session
+	// This ensures its destructor runs and cancels all pending timers before
+	// we destroy the chiaki_session that it depends on
+	if(game_launcher)
+	{
+		delete game_launcher;
+		game_launcher = nullptr;
+	}
+	
 	if(audio_out)
 		SDL_CloseAudioDevice(audio_out);
 	if(audio_in)

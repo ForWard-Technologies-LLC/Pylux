@@ -396,11 +396,31 @@ DialogView {
                             KeyNavigation.up: streamMenu
                             KeyNavigation.left: psnGamesSyncCheckbox
                             KeyNavigation.right: psnGamesSyncCheckbox
+                            KeyNavigation.down: showGameImageDuringLaunch
+                        }
+
+                        Label {
+                            Layout.alignment: Qt.AlignRight
+                            text: qsTr("(Checked)")
+                        }
+
+                        Label {
+                            Layout.alignment: Qt.AlignRight
+                            text: qsTr("Display Game Art While Loading")
+                        }
+                        C.CheckBox {
+                            id: showGameImageDuringLaunch
+                            checked: Chiaki.settings.showGameImageDuringLaunch
+                            onToggled: Chiaki.settings.showGameImageDuringLaunch = !Chiaki.settings.showGameImageDuringLaunch
+                            KeyNavigation.priority: KeyNavigation.BeforeItem
+                            KeyNavigation.up: psnGamesSyncCheckbox
+                            KeyNavigation.left: showGameImageDuringLaunch
+                            KeyNavigation.right: showGameImageDuringLaunch
                             KeyNavigation.down: {
                                 if(streamMenuShortcut1.visible)
                                     streamMenuShortcut1
                                 else
-                                    psnGamesSyncCheckbox
+                                    showGameImageDuringLaunch
                             }
                         }
 

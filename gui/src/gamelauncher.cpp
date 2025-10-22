@@ -25,6 +25,7 @@ GameLauncher::GameLauncher(StreamSession *session, const QString &game_name, QOb
 	, log(nullptr)
 	, start_timestamp(0)
 	, current_action_index(0)
+	, is_shutting_down(std::make_shared<bool>(false))
 {
 	if (session) {
 		log = session->GetChiakiLog();
@@ -34,9 +35,28 @@ GameLauncher::GameLauncher(StreamSession *session, const QString &game_name, QOb
 
 GameLauncher::~GameLauncher()
 {
+	// Set shutdown flag to prevent any pending callbacks from running
+	*is_shutting_down = true;
+	
 	if (log) {
 		CHIAKI_LOGI(log, "GameLauncher: Destroyed");
 	}
+	
+	// Disconnect all signals to prevent accessing destroyed objects
+	disconnect();
+	
+	// Null out session pointer to catch any accidental use after destruction
+	session = nullptr;
+	log = nullptr;
+}
+
+void GameLauncher::scheduleSafe(int msec, std::function<void()> callback)
+{
+	auto shutdown = is_shutting_down;
+	QTimer::singleShot(msec, this, [shutdown, callback]() {
+		if (*shutdown) return;
+		callback();
+	});
 }
 
 void GameLauncher::start()
@@ -69,7 +89,9 @@ void GameLauncher::onConnectedChanged()
 	std::vector<Action> action_list;
 	
 	// Initial delay
-	action_list.push_back({[this](auto next) { QTimer::singleShot(INITIAL_DELAY, this, next); }});
+	action_list.push_back({[this](auto next) { 
+		scheduleSafe(INITIAL_DELAY, next);
+	}});
 	
 	// Action 1: Long press PS button
 	action_list.push_back({[this](auto next) {
@@ -113,7 +135,9 @@ void GameLauncher::onConnectedChanged()
 	}});
 	
 	// Action 8: Wait for keyboard to open
-	action_list.push_back({[this](auto next) { QTimer::singleShot(KEYBOARD_WAIT, this, next); }});
+	action_list.push_back({[this](auto next) { 
+		scheduleSafe(KEYBOARD_WAIT, next);
+	}});
 	
 	// Action 9: Send keyboard text
 	action_list.push_back({[this](auto next) {
@@ -131,7 +155,9 @@ void GameLauncher::onConnectedChanged()
 	}});
 	
 	// Action 12: Wait 1 second before final select
-	action_list.push_back({[this](auto next) { QTimer::singleShot(1000, this, next); }});
+	action_list.push_back({[this](auto next) { 
+		scheduleSafe(1000, next);
+	}});
 	
 	// Action 13: Press Cross to confirm (2)
 	action_list.push_back({[this](auto next) {
@@ -144,7 +170,8 @@ void GameLauncher::onConnectedChanged()
 
 void GameLauncher::pressButtonAndContinue(ChiakiControllerButton button, const char *action_name, int press_duration, int pause_after, std::function<void()> next)
 {
-	if (!session) return;
+	if (shouldAbort() || !session || !session->GetConnected())
+		return;
 	
 	qint64 elapsed = QDateTime::currentMSecsSinceEpoch() - start_timestamp;
 	logAction(action_name);
@@ -155,8 +182,9 @@ void GameLauncher::pressButtonAndContinue(ChiakiControllerButton button, const c
 	session->SendFeedbackState();
 	
 	// Release after press_duration, then pause, then continue
-	QTimer::singleShot(press_duration, this, [this, pause_after, next]() {
-		if (!session) return;
+	scheduleSafe(press_duration, [this, pause_after, next]() {
+		if (!session || !session->GetConnected())
+			return;
 		
 		qint64 elapsed = QDateTime::currentMSecsSinceEpoch() - start_timestamp;
 		CHIAKI_LOGI(log, "GameLauncher: [T+%lld ms] Releasing all buttons", elapsed);
@@ -165,13 +193,14 @@ void GameLauncher::pressButtonAndContinue(ChiakiControllerButton button, const c
 		session->SendFeedbackState();
 		
 		// Pause after release, then call next
-		QTimer::singleShot(pause_after, this, next);
+		scheduleSafe(pause_after, next);
 	});
 }
 
 void GameLauncher::holdAnalogStickAndContinue(int16_t left_x, int16_t left_y, const char *action_name, int hold_duration, int pause_after, std::function<void()> next)
 {
-	if (!session) return;
+	if (shouldAbort() || !session || !session->GetConnected())
+		return;
 	
 	qint64 elapsed = QDateTime::currentMSecsSinceEpoch() - start_timestamp;
 	logAction(action_name);
@@ -183,8 +212,9 @@ void GameLauncher::holdAnalogStickAndContinue(int16_t left_x, int16_t left_y, co
 	session->SendFeedbackState();
 	
 	// Release after hold_duration, then pause, then continue
-	QTimer::singleShot(hold_duration, this, [this, pause_after, next]() {
-		if (!session) return;
+	scheduleSafe(hold_duration, [this, pause_after, next]() {
+		if (!session || !session->GetConnected())
+			return;
 		
 		qint64 elapsed = QDateTime::currentMSecsSinceEpoch() - start_timestamp;
 		CHIAKI_LOGI(log, "GameLauncher: [T+%lld ms] Centering analog sticks", elapsed);
@@ -195,13 +225,14 @@ void GameLauncher::holdAnalogStickAndContinue(int16_t left_x, int16_t left_y, co
 		session->SendFeedbackState();
 		
 		// Pause after release, then call next
-		QTimer::singleShot(pause_after, this, next);
+		scheduleSafe(pause_after, next);
 	});
 }
 
 void GameLauncher::sendKeyboardTextAndContinue(const QString &text, int pause_after, std::function<void()> next)
 {
-	if (!session) return;
+	if (shouldAbort() || !session || !session->GetConnected())
+		return;
 	
 	qint64 elapsed = QDateTime::currentMSecsSinceEpoch() - start_timestamp;
 	logAction("Sending game name via keyboard");
@@ -223,8 +254,9 @@ void GameLauncher::sendKeyboardTextAndContinue(const QString &text, int pause_af
 	}
 	
 	// Wait for text to appear, then accept keyboard
-	QTimer::singleShot(pause_after, this, [this, pause_after, next]() {
-		if (!session) return;
+	scheduleSafe(pause_after, [this, pause_after, next]() {
+		if (!session || !session->GetConnected())
+			return;
 		
 		ChiakiSession *chiaki_session = session->GetChiakiSession();
 		if (chiaki_session) {
@@ -239,7 +271,7 @@ void GameLauncher::sendKeyboardTextAndContinue(const QString &text, int pause_af
 		}
 		
 		// Pause again, then continue
-		QTimer::singleShot(pause_after, this, next);
+		scheduleSafe(pause_after, next);
 	});
 }
 
@@ -252,8 +284,10 @@ void GameLauncher::runAll(std::vector<Action> action_list)
 
 void GameLauncher::runNextAction()
 {
+	if (shouldAbort())
+		return;
+		
 	if (current_action_index >= actions.size()) {
-		// All actions complete
 		onComplete();
 		return;
 	}
@@ -263,16 +297,25 @@ void GameLauncher::runNextAction()
 	current_action_index++;
 	
 	current.execute([this]() {
+		if (shouldAbort()) return;
 		runNextAction();
 	});
 }
 
 void GameLauncher::onComplete()
 {
+	if (shouldAbort())
+		return;
+		
 	qint64 elapsed = QDateTime::currentMSecsSinceEpoch() - start_timestamp;
 	logAction("Automation complete");
 	CHIAKI_LOGI(log, "GameLauncher: [T+%lld ms] Automation complete", elapsed);
-	QTimer::singleShot(CLEANUP_DELAY, this, [this]() {
+	
+	// Only emit signal if session is still valid
+	if (session)
+		emit automationCompleted();
+	
+	scheduleSafe(CLEANUP_DELAY, [this]() {
 		deleteLater();
 	});
 }

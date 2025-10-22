@@ -81,6 +81,17 @@ void QmlSettings::setShowStreamStats(bool enabled)
     emit showStreamStatsChanged();
 }
 
+bool QmlSettings::showGameImageDuringLaunch() const
+{
+    return settings->GetShowGameImageDuringLaunch();
+}
+
+void QmlSettings::setShowGameImageDuringLaunch(bool show)
+{
+    settings->SetShowGameImageDuringLaunch(show);
+    emit showGameImageDuringLaunchChanged();
+}
+
 bool QmlSettings::streamerMode() const
 {
     return settings->GetStreamerMode();

@@ -172,6 +172,9 @@ int real_main(int argc, char *argv[])
 	QCommandLineOption passcode_option("passcode", "Automatically send your PlayStation login passcode (only affects users with a login passcode set on their PlayStation console).", "passcode");
 	parser.addOption(passcode_option);
 
+	QCommandLineOption title_id_option("title-id", "Title ID of game to launch (for game cover art display).", "title-id");
+	parser.addOption(title_id_option);
+
 	parser.process(app);
 	QStringList args = parser.positionalArguments();
 
@@ -275,6 +278,7 @@ int real_main(int argc, char *argv[])
 				parser.isSet(zoom_option),
 				parser.isSet(stretch_option));
 		connect_info.game_name = game_name;
+		connect_info.title_id = parser.value(title_id_option);
 		
 		return RunStream(app, connect_info);
 	}

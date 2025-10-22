@@ -38,6 +38,7 @@
 #include <QTimer>
 #include <QQueue>
 #include <QElapsedTimer>
+#include <QPointer>
 #if CHIAKI_GUI_ENABLE_SPEEX
 #include <QQueue>
 #include <speex/speex_echo.h>
@@ -46,6 +47,7 @@
 
 class QKeyEvent;
 class Settings;
+class GameLauncher;
 
 class ChiakiException: public Exception
 {
@@ -113,6 +115,7 @@ struct StreamSessionConnectInfo
 	uint dpad_touch_shortcut3;
 	uint dpad_touch_shortcut4;
 	QString game_name;
+	QString title_id;
 
 	StreamSessionConnectInfo() {}
 	StreamSessionConnectInfo(
@@ -144,6 +147,7 @@ class StreamSession : public QObject
 
 	Q_OBJECT
 	Q_PROPERTY(QString host READ GetHost CONSTANT)
+	Q_PROPERTY(QString titleId READ GetTitleId CONSTANT)
 	Q_PROPERTY(bool connected READ GetConnected NOTIFY ConnectedChanged)
 	Q_PROPERTY(double measuredBitrate READ GetMeasuredBitrate NOTIFY MeasuredBitrateChanged)
 	Q_PROPERTY(double averagePacketLoss READ GetAveragePacketLoss NOTIFY AveragePacketLossChanged)
@@ -164,6 +168,7 @@ class StreamSession : public QObject
 		bool allow_unmute;
 		int input_block;
 		QString host;
+		QString title_id;
 		int audio_volume;
 		double measured_bitrate = 0;
 		double average_packet_loss = 0;
@@ -229,6 +234,7 @@ class StreamSession : public QObject
 		RumbleHapticsIntensity rumble_haptics_intensity;
 		bool start_mic_unmuted;
 		bool session_started;
+		QPointer<GameLauncher> game_launcher;
 
 		ChiakiFfmpegDecoder *ffmpeg_decoder;
 		void TriggerFfmpegFrameAvailable();
@@ -302,12 +308,14 @@ class StreamSession : public QObject
 		void SetLoginPIN(const QString &pin);
 		void GoHome();
 		QString GetHost() { return host; }
+		QString GetTitleId() { return title_id; }
 		bool GetConnected() { return connected; }
 		double GetMeasuredBitrate()	{ return measured_bitrate; }
 		double GetAveragePacketLoss()	{ return average_packet_loss; }
 		bool GetMuted()	{ return muted; }
 		void SetMuted(bool enable)	{ if (enable != muted) ToggleMute(); }
-		void SetAudioVolume(int volume) { audio_volume = volume; }
+		Q_INVOKABLE int GetAudioVolume() { return audio_volume; }
+		Q_INVOKABLE void SetAudioVolume(int volume) { audio_volume = volume; }
 		bool GetCantDisplay()	{ return cant_display; }
 		ChiakiErrorCode ConnectPsnConnection(QString duid, bool ps5);
 		void CancelPsnConnection(bool stop_thread);
@@ -346,11 +354,13 @@ class StreamSession : public QObject
 		void AveragePacketLossChanged();
 		void MutedChanged();
 		void CantDisplayChanged(bool cant_display);
+		void GameLaunchCompleted();
 
 	private slots:
 		void UpdateGamepads();
 		void DpadSendFeedbackState();
 		void SendFeedbackState();
+		void OnGameLauncherCompleted();
 };
 
 Q_DECLARE_METATYPE(ChiakiQuitReason)

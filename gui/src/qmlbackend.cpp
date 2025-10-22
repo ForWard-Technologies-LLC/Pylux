@@ -1199,7 +1199,7 @@ void QmlBackend::setWebEngineHints(QQuickWebEngineProfile *profile)
 }
 #endif
 
-void QmlBackend::connectToHost(int index, QString nickname, QString gameName)
+void QmlBackend::connectToHost(int index, QString nickname, QString gameName, QString titleId)
 {
     window->setWindowAdjustable(false);
     auto server = displayServerAt(index);
@@ -1275,6 +1275,9 @@ void QmlBackend::connectToHost(int index, QString nickname, QString gameName)
         if (!gameName.isEmpty()) {
             info.game_name = gameName;
         }
+        if (!titleId.isEmpty()) {
+            info.title_id = titleId;
+        }
         createSession(info);
     }
     else
@@ -1296,6 +1299,9 @@ void QmlBackend::connectToHost(int index, QString nickname, QString gameName)
         // Set game launch parameters if provided
         if (!gameName.isEmpty()) {
             info.game_name = gameName;
+        }
+        if (!titleId.isEmpty()) {
+            info.title_id = titleId;
         }
 
         QString expiry_s = settings->GetPsnAuthTokenExpiry();
