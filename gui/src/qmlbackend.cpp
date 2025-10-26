@@ -284,6 +284,7 @@ QmlBackend::QmlBackend(Settings *settings, QmlMainWindow *window)
     connect(windows_wake_sleep, &WindowsWakeSleep::sleeping, this, &QmlBackend::goToSleep);
 #endif
     refreshPsnToken();
+    configureSteamControllerLayout();
 }
 
 QmlBackend::~QmlBackend()
@@ -2125,6 +2126,141 @@ QString QmlBackend::getExecutable() {
         return appImagePath;
 #endif
     return QCoreApplication::applicationFilePath();
+}
+
+/**
+ * Get the base Steam directory path.
+ * 
+ * NOTE: This is duplicated from SteamTools::getSteamBaseDir() in third-party/cpp-steam-tools/src/steamtools.cpp
+ * because that method is private. If the original changes, this must be updated to match.
+ * 
+ * Original source: third-party/cpp-steam-tools/src/steamtools.cpp lines 30-55
+ */
+QString QmlBackend::getSteamBaseDir()
+{
+    QString steamBaseDir;
+#if defined(__APPLE__)
+    steamBaseDir.append(getenv("HOME"));
+    steamBaseDir.append("/Library/Application Support/Steam");
+#elif defined(_WIN32)
+    steamBaseDir.append("C:/Program Files (x86)/Steam");
+#elif defined(__linux__)
+    QString steamFlatpakDir = getenv("HOME");
+    steamBaseDir.append(getenv("HOME"));
+    
+    steamFlatpakDir.append("/.var/app/com.valvesoftware.Steam/data/Steam");
+    
+    QDir steamBaseDirObj(steamFlatpakDir);
+    
+    // If flatpak Steam is installed
+    if (steamBaseDirObj.exists()) {
+        steamBaseDir.append("/.var/app/com.valvesoftware.Steam/data/Steam");
+    }
+    else {
+        // Steam installed on host
+        steamBaseDir.append("/.steam/steam");
+    }
+#endif
+    return steamBaseDir;
+}
+
+/**
+ * Get the most recent Steam user ID.
+ * 
+ * NOTE: This is duplicated from SteamTools::getMostRecentUser() in third-party/cpp-steam-tools/src/steamtools.cpp
+ * because that method is private. If the original changes, this must be updated to match.
+ * 
+ * Original source: third-party/cpp-steam-tools/src/steamtools.cpp lines 61-96
+ */
+QString QmlBackend::getSteamUserId()
+{
+    QString steamBaseDir = getSteamBaseDir();
+    if (!QDir(steamBaseDir).exists()) {
+        return QString();
+    }
+    
+    QString steamConfigFilePath = QString("%1/config/loginusers.vdf").arg(steamBaseDir);
+    QFile steamConfigfile(steamConfigFilePath);
+    
+    if (!steamConfigfile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        qCWarning(chiakiGui) << "Failed to open loginusers.vdf:" << steamConfigfile.errorString();
+        return QString();
+    }
+    
+    QTextStream in(&steamConfigfile);
+    QString steamid;
+    QString user_id;
+    
+    // Read the file line by line to find the most recent user
+    while (!in.atEnd()) {
+        QString line = in.readLine();
+        
+        if (line.contains("7656119") && !line.contains("PersonalName")) {
+            steamid = line.mid(line.indexOf("7656119"), line.size() - 1);
+        } else if ((line.contains("mostrecent", Qt::CaseInsensitive) || line.contains("MostRecent")) &&
+                   line.contains("\"1\"")) {
+            unsigned long long steamidLongLong = steamid.toULongLong();
+            steamidLongLong -= 76561197960265728;
+            user_id = QString::number(steamidLongLong);
+        }
+    }
+    
+    steamConfigfile.close();
+    return user_id;
+}
+
+void QmlBackend::configureSteamControllerLayout()
+{
+#ifdef CHIAKI_GUI_ENABLE_STEAM_SHORTCUT
+    qCInfo(chiakiGui) << "Checking Steam Deck controller configuration...";
+    
+    // Get the current Steam user ID directly by reading loginusers.vdf
+    QString steam_user_id = getSteamUserId();
+    if (steam_user_id.isEmpty()) {
+        qCInfo(chiakiGui) << "Could not determine Steam user - skipping controller configuration";
+        return;
+    }
+    
+    // Check if we've already configured this Steam user
+    QStringList configured_users = settings->GetSteamControllerConfiguredUsers();
+    if (configured_users.contains(steam_user_id)) {
+        qCInfo(chiakiGui) << "Steam Deck controller already configured for Steam user" << steam_user_id << "- skipping";
+        return;
+    }
+    
+    // Create SteamTools instance with minimal logging lambdas
+    auto infoLambda = [](const QString &msg) {
+        qCInfo(chiakiGui) << "SteamTools:" << msg;
+    };
+    auto errorLambda = [](const QString &msg) {
+        qCWarning(chiakiGui) << "SteamTools:" << msg;
+    };
+    
+    SteamTools* steam_tools = new SteamTools(infoLambda, errorLambda, QString());
+    
+    // Check if Steam exists
+    if (!steam_tools->steamExists()) {
+        qCInfo(chiakiGui) << "Steam not found - skipping controller configuration";
+        delete steam_tools;
+        return;
+    }
+    
+    // Configure the controller layout for PSStream (first time for this user)
+    QString controller_layout_workshop_id = "3049833406";
+    qCInfo(chiakiGui) << "Configuring Steam Deck controller for PSStream (first time for Steam user" << steam_user_id << ")";
+    qCInfo(chiakiGui) << "Applying workshop ID:" << controller_layout_workshop_id;
+    
+    // Pass "PSStream" - it will be lowercased to "psstream" internally by updateControllerConfig
+    steam_tools->updateControllerConfig("PSStream", controller_layout_workshop_id);
+    
+    // Save this Steam user as configured so we never override their choice again
+    settings->AddSteamControllerConfiguredUser(steam_user_id);
+    qCInfo(chiakiGui) << "Steam Deck controller configuration complete for Steam user" << steam_user_id;
+    
+    delete steam_tools;
+#else
+    qCInfo(chiakiGui) << "Steam shortcut support not enabled - skipping controller configuration";
+#endif
 }
 
 void QmlBackend::createSteamShortcut(QString shortcutName, QString launchOptions, const QJSValue &callback, QString steamDir)

@@ -14,6 +14,9 @@ DialogView {
     
     onAccepted: nextStep()
     
+    // Reset to first step when dialog is pushed onto the stack
+    StackView.onActivated: currentStep = 0
+    
     function nextStep() {
         if (currentStep < totalSteps - 1) {
             currentStep++
@@ -697,18 +700,18 @@ DialogView {
                     background: Rectangle {
                         radius: 8
                         gradient: Gradient {
-                            GradientStop { position: 0.0; color: parent.enabled ? Qt.rgba(0, 212/255, 1, 0.2) : Qt.rgba(1, 1, 1, 0.1) }
-                            GradientStop { position: 1.0; color: parent.enabled ? Qt.rgba(0, 212/255, 1, 0.1) : Qt.rgba(1, 1, 1, 0.05) }
+                            GradientStop { position: 0.0; color: prevButton.enabled ? Qt.rgba(0, 212/255, 1, 0.2) : Qt.rgba(1, 1, 1, 0.1) }
+                            GradientStop { position: 1.0; color: prevButton.enabled ? Qt.rgba(0, 212/255, 1, 0.1) : Qt.rgba(1, 1, 1, 0.05) }
                         }
-                        border.color: parent.enabled ? Qt.rgba(0, 212/255, 1, 0.4) : Qt.rgba(1, 1, 1, 0.2)
+                        border.color: prevButton.enabled ? Qt.rgba(0, 212/255, 1, 0.4) : Qt.rgba(1, 1, 1, 0.2)
                         border.width: 1
                     }
                     
                     contentItem: Label {
-                        text: parent.text
+                        text: prevButton.text
                         font.pixelSize: 14
                         font.weight: Font.Medium
-                        color: parent.enabled ? Qt.rgba(0, 212/255, 1, 1) : Qt.rgba(1, 1, 1, 0.5)
+                        color: prevButton.enabled ? Qt.rgba(0, 212/255, 1, 1) : Qt.rgba(1, 1, 1, 0.5)
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }

@@ -915,6 +915,11 @@ void QmlGamesBackend::createGameSteamShortcut(const QString &titleId, const QStr
     steam_tools->updateShortcuts(shortcuts);
     qCInfo(chiakiGuiGames) << "Shortcuts updated successfully";
     
+    // Update controller config for Steam Deck
+    QString controller_layout_workshop_id = "3049833406";
+    qCInfo(chiakiGuiGames) << "Updating Steam Deck controller config with workshop ID:" << controller_layout_workshop_id;
+    steam_tools->updateControllerConfig(newShortcut.getAppName(), std::move(controller_layout_workshop_id));
+    
     infoLambda("[I] Successfully created Steam shortcut!");
     infoLambda("");
     infoLambda("══════════════════════════════════════════════════════");

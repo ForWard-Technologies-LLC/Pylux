@@ -58,7 +58,7 @@ static QString shader_cache_path()
 
 static const char *render_params_path()
 {
-    static QString path = QStandardPaths::writableLocation(QStandardPaths::ConfigLocation) + "/Chiaki/pl_render_params.conf";
+    static QString path = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/pl_render_params.conf";
     return qPrintable(path);
 }
 

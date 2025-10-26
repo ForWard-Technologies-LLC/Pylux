@@ -7,6 +7,7 @@
 #include <QUrl>
 #include <QKeySequence>
 #include <QCoreApplication>
+#include <QStandardPaths>
 
 #include <chiaki/config.h>
 
@@ -168,9 +169,9 @@ static void MigrateControllerMappings(QSettings *settings)
 
 Settings::Settings(const QString &conf, QObject *parent) : QObject(parent),
 	time_format("yyyy-MM-dd HH:mm:ss t"),
-	settings(QCoreApplication::organizationName(), conf.isEmpty() ? QCoreApplication::applicationName() : QStringLiteral("%1-%2").arg(QCoreApplication::applicationName(), conf)),
-	default_settings(QCoreApplication::organizationName(), QCoreApplication::applicationName()),
-	placebo_settings(QCoreApplication::organizationName(), QStringLiteral("pl_render_params"))
+	settings(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + (conf.isEmpty() ? "/PSStream.conf" : QString("/PSStream-%1.conf").arg(conf)), QSettings::IniFormat),
+	default_settings(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/PSStream.conf", QSettings::IniFormat),
+	placebo_settings(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/pl_render_params.conf", QSettings::IniFormat)
 {
 	settings.setFallbacksEnabled(false);
 	MigrateSettings(&settings);
@@ -271,7 +272,7 @@ void Settings::ImportSettings(QString filepath)
 	}
 	else
 	{
-		QSettings profile_settings(QCoreApplication::organizationName(), QStringLiteral("%1-%2").arg(QCoreApplication::applicationName(), profile));
+		QSettings profile_settings(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + QString("/PSStream-%1.conf").arg(profile), QSettings::IniFormat);
 		profile_settings.clear();
 		SaveRegisteredHosts(&profile_settings);
 		SaveHiddenHosts(&profile_settings);
@@ -950,6 +951,20 @@ QString Settings::GetGameImageCache(const QString &key) const
 void Settings::SetGameImageCache(const QString &key, const QString &value)
 {
 	settings.setValue(key, value);
+}
+
+QStringList Settings::GetSteamControllerConfiguredUsers() const
+{
+	return settings.value("steam_controller/configured_users", QStringList()).toStringList();
+}
+
+void Settings::AddSteamControllerConfiguredUser(const QString &steamUserId)
+{
+	QStringList users = GetSteamControllerConfiguredUsers();
+	if (!users.contains(steamUserId)) {
+		users.append(steamUserId);
+		settings.setValue("steam_controller/configured_users", users);
+	}
 }
 
 ChiakiConnectVideoProfile Settings::GetVideoProfileLocalPS4()

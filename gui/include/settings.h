@@ -445,6 +445,9 @@ class Settings : public QObject
 		void ClearPsnGamesJson();
 		QString GetGameImageCache(const QString &key) const;
 		void SetGameImageCache(const QString &key, const QString &value);
+		
+		QStringList GetSteamControllerConfiguredUsers() const;
+		void AddSteamControllerConfiguredUser(const QString &steamUserId);
 
 		QString GetTimeFormat() const     { return time_format; }
 		void ClearKeyMapping();

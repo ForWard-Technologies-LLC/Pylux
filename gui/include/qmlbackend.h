@@ -219,6 +219,9 @@ public:
     Q_INVOKABLE void createPSStreamCode(const QString &code, const QJSValue &callback);
     Q_INVOKABLE void checkPSStreamStatus(const QString &code, const QJSValue &callback);
 #if CHIAKI_GUI_ENABLE_STEAM_SHORTCUT
+    QString getSteamBaseDir();
+    QString getSteamUserId();
+    void configureSteamControllerLayout();
     Q_INVOKABLE void createSteamShortcut(QString shortcutName, QString launchOptions, const QJSValue &callback, QString steamDir);
 #endif
 #ifdef CHIAKI_HAVE_WEBENGINE
