@@ -208,11 +208,68 @@ DialogView {
 
             Item {
                 // General
+                Flickable {
+                    id: generalFlick
+                    implicitWidth: parent.width ? parent.width : 0
+                    implicitHeight: parent.height ? parent.height : 0
+                    anchors {
+                        fill: parent
+                        topMargin: 20
+                        bottomMargin: 20
+                        leftMargin: parent.width ? (parent.width / 2 - generalColumn.width / 2) : 0
+                    }
+                    clip: true
+                    contentWidth: generalColumn.width
+                    contentHeight: generalColumn.height
+                    flickableDirection: Flickable.AutoFlickIfNeeded
+                    ScrollBar.vertical: ScrollBar {
+                        id: generalScrollbar
+                        policy: ScrollBar.AlwaysOn
+                        visible: generalFlick.contentHeight > generalFlick.implicitHeight - generalFlick.anchors.topMargin - generalFlick.anchors.bottomMargin
+                    }
+                    
+                    function ensureVisible(item) {
+                        if (!item) return;
+                        var ypos = item.mapToItem(generalFlick.contentItem, 0, 0).y
+                        var itemHeight = item.height
+                        var flickableHeight = generalFlick.height - generalFlick.anchors.topMargin - generalFlick.anchors.bottomMargin
+                        
+                        if (ypos < generalFlick.contentY) {
+                            generalFlick.contentY = ypos - 20
+                        } else if (ypos + itemHeight > generalFlick.contentY + flickableHeight) {
+                            generalFlick.contentY = ypos + itemHeight - flickableHeight + 20
+                        }
+                    }
+                    
+                    Timer {
+                        id: generalFocusTimer
+                        interval: 10
+                        repeat: true
+                        running: bar.currentIndex === 0 && generalScrollbar.visible
+                        onTriggered: {
+                            var focusItem = dialog.Window.activeFocusItem
+                            if (focusItem && focusItem.parent) {
+                                var isChild = false
+                                var checkItem = focusItem
+                                while (checkItem) {
+                                    if (checkItem === generalColumn) {
+                                        isChild = true
+                                        break
+                                    }
+                                    checkItem = checkItem.parent
+                                }
+                                if (isChild) {
+                                    generalFlick.ensureVisible(focusItem)
+                                }
+                            }
+                        }
+                    }
+                    
                 ColumnLayout {
+                    id: generalColumn
                     anchors {
                         top: parent.top
                         horizontalCenter: parent.horizontalCenter
-                        topMargin: 20
                     }
                     spacing: 10
                     GridLayout {
@@ -520,15 +577,73 @@ DialogView {
                         }
                     }
                 }
+                }
             }
 
             Item {
                 // Video
+                Flickable {
+                    id: videoFlick
+                    implicitWidth: parent.width ? parent.width : 0
+                    implicitHeight: parent.height ? parent.height : 0
+                    anchors {
+                        fill: parent
+                        topMargin: 20
+                        bottomMargin: 20
+                        leftMargin: parent.width ? (parent.width / 2 - videoGrid.width / 2) : 0
+                    }
+                    clip: true
+                    contentWidth: videoGrid.width
+                    contentHeight: videoGrid.height
+                    flickableDirection: Flickable.AutoFlickIfNeeded
+                    ScrollBar.vertical: ScrollBar {
+                        id: videoScrollbar
+                        policy: ScrollBar.AlwaysOn
+                        visible: videoFlick.contentHeight > videoFlick.implicitHeight - videoFlick.anchors.topMargin - videoFlick.anchors.bottomMargin
+                    }
+                    
+                    function ensureVisible(item) {
+                        if (!item) return;
+                        var ypos = item.mapToItem(videoFlick.contentItem, 0, 0).y
+                        var itemHeight = item.height
+                        var flickableHeight = videoFlick.height - videoFlick.anchors.topMargin - videoFlick.anchors.bottomMargin
+                        
+                        if (ypos < videoFlick.contentY) {
+                            videoFlick.contentY = ypos - 20
+                        } else if (ypos + itemHeight > videoFlick.contentY + flickableHeight) {
+                            videoFlick.contentY = ypos + itemHeight - flickableHeight + 20
+                        }
+                    }
+                    
+                    Timer {
+                        id: videoFocusTimer
+                        interval: 10
+                        repeat: true
+                        running: bar.currentIndex === 1 && videoScrollbar.visible
+                        onTriggered: {
+                            var focusItem = dialog.Window.activeFocusItem
+                            if (focusItem && focusItem.parent) {
+                                var isChild = false
+                                var checkItem = focusItem
+                                while (checkItem) {
+                                    if (checkItem === videoGrid) {
+                                        isChild = true
+                                        break
+                                    }
+                                    checkItem = checkItem.parent
+                                }
+                                if (isChild) {
+                                    videoFlick.ensureVisible(focusItem)
+                                }
+                            }
+                        }
+                    }
+                    
                 GridLayout {
+                    id: videoGrid
                     anchors {
                         top: parent.top
                         horizontalCenter: parent.horizontalCenter
-                        topMargin: 20
                     }
                     columns: 3
                     rowSpacing: 10
@@ -718,15 +833,73 @@ DialogView {
 
                     Label {}
                 }
+                }
             }
 
             Item {
                 // Stream
+                Flickable {
+                    id: streamFlick
+                    implicitWidth: parent.width ? parent.width : 0
+                    implicitHeight: parent.height ? parent.height : 0
+                    anchors {
+                        fill: parent
+                        topMargin: 20
+                        bottomMargin: 20
+                        leftMargin: parent.width ? (parent.width / 2 - streamGrid.width / 2) : 0
+                    }
+                    clip: true
+                    contentWidth: streamGrid.width
+                    contentHeight: streamGrid.height
+                    flickableDirection: Flickable.AutoFlickIfNeeded
+                    ScrollBar.vertical: ScrollBar {
+                        id: streamScrollbar
+                        policy: ScrollBar.AlwaysOn
+                        visible: streamFlick.contentHeight > streamFlick.implicitHeight - streamFlick.anchors.topMargin - streamFlick.anchors.bottomMargin
+                    }
+                    
+                    function ensureVisible(item) {
+                        if (!item) return;
+                        var ypos = item.mapToItem(streamFlick.contentItem, 0, 0).y
+                        var itemHeight = item.height
+                        var flickableHeight = streamFlick.height - streamFlick.anchors.topMargin - streamFlick.anchors.bottomMargin
+                        
+                        if (ypos < streamFlick.contentY) {
+                            streamFlick.contentY = ypos - 20
+                        } else if (ypos + itemHeight > streamFlick.contentY + flickableHeight) {
+                            streamFlick.contentY = ypos + itemHeight - flickableHeight + 20
+                        }
+                    }
+                    
+                    Timer {
+                        id: streamFocusTimer
+                        interval: 10
+                        repeat: true
+                        running: bar.currentIndex === 2 && streamScrollbar.visible
+                        onTriggered: {
+                            var focusItem = dialog.Window.activeFocusItem
+                            if (focusItem && focusItem.parent) {
+                                var isChild = false
+                                var checkItem = focusItem
+                                while (checkItem) {
+                                    if (checkItem === streamGrid) {
+                                        isChild = true
+                                        break
+                                    }
+                                    checkItem = checkItem.parent
+                                }
+                                if (isChild) {
+                                    streamFlick.ensureVisible(focusItem)
+                                }
+                            }
+                        }
+                    }
+                    
                 GridLayout {
+                    id: streamGrid
                     anchors {
                         top: parent.top
                         horizontalCenter: parent.horizontalCenter
-                        topMargin: 20
                     }
                     columns: 3
                     rowSpacing: 10
@@ -1157,6 +1330,7 @@ DialogView {
                         }
                     }
                 }
+                }
             }
 
             Item {
@@ -1512,30 +1686,89 @@ DialogView {
 
             Item {
             // Consoles
-                C.Button {
-                    id: registerNewButton
+                Flickable {
+                    id: consolesFlick
+                    implicitWidth: parent.width ? parent.width : 0
+                    implicitHeight: parent.height ? parent.height : 0
                     anchors {
-                        top: parent.top
-                        horizontalCenter: parent.horizontalCenter
-                        topMargin: 30
+                        fill: parent
+                        topMargin: 20
+                        bottomMargin: 20
                     }
-                    topPadding: 26
-                    leftPadding: 30
-                    rightPadding: 30
-                    bottomPadding: 26
-                    firstInFocusChain: true
-                    text: qsTr("Register New")
-                    onClicked: root.showRegistDialog("255.255.255.255", true)
-                    Material.roundedScale: Material.SmallScale
+                    clip: true
+                    contentWidth: consolesContent.width
+                    contentHeight: consolesContent.height
+                    flickableDirection: Flickable.AutoFlickIfNeeded
+                    ScrollBar.vertical: ScrollBar {
+                        id: consolesFlickScrollbar
+                        policy: ScrollBar.AlwaysOn
+                        visible: consolesFlick.contentHeight > consolesFlick.implicitHeight - consolesFlick.anchors.topMargin - consolesFlick.anchors.bottomMargin
+                    }
+                    
+                    function ensureVisible(item) {
+                        if (!item) return;
+                        var ypos = item.mapToItem(consolesFlick.contentItem, 0, 0).y
+                        var itemHeight = item.height
+                        var flickableHeight = consolesFlick.height - consolesFlick.anchors.topMargin - consolesFlick.anchors.bottomMargin
+                        
+                        if (ypos < consolesFlick.contentY) {
+                            consolesFlick.contentY = ypos - 20
+                        } else if (ypos + itemHeight > consolesFlick.contentY + flickableHeight) {
+                            consolesFlick.contentY = ypos + itemHeight - flickableHeight + 20
+                        }
+                    }
+                    
+                    Timer {
+                        id: consolesFocusTimer
+                        interval: 10
+                        repeat: true
+                        running: bar.currentIndex === 4 && consolesFlickScrollbar.visible
+                        onTriggered: {
+                            var focusItem = dialog.Window.activeFocusItem
+                            if (focusItem && focusItem.parent) {
+                                var isChild = false
+                                var checkItem = focusItem
+                                while (checkItem) {
+                                    if (checkItem === consolesContent) {
+                                        isChild = true
+                                        break
+                                    }
+                                    checkItem = checkItem.parent
+                                }
+                                if (isChild) {
+                                    consolesFlick.ensureVisible(focusItem)
+                                }
+                            }
+                        }
+                    }
+                    
+                Column {
+                    id: consolesContent
+                    width: consolesFlick.width
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    
+                Item {
+                    width: parent.width
+                    height: registerNewButton.height + 30
+                    
+                    C.Button {
+                        id: registerNewButton
+                        anchors.centerIn: parent
+                        topPadding: 26
+                        leftPadding: 30
+                        rightPadding: 30
+                        bottomPadding: 26
+                        firstInFocusChain: true
+                        text: qsTr("Register New")
+                        onClicked: root.showRegistDialog("255.255.255.255", true)
+                        Material.roundedScale: Material.SmallScale
+                    }
                 }
 
                 Label {
                     id: consolesLabel
-                    anchors {
-                        top: registerNewButton.bottom
-                        horizontalCenter: registerNewButton.horizontalCenter
-                        topMargin: 10
-                    }
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    topPadding: 10
                     text: qsTr("Registered Consoles")
                     font.bold: true
                 }
@@ -1543,16 +1776,13 @@ DialogView {
                 ListView {
                     id: consolesView
                     height: 170
+                    width: 700
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.topMargin: 10
                     onCountChanged: {
                         consolesView.contentHeight = consolesView.count * 80 + consolesView.anchors.topMargin;
                     }
                     keyNavigationEnabled: false
-                    anchors {
-                        top: consolesLabel.bottom
-                        horizontalCenter: consolesLabel.horizontalCenter
-                        topMargin: 10
-                    }
-                    width: 700
                     ScrollBar.vertical: ScrollBar {
                         id: consolesScrollbar
                         policy: ScrollBar.AlwaysOn
@@ -1728,11 +1958,8 @@ DialogView {
 
                 Label {
                     id: hiddenConsolesLabel
-                    anchors {
-                        top: consolesView.bottom
-                        horizontalCenter: consolesView.horizontalCenter
-                        topMargin: 10
-                    }
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    topPadding: 10
                     text: qsTr("Hidden Consoles")
                     font.bold: true
                 }
@@ -1740,16 +1967,13 @@ DialogView {
                     id: hiddenConsolesView
                     keyNavigationEnabled: false
                     height: 170
+                    width: 500
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.topMargin: 10
                     onCountChanged: {
                         hiddenConsolesView.contentHeight = hiddenConsolesView.count * 80 + hiddenConsolesView.anchors.topMargin;
                     }
-                    anchors {
-                        top: hiddenConsolesLabel.bottom
-                        horizontalCenter: hiddenConsolesLabel.horizontalCenter
-                        topMargin: 10
-                    }
                     clip: true
-                    width: 500
                     ScrollBar.vertical: ScrollBar {
                         id: hiddenConsolesScrollbar
                         policy: ScrollBar.AlwaysOn
@@ -1816,16 +2040,75 @@ DialogView {
                         }
                     }
                 }
+                }
+                }
             }
 
             Item {
                 // Keys
                 id: controllerMapping
+                Flickable {
+                    id: keysFlick
+                    implicitWidth: parent.width ? parent.width : 0
+                    implicitHeight: parent.height ? parent.height : 0
+                    anchors {
+                        fill: parent
+                        topMargin: 20
+                        bottomMargin: 20
+                        leftMargin: parent.width ? (parent.width / 2 - keysGrid.width / 2) : 0
+                    }
+                    clip: true
+                    contentWidth: keysGrid.width
+                    contentHeight: keysGrid.height
+                    flickableDirection: Flickable.AutoFlickIfNeeded
+                    ScrollBar.vertical: ScrollBar {
+                        id: keysScrollbar
+                        policy: ScrollBar.AlwaysOn
+                        visible: keysFlick.contentHeight > keysFlick.implicitHeight - keysFlick.anchors.topMargin - keysFlick.anchors.bottomMargin
+                    }
+                    
+                    function ensureVisible(item) {
+                        if (!item) return;
+                        var ypos = item.mapToItem(keysFlick.contentItem, 0, 0).y
+                        var itemHeight = item.height
+                        var flickableHeight = keysFlick.height - keysFlick.anchors.topMargin - keysFlick.anchors.bottomMargin
+                        
+                        if (ypos < keysFlick.contentY) {
+                            keysFlick.contentY = ypos - 20
+                        } else if (ypos + itemHeight > keysFlick.contentY + flickableHeight) {
+                            keysFlick.contentY = ypos + itemHeight - flickableHeight + 20
+                        }
+                    }
+                    
+                    Timer {
+                        id: keysFocusTimer
+                        interval: 10
+                        repeat: true
+                        running: bar.currentIndex === 5 && keysScrollbar.visible
+                        onTriggered: {
+                            var focusItem = dialog.Window.activeFocusItem
+                            if (focusItem && focusItem.parent) {
+                                var isChild = false
+                                var checkItem = focusItem
+                                while (checkItem) {
+                                    if (checkItem === keysGrid) {
+                                        isChild = true
+                                        break
+                                    }
+                                    checkItem = checkItem.parent
+                                }
+                                if (isChild) {
+                                    keysFlick.ensureVisible(focusItem)
+                                }
+                            }
+                        }
+                    }
+                    
                 GridLayout {
+                    id: keysGrid
                     anchors {
                         top: parent.top
                         horizontalCenter: parent.horizontalCenter
-                        topMargin: 20
                     }
                     columns: 3
                     rowSpacing: 3
@@ -2102,6 +2385,7 @@ DialogView {
                             }
                         }
                     }
+                }
                 }
             }
 
@@ -2436,12 +2720,69 @@ DialogView {
 
             Item {
                 // Config (PSN Remote Connection Setup and Import/Export)
+                Flickable {
+                    id: configFlick
+                    implicitWidth: parent.width ? parent.width : 0
+                    implicitHeight: parent.height ? parent.height : 0
+                    anchors {
+                        fill: parent
+                        topMargin: 20
+                        bottomMargin: 20
+                        leftMargin: parent.width ? (parent.width / 2 - configColumn.width / 2) : 0
+                    }
+                    clip: true
+                    contentWidth: configColumn.width
+                    contentHeight: configColumn.height
+                    flickableDirection: Flickable.AutoFlickIfNeeded
+                    ScrollBar.vertical: ScrollBar {
+                        id: configScrollbar
+                        policy: ScrollBar.AlwaysOn
+                        visible: configFlick.contentHeight > configFlick.implicitHeight - configFlick.anchors.topMargin - configFlick.anchors.bottomMargin
+                    }
+                    
+                    function ensureVisible(item) {
+                        if (!item) return;
+                        var ypos = item.mapToItem(configFlick.contentItem, 0, 0).y
+                        var itemHeight = item.height
+                        var flickableHeight = configFlick.height - configFlick.anchors.topMargin - configFlick.anchors.bottomMargin
+                        
+                        if (ypos < configFlick.contentY) {
+                            configFlick.contentY = ypos - 20
+                        } else if (ypos + itemHeight > configFlick.contentY + flickableHeight) {
+                            configFlick.contentY = ypos + itemHeight - flickableHeight + 20
+                        }
+                    }
+                    
+                    Timer {
+                        id: configFocusTimer
+                        interval: 10
+                        repeat: true
+                        running: bar.currentIndex === 7 && configScrollbar.visible
+                        onTriggered: {
+                            var focusItem = dialog.Window.activeFocusItem
+                            if (focusItem && focusItem.parent) {
+                                var isChild = false
+                                var checkItem = focusItem
+                                while (checkItem) {
+                                    if (checkItem === configColumn) {
+                                        isChild = true
+                                        break
+                                    }
+                                    checkItem = checkItem.parent
+                                }
+                                if (isChild) {
+                                    configFlick.ensureVisible(focusItem)
+                                }
+                            }
+                        }
+                    }
+                    
                 ColumnLayout {
+                    id: configColumn
+                    width: Math.min(500, parent.width - 40)
                     anchors {
                         top: parent.top
-                        left: parent.left
-                        right: parent.right
-                        topMargin: 50
+                        horizontalCenter: parent.horizontalCenter
                     }
                     spacing: 20
 
@@ -2570,6 +2911,7 @@ DialogView {
                         lastInFocusChain: true
                         onToggled: Chiaki.settings.logVerbose = checked
                     }
+                }
                 }
             }
         }
