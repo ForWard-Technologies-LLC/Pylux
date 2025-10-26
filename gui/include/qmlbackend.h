@@ -319,6 +319,8 @@ private:
     bool controller_mapping_default_mapping = false;
     bool controller_mapping_altered = false;
     bool updating_psn_hosts = false;
+    bool psn_hosts_retry_after_refresh = false;
+    bool psn_hosts_last_failed = false;
     QFutureWatcher<void> psn_hosts_watcher;
     QFuture<void> psn_hosts_future;
     bool disable_zero_copy = false;

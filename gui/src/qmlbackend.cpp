@@ -140,7 +140,39 @@ QmlBackend::QmlBackend(Settings *settings, QmlMainWindow *window)
     connect(&psn_connection_thread, &QThread::finished, worker, &QObject::deleteLater);
     connect(this, &QmlBackend::psnConnect, worker, &PsnConnectionWorker::ConnectPsnConnection);
     connect(worker, &PsnConnectionWorker::resultReady, this, &QmlBackend::checkPsnConnection);
-    connect(&psn_hosts_watcher, &QFutureWatcher<void>::finished, [this]{ this->updating_psn_hosts = false; });
+    connect(&psn_hosts_watcher, &QFutureWatcher<void>::finished, [this]{ 
+        this->updating_psn_hosts = false;
+        
+        // If the last fetch failed and we haven't tried refreshing yet, refresh token and retry
+        if (psn_hosts_last_failed && !psn_hosts_retry_after_refresh) {
+            qCInfo(chiakiGui) << "PSN device list fetch failed, attempting to refresh token...";
+            psn_hosts_retry_after_refresh = true;
+            psn_hosts_last_failed = false;
+            
+            QString refresh_token = this->settings->GetPsnRefreshToken();
+            if (!refresh_token.isEmpty()) {
+                PSNToken *psnToken = new PSNToken(this->settings, this);
+                connect(psnToken, &PSNToken::PSNTokenError, this, [this](const QString &error) {
+                    qCWarning(chiakiGui) << "Failed to refresh PSN token for device list:" << error;
+                    psn_hosts_retry_after_refresh = false;
+                });
+                connect(psnToken, &PSNToken::UnauthorizedError, this, &QmlBackend::psnCredsExpired);
+                connect(psnToken, &PSNToken::PSNTokenSuccess, this, [this]() {
+                    qCInfo(chiakiGui) << "PSN token refreshed, retrying device list fetch...";
+                    updatePsnHosts();
+                });
+                connect(psnToken, &PSNToken::Finished, psnToken, &QObject::deleteLater);
+                psnToken->RefreshPsnToken(std::move(refresh_token));
+            } else {
+                qCWarning(chiakiGui) << "No refresh token available";
+                psn_hosts_retry_after_refresh = false;
+            }
+        } else {
+            // Reset retry flag for next time
+            psn_hosts_retry_after_refresh = false;
+            psn_hosts_last_failed = false;
+        }
+    });
     psn_connection_thread.start();
 
     setConnectState(PsnConnectState::NotStarted);
@@ -2281,6 +2313,9 @@ void QmlBackend::updatePsnHosts()
 
 void QmlBackend::updatePsnHostsThread()
 {
+    // Reset failure flag at start
+    psn_hosts_last_failed = false;
+    
     QString psn_token = settings->GetPsnAuthToken();
     if(psn_token.isEmpty())
         return;
@@ -2292,21 +2327,32 @@ void QmlBackend::updatePsnHostsThread()
     
     bool sync_games = settings->GetPsnGamesSyncEnabled();
     
-    for(int i = 0; i < PSN_DEVICES_TRIES; i++)
+    // Only try once if this is a retry after token refresh, otherwise try multiple times
+    int max_tries = psn_hosts_retry_after_refresh ? 1 : PSN_DEVICES_TRIES;
+    
+    for(int i = 0; i < max_tries; i++)
     {
         ChiakiErrorCode err = chiaki_holepunch_list_devices(psn_token.toUtf8().constData(), CHIAKI_HOLEPUNCH_CONSOLE_TYPE_PS5, &device_info_ps5, &num_devices_ps5, sync_games, &backend_log);
         if (err != CHIAKI_ERR_SUCCESS)
         {
-            if(PSN_DEVICES_TRIES - i > 1)
+            // Set failure flag so main thread can attempt token refresh
+            psn_hosts_last_failed = true;
+            
+            if(max_tries - i > 1)
             {
                 qCWarning(chiakiGui) << "Failed to get PS5 devices (error code:" << err << "), trying again";
                 continue;
             }
             else
             {
-                qCWarning(chiakiGui) << "Failed to get PS5 devices after max tries:" << PSN_DEVICES_TRIES << "(error code:" << err << ")";
+                qCWarning(chiakiGui) << "Failed to get PS5 devices after max tries:" << max_tries << "(error code:" << err << ")";
                 num_devices_ps5 = 0;
             }
+        }
+        else
+        {
+            // Success - clear failure flag
+            psn_hosts_last_failed = false;
         }
         break;
     }

@@ -16,7 +16,7 @@ Rectangle {
     
     signal launchGame(string titleId)
     signal createShortcut(string titleId)
-    signal viewTrophies(string titleId, string npCommunicationId)
+    signal viewTrophies(string npTitleId)
     
     // Generate controller button icon path
     function getControllerIcon(buttonName) {
@@ -70,10 +70,11 @@ Rectangle {
         anchors.margins: 12
         spacing: 8
         
-        // Game Image
+        // Game Image - takes remaining space after buttons/title
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: 180
+            Layout.fillHeight: true
+            Layout.minimumHeight: 120
             color: "#1a1a1a"
             radius: 4
             
@@ -107,6 +108,7 @@ Rectangle {
         // Game Title
         Label {
             Layout.fillWidth: true
+            Layout.preferredHeight: implicitHeight
             text: {
                 if (gameData) {
                     if (gameData.comment) return gameData.comment
@@ -125,6 +127,7 @@ Rectangle {
         // Trophy Progress
         Label {
             Layout.fillWidth: true
+            Layout.preferredHeight: visible ? implicitHeight : 0
             text: {
                 if (gameData && gameData.npTitleId && gameData.trophyProgress !== undefined) {
                     return qsTr("%1% Trophies").arg(gameData.trophyProgress)
@@ -137,11 +140,10 @@ Rectangle {
             visible: !!(gameData && gameData.npTitleId && gameData.trophyProgress !== undefined)
         }
         
-        Item { Layout.fillHeight: true }
-        
-        // Action Buttons
+        // Action Buttons - fixed size to always fit
         ColumnLayout {
             Layout.fillWidth: true
+            Layout.preferredHeight: 84  // 40 (launch) + 36 (buttons) + 8 (spacing)
             spacing: 8
             visible: true
             
@@ -149,6 +151,8 @@ Rectangle {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 40
+                Layout.minimumHeight: 40
+                Layout.maximumHeight: 40
                 radius: 6
                 color: launchMouseArea.containsMouse ? Qt.lighter(Material.accent, 1.2) : Material.accent
                 
@@ -178,12 +182,15 @@ Rectangle {
             
             RowLayout {
                 Layout.fillWidth: true
+                Layout.preferredHeight: 36
                 spacing: 10
                 
                 // Shortcut button with Square/X icon
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 36
+                    Layout.minimumHeight: 36
+                    Layout.maximumHeight: 36
                     radius: 6
                     color: shortcutMouseArea.containsMouse ? Qt.rgba(255, 255, 255, 0.3) : Qt.rgba(255, 255, 255, 0.15)
                     border.width: 1
@@ -205,25 +212,21 @@ Rectangle {
                     }
                     
                     RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: 12
-                        anchors.rightMargin: 12
-                        spacing: 8
+                        anchors.centerIn: parent
+                        spacing: 6
                         
                         Label {
-                            Layout.fillWidth: true
                             text: qsTr("Shortcut")
-                            font.pixelSize: 13
+                            font.pixelSize: 12
                             font.weight: Font.Medium
                             color: "white"
-                            horizontalAlignment: Text.AlignLeft
                             verticalAlignment: Text.AlignVCenter
                         }
                         
                         Image {
-                            Layout.preferredWidth: 22
-                            Layout.preferredHeight: 22
-                            sourceSize: Qt.size(44, 44)
+                            Layout.preferredWidth: 18
+                            Layout.preferredHeight: 18
+                            sourceSize: Qt.size(36, 36)
                             source: getControllerIcon("box")
                             opacity: 0.9
                             smooth: true
@@ -236,6 +239,8 @@ Rectangle {
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 36
+                    Layout.minimumHeight: 36
+                    Layout.maximumHeight: 36
                     radius: 6
                     color: trophiesMouseArea.containsMouse ? Qt.rgba(255, 255, 255, 0.3) : Qt.rgba(255, 255, 255, 0.15)
                     border.width: 1
@@ -252,32 +257,28 @@ Rectangle {
                         enabled: !!(gameData && gameData.npTitleId)
                         
                         onClicked: {
-                            if (gameData && gameData.titleId && gameData.npTitleId) {
-                                viewTrophies(gameData.titleId, gameData.npTitleId)
+                            if (gameData && gameData.npTitleId) {
+                                viewTrophies(gameData.npTitleId)
                             }
                         }
                     }
                     
                     RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: 12
-                        anchors.rightMargin: 12
-                        spacing: 8
+                        anchors.centerIn: parent
+                        spacing: 6
                         
                         Label {
-                            Layout.fillWidth: true
                             text: qsTr("Trophies")
-                            font.pixelSize: 13
+                            font.pixelSize: 12
                             font.weight: Font.Medium
                             color: "white"
-                            horizontalAlignment: Text.AlignLeft
                             verticalAlignment: Text.AlignVCenter
                         }
                         
                         Image {
-                            Layout.preferredWidth: 22
-                            Layout.preferredHeight: 22
-                            sourceSize: Qt.size(44, 44)
+                            Layout.preferredWidth: 18
+                            Layout.preferredHeight: 18
+                            sourceSize: Qt.size(36, 36)
                             source: getControllerIcon("pyramid")
                             opacity: 0.9
                             smooth: true
@@ -306,8 +307,8 @@ Rectangle {
         }
         // Triangle/Y button (Y key) - View trophies
         else if (event.key === Qt.Key_Y) {
-            if (gameData && gameData.titleId && gameData.npTitleId) {
-                viewTrophies(gameData.titleId, gameData.npTitleId)
+            if (gameData && gameData.npTitleId) {
+                viewTrophies(gameData.npTitleId)
                 event.accepted = true
             }
         }

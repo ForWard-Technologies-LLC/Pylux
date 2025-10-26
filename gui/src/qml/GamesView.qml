@@ -156,24 +156,45 @@ Pane {
                 fill: parent
                 leftMargin: 25
                 rightMargin: 25
-                topMargin: 15
-                bottomMargin: 15
+                topMargin: 8
+                bottomMargin: 8
             }
             spacing: 20
             
             Button {
+                id: backButton
                 text: qsTr("← Back")
                 onClicked: root.goBack()
                 font.pixelSize: 14
                 font.weight: Font.Medium
                 focusPolicy: Qt.StrongFocus
-                Layout.preferredHeight: 45
-                Layout.preferredWidth: 120
+                Layout.preferredHeight: 40
+                Layout.preferredWidth: 110
+                KeyNavigation.down: gamesGrid
+                
+                background: Rectangle {
+                    radius: 4
+                    color: parent.activeFocus ? Qt.rgba(0, 212/255, 255/255, 0.3) : Qt.rgba(255, 255, 255, 0.08)
+                    border.width: parent.activeFocus ? 2 : 1
+                    border.color: parent.activeFocus ? Material.accent : Qt.rgba(255, 255, 255, 0.2)
+                }
+                
+                Keys.onPressed: (event) => {
+                    if (event.key === Qt.Key_Return || event.key === Qt.Key_Space || event.key === Qt.Key_Enter) {
+                        root.goBack()
+                        event.accepted = true
+                    } else if (event.key === Qt.Key_Down) {
+                        // Restore selection to first item when navigating down to grid
+                        if (gamesGrid.currentIndex === -1) {
+                            gamesGrid.currentIndex = 0
+                        }
+                    }
+                }
             }
             
             Label {
                 text: deviceName ? qsTr("Games - %1").arg(deviceName) : qsTr("My Games")
-                font.pixelSize: 28
+                font.pixelSize: 24
                 font.bold: true
                 color: "white"
             }
@@ -182,7 +203,7 @@ Pane {
             
             Label {
                 text: allGames.length > 0 ? qsTr("%1 games total").arg(allGames.length) : qsTr("No games found")
-                font.pixelSize: 16
+                font.pixelSize: 14
                 opacity: 0.8
                 color: "white"
             }
@@ -198,21 +219,39 @@ Pane {
         spacing: 0
         
         // Games Grid
-        ScrollView {
+        Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            Layout.leftMargin: 20
-            Layout.rightMargin: 20
+            clip: true  // Prevent cards from going over header
             
-            contentWidth: availableWidth
-            
-            GridView {
-                id: gamesGrid
+            ScrollView {
                 anchors.fill: parent
-                cellWidth: 280
-                cellHeight: 380
-                focus: true
-                clip: true
+                anchors.leftMargin: 20
+                anchors.rightMargin: 20
+                anchors.bottomMargin: 60  // Space for the footer overlay
+                clip: true  // Clip scrolling content
+                
+                contentWidth: availableWidth
+                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+                
+                GridView {
+                    id: gamesGrid
+                    width: {
+                        // Calculate how many columns fit (accounting for scroll view margins)
+                        let availableWidth = parent.parent.width - 40  // 20px margins on each side
+                        let cols = Math.floor(availableWidth / cellWidth)
+                        if (cols === 0) cols = 1
+                        // Return width for that many columns
+                        return cols * cellWidth
+                    }
+                    // Height needs to be implicit to enable scrolling
+                    height: implicitHeight
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    cellWidth: 245  // Fit 5 columns on 1280px wide screens
+                    cellHeight: 310  // Image fills remaining space, buttons always fit
+                    focus: true
+                    clip: false
+                    interactive: false  // Disable GridView's own scrolling, let ScrollView handle it
                 
                 model: currentPageGames
                 highlightFollowsCurrentItem: true
@@ -262,16 +301,85 @@ Pane {
                     console.log("GamesView: showDialog call returned")
                 }
                     
-                    onViewTrophies: (titleId, npCommunicationId) => {
-                        trophyDialog.showTrophies(titleId, npCommunicationId)
+                    onViewTrophies: (npTitleId) => {
+                        // npTitleId is what we get from the game data (e.g., CUSA01163_00)
+                        // The backend will convert it to npCommunicationId internally
+                        trophyDialog.showTrophies(npTitleId)
                     }
                 }
                 
                 Keys.onPressed: (event) => {
-                    if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back) {
+                    if (event.modifiers)
+                        return;
+                    
+                    let cols = Math.floor((parent.parent.parent.width - 40) / cellWidth)
+                    if (cols === 0) cols = 1
+                    
+                    // Handle up navigation to back button when on first row
+                    if (event.key === Qt.Key_Up) {
+                        // If current index is in the first row
+                        if (currentIndex < cols) {
+                            currentIndex = -1  // Clear selection to remove highlight
+                            backButton.forceActiveFocus()
+                            event.accepted = true
+                            return
+                        }
+                    }
+                    
+                    // Handle down navigation to partial rows
+                    if (event.key === Qt.Key_Down) {
+                        let totalItems = model.length
+                        let currentRow = Math.floor(currentIndex / cols)
+                        let nextRowStartIndex = (currentRow + 1) * cols
+                        let nextRowEndIndex = Math.min(nextRowStartIndex + cols - 1, totalItems - 1)
+                        
+                        // If there's a next row with items
+                        if (nextRowStartIndex < totalItems) {
+                            let colInRow = currentIndex % cols
+                            let targetIndex = nextRowStartIndex + colInRow
+                            
+                            // If target column exists in next row, go there
+                            if (targetIndex <= nextRowEndIndex) {
+                                currentIndex = targetIndex
+                            } else {
+                                // Otherwise go to the last item in next row
+                                currentIndex = nextRowEndIndex
+                            }
+                            event.accepted = true
+                            return
+                        }
+                    }
+                    
+                    switch (event.key) {
+                    case Qt.Key_Escape:
+                    case Qt.Key_Back:
                         // Navigate back to main view
                         event.accepted = true
                         root.goBack()
+                        break;
+                    case Qt.Key_Backslash:
+                    case Qt.Key_No:
+                        // X/Square button - Create shortcut for current game
+                        if (currentItem && currentItem.gameData) {
+                            let game = currentItem.gameData
+                            let titleId = game.titleId
+                            let gameName = game.comment || game.titleName || "Unknown Game"
+                            gameShortcutDialog.showDialog(gameName, titleId, root.deviceName)
+                            event.accepted = true
+                        }
+                        break;
+                    case Qt.Key_C:
+                    case Qt.Key_Yes:
+                        // Y/Triangle button - View trophies for current game
+                        if (currentItem) {
+                            // Get game data from either gameData or modelData
+                            let game = currentItem.gameData || currentItem.modelData
+                            if (game && game.npTitleId) {
+                                trophyDialog.showTrophies(game.npTitleId)
+                                event.accepted = true
+                            }
+                        }
+                        break;
                     }
                 }
                 
@@ -281,6 +389,7 @@ Pane {
                         forceActiveFocus()
                     }
                 }
+            }
             }
         }
         
@@ -324,11 +433,21 @@ Pane {
     // Game Shortcut Dialog
     GameShortcutDialog {
         id: gameShortcutDialog
+        anchors.centerIn: parent
         
         onShowToast: (message, color) => {
             toastLabel.text = message
             toast.color = color
             toastTimer.restart()
+        }
+        
+        onClosed: {
+            // Restore focus to games grid after dialog closes
+            Qt.callLater(() => {
+                if (gamesGrid.count > 0) {
+                    gamesGrid.forceActiveFocus(Qt.TabFocusReason)
+                }
+            })
         }
     }
     
@@ -341,7 +460,8 @@ Pane {
         }
         height: 40
         color: Qt.rgba(0, 0, 0, 0.6)
-        visible: gamesGrid.activeFocus && allGames.length > 0
+        visible: allGames.length > 0  // Always show when there are games
+        z: 100  // Ensure it's above other content
         
         RowLayout {
             anchors.fill: parent

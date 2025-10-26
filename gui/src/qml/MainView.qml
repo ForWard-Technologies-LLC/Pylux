@@ -683,8 +683,13 @@ Pane {
                     break;
                 case Qt.Key_C:
                 case Qt.Key_Yes:
-                    if (currentItem && currentItem.triggerSecondAction && currentItem.triggerSecondAction())
+                    // Y/Triangle button - prioritize games menu if available
+                    if (currentItem && currentItem.hasGames && currentItem.viewGames) {
+                        currentItem.viewGames();
                         event.accepted = true;
+                    } else if (currentItem && currentItem.triggerSecondAction && currentItem.triggerSecondAction()) {
+                        event.accepted = true;
+                    }
                     break;
                 case Qt.Key_Backspace:
                     if (currentItem && currentItem.canHide) {

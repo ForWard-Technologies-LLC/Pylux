@@ -7,6 +7,8 @@
 #include <QList>
 #include <QJSValue>
 #include <QPixmap>
+#include <QJsonArray>
+#include <QJsonObject>
 
 class QNetworkAccessManager;
 
@@ -35,9 +37,14 @@ signals:
 
 private:
     void fetchGameImageFromPsn(const QString &titleId);
-    void fetchTrophyGroups(const QString &npCommunicationId, const QString &npTitleId, const QString &psn_token, const QJsonObject &trophy_title);
-    void fetchAllTrophyGroups(const QString &npCommunicationId, const QString &npTitleId, const QString &psn_token, 
-                               const QJsonObject &trophy_title, const QJsonArray &groups, int currentGroupIndex);
+    void fetchTrophyGroups(const QString &npCommunicationId, const QString &npTitleId, const QString &psn_token, const QJsonObject &trophy_title, bool isRetry = false);
+    void fetchAllTrophies(const QString &npCommunicationId, const QString &npTitleId, const QString &psn_token, 
+                          const QJsonObject &trophy_title, const QJsonArray &groups, bool isRetry = false);
+    void fetchTrophyProgress(const QString &npCommunicationId, const QString &npTitleId, const QString &psn_token, 
+                             const QJsonObject &trophy_title, const QJsonArray &groups, const QJsonArray &trophies_definitions, bool isRetry = false);
+    void refreshPsnTokenAndRetry(const QString &npCommunicationId, const QString &npTitleId, 
+                                 const QJsonObject &trophy_title, const QJsonArray &groups = QJsonArray(),
+                                 const QJsonArray &trophies_definitions = QJsonArray(), int retryStep = 0);
     bool canMakePsnRequest();
     QPixmap downloadImageFromUrl(const QString &url, int timeoutMs = 10000);
 

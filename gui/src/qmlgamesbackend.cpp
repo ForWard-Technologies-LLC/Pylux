@@ -1,5 +1,6 @@
 #include "qmlgamesbackend.h"
 #include "steamtools.h"
+#include "psntoken.h"
 
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>
@@ -166,6 +167,10 @@ void QmlGamesBackend::fetchGameImageFromPsn(const QString &titleId)
 
 void QmlGamesBackend::fetchTrophyData(const QString &npTitleId, bool forceRefresh)
 {
+    // npTitleId is the game's title ID (e.g., CUSA01163_00 for PS4, PPSA01325_00 for PS5)
+    // The first API call will convert this to npCommunicationId (e.g., NPWR07466_00)
+    // which is then used for all subsequent trophy API calls
+    
     if (npTitleId.isEmpty()) {
         return;
     }
@@ -203,13 +208,13 @@ void QmlGamesBackend::fetchTrophyData(const QString &npTitleId, bool forceRefres
     }
     
     // Step 1: Fetch trophy title data (counts) - this converts npTitleId to npCommunicationId
-    QString url = QString("https://m.np.playstation.com/api/trophy/v1/users/me/trophyTitles?npTitleIds=%1")
+    QString url = QString("https://m.np.playstation.com/api/trophy/v1/users/me/titles/trophyTitles?npTitleIds=%1")
         .arg(npTitleId);
     
     qCInfo(chiakiGuiGames) << "=== TROPHY API CALL 1: Fetch Trophy Title ===";
     qCInfo(chiakiGuiGames) << "URL:" << url;
     qCInfo(chiakiGuiGames) << "Method: GET";
-    qCInfo(chiakiGuiGames) << "Headers: Authorization: Bearer [TOKEN REDACTED]";
+    qCInfo(chiakiGuiGames) << "Headers: Authorization: Bearer " << psn_token;
     
     QNetworkRequest request(url);
     request.setRawHeader("Authorization", QString("Bearer %1").arg(psn_token).toUtf8());
@@ -238,17 +243,30 @@ void QmlGamesBackend::fetchTrophyData(const QString &npTitleId, bool forceRefres
             emit trophyDataReceived(npTitleId, "{}");
             return;
         }
-        
+
         QJsonObject title_obj = title_doc.object();
-        QJsonArray title_array = title_obj.value("trophyTitles").toArray();
+        // First get the "titles" array
+        QJsonArray titles_array = title_obj.value("titles").toArray();
         
-        if (title_array.isEmpty()) {
+        if (titles_array.isEmpty()) {
+            qCWarning(chiakiGuiGames) << "No titles array found in response for" << npTitleId;
+            emit trophyDataReceived(npTitleId, "{}");
+            return;
+        }
+        
+        // Get the first title entry (should match our npTitleId)
+        QJsonObject title_entry = titles_array[0].toObject();
+        
+        // Now get the trophyTitles array from within that title entry
+        QJsonArray trophy_titles_array = title_entry.value("trophyTitles").toArray();
+        
+        if (trophy_titles_array.isEmpty()) {
             qCWarning(chiakiGuiGames) << "No trophy titles found for" << npTitleId;
             emit trophyDataReceived(npTitleId, "{}");
             return;
         }
         
-        QJsonObject trophy_title = title_array[0].toObject();
+        QJsonObject trophy_title = trophy_titles_array[0].toObject();
         
         // Extract the actual npCommunicationId from the response
         QString npCommunicationId = trophy_title.value("npCommunicationId").toString();
@@ -265,11 +283,11 @@ void QmlGamesBackend::fetchTrophyData(const QString &npTitleId, bool forceRefres
     });
 }
 
-void QmlGamesBackend::fetchTrophyGroups(const QString &npCommunicationId, const QString &npTitleId, const QString &psn_token, const QJsonObject &trophy_title)
+void QmlGamesBackend::fetchTrophyGroups(const QString &npCommunicationId, const QString &npTitleId, const QString &psn_token, const QJsonObject &trophy_title, bool isRetry)
 {
     if (!canMakePsnRequest()) {
-        QTimer::singleShot(200, this, [this, npCommunicationId, npTitleId, psn_token, trophy_title]() {
-            fetchTrophyGroups(npCommunicationId, npTitleId, psn_token, trophy_title);
+        QTimer::singleShot(200, this, [this, npCommunicationId, npTitleId, psn_token, trophy_title, isRetry]() {
+            fetchTrophyGroups(npCommunicationId, npTitleId, psn_token, trophy_title, isRetry);
         });
         return;
     }
@@ -287,16 +305,24 @@ void QmlGamesBackend::fetchTrophyGroups(const QString &npCommunicationId, const 
     
     QNetworkReply *reply = network_manager->get(request);
     
-    connect(reply, &QNetworkReply::finished, this, [this, reply, npCommunicationId, npTitleId, psn_token, trophy_title]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, npCommunicationId, npTitleId, psn_token, trophy_title, isRetry]() {
         reply->deleteLater();
         
+        int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         qCInfo(chiakiGuiGames) << "=== TROPHY API RESPONSE 2: Trophy Groups ===";
-        qCInfo(chiakiGuiGames) << "Status Code:" << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        qCInfo(chiakiGuiGames) << "Status Code:" << statusCode;
         qCInfo(chiakiGuiGames) << "Status Message:" << reply->attribute(QNetworkRequest::HttpReasonPhraseAttribute).toString();
         
         if (reply->error() != QNetworkReply::NoError) {
             qCWarning(chiakiGuiGames) << "Error:" << reply->errorString();
             qCWarning(chiakiGuiGames) << "Response Body:" << reply->readAll();
+            
+            // Check for 401 Unauthorized and retry once after refreshing token
+            if (statusCode == 401 && !isRetry) {
+                refreshPsnTokenAndRetry(npCommunicationId, npTitleId, trophy_title, QJsonArray(), QJsonArray(), 0);
+                return;
+            }
+            
             // Send title data without trophy list
             QJsonDocument doc(trophy_title);
             emit trophyDataReceived(npTitleId, QString(doc.toJson(QJsonDocument::Compact)));
@@ -324,113 +350,201 @@ void QmlGamesBackend::fetchTrophyGroups(const QString &npCommunicationId, const 
         
         qCInfo(chiakiGuiGames) << "Found" << groups_array.size() << "trophy groups for" << npCommunicationId;
         
-        // Fetch all trophy groups
-        fetchAllTrophyGroups(npCommunicationId, npTitleId, psn_token, trophy_title, groups_array, 0);
+        // Fetch all trophies in a single call using "all" group ID
+        fetchAllTrophies(npCommunicationId, npTitleId, psn_token, trophy_title, groups_array);
     });
 }
 
-void QmlGamesBackend::fetchAllTrophyGroups(const QString &npCommunicationId, const QString &npTitleId, 
-                                            const QString &psn_token, const QJsonObject &trophy_title, 
-                                            const QJsonArray &groups, int currentGroupIndex)
+void QmlGamesBackend::fetchAllTrophies(const QString &npCommunicationId, const QString &npTitleId, 
+                                        const QString &psn_token, const QJsonObject &trophy_title, 
+                                        const QJsonArray &groups, bool isRetry)
 {
-    if (currentGroupIndex >= groups.size()) {
-        // All groups fetched - shouldn't happen as we need at least one
-        QJsonDocument doc(trophy_title);
-        emit trophyDataReceived(npTitleId, QString(doc.toJson(QJsonDocument::Compact)));
-        return;
-    }
-    
     if (!canMakePsnRequest()) {
-        QTimer::singleShot(200, this, [this, npCommunicationId, npTitleId, psn_token, trophy_title, groups, currentGroupIndex]() {
-            fetchAllTrophyGroups(npCommunicationId, npTitleId, psn_token, trophy_title, groups, currentGroupIndex);
+        QTimer::singleShot(200, this, [this, npCommunicationId, npTitleId, psn_token, trophy_title, groups, isRetry]() {
+            fetchAllTrophies(npCommunicationId, npTitleId, psn_token, trophy_title, groups, isRetry);
         });
         return;
     }
     
-    QString group_id = groups[currentGroupIndex].toObject().value("trophyGroupId").toString();
-    qCInfo(chiakiGuiGames) << "Fetching trophies for group" << group_id << "(" << (currentGroupIndex + 1) << "of" << groups.size() << ")";
+    // Step 1: Fetch trophy definitions (names, descriptions, icons) without /users/me/
+    QString url = QString("https://m.np.playstation.com/api/trophy/v1/npCommunicationIds/%1/trophyGroups/all/trophies")
+        .arg(npCommunicationId);
     
-    QString url = QString("https://m.np.playstation.com/api/trophy/v1/npCommunicationIds/%1/trophyGroups/%2/trophies")
-        .arg(npCommunicationId)
-        .arg(group_id);
-    
-    qCInfo(chiakiGuiGames) << "=== TROPHY API CALL 3: Fetch Individual Trophies ===";
+    qCInfo(chiakiGuiGames) << "=== TROPHY API CALL 3: Fetch Trophy Definitions ===";
     qCInfo(chiakiGuiGames) << "URL:" << url;
     qCInfo(chiakiGuiGames) << "Method: GET";
     qCInfo(chiakiGuiGames) << "Headers: Authorization: Bearer [TOKEN REDACTED]";
-    qCInfo(chiakiGuiGames) << "Group:" << group_id << "(" << (currentGroupIndex + 1) << "/" << groups.size() << ")";
     
     QNetworkRequest request(url);
     request.setRawHeader("Authorization", QString("Bearer %1").arg(psn_token).toUtf8());
     
     QNetworkReply *reply = network_manager->get(request);
     
-    // Store accumulated trophy data across groups
-    static QMap<QString, QJsonArray> accumulated_trophies;
-    
-    if (currentGroupIndex == 0) {
-        // Starting new fetch - clear accumulated data
-        accumulated_trophies[npTitleId] = QJsonArray();
-    }
-    
-    connect(reply, &QNetworkReply::finished, this, [this, reply, npCommunicationId, npTitleId, psn_token, trophy_title, groups, currentGroupIndex]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, npCommunicationId, npTitleId, psn_token, trophy_title, groups, isRetry]() {
         reply->deleteLater();
         
-        qCInfo(chiakiGuiGames) << "=== TROPHY API RESPONSE 3: Individual Trophies ===";
-        qCInfo(chiakiGuiGames) << "Status Code:" << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        qCInfo(chiakiGuiGames) << "=== TROPHY API RESPONSE 3: Trophy Definitions ===";
+        qCInfo(chiakiGuiGames) << "Status Code:" << statusCode;
         qCInfo(chiakiGuiGames) << "Status Message:" << reply->attribute(QNetworkRequest::HttpReasonPhraseAttribute).toString();
-        qCInfo(chiakiGuiGames) << "Group:" << groups[currentGroupIndex].toObject().value("trophyGroupId").toString();
         
-        if (reply->error() == QNetworkReply::NoError) {
-            QByteArray trophies_data = reply->readAll();
-            qCInfo(chiakiGuiGames) << "Response Body:" << trophies_data;
-            QJsonDocument trophies_doc = QJsonDocument::fromJson(trophies_data);
-            
-            if (trophies_doc.isObject()) {
-                QJsonObject trophies_obj = trophies_doc.object();
-                QJsonArray trophies_array = trophies_obj.value("trophies").toArray();
-                
-                qCInfo(chiakiGuiGames) << "Fetched" << trophies_array.size() << "trophies for group" << groups[currentGroupIndex].toObject().value("trophyGroupId").toString();
-                
-                // Accumulate trophies
-                QJsonArray &accumulated = accumulated_trophies[npTitleId];
-                for (const QJsonValue &trophy : trophies_array) {
-                    accumulated.append(trophy);
-                }
-            }
-        } else {
+        if (reply->error() != QNetworkReply::NoError) {
             qCWarning(chiakiGuiGames) << "Error:" << reply->errorString();
             qCWarning(chiakiGuiGames) << "Response Body:" << reply->readAll();
+            
+            // Check for 401 Unauthorized and retry once after refreshing token
+            if (statusCode == 401 && !isRetry) {
+                refreshPsnTokenAndRetry(npCommunicationId, npTitleId, trophy_title, groups, QJsonArray(), 1);
+                return;
+            }
+            
+            // Send title data without trophy list
+            QJsonDocument doc(trophy_title);
+            emit trophyDataReceived(npTitleId, QString(doc.toJson(QJsonDocument::Compact)));
+            return;
         }
         
-        // Check if we need to fetch more groups
-        if (currentGroupIndex < groups.size() - 1) {
-            // Fetch next group
-            fetchAllTrophyGroups(npCommunicationId, npTitleId, psn_token, trophy_title, groups, currentGroupIndex + 1);
-        } else {
-            // All groups fetched - emit combined data
-            QJsonObject combined_data = trophy_title;
-            combined_data["trophies"] = accumulated_trophies[npTitleId];
-            
-            qCInfo(chiakiGuiGames) << "All trophy groups fetched. Total trophies:" << accumulated_trophies[npTitleId].size();
-            
-            // Clean up accumulated data
-            accumulated_trophies.remove(npTitleId);
-            
-            // Convert to JSON and cache it
-            QJsonDocument doc(combined_data);
-            QString jsonData = QString(doc.toJson(QJsonDocument::Compact));
-            
-            // Cache the result
-            TrophyCache cache;
-            cache.jsonData = jsonData;
-            cache.timestamp = QDateTime::currentMSecsSinceEpoch();
-            trophy_cache[npTitleId] = cache;
-            
-            qCInfo(chiakiGuiGames) << "Cached trophy data for" << npTitleId;
-            
-            emit trophyDataReceived(npTitleId, jsonData);
+        QByteArray trophies_data = reply->readAll();
+        qCInfo(chiakiGuiGames) << "Response Body:" << trophies_data;
+        QJsonDocument trophies_doc = QJsonDocument::fromJson(trophies_data);
+        
+        if (!trophies_doc.isObject()) {
+            QJsonDocument doc(trophy_title);
+            emit trophyDataReceived(npTitleId, QString(doc.toJson(QJsonDocument::Compact)));
+            return;
         }
+        
+        QJsonObject trophies_obj = trophies_doc.object();
+        QJsonArray trophies_definitions = trophies_obj.value("trophies").toArray();
+        
+        qCInfo(chiakiGuiGames) << "Fetched" << trophies_definitions.size() << "trophy definitions";
+        
+        // Step 2: Now fetch user progress/earned status
+        fetchTrophyProgress(npCommunicationId, npTitleId, psn_token, trophy_title, groups, trophies_definitions);
+    });
+}
+
+void QmlGamesBackend::fetchTrophyProgress(const QString &npCommunicationId, const QString &npTitleId, 
+                                          const QString &psn_token, const QJsonObject &trophy_title, 
+                                          const QJsonArray &groups, const QJsonArray &trophies_definitions, bool isRetry)
+{
+    if (!canMakePsnRequest()) {
+        QTimer::singleShot(200, this, [this, npCommunicationId, npTitleId, psn_token, trophy_title, groups, trophies_definitions, isRetry]() {
+            fetchTrophyProgress(npCommunicationId, npTitleId, psn_token, trophy_title, groups, trophies_definitions, isRetry);
+        });
+        return;
+    }
+    
+    // Fetch user progress with /users/me/ to get earned status, progress, and rarity
+    QString url = QString("https://m.np.playstation.com/api/trophy/v1/users/me/npCommunicationIds/%1/trophyGroups/all/trophies")
+        .arg(npCommunicationId);
+    
+    qCInfo(chiakiGuiGames) << "=== TROPHY API CALL 4: Fetch Trophy Progress ===";
+    qCInfo(chiakiGuiGames) << "URL:" << url;
+    qCInfo(chiakiGuiGames) << "Method: GET";
+    qCInfo(chiakiGuiGames) << "Headers: Authorization: Bearer [TOKEN REDACTED]";
+    
+    QNetworkRequest request(url);
+    request.setRawHeader("Authorization", QString("Bearer %1").arg(psn_token).toUtf8());
+    
+    QNetworkReply *reply = network_manager->get(request);
+    
+    connect(reply, &QNetworkReply::finished, this, [this, reply, npCommunicationId, npTitleId, trophy_title, groups, trophies_definitions, isRetry]() {
+        reply->deleteLater();
+        
+        int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        qCInfo(chiakiGuiGames) << "=== TROPHY API RESPONSE 4: Trophy Progress ===";
+        qCInfo(chiakiGuiGames) << "Status Code:" << statusCode;
+        qCInfo(chiakiGuiGames) << "Status Message:" << reply->attribute(QNetworkRequest::HttpReasonPhraseAttribute).toString();
+        
+        QJsonArray merged_trophies;
+        
+        if (reply->error() != QNetworkReply::NoError) {
+            qCWarning(chiakiGuiGames) << "Error fetching progress:" << reply->errorString();
+            qCWarning(chiakiGuiGames) << "Response Body:" << reply->readAll();
+            
+            // Check for 401 Unauthorized and retry once after refreshing token
+            if (statusCode == 401 && !isRetry) {
+                refreshPsnTokenAndRetry(npCommunicationId, npTitleId, trophy_title, groups, trophies_definitions, 2);
+                return;
+            }
+            
+            // Use definitions without progress data
+            merged_trophies = trophies_definitions;
+        } else {
+            QByteArray progress_data = reply->readAll();
+            qCInfo(chiakiGuiGames) << "Response Body:" << progress_data;
+            QJsonDocument progress_doc = QJsonDocument::fromJson(progress_data);
+            
+            if (progress_doc.isObject()) {
+                QJsonObject progress_obj = progress_doc.object();
+                QJsonArray trophies_progress = progress_obj.value("trophies").toArray();
+                
+                qCInfo(chiakiGuiGames) << "Fetched progress for" << trophies_progress.size() << "trophies";
+                
+                // Merge definitions and progress by trophyId
+                QMap<int, QJsonObject> progress_by_id;
+                for (const QJsonValue &val : trophies_progress) {
+                    if (val.isObject()) {
+                        QJsonObject progress_trophy = val.toObject();
+                        int trophy_id = progress_trophy.value("trophyId").toInt();
+                        progress_by_id[trophy_id] = progress_trophy;
+                    }
+                }
+                
+                // Merge progress data into definitions
+                for (const QJsonValue &val : trophies_definitions) {
+                    if (val.isObject()) {
+                        QJsonObject trophy = val.toObject();
+                        int trophy_id = trophy.value("trophyId").toInt();
+                        
+                        // Add progress fields if available
+                        if (progress_by_id.contains(trophy_id)) {
+                            QJsonObject progress = progress_by_id[trophy_id];
+                            trophy["earned"] = progress.value("earned");
+                            if (progress.contains("earnedDateTime"))
+                                trophy["earnedDateTime"] = progress.value("earnedDateTime");
+                            if (progress.contains("progress"))
+                                trophy["progress"] = progress.value("progress");
+                            if (progress.contains("progressRate"))
+                                trophy["progressRate"] = progress.value("progressRate");
+                            if (progress.contains("progressedDateTime"))
+                                trophy["progressedDateTime"] = progress.value("progressedDateTime");
+                            if (progress.contains("trophyRare"))
+                                trophy["trophyRare"] = progress.value("trophyRare");
+                            if (progress.contains("trophyEarnedRate"))
+                                trophy["trophyEarnedRate"] = progress.value("trophyEarnedRate");
+                        }
+                        
+                        merged_trophies.append(trophy);
+                    }
+                }
+            } else {
+                qCWarning(chiakiGuiGames) << "Failed to parse progress response, using definitions only";
+                merged_trophies = trophies_definitions;
+            }
+        }
+        
+        // Build combined data with trophy title, groups, and merged trophies
+        QJsonObject combined_data = trophy_title;
+        combined_data["trophyGroups"] = groups;
+        combined_data["trophies"] = merged_trophies;
+        
+        qCInfo(chiakiGuiGames) << "Total merged trophies:" << merged_trophies.size();
+        
+        // Convert to JSON and cache it
+        QJsonDocument doc(combined_data);
+        QString jsonData = QString(doc.toJson(QJsonDocument::Compact));
+        
+        // Cache the result
+        TrophyCache cache;
+        cache.jsonData = jsonData;
+        cache.timestamp = QDateTime::currentMSecsSinceEpoch();
+        trophy_cache[npTitleId] = cache;
+        
+        qCInfo(chiakiGuiGames) << "Cached trophy data for" << npTitleId;
+        
+        emit trophyDataReceived(npTitleId, jsonData);
     });
 }
 
@@ -818,5 +932,46 @@ void QmlGamesBackend::createGameSteamShortcut(const QString &titleId, const QStr
     qCInfo(chiakiGuiGames) << "Cleaning up SteamTools...";
     delete steam_tools;
     qCInfo(chiakiGuiGames) << "=== CREATE STEAM SHORTCUT END ===";
+}
+
+void QmlGamesBackend::refreshPsnTokenAndRetry(const QString &npCommunicationId, const QString &npTitleId,
+                                               const QJsonObject &trophy_title, const QJsonArray &groups,
+                                               const QJsonArray &trophies_definitions, int retryStep)
+{
+    qCInfo(chiakiGuiGames) << "Token expired (401), refreshing PSN token...";
+    
+    QString refresh_token = settings->GetPsnRefreshToken();
+    if (refresh_token.isEmpty()) {
+        qCWarning(chiakiGuiGames) << "No refresh token available, cannot refresh PSN token";
+        emit trophyDataReceived(npTitleId, "{}");
+        return;
+    }
+    
+    PSNToken *psnToken = new PSNToken(settings, this);
+    
+    connect(psnToken, &PSNToken::PSNTokenError, this, [this, npTitleId](const QString &error) {
+        qCWarning(chiakiGuiGames) << "Failed to refresh PSN token:" << error;
+        emit trophyDataReceived(npTitleId, "{}");
+    });
+    
+    connect(psnToken, &PSNToken::PSNTokenSuccess, this, [this, npCommunicationId, npTitleId, trophy_title, groups, trophies_definitions, retryStep]() {
+        qCInfo(chiakiGuiGames) << "PSN token refreshed successfully, retrying trophy request...";
+        
+        // Get the refreshed token
+        QString new_psn_token = settings->GetPsnAuthToken();
+        
+        // Retry the appropriate step based on where we failed
+        // retryStep: 0 = fetchTrophyGroups, 1 = fetchAllTrophies, 2 = fetchTrophyProgress
+        if (retryStep == 0) {
+            fetchTrophyGroups(npCommunicationId, npTitleId, new_psn_token, trophy_title, true);
+        } else if (retryStep == 1) {
+            fetchAllTrophies(npCommunicationId, npTitleId, new_psn_token, trophy_title, groups, true);
+        } else if (retryStep == 2) {
+            fetchTrophyProgress(npCommunicationId, npTitleId, new_psn_token, trophy_title, groups, trophies_definitions, true);
+        }
+    });
+    
+    connect(psnToken, &PSNToken::Finished, psnToken, &QObject::deleteLater);
+    psnToken->RefreshPsnToken(std::move(refresh_token));
 }
 

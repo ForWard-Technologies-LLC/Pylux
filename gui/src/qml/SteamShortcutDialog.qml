@@ -116,7 +116,19 @@ DialogView {
                 closePolicy: Popup.NoAutoClose
                 standardButtons: Dialog.Cancel
                 Material.roundedScale: Material.MediumScale
-                onOpened: logArea.forceActiveFocus(Qt.TabFocusReason)
+                onOpened: {
+                    // Focus the Cancel/Close button instead of the text area
+                    let footer = logDialog.footer;
+                    if (footer && footer.contentChildren && footer.contentChildren.length > 0) {
+                        let button = footer.contentChildren[0];
+                        if (button) {
+                            button.forceActiveFocus(Qt.TabFocusReason);
+                            return;
+                        }
+                    }
+                    // Fallback to text area if button not found
+                    logArea.forceActiveFocus(Qt.TabFocusReason);
+                }
                 onClosed: if(succeeded) { restartDialog.open(); }
 
                 Flickable {
@@ -152,6 +164,14 @@ DialogView {
                                     logFlick.flick(0, -500);
                                 event.accepted = true;
                                 break;
+                            case Qt.Key_Return:
+                            case Qt.Key_Space:
+                            case Qt.Key_Enter:
+                                if (logDialog.standardButtons == Dialog.Close) {
+                                    logDialog.close();
+                                    event.accepted = true;
+                                }
+                                break;
                             }
                         }
                     }
@@ -169,7 +189,20 @@ DialogView {
             closePolicy: Popup.NoAutoClose
             standardButtons: Dialog.Close
             Material.roundedScale: Material.MediumScale
-            onOpened: restartArea.forceActiveFocus(Qt.TabFocusReason)
+            onOpened: {
+                // Focus the Close button instead of the text area
+                // The Close button is the first (and only) button in the footer
+                let footer = restartDialog.footer;
+                if (footer && footer.contentChildren && footer.contentChildren.length > 0) {
+                    let closeButton = footer.contentChildren[0];
+                    if (closeButton) {
+                        closeButton.forceActiveFocus(Qt.TabFocusReason);
+                        return;
+                    }
+                }
+                // Fallback to text area if button not found
+                restartArea.forceActiveFocus(Qt.TabFocusReason);
+            }
             onClosed: dialog.close()
 
             Flickable {
@@ -186,8 +219,13 @@ DialogView {
                     id: restartArea
                     text: "In order for " + name.text.trim() + " to appear in Steam,\nSteam must be restarted!"
                     wrapMode: Text.Wrap
-                    Keys.onReturnPressed: if (restartDialog.standardButtons == Dialog.Close) restartDialog.close()
-                    Keys.onEscapePressed: restartDialog.close()
+                    Keys.onReturnPressed: restartDialog.close()
+                    Keys.onPressed: (event) => {
+                        if (event.key === Qt.Key_Return || event.key === Qt.Key_Space || event.key === Qt.Key_Enter || event.key === Qt.Key_Escape) {
+                            restartDialog.close();
+                            event.accepted = true;
+                        }
+                    }
                 }
             }
         }

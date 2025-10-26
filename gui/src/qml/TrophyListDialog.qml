@@ -8,46 +8,196 @@ import org.streetpea.chiaking
 Dialog {
     id: dialog
     
-    property string currentTitleId: ""
-    property string currentNpCommunicationId: ""
+    property string currentNpTitleId: ""  // The ID we use to fetch (e.g., CUSA01163_00)
     property var trophyData: null
     property var allTrophyGroups: []
+    property int allTrophyGroupsCount: 0  // Track count separately to force updates
     property int currentGroupIndex: 0
-    property string sortMode: "default"  // default, earned, type
+    property string sortMode: "default"  // default (by progress), earned, type
     property string filterMode: "all"  // all, earned, not_earned
     property bool isRefreshing: false
     
-    title: trophyData ? trophyData.trophyTitleName || qsTr("Trophies") : qsTr("Loading Trophies...")
+    title: ""  // Empty title, we'll use custom header
     modal: true
     width: 900
     height: 700
     
-    function showTrophies(titleId, npCommunicationId) {
-        currentTitleId = titleId
-        currentNpCommunicationId = npCommunicationId
+    // Enhanced popup appearance with prominent border
+    background: Rectangle {
+        color: Material.dialogColor
+        radius: 8
+        border.width: 3
+        border.color: Material.accent
+        
+        // Outer glow effect
+        Rectangle {
+            anchors.fill: parent
+            anchors.margins: -6
+            radius: 10
+            color: "transparent"
+            border.width: 6
+            border.color: Qt.rgba(0, 212/255, 255/255, 0.3)
+            z: -1
+        }
+    }
+    
+    // Custom header inside the border
+    header: Rectangle {
+        height: 50
+        color: Qt.rgba(0, 212/255, 255/255, 0.1)
+        radius: 8
+        
+        Label {
+            anchors.fill: parent
+            anchors.leftMargin: 20
+            anchors.rightMargin: 20
+            text: trophyData ? trophyData.trophyTitleName || qsTr("Trophies") : qsTr("Loading Trophies...")
+            font.pixelSize: 18
+            font.weight: Font.Bold
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+            color: Material.accent
+        }
+    }
+    
+    // Compact footer inside the border
+    footer: Rectangle {
+        height: 45
+        color: Qt.rgba(0, 0, 0, 0.2)
+        radius: 8
+        
+        // Refresh button on the left
+        Button {
+            id: footerRefreshButton
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.leftMargin: 20
+            text: isRefreshing ? qsTr("Refreshing...") : qsTr("🔄 Refresh")
+            font.pixelSize: 13
+            enabled: !isRefreshing
+            focusPolicy: Qt.StrongFocus
+            ToolTip.text: qsTr("Refresh trophy data from PSN (bypasses 24h cache)")
+            ToolTip.visible: hovered || activeFocus
+            
+            KeyNavigation.up: trophyList
+            KeyNavigation.right: footerCloseButton
+            
+            background: Rectangle {
+                radius: 4
+                color: parent.activeFocus ? Qt.rgba(76/255, 175/255, 80/255, 0.4) : Qt.rgba(76/255, 175/255, 80/255, 0.2)
+                border.width: parent.activeFocus ? 2 : 1
+                border.color: parent.activeFocus ? "#4CAF50" : Qt.rgba(76/255, 175/255, 80/255, 0.5)
+            }
+            
+            contentItem: Text {
+                text: parent.text
+                font: parent.font
+                color: Qt.rgba(76/255, 175/255, 80/255, 1)
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+            
+            onClicked: refreshTrophies()
+            
+            Keys.onPressed: (event) => {
+                if (event.key === Qt.Key_Return || event.key === Qt.Key_Space || event.key === Qt.Key_Enter) {
+                    refreshTrophies()
+                    event.accepted = true
+                }
+            }
+            
+            BusyIndicator {
+                anchors.centerIn: parent
+                width: 16
+                height: 16
+                running: isRefreshing
+                visible: isRefreshing
+            }
+        }
+        
+        // Close button on the right
+        Button {
+            id: footerCloseButton
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.rightMargin: 20
+            text: qsTr("Close")
+            font.pixelSize: 13
+            focusPolicy: Qt.StrongFocus
+            
+            KeyNavigation.up: trophyList
+            KeyNavigation.left: footerRefreshButton
+            
+            onClicked: dialog.close()
+            
+            Keys.onPressed: (event) => {
+                if (event.key === Qt.Key_Return || event.key === Qt.Key_Space || event.key === Qt.Key_Enter) {
+                    dialog.close()
+                    event.accepted = true
+                }
+            }
+            
+            background: Rectangle {
+                radius: 4
+                color: parent.activeFocus ? Qt.rgba(255, 255, 255, 0.15) : Qt.rgba(255, 255, 255, 0.08)
+                border.width: parent.activeFocus ? 2 : 1
+                border.color: parent.activeFocus ? "#ffffff" : Qt.rgba(255, 255, 255, 0.2)
+            }
+        }
+    }
+    
+    function showTrophies(npTitleId) {
+        if (!npTitleId || npTitleId === "") {
+            console.warn("showTrophies: npTitleId is empty, cannot fetch trophies")
+            return
+        }
+        
+        currentNpTitleId = npTitleId
+        // Clear all data to prevent showing stale data from previous game
         trophyData = null
         allTrophyGroups = []
+        allTrophyGroupsCount = 0
+        cachedFilteredTrophies = []
         currentGroupIndex = 0
-        sortMode = "default"
+        sortMode = "default"  // Use default (progress-based) sorting
         filterMode = "all"
         isRefreshing = false
         open()
         
         // Request trophy data from games backend (with cache)
-        ChiakiGames.fetchTrophyData(npCommunicationId, false)
+        // The backend will convert npTitleId to npCommunicationId internally
+        ChiakiGames.fetchTrophyData(npTitleId, false)
     }
     
     function refreshTrophies() {
         isRefreshing = true
         trophyData = null
         allTrophyGroups = []
+        allTrophyGroupsCount = 0
         cachedFilteredTrophies = []
         
-        // Force refresh (bypass cache)
-        ChiakiGames.fetchTrophyData(currentNpCommunicationId, true)
+        // Force refresh (bypass cache) - uses the npTitleId we saved when opening
+        ChiakiGames.fetchTrophyData(currentNpTitleId, true)
     }
     
     property var cachedFilteredTrophies: []
+    
+    // Get stats for currently viewed group
+    function getCurrentGroupStats() {
+        if (!allTrophyGroups[currentGroupIndex]) {
+            return {
+                earnedTrophies: trophyData && trophyData.earnedTrophies ? trophyData.earnedTrophies : { platinum: 0, gold: 0, silver: 0, bronze: 0 },
+                definedTrophies: trophyData && trophyData.definedTrophies ? trophyData.definedTrophies : { platinum: 0, gold: 0, silver: 0, bronze: 0 },
+                progress: trophyData && trophyData.progress ? trophyData.progress : 0
+            }
+        }
+        
+        return {
+            earnedTrophies: allTrophyGroups[currentGroupIndex].earnedTrophies,
+            definedTrophies: allTrophyGroups[currentGroupIndex].definedTrophies,
+            progress: allTrophyGroups[currentGroupIndex].progress
+        }
+    }
     
     function getCurrentTrophies() {
         if (!allTrophyGroups[currentGroupIndex] || !allTrophyGroups[currentGroupIndex].trophies)
@@ -63,7 +213,22 @@ Dialog {
         }
         
         // Sort
-        if (sortMode === "earned") {
+        if (sortMode === "default") {
+            // Default: Show trophies with progress first (highest progress first), then by trophy ID
+            trophies.sort((a, b) => {
+                let aHasProgress = a.progressRate !== undefined && !a.earned
+                let bHasProgress = b.progressRate !== undefined && !b.earned
+                
+                if (aHasProgress && !bHasProgress) return -1
+                if (!aHasProgress && bHasProgress) return 1
+                if (aHasProgress && bHasProgress) {
+                    // Both have progress, sort by progress rate (highest first)
+                    return (b.progressRate || 0) - (a.progressRate || 0)
+                }
+                // Default to trophy ID order
+                return (a.trophyId || 0) - (b.trophyId || 0)
+            })
+        } else if (sortMode === "earned") {
             trophies.sort((a, b) => {
                 if (a.earned && !b.earned) return -1
                 if (!a.earned && b.earned) return 1
@@ -107,7 +272,20 @@ Dialog {
         })
     }
     
+    onAllTrophyGroupsChanged: {
+        // Ensure current index is valid
+        if (currentGroupIndex >= allTrophyGroups.length) {
+            currentGroupIndex = 0
+        }
+    }
+    
     onCurrentGroupIndexChanged: {
+        // Ensure index is valid (but allow 0 even if array is empty)
+        if (allTrophyGroups.length > 0 && (currentGroupIndex < 0 || currentGroupIndex >= allTrophyGroups.length)) {
+            currentGroupIndex = 0
+            return
+        }
+        
         Qt.callLater(() => {
             cachedFilteredTrophies = getCurrentTrophies()
             trophyList.model = null  // Force refresh
@@ -122,10 +300,23 @@ Dialog {
         target: ChiakiGames
         
         function onTrophyDataReceived(npTitleId, data) {
-            if (npTitleId === currentNpCommunicationId) {
+            // The backend returns data keyed by the npTitleId we sent (e.g., CUSA01163_00)
+            if (npTitleId === currentNpTitleId) {
                 try {
                     let parsed = JSON.parse(data)
                     trophyData = parsed
+                    
+                    // Check if there's an error or no trophies
+                    if (!parsed.trophies || !Array.isArray(parsed.trophies) || parsed.trophies.length === 0) {
+                        // Clear everything and reset state
+                        currentGroupIndex = 0
+                        allTrophyGroups = []
+                        allTrophyGroupsCount = 0
+                        cachedFilteredTrophies = []
+                        trophyList.model = null
+                        trophyList.model = []
+                        return
+                    }
                     
                     // Group trophies by trophy group
                     if (parsed.trophies && Array.isArray(parsed.trophies)) {
@@ -140,25 +331,66 @@ Dialog {
                                     groupName: groupId === "default" ? qsTr("Base Game") : qsTr("DLC %1").arg(groupId),
                                     trophies: [],
                                     earnedCount: 0,
-                                    totalCount: 0
+                                    totalCount: 0,
+                                    earnedTrophies: { platinum: 0, gold: 0, silver: 0, bronze: 0 },
+                                    definedTrophies: { platinum: 0, gold: 0, silver: 0, bronze: 0 }
                                 }
                             }
                             groups[groupId].trophies.push(trophy)
                             groups[groupId].totalCount++
+                            
+                            // Count defined trophies by type
+                            let trophyType = (trophy.trophyType || "").toLowerCase()
+                            if (trophyType === "platinum") groups[groupId].definedTrophies.platinum++
+                            else if (trophyType === "gold") groups[groupId].definedTrophies.gold++
+                            else if (trophyType === "silver") groups[groupId].definedTrophies.silver++
+                            else if (trophyType === "bronze") groups[groupId].definedTrophies.bronze++
+                            
+                            // Count earned trophies
                             if (trophy.earned === true) {
                                 groups[groupId].earnedCount++
+                                if (trophyType === "platinum") groups[groupId].earnedTrophies.platinum++
+                                else if (trophyType === "gold") groups[groupId].earnedTrophies.gold++
+                                else if (trophyType === "silver") groups[groupId].earnedTrophies.silver++
+                                else if (trophyType === "bronze") groups[groupId].earnedTrophies.bronze++
                             }
                         }
                         
-                        // Convert to array
-                        allTrophyGroups = Object.values(groups)
-                        console.log("Trophy groups:", allTrophyGroups.length)
+                        // Calculate progress for each group
+                        for (let groupId in groups) {
+                            let group = groups[groupId]
+                            group.progress = group.totalCount > 0 ? Math.round((group.earnedCount / group.totalCount) * 100) : 0
+                        }
                         
-                        // Initial cache
+                        // Convert to array
+                        let groupsArray = Object.values(groups)
+                        
+                        // Assign new trophy groups AND explicitly set count
+                        allTrophyGroups = groupsArray
+                        allTrophyGroupsCount = groupsArray.length
+                        
+                        // Initial cache and force model update
                         cachedFilteredTrophies = getCurrentTrophies()
+                        trophyList.model = null  // Force refresh
+                        trophyList.model = cachedFilteredTrophies
+                        
+                        // Set focus to first trophy item after data loads
+                        Qt.callLater(() => {
+                            if (trophyList.count > 0) {
+                                trophyList.currentIndex = 0
+                                trophyList.forceActiveFocus(Qt.TabFocusReason)
+                            }
+                        })
                     }
                 } catch (e) {
                     console.error("Failed to parse trophy data:", e)
+                    // Clear everything on error
+                    currentGroupIndex = 0
+                    allTrophyGroups = []
+                    allTrophyGroupsCount = 0
+                    cachedFilteredTrophies = []
+                    trophyList.model = null
+                    trophyList.model = []
                 } finally {
                     isRefreshing = false
                 }
@@ -172,9 +404,20 @@ Dialog {
                 trophyList.currentIndex = 0
                 trophyList.forceActiveFocus()
             } else {
-                refreshButton.forceActiveFocus()
+                footerCloseButton.forceActiveFocus()
             }
         })
+    }
+    
+    onClosed: {
+        // Clear all data when dialog closes to prevent stale data from showing
+        trophyData = null
+        allTrophyGroups = []
+        allTrophyGroupsCount = 0
+        cachedFilteredTrophies = []
+        currentGroupIndex = 0
+        sortMode = "default"
+        filterMode = "all"
     }
     
     contentItem: ColumnLayout {
@@ -186,59 +429,19 @@ Dialog {
             Layout.preferredHeight: 100
             color: Qt.rgba(0, 212/255, 255/255, 0.05)
             
-            // Refresh button in top-right corner
-            Button {
-                id: refreshButton
-                anchors.top: parent.top
-                anchors.right: parent.right
-                anchors.topMargin: 12
-                anchors.rightMargin: 12
-                text: isRefreshing ? qsTr("Refreshing...") : qsTr("🔄 Refresh")
-                font.pixelSize: 12
-                enabled: !isRefreshing
-                focusPolicy: Qt.StrongFocus
-                ToolTip.text: qsTr("Refresh trophy data from PSN (bypasses 24h cache)")
-                ToolTip.visible: hovered || activeFocus
-                
-                KeyNavigation.down: sortDefaultButton
-                
-                background: Rectangle {
-            radius: 4
-                    color: parent.activeFocus ? Qt.rgba(76/255, 175/255, 80/255, 0.4) : Qt.rgba(76/255, 175/255, 80/255, 0.2)
-                    border.width: parent.activeFocus ? 2 : 1
-                    border.color: parent.activeFocus ? "#4CAF50" : Qt.rgba(76/255, 175/255, 80/255, 0.5)
-                }
-                
-                contentItem: Text {
-                    text: parent.text
-                    font: parent.font
-                    color: Qt.rgba(76/255, 175/255, 80/255, 1)
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                }
-                
-                onClicked: refreshTrophies()
-                
-                BusyIndicator {
-                    anchors.centerIn: parent
-                    width: 16
-                    height: 16
-                    running: isRefreshing
-                    visible: isRefreshing
-                }
-            }
-            
             RowLayout {
                 anchors.fill: parent
                 anchors.margins: 20
-                anchors.rightMargin: 140  // Make room for refresh button
                 spacing: 32
                 
                 // Platinum
                 ColumnLayout {
                     spacing: 4
                     Label {
-                        text: trophyData && trophyData.earnedTrophies ? trophyData.earnedTrophies.platinum || 0 : 0
+                        text: {
+                            let stats = getCurrentGroupStats()
+                            return stats.earnedTrophies.platinum + "/" + stats.definedTrophies.platinum
+                        }
                         font.pixelSize: 28
                         font.bold: true
                         color: "#E5E5E5"
@@ -256,7 +459,10 @@ Dialog {
                 ColumnLayout {
                     spacing: 4
                     Label {
-                        text: trophyData && trophyData.earnedTrophies ? trophyData.earnedTrophies.gold || 0 : 0
+                        text: {
+                            let stats = getCurrentGroupStats()
+                            return stats.earnedTrophies.gold + "/" + stats.definedTrophies.gold
+                        }
                         font.pixelSize: 28
                         font.bold: true
                         color: "#FFD700"
@@ -274,7 +480,10 @@ Dialog {
                 ColumnLayout {
                     spacing: 4
                     Label {
-                        text: trophyData && trophyData.earnedTrophies ? trophyData.earnedTrophies.silver || 0 : 0
+                        text: {
+                            let stats = getCurrentGroupStats()
+                            return stats.earnedTrophies.silver + "/" + stats.definedTrophies.silver
+                        }
                         font.pixelSize: 28
                         font.bold: true
                         color: "#C0C0C0"
@@ -292,7 +501,10 @@ Dialog {
                 ColumnLayout {
                     spacing: 4
                     Label {
-                        text: trophyData && trophyData.earnedTrophies ? trophyData.earnedTrophies.bronze || 0 : 0
+                        text: {
+                            let stats = getCurrentGroupStats()
+                            return stats.earnedTrophies.bronze + "/" + stats.definedTrophies.bronze
+                        }
                         font.pixelSize: 28
                         font.bold: true
                         color: "#CD7F32"
@@ -316,7 +528,10 @@ Dialog {
                 ColumnLayout {
                     spacing: 4
                     Label {
-                        text: trophyData && trophyData.progress ? trophyData.progress + "%" : "0%"
+                        text: {
+                            let stats = getCurrentGroupStats()
+                            return stats.progress + "%"
+                        }
                         font.pixelSize: 36
                         font.bold: true
                         color: Material.accent
@@ -339,7 +554,7 @@ Dialog {
             Layout.fillWidth: true
             Layout.preferredHeight: 50
             color: Qt.rgba(0, 0, 0, 0.2)
-            visible: allTrophyGroups.length > 1
+            visible: allTrophyGroupsCount > 1
             
             ScrollView {
                 anchors.fill: parent
@@ -348,16 +563,25 @@ Dialog {
                 
                 Row {
                     id: groupTabs
-                    height: parent.height
+                    anchors.fill: parent
                     spacing: 0
                     
                     Repeater {
-                        model: allTrophyGroups
+                        id: groupTabsRepeater
+                        model: allTrophyGroupsCount
                         
-                        Button {
-                            height: parent.height
+                        delegate: Button {
+                            required property int index
+                            
+                            height: 50
                             flat: true
-                            text: modelData.groupName + " (" + modelData.earnedCount + "/" + modelData.totalCount + ")"
+                            text: {
+                                if (index < allTrophyGroups.length && allTrophyGroups[index]) {
+                                    let group = allTrophyGroups[index]
+                                    return group.groupName + " (" + group.earnedCount + "/" + group.totalCount + ")"
+                                }
+                                return ""
+                            }
                             font.pixelSize: 13
                             font.weight: currentGroupIndex === index ? Font.Bold : Font.Normal
                             
@@ -416,8 +640,9 @@ Dialog {
                         font.pixelSize: 12
                         font.weight: sortMode === "default" ? Font.Bold : Font.Normal
                         focusPolicy: Qt.StrongFocus
+                        ToolTip.text: qsTr("Sort by progress (highest first), then by trophy ID")
+                        ToolTip.visible: hovered || activeFocus
                         
-                        KeyNavigation.up: refreshButton
                         KeyNavigation.right: sortEarnedButton
                         KeyNavigation.down: trophyList
                         
@@ -437,6 +662,13 @@ Dialog {
                         }
                         
                         onClicked: sortMode = "default"
+                        
+                        Keys.onPressed: (event) => {
+                            if (event.key === Qt.Key_Return || event.key === Qt.Key_Space || event.key === Qt.Key_Enter) {
+                                sortMode = "default"
+                                event.accepted = true
+                            }
+                        }
                     }
                     
                     Button {
@@ -467,6 +699,13 @@ Dialog {
                         }
                         
                         onClicked: sortMode = "earned"
+                        
+                        Keys.onPressed: (event) => {
+                            if (event.key === Qt.Key_Return || event.key === Qt.Key_Space || event.key === Qt.Key_Enter) {
+                                sortMode = "earned"
+                                event.accepted = true
+                            }
+                        }
                     }
                     
                     Button {
@@ -499,6 +738,13 @@ Dialog {
                         }
                         
                         onClicked: sortMode = "type"
+                        
+                        Keys.onPressed: (event) => {
+                            if (event.key === Qt.Key_Return || event.key === Qt.Key_Space || event.key === Qt.Key_Enter) {
+                                sortMode = "type"
+                                event.accepted = true
+                            }
+                        }
                     }
                 }
                 
@@ -550,6 +796,13 @@ Dialog {
                         }
                         
                         onClicked: filterMode = "all"
+                        
+                        Keys.onPressed: (event) => {
+                            if (event.key === Qt.Key_Return || event.key === Qt.Key_Space || event.key === Qt.Key_Enter) {
+                                filterMode = "all"
+                                event.accepted = true
+                            }
+                        }
                     }
                     
                     Button {
@@ -580,6 +833,13 @@ Dialog {
                         }
                         
                         onClicked: filterMode = "earned"
+                        
+                        Keys.onPressed: (event) => {
+                            if (event.key === Qt.Key_Return || event.key === Qt.Key_Space || event.key === Qt.Key_Enter) {
+                                filterMode = "earned"
+                                event.accepted = true
+                            }
+                        }
                     }
                     
                     Button {
@@ -609,6 +869,13 @@ Dialog {
                         }
                         
                         onClicked: filterMode = "not_earned"
+                        
+                        Keys.onPressed: (event) => {
+                            if (event.key === Qt.Key_Return || event.key === Qt.Key_Space || event.key === Qt.Key_Enter) {
+                                filterMode = "not_earned"
+                                event.accepted = true
+                            }
+                        }
                     }
                 }
                 
@@ -647,7 +914,7 @@ Dialog {
                 required property int index
                 required property var modelData
                 width: trophyList.width
-                height: 90
+                height: 110  // Increased height to accommodate new fields
                 
                 background: Rectangle {
                     color: index % 2 === 0 ? Qt.rgba(0, 0, 0, 0.1) : Qt.rgba(0, 0, 0, 0.05)
@@ -744,10 +1011,7 @@ Dialog {
                             }
                         }
                         
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 8
-                            
+                        // Trophy Description
                             Label {
                                 Layout.fillWidth: true
                                 text: modelData.trophyDetail || ""
@@ -758,22 +1022,169 @@ Dialog {
                                 elide: Text.ElideRight
                             }
                             
-                            // Hidden trophy badge (integrated inline)
+                        // Trophy Stats Row (Earned Rate, Rarity, Hidden, Progress)
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 10
+                            
+                            // Earned Rate (what % of players earned this)
                             Rectangle {
-                                Layout.preferredWidth: 50
+                                Layout.preferredWidth: earnedContent.implicitWidth + 10
                                 Layout.preferredHeight: 18
-                                radius: 2
+                                radius: 3
+                                visible: !!(modelData.trophyEarnedRate !== undefined)
+                                color: Qt.rgba(0, 212/255, 255/255, 0.15)
+                                border.width: 1
+                                border.color: Qt.rgba(0, 212/255, 255/255, 0.4)
+                                
+                                RowLayout {
+                                    id: earnedContent
+                                    anchors.centerIn: parent
+                                    spacing: 4
+                                    
+                                    Label {
+                                        text: "🌍"
+                                        font.pixelSize: 9
+                                    }
+                                    
+                                    Label {
+                                        text: (modelData.trophyEarnedRate || "0") + "% of players"
+                                        font.pixelSize: 9
+                                        font.weight: Font.DemiBold
+                                        color: Material.accent
+                                    }
+                                }
+                            }
+                            
+                            // Rarity Badge
+                            Rectangle {
+                                Layout.preferredWidth: rarityContent.implicitWidth + 10
+                                Layout.preferredHeight: 18
+                                radius: 3
+                                visible: !!(modelData.trophyRare !== undefined)
+                                color: {
+                                    let rare = modelData.trophyRare
+                                    if (rare === 0) return Qt.rgba(138/255, 43/255, 226/255, 0.3)  // Ultra Rare - purple
+                                    if (rare === 1) return Qt.rgba(255/255, 0, 0, 0.3)  // Very Rare - red
+                                    if (rare === 2) return Qt.rgba(255/255, 165/255, 0, 0.3)  // Rare - orange
+                                    return Qt.rgba(76/255, 175/255, 80/255, 0.3)  // Common - green
+                                }
+                                border.width: 1
+                                border.color: {
+                                    let rare = modelData.trophyRare
+                                    if (rare === 0) return Qt.rgba(138/255, 43/255, 226/255, 0.8)
+                                    if (rare === 1) return Qt.rgba(255/255, 0, 0, 0.8)
+                                    if (rare === 2) return Qt.rgba(255/255, 165/255, 0, 0.8)
+                                    return Qt.rgba(76/255, 175/255, 80/255, 0.8)
+                                }
+                                
+                                RowLayout {
+                                    id: rarityContent
+                                    anchors.centerIn: parent
+                                    spacing: 3
+                                    
+                                    Label {
+                                        text: {
+                                            let rare = modelData.trophyRare
+                                            if (rare === 0) return "💎"
+                                            if (rare === 1) return "⭐"
+                                            if (rare === 2) return "✨"
+                                            return "●"
+                                        }
+                                        font.pixelSize: 9
+                                    }
+                                    
+                                    Label {
+                                        text: {
+                                            let rare = modelData.trophyRare
+                                            if (rare === 0) return qsTr("Ultra Rare")
+                                            if (rare === 1) return qsTr("Very Rare")
+                                            if (rare === 2) return qsTr("Rare")
+                                            return qsTr("Common")
+                                        }
+                                        font.pixelSize: 9
+                                        font.weight: Font.DemiBold
+                                        color: {
+                                            let rare = modelData.trophyRare
+                                            if (rare === 0) return Qt.rgba(138/255, 43/255, 226/255, 1)
+                                            if (rare === 1) return Qt.rgba(255/255, 0, 0, 1)
+                                            if (rare === 2) return Qt.rgba(255/255, 165/255, 0, 1)
+                                            return Qt.rgba(76/255, 175/255, 80/255, 1)
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            // Hidden Badge
+                            Rectangle {
+                                Layout.preferredWidth: hiddenContent.implicitWidth + 10
+                                Layout.preferredHeight: 18
+                                radius: 3
                                 color: Qt.rgba(255, 152/255, 0, 0.2)
                                 border.width: 1
                                 border.color: Qt.rgba(255, 152/255, 0, 0.5)
                                 visible: !!(modelData.trophyHidden && !modelData.earned)
                                 
-                                Label {
+                                RowLayout {
+                                    id: hiddenContent
                                     anchors.centerIn: parent
-                                    text: qsTr("🔒 Hidden")
-                                    font.pixelSize: 8
-                                    font.weight: Font.Medium
+                                    spacing: 3
+                                    
+                                    Label {
+                                        text: "🔒"
+                                        font.pixelSize: 9
+                                    }
+                                    
+                                    Label {
+                                        text: qsTr("Hidden")
+                                        font.pixelSize: 9
+                                        font.weight: Font.DemiBold
                                     color: Qt.rgba(255, 152/255, 0, 1)
+                                }
+                            }
+                        }
+                            
+                            Item { Layout.fillWidth: true }
+                            
+                            // Progress Bar (for trackable trophies)
+                            RowLayout {
+                                spacing: 6
+                                visible: !!(modelData.progressRate !== undefined && !modelData.earned)
+                                Layout.preferredWidth: 130
+                                
+                                Label {
+                                    text: "📊"
+                                    font.pixelSize: 10
+                                }
+                                
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 16
+                                    radius: 8
+                                    color: Qt.rgba(0, 0, 0, 0.3)
+                                    border.width: 1
+                                    border.color: Qt.rgba(0, 212/255, 255/255, 0.4)
+                                    
+                                    Rectangle {
+                                        width: Math.max(16, parent.width * ((modelData.progressRate || 0) / 100))
+                                        height: parent.height
+                                        radius: parent.radius
+                                        color: Material.accent
+                                        
+                                        Behavior on width {
+                                            NumberAnimation { duration: 200 }
+                                        }
+                                    }
+                                    
+                                    Label {
+                                        anchors.centerIn: parent
+                                        text: (modelData.progressRate || 0) + "%"
+                                        font.pixelSize: 9
+                                        font.weight: Font.Bold
+                                        color: "white"
+                                        style: Text.Outline
+                                        styleColor: "black"
+                                    }
                                 }
                             }
                         }
@@ -790,13 +1201,14 @@ Dialog {
                 anchors.centerIn: parent
                 text: {
                     if (!trophyData) return qsTr("Loading trophies...")
-                    if (allTrophyGroups.length === 0) return qsTr("No trophies available")
+                    if (allTrophyGroups.length === 0) return qsTr("No trophies found for this game.\nTrophy data may not be available.")
                     if (filterMode === "earned") return qsTr("No earned trophies yet")
                     if (filterMode === "not_earned") return qsTr("All trophies earned!")
                     return qsTr("No trophies")
                 }
                 font.pixelSize: 16
-                opacity: 0.5
+                opacity: 0.7
+                horizontalAlignment: Text.AlignHCenter
                 visible: trophyList.count === 0
                 }
                 
@@ -823,6 +1235,10 @@ Dialog {
                 if (currentIndex < count - 1) {
                     currentIndex++
                     event.accepted = true
+                } else {
+                    // At bottom of list, go to close button
+                    footerCloseButton.forceActiveFocus()
+                    event.accepted = true
                 }
             }
             
@@ -841,8 +1257,6 @@ Dialog {
             }
         }
     }
-    
-    standardButtons: Dialog.Close
     
     // Ensure focus on trophy list when dialog opens
     Component.onCompleted: {
