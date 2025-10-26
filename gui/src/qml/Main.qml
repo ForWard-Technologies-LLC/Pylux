@@ -432,10 +432,25 @@ Item {
         }
 
         function onRegistDialogRequested(host, ps5, duid) {
-            if(!duid)
+            // Check if user is logged into PSN
+            const isPsnLoggedIn = Chiaki.settings.psnAuthToken && Chiaki.settings.psnAuthToken !== "";
+            
+            if(!isPsnLoggedIn) {
+                // Not logged in to PSN - ask if they want to login for automatic setup or manually register
+                root.showConfirmDialog(
+                    qsTr("Console Setup"), 
+                    qsTr("Would you like to login to PSN for automatic console setup?\n\nChoose 'Yes' to login to PSN for automatic registration.\nChoose 'No' to manually enter console information."),
+                    () => root.showPSNTokenDialog("", false),  // Yes - show PSN login
+                    () => showRegistDialog(host, ps5)          // No - show manual registration
+                )
+            }
+            else if(!duid) {
+                // Logged in to PSN but console was discovered locally (no duid)
+                // Can only do manual registration in this case
                 showRegistDialog(host, ps5);
-            else
-            {
+            }
+            else {
+                // Logged in to PSN and console has duid - can do automatic registration
                 if(ps5)
                     root.showConfirmDialog(qsTr("Registration Type"), qsTr("Would you like to use automatic registration?"), () => root.autoRegister(true, host, ps5), () => root.autoRegister(false, host, ps5))
                 else

@@ -225,23 +225,25 @@ Pane {
             clip: true  // Prevent cards from going over header
             
             ScrollView {
+                id: scrollView
                 anchors.fill: parent
                 anchors.leftMargin: 20
                 anchors.rightMargin: 20
                 anchors.bottomMargin: 60  // Space for the footer overlay
                 clip: true  // Clip scrolling content
                 
-                contentWidth: availableWidth
+                // Remove contentWidth to prevent horizontal scrolling
                 ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
                 
                 GridView {
                     id: gamesGrid
                     width: {
-                        // Calculate how many columns fit (accounting for scroll view margins)
-                        let availableWidth = parent.parent.width - 40  // 20px margins on each side
+                        // Calculate how many columns fit in the available content width
+                        // availableWidth accounts for scrollbar space
+                        let availableWidth = scrollView.availableWidth
                         let cols = Math.floor(availableWidth / cellWidth)
                         if (cols === 0) cols = 1
-                        // Return width for that many columns
+                        // Return width for exactly that many columns (centered)
                         return cols * cellWidth
                     }
                     // Height needs to be implicit to enable scrolling
@@ -252,6 +254,7 @@ Pane {
                     focus: true
                     clip: false
                     interactive: false  // Disable GridView's own scrolling, let ScrollView handle it
+                    flickableDirection: Flickable.VerticalFlick  // Explicitly disable horizontal flicking
                 
                 model: currentPageGames
                 highlightFollowsCurrentItem: true
@@ -312,7 +315,7 @@ Pane {
                     if (event.modifiers)
                         return;
                     
-                    let cols = Math.floor((parent.parent.parent.width - 40) / cellWidth)
+                    let cols = Math.floor(scrollView.availableWidth / cellWidth)
                     if (cols === 0) cols = 1
                     
                     // Handle up navigation to back button when on first row
