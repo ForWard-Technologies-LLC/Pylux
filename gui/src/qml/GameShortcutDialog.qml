@@ -45,10 +45,9 @@ Dialog {
         
         // Populate fields
         gameNameField.text = gameTitle
-        let escaped_name = gameTitle.replace(/"/g, '\\"')
         let escaped_console = consoleDeviceName.replace(/"/g, '\\"')
         let escaped_titleId = gameTitleId.replace(/"/g, '\\"')
-        launchOptionsField.text = `shortcutStream "${escaped_console}" --game "${escaped_name}" --title-id "${escaped_titleId}"`
+        launchOptionsField.text = `--nickname "${escaped_console}" --title-id "${escaped_titleId}" launchTitle`
         coverImage.source = ChiakiGames.getGameImage(gameTitleId)
         
         open()

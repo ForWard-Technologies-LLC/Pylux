@@ -818,16 +818,14 @@ void QmlGamesBackend::createGameSteamShortcut(const QString &titleId, const QStr
         return;
     }
     
-    // Build launch options using shortcutStream command
-    qCInfo(chiakiGuiGames) << "Building launch options with shortcutStream command...";
-    QString escaped_game_name = gameName;
-    escaped_game_name.replace("\"", "\\\"");  // Escape quotes for shell safety
+    // Build launch options using launchTitle command
+    qCInfo(chiakiGuiGames) << "Building launch options with launchTitle command...";
     QString escaped_device_name = deviceName;
     escaped_device_name.replace("\"", "\\\"");  // Escape quotes for shell safety
     QString escaped_title_id = titleId;
     escaped_title_id.replace("\"", "\\\"");  // Escape quotes for shell safety
     
-    QString launch_options = QString("shortcutStream \"%1\" --game \"%2\" --title-id \"%3\"").arg(escaped_device_name, escaped_game_name, escaped_title_id);
+    QString launch_options = QString("--nickname \"%1\" --title-id \"%2\" launchTitle").arg(escaped_device_name, escaped_title_id);
     
     qCInfo(chiakiGuiGames) << "Launch options:" << launch_options;
     infoLambda(QString("[I] Creating Steam shortcut with launch options: %1").arg(launch_options));

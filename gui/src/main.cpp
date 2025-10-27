@@ -30,6 +30,9 @@ int main(int argc, char *argv[]) { return real_main(argc, argv); }
 #include <QCommandLineParser>
 #include <QMap>
 #include <QSurfaceFormat>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
 
 Q_DECLARE_METATYPE(ChiakiLogLevel)
 Q_DECLARE_METATYPE(ChiakiRegistEventType)
@@ -133,7 +136,7 @@ int real_main(int argc, char *argv[])
 	
 	QStringList cmds;
 	cmds.append("stream");
-	cmds.append("shortcutStream");
+	cmds.append("launchTitle");
 	cmds.append("list");
 #ifdef CHIAKI_ENABLE_CLI
 	cmds.append(cli_commands.keys());
@@ -143,7 +146,6 @@ int real_main(int argc, char *argv[])
 	parser.addPositionalArgument("nickname", "Needed for stream command to get credentials for connecting. "
 			"Use 'list' to get the nickname.");
 	parser.addPositionalArgument("host", "Address to connect to (when using the stream command).");
-	parser.addPositionalArgument("game", "Game name (when using the shortcutStream command).");
 
 	QCommandLineOption profile_option("profile", "", "profile", "Configuration profile");
 	parser.addOption(profile_option);
@@ -175,6 +177,9 @@ int real_main(int argc, char *argv[])
 	QCommandLineOption title_id_option("title-id", "Title ID of game to launch (for game cover art display).", "title-id");
 	parser.addOption(title_id_option);
 
+	QCommandLineOption nickname_option("nickname", "Console nickname (for use with launchTitle command).", "nickname");
+	parser.addOption(nickname_option);
+
 	parser.process(app);
 	QStringList args = parser.positionalArguments();
 
@@ -198,13 +203,66 @@ int real_main(int argc, char *argv[])
 			printf("Host: %s \n", host.GetServerNickname().toLocal8Bit().constData());
 		return 0;
 	}
-	if(args[0] == "shortcutStream")
+	if(args[0] == "launchTitle")
 	{
-		if(args.length() < 3)
-			parser.showHelp(1);
-
-		QString nickname = args[1];
-		QString game_name = args[2];
+		// Get values from named options
+		QString nickname = parser.value(nickname_option);
+		QString title_id_value = parser.value(title_id_option);
+		
+		// Validate required options
+		if(nickname.isEmpty())
+		{
+			fprintf(stderr, "ERROR: --nickname is required for launchTitle command\n");
+			return 1;
+		}
+		if(title_id_value.isEmpty())
+		{
+			fprintf(stderr, "ERROR: --title-id is required for launchTitle command\n");
+			return 1;
+		}
+		
+		// Look up game name from settings based on title_id
+		QString game_name;
+		QString psn_games_json = settings.GetPsnGamesJson();
+		if(!psn_games_json.isEmpty())
+		{
+			QJsonDocument doc = QJsonDocument::fromJson(psn_games_json.toUtf8());
+			if(doc.isObject())
+			{
+				QJsonObject root = doc.object();
+				// Find the device matching the nickname
+				for(const QString &device_key : root.keys())
+				{
+					QJsonObject device = root[device_key].toObject();
+					QString device_name = device["deviceName"].toString();
+					
+					// Only search games on the device we're connecting to
+					if(device_name == nickname)
+					{
+						QJsonArray games = device["games"].toArray();
+						
+						// Search for the game with matching titleId
+						for(const QJsonValue &game_val : games)
+						{
+							QJsonObject game = game_val.toObject();
+							QString tid = game["titleId"].toString();
+							if(tid == title_id_value)
+							{
+								game_name = game["comment"].toString();
+								break;
+							}
+						}
+						break; // Found the device, stop searching
+					}
+				}
+			}
+		}
+		
+		if(game_name.isEmpty())
+		{
+			fprintf(stderr, "ERROR: Could not find game with title ID '%s' in settings. Make sure you've connected to the console and synced games.\n", title_id_value.toUtf8().constData());
+			return 1;
+		}
 		
 		// Check that only one display mode option is set
 		if ((parser.isSet(stretch_option) && (parser.isSet(zoom_option) || parser.isSet(fullscreen_option))) || (parser.isSet(zoom_option) && parser.isSet(fullscreen_option)))
@@ -278,7 +336,7 @@ int real_main(int argc, char *argv[])
 				parser.isSet(zoom_option),
 				parser.isSet(stretch_option));
 		connect_info.game_name = game_name;
-		connect_info.title_id = parser.value(title_id_option);
+		connect_info.title_id = title_id_value;
 		
 		return RunStream(app, connect_info);
 	}

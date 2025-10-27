@@ -2717,6 +2717,11 @@ void QmlBackend::savePsnGamesFromDevices(ChiakiHolepunchDeviceInfo *devices, siz
                     
                     QJsonObject game = game_val.toObject();
                     QString title_id = game.value("titleId").toString();
+                    QString display_location = game.value("displayLocationSpace").toString();
+                    
+                    // Filter out non-game items (media apps, etc.)
+                    if (display_location != "game")
+                        continue;
                     
                     if (!title_id.isEmpty())
                     {
@@ -2733,9 +2738,38 @@ void QmlBackend::savePsnGamesFromDevices(ChiakiHolepunchDeviceInfo *devices, siz
                     }
                 }
                 
-                // Convert merged games map back to array
-                QJsonArray merged_games_array;
+                // Convert merged games map to list for sorting
+                QList<QJsonObject> games_list;
                 for (const QJsonObject &game : existing_games_map)
+                    games_list.append(game);
+                
+                // Sort games: by lastAccessDateTime (most recent first), then alphabetically by name
+                std::sort(games_list.begin(), games_list.end(), [](const QJsonObject &a, const QJsonObject &b) {
+                    QString a_last_access = a.value("lastAccessDateTime").toString();
+                    QString b_last_access = b.value("lastAccessDateTime").toString();
+                    
+                    // If both have lastAccessDateTime, sort by it (descending - most recent first)
+                    if (!a_last_access.isEmpty() && !b_last_access.isEmpty()) {
+                        return a_last_access > b_last_access;  // Descending order
+                    }
+                    
+                    // If only one has lastAccessDateTime, it comes first
+                    if (!a_last_access.isEmpty()) return true;
+                    if (!b_last_access.isEmpty()) return false;
+                    
+                    // Neither has lastAccessDateTime, sort alphabetically by name
+                    QString a_name = a.value("comment").toString();
+                    if (a_name.isEmpty()) a_name = a.value("titleName").toString();
+                    
+                    QString b_name = b.value("comment").toString();
+                    if (b_name.isEmpty()) b_name = b.value("titleName").toString();
+                    
+                    return a_name.toLower() < b_name.toLower();  // Alphabetical, case-insensitive
+                });
+                
+                // Convert sorted list to array
+                QJsonArray merged_games_array;
+                for (const QJsonObject &game : games_list)
                     merged_games_array.append(game);
                 
                 total_games_count += merged_games_array.size();
