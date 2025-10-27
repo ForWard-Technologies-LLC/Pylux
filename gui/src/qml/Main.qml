@@ -236,11 +236,6 @@ Item {
             stack.replace(stack.get(0), autoConnectViewComponent, {}, StackView.Immediate);
     }
 
-    // Sparkle background for non-video states
-    SparkleBackground {
-        visible: !Chiaki.window.hasVideo && !Chiaki.window.keepVideo
-    }
-
     StackView {
         id: stack
         anchors.fill: parent
@@ -277,11 +272,6 @@ Item {
         anchors.horizontalCenter: parent.horizontalCenter
         color: "transparent"
         
-        // Sparkle background for settings
-        SparkleBackground {
-            anchors.fill: parent
-            opacity: 0.8
-        }
         Loader {
             anchors.fill: parent
             id: placeboSettingsLoader
@@ -298,11 +288,6 @@ Item {
         visible: opacity
         color: "transparent"
         
-        // Sparkle background for settings
-        SparkleBackground {
-            anchors.fill: parent
-            opacity: 0.8
-        }
         Loader {
             anchors.fill: parent
             id: displaySettingsLoader
@@ -319,11 +304,6 @@ Item {
         visible: opacity
         color: "transparent"
         
-        // Sparkle background for settings
-        SparkleBackground {
-            anchors.fill: parent
-            opacity: 0.8
-        }
         Loader {
             anchors.fill: parent
             id: colorMappingSettingsLoader

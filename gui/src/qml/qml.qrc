@@ -3,7 +3,6 @@
     <file>qtquickcontrols2.conf</file>
     <file>Main.qml</file>
     <file>MainView.qml</file>
-    <file>SparkleBackground.qml</file>
     <file>CleanBlueBackground.qml</file>
     <file>StreamView.qml</file>
     <file>ControllerOverlay.qml</file>
