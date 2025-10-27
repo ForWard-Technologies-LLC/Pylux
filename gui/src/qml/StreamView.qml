@@ -13,6 +13,7 @@ Item {
     property bool sessionError: false
     property bool sessionLoading: true
     property list<Item> restoreFocusItems
+    property bool controllerOverlayShown: false // Track if overlay has been shown this session
     
     // Computed property: are we launching a game directly?
     property bool launchingGame: Chiaki.session !== null 
@@ -55,7 +56,24 @@ Item {
                 
                 // Restore audio volume from settings (doesn't modify persisted settings)
                 Chiaki.session.SetAudioVolume(Chiaki.settings.audioVolume);
+                
+                // Show controller overlay after a brief delay (only first time)
+                if (!controllerOverlayShown && !Chiaki.settings.controllerOverlayShown) {
+                    controllerOverlayTimer.start();
+                }
             });
+        }
+    }
+    
+    // Timer to show controller overlay after stream starts
+    Timer {
+        id: controllerOverlayTimer
+        interval: 800 // Short delay after video appears
+        repeat: false
+        onTriggered: {
+            if (!controllerOverlayShown && !sessionError) {
+                controllerOverlayLoader.active = true;
+            }
         }
     }
 
@@ -864,6 +882,33 @@ Item {
             }
         }
     }
+    
+    // Controller overlay - only loaded when needed, completely destroyed when dismissed
+    Loader {
+        id: controllerOverlayLoader
+        anchors.fill: parent
+        active: false
+        z: 1000 // High z-index to appear above everything
+        
+        sourceComponent: Component {
+            ControllerOverlay {
+                id: controllerOverlay
+                anchors.fill: parent
+                active: true
+                
+                onDismissed: {
+                    view.controllerOverlayShown = true;
+                    Chiaki.settings.controllerOverlayShown = true; // Mark as shown permanently
+                    controllerOverlayLoader.active = false; // Completely destroy the overlay
+                    view.releaseInput();
+                }
+                
+                Component.onCompleted: {
+                    view.grabInput(controllerOverlay);
+                }
+            }
+        }
+    }
 
     Timer {
         id: closeTimer
@@ -915,6 +960,11 @@ Item {
                 // If launching a game, keep loading until GameLaunchCompleted
                 if (!launchingGame) {
                     sessionLoading = false;
+                    
+                    // Show controller overlay after a brief delay (for non-game launch, only first time)
+                    if (!controllerOverlayShown && !Chiaki.settings.controllerOverlayShown) {
+                        controllerOverlayTimer.start();
+                    }
                 }
             }
         }

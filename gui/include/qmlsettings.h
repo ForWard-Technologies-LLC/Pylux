@@ -8,7 +8,8 @@ class QmlSettings : public QObject
     Q_PROPERTY(bool remotePlayAsk READ remotePlayAsk WRITE setRemotePlayAsk NOTIFY remotePlayAskChanged)
     Q_PROPERTY(bool addSteamShortcutAsk READ addSteamShortcutAsk WRITE setAddSteamShortcutAsk NOTIFY addSteamShortcutAskChanged)
     Q_PROPERTY(bool setupGuideShown READ setupGuideShown WRITE setSetupGuideShown NOTIFY setupGuideShownChanged)
-    Q_PROPERTY(bool hideCursor READ hideCursor WRITE setHideCursor NOTIFY hideCursorChanged)
+	Q_PROPERTY(bool controllerOverlayShown READ controllerOverlayShown WRITE setControllerOverlayShown NOTIFY controllerOverlayShownChanged)
+	Q_PROPERTY(bool hideCursor READ hideCursor WRITE setHideCursor NOTIFY hideCursorChanged)
     Q_PROPERTY(int audioVideoDisabled READ audioVideoDisabled WRITE setAudioVideoDisabled NOTIFY audioVideoDisabledChanged)
     Q_PROPERTY(int resolutionLocalPS4 READ resolutionLocalPS4 WRITE setResolutionLocalPS4 NOTIFY resolutionLocalPS4Changed)
     Q_PROPERTY(int resolutionRemotePS4 READ resolutionRemotePS4 WRITE setResolutionRemotePS4 NOTIFY resolutionRemotePS4Changed)
@@ -237,6 +238,9 @@ public:
 
     bool setupGuideShown() const;
     void setSetupGuideShown(bool shown);
+    
+	bool controllerOverlayShown() const;
+	void setControllerOverlayShown(bool shown);
 
     bool hideCursor() const;
     void setHideCursor(bool enabled);
@@ -599,7 +603,8 @@ signals:
     void remotePlayAskChanged();
     void addSteamShortcutAskChanged();
     void setupGuideShownChanged();
-    void hideCursorChanged();
+	void controllerOverlayShownChanged();
+	void hideCursorChanged();
     void hapticOverrideChanged();
     void audioVideoDisabledChanged();
     void showStreamStatsChanged();

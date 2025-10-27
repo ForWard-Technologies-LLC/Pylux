@@ -233,6 +233,8 @@ class Settings : public QObject
 		void SetRemotePlayAsk(bool asked)       { settings.setValue("settings/remote_play_ask", asked); }
 		bool GetSetupGuideShown() const         { return settings.value("settings/setup_guide_shown", false).toBool(); }
 		void SetSetupGuideShown(bool shown)     { settings.setValue("settings/setup_guide_shown", shown); }
+		bool GetControllerOverlayShown() const   { return settings.value("settings/controller_overlay_shown", false).toBool(); }
+		void SetControllerOverlayShown(bool shown) { settings.setValue("settings/controller_overlay_shown", shown); }
 
 		bool GetAddSteamShortcutAsk() const           { return settings.value("settings/add_steam_shortcut_ask", true).toBool(); }
 		void SetAddSteamShortcutAsk(bool asked)       { settings.setValue("settings/add_steam_shortcut_ask", asked); }

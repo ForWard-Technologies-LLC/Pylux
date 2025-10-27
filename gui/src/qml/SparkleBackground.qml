@@ -21,7 +21,8 @@ Rectangle {
         
         Item {
             property real sparkleSize: Math.random() * 8 + 4
-            property real baseOpacity: Math.random() * 0.8 + 0.4
+            property real initialOpacity: Math.random() * 0.8 + 0.4
+            property real baseOpacity: initialOpacity
             property real animationSpeed: Math.random() * 3000 + 2000
             property real twinkleSpeed: Math.random() * 2000 + 1000
             property real initialX: Math.random() * sparkleBackground.width
@@ -90,8 +91,8 @@ Rectangle {
             }
             
             // Twinkling animation
-            property real targetOpacityLow: baseOpacity * 0.2
-            property real targetOpacityHigh: baseOpacity * 1.5
+            property real targetOpacityLow: initialOpacity * 0.2
+            property real targetOpacityHigh: initialOpacity * 1.5
             SequentialAnimation on baseOpacity {
                 running: true
                 loops: Animation.Infinite
@@ -150,7 +151,7 @@ Rectangle {
         
         Rectangle {
             property real particleSize: Math.random() * 3 + 1
-            property real baseOpacity: Math.random() * 0.6 + 0.2
+            property real initialOpacity: Math.random() * 0.6 + 0.2
             property real animationSpeed: Math.random() * 8000 + 4000
             property real initialX: Math.random() * sparkleBackground.width
             property real initialY: Math.random() * sparkleBackground.height
@@ -161,7 +162,7 @@ Rectangle {
             height: particleSize
             radius: particleSize / 2
             color: "#87ceeb"  // Light blue
-            opacity: baseOpacity
+            opacity: initialOpacity
             
             // Glow effect
             layer.enabled: true
@@ -191,8 +192,8 @@ Rectangle {
             
             // Shimmer effect
             property real shimmerSpeed: Math.random() * 2000 + 1000
-            property real targetOpacityLow: baseOpacity * 0.1
-            property real targetOpacityHigh: baseOpacity * 1.8
+            property real targetOpacityLow: initialOpacity * 0.1
+            property real targetOpacityHigh: initialOpacity * 1.8
             SequentialAnimation on opacity {
                 running: true
                 loops: Animation.Infinite

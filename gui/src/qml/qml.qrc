@@ -6,6 +6,7 @@
     <file>SparkleBackground.qml</file>
     <file>CleanBlueBackground.qml</file>
     <file>StreamView.qml</file>
+    <file>ControllerOverlay.qml</file>
     <file>ConfirmDialog.qml</file>
     <file>RemindDialog.qml</file>
     <file>DialogView.qml</file>

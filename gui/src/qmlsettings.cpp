@@ -59,6 +59,17 @@ void QmlSettings::setSetupGuideShown(bool shown)
     emit setupGuideShownChanged();
 }
 
+bool QmlSettings::controllerOverlayShown() const
+{
+	return settings->GetControllerOverlayShown();
+}
+
+void QmlSettings::setControllerOverlayShown(bool shown)
+{
+	settings->SetControllerOverlayShown(shown);
+	emit controllerOverlayShownChanged();
+}
+
 bool QmlSettings::hideCursor() const
 {
     return settings->GetHideCursor();
