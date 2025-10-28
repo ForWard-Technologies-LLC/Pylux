@@ -10,6 +10,10 @@ int main(int argc, char *argv[]) { return real_main(argc, argv); }
 #include <discoverymanager.h>
 #include <qmlmainwindow.h>
 #include <QApplication>
+#include <QMessageBox>
+#ifdef CHIAKI_ENABLE_STEAMWORKS
+#include <steamworks/steamworks_wrapper.h>
+#endif
 // QtTypes removed - not needed in Qt6
 
 #ifdef CHIAKI_ENABLE_CLI
@@ -460,6 +464,30 @@ int real_main(int argc, char *argv[])
 
 int RunMain(QGuiApplication &app, Settings *settings, bool exit_app_on_stream_exit)
 {
+#ifdef CHIAKI_ENABLE_STEAMWORKS
+	// TODO: Uncomment this when app is released on Steam
+	// Check Steam ownership before creating any windows
+	/*SteamworksWrapper steamworks_check;
+	if (!steamworks_check.initialize(3946320)) {
+		QMessageBox::critical(nullptr, "Steam Not Running", 
+			"Steam must be running to use PSStream.\n\nClick OK to exit.");
+		return 1;
+	}
+	
+	auto ownership = steamworks_check.checkOwnership();
+	if (ownership == SteamworksWrapper::NoLicense) {
+		QMessageBox::critical(nullptr, "License Verification Failed", 
+			"Could not verify your PSStream license.\n\nClick OK to exit.");
+		return 1;
+	} else if (ownership == SteamworksWrapper::NotRunning) {
+		QMessageBox::critical(nullptr, "Steam Not Running", 
+			"Steam must be running to use PSStream.\n\nClick OK to exit.");
+		return 1;
+	}
+	// Don't shutdown yet - let QmlBackend reinitialize for actual use
+	*/
+#endif
+
 	QmlMainWindow main_window(settings, exit_app_on_stream_exit);
 	main_window.show();
 	return app.exec();
@@ -467,6 +495,30 @@ int RunMain(QGuiApplication &app, Settings *settings, bool exit_app_on_stream_ex
 
 int RunStream(QGuiApplication &app, const StreamSessionConnectInfo &connect_info)
 {
+#ifdef CHIAKI_ENABLE_STEAMWORKS
+	// TODO: Uncomment this when app is released on Steam
+	// Check Steam ownership before creating any windows
+	/*SteamworksWrapper steamworks_check;
+	if (!steamworks_check.initialize(3946320)) {
+		QMessageBox::critical(nullptr, "Steam Not Running", 
+			"Steam must be running to use PSStream.\n\nClick OK to exit.");
+		return 1;
+	}
+	
+	auto ownership = steamworks_check.checkOwnership();
+	if (ownership == SteamworksWrapper::NoLicense) {
+		QMessageBox::critical(nullptr, "License Verification Failed", 
+			"Could not verify your PSStream license.\n\nClick OK to exit.");
+		return 1;
+	} else if (ownership == SteamworksWrapper::NotRunning) {
+		QMessageBox::critical(nullptr, "Steam Not Running", 
+			"Steam must be running to use PSStream.\n\nClick OK to exit.");
+		return 1;
+	}
+	// Don't shutdown yet - let QmlBackend reinitialize for actual use
+	*/
+#endif
+
 	QmlMainWindow main_window(connect_info);
 	main_window.show();
 	return app.exec();

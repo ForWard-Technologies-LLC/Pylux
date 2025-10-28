@@ -212,10 +212,11 @@ class Settings : public QObject
 		void ExportSettings(QString filepath);
 		void ImportSettings(QString filepath);
 
-		void ExportPlaceboSettings(QString filepath);
-		void ImportPlaceboSettings(QString filepath);
+	void ExportPlaceboSettings(QString filepath);
+	void ImportPlaceboSettings(QString filepath);
 
-		QMap<QString, QString> GetPlaceboValues();
+	QMap<QString, QString> GetPlaceboValues();
+	QString GetSettingsFilePath() const;
 
 		ChiakiDisableAudioVideo GetAudioVideoDisabled() const       { return static_cast<ChiakiDisableAudioVideo>(settings.value("settings/audio_video_disabled", 0).toInt()); }
 		void SetAudioVideoDisabled(ChiakiDisableAudioVideo disabled) { settings.setValue("settings/audio_video_disabled", disabled); }

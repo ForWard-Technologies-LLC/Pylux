@@ -17,6 +17,13 @@ class SteamworksWrapper : public QObject
     Q_OBJECT
 
 public:
+    enum OwnershipResult
+    {
+        HasLicense,
+        NoLicense,
+        NotRunning
+    };
+
     explicit SteamworksWrapper(QObject *parent = nullptr);
     ~SteamworksWrapper();
 
@@ -32,6 +39,39 @@ public:
      * @return true if Steam is available
      */
     bool isSteamAvailable() const;
+
+    /**
+     * Check if the current user owns the app
+     * @return OwnershipResult indicating license status
+     */
+    OwnershipResult checkOwnership();
+
+    /**
+     * Save config file to Steam Cloud
+     * @param filepath Path to the config file to upload
+     * @return true if upload was successful
+     */
+    bool syncConfigToCloud(const QString &filepath);
+
+    /**
+     * Load config file from Steam Cloud
+     * @param filepath Path where to save the downloaded config
+     * @return true if download was successful
+     */
+    bool loadConfigFromCloud(const QString &filepath);
+
+    /**
+     * Set Steam Rich Presence status
+     * @param status The status text to display
+     * @param gameName Optional game name for context
+     * @return true if rich presence was set successfully
+     */
+    bool setRichPresence(const QString &status, const QString &gameName = QString());
+
+    /**
+     * Call SteamAPI_RunCallbacks to process Steam events
+     */
+    void runCallbacks();
 
     /**
      * Activate Steam overlay to web page (for PSN OAuth)

@@ -248,6 +248,11 @@ QMap<QString, QString> Settings::GetPlaceboValues()
 	return placeboMap;
 }
 
+QString Settings::GetSettingsFilePath() const
+{
+	return settings.fileName();
+}
+
 void Settings::ImportSettings(QString filepath)
 {
 	QSettings settings_backup(filepath, QSettings::IniFormat);

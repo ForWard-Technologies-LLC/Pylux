@@ -29,6 +29,7 @@
 #include <QUrlQuery>
 #include <QtGlobal>
 #include <QGuiApplication>
+#include <QMessageBox>
 #include <QPixmap>
 #include <QImageReader>
 #include <QProcessEnvironment>
@@ -285,10 +286,37 @@ QmlBackend::QmlBackend(Settings *settings, QmlMainWindow *window)
 #endif
     refreshPsnToken();
     configureSteamControllerLayout();
+
+#ifdef CHIAKI_ENABLE_STEAMWORKS
+    // Initialize Steamworks
+    steamworks_wrapper = new SteamworksWrapper(this);
+    if (steamworks_wrapper->initialize(3946320)) {
+        // TODO: Uncomment when Steam Cloud is properly configured in Steamworks Partner portal
+        // Load config from cloud (if exists)
+        //QString configPath = settings->GetSettingsFilePath();
+        //steamworks_wrapper->loadConfigFromCloud(configPath);
+        
+        // Set initial rich presence
+        steamworks_wrapper->setRichPresence("Playing PlayStation via PSStream", "");
+        
+        qInfo() << "SteamworksWrapper: Steamworks integration initialized successfully";
+    } else {
+        qWarning() << "SteamworksWrapper: Failed to initialize, but continuing without Steamworks features";
+    }
+#endif
 }
 
 QmlBackend::~QmlBackend()
 {
+#ifdef CHIAKI_ENABLE_STEAMWORKS
+    // TODO: Uncomment when Steam Cloud is properly configured in Steamworks Partner portal
+    // Sync config to Steam Cloud before exit
+    //if (steamworks_wrapper && steamworks_wrapper->isSteamAvailable()) {
+    //    QString configPath = settings->GetSettingsFilePath();
+    //    steamworks_wrapper->syncConfigToCloud(configPath);
+    //}
+#endif
+
     if(session)
     {
         chiaki_log_mutex.lock();
@@ -817,6 +845,16 @@ void QmlBackend::createSession(const StreamSessionConnectInfo &connect_info)
         emit error(tr("Stream failed"), tr("Failed to initialize Stream Session: %1").arg(e.what()));
         return;
     }
+
+#ifdef CHIAKI_ENABLE_STEAMWORKS
+    // Update rich presence when streaming starts
+    if (steamworks_wrapper && steamworks_wrapper->isSteamAvailable()) {
+        QString gameName = connect_info.game_name;
+        QString status = gameName.isEmpty() ? "Playing PlayStation via PSStream" 
+                                            : QString("Playing %1 via PSStream").arg(gameName);
+        steamworks_wrapper->setRichPresence(status, gameName);
+    }
+#endif
 
     connect(session, &StreamSession::FfmpegFrameAvailable, frame_thread->parent(), [this]() {
         ChiakiFfmpegDecoder *decoder = session->GetFfmpegDecoder();
