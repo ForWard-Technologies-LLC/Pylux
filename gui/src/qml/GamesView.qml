@@ -431,6 +431,15 @@ Pane {
     TrophyListDialog {
         id: trophyDialog
         anchors.centerIn: parent
+        
+        onClosed: {
+            // Restore focus to games grid after dialog closes
+            Qt.callLater(() => {
+                if (gamesGrid.count > 0) {
+                    gamesGrid.forceActiveFocus(Qt.TabFocusReason)
+                }
+            })
+        }
     }
     
     // Game Shortcut Dialog
@@ -442,6 +451,15 @@ Pane {
             toastLabel.text = message
             toast.color = color
             toastTimer.restart()
+        }
+        
+        onAllDialogsClosed: {
+            // Restore focus to games grid after all dialogs close
+            Qt.callLater(() => {
+                if (gamesGrid.count > 0) {
+                    gamesGrid.forceActiveFocus(Qt.TabFocusReason)
+                }
+            })
         }
         
         onClosed: {

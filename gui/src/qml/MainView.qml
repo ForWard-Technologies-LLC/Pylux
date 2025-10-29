@@ -217,8 +217,8 @@ Pane {
 
                 Button {
                     id: discoveryButton
-                    Layout.preferredHeight: 50
-                    Layout.preferredWidth: 50
+                    Layout.preferredHeight: 48
+                    Layout.preferredWidth: 48
                 flat: true
                     icon.source: "qrc:/icons/discover-" + (checked ? "" : "off-") + "24px.svg"
                     icon.width: 24
@@ -227,10 +227,17 @@ Pane {
                     checkable: true
                     checked: Chiaki.discoveryEnabled
                     onToggled: Chiaki.discoveryEnabled = !Chiaki.discoveryEnabled
+                    hoverEnabled: true
                     
                     // Keyboard navigation
                     KeyNavigation.right: manuallyAddHeaderButton
                     KeyNavigation.down: hostsView.count === 0 ? (addManuallyButton.visible ? addManuallyButton : enableLocalDiscoveryButton.visible ? enableLocalDiscoveryButton : setupGuideButton) : hostsView
+                    
+                    // A button (Key_Return) support
+                    Keys.onReturnPressed: {
+                        toggle();
+                        event.accepted = true;
+                    }
                     
                     // When navigating down to GridView, ensure it has focus and a current item
                     Keys.onDownPressed: {
@@ -252,7 +259,7 @@ Pane {
                     }
                     
                     background: Rectangle {
-                        radius: 25
+                        radius: 8
                         color: {
                             if (parent.activeFocus) return Qt.rgba(0, 212/255, 255/255, 0.4)
                             else if (parent.checked) return Qt.rgba(0, 212/255, 255/255, 0.3)
@@ -283,18 +290,29 @@ Pane {
 
             Button {
                     id: manuallyAddHeaderButton
-                    Layout.preferredHeight: 45
-                    Layout.preferredWidth: 200
-                    text: qsTr("Add Console Manually")
-                    font.pixelSize: 14
-                    font.weight: Font.Medium
+                    Layout.preferredHeight: 48
+                    Layout.preferredWidth: 48
+                    flat: true
+                    icon.source: "qrc:/icons/add-24px.svg"
+                    icon.width: 24
+                    icon.height: 24
                     focusPolicy: Qt.StrongFocus
-                onClicked: root.showManualHostDialog()
+                    hoverEnabled: true
+                    onClicked: root.showManualHostDialog()
+                    
+                    ToolTip.visible: hovered || activeFocus
+                    ToolTip.text: qsTr("Add Console Manually")
                     
                     // Keyboard navigation
                     KeyNavigation.left: discoveryButton
                     KeyNavigation.right: psnLoginHeaderButton
                     KeyNavigation.down: hostsView.count === 0 ? (addManuallyButton.visible ? addManuallyButton : enableLocalDiscoveryButton.visible ? enableLocalDiscoveryButton : setupGuideButton) : hostsView
+                    
+                    // A button (Key_Return) support
+                    Keys.onReturnPressed: (event) => {
+                        clicked();
+                        event.accepted = true;
+                    }
                     
                     // When navigating down to GridView, ensure it has focus and a current item
                     Keys.onDownPressed: {
@@ -317,7 +335,7 @@ Pane {
                     
                     background: Rectangle {
                         radius: 8
-                        color: parent.activeFocus ? Qt.rgba(0, 212/255, 255/255, 0.2) : Qt.rgba(0, 212/255, 255/255, 0.1)
+                        color: parent.activeFocus ? Qt.rgba(0, 212/255, 255/255, 0.2) : Qt.rgba(255, 255, 255, 0.1)
                         border.color: parent.activeFocus ? "#ffffff" : "#00d4ff"
                         border.width: parent.activeFocus ? 2 : 1
                         
@@ -325,7 +343,7 @@ Pane {
                             anchors.fill: parent
                             radius: parent.radius
                             color: "#00d4ff"
-                            opacity: parent.parent.hovered ? 0.2 : 0
+                            opacity: parent.parent.hovered ? 0.3 : 0
                             Behavior on opacity { NumberAnimation { duration: 200 } }
                         }
                         
@@ -336,7 +354,7 @@ Pane {
                             color: "transparent"
                             border.color: "#00d4ff"
                             border.width: 2
-                            opacity: parent.parent.activeFocus ? 0.5 : 0
+                            opacity: parent.parent.activeFocus ? 0.6 : 0
                             Behavior on opacity { NumberAnimation { duration: 200 } }
                         }
                         
@@ -344,30 +362,32 @@ Pane {
                         Behavior on border.color { ColorAnimation { duration: 200 } }
                         Behavior on border.width { NumberAnimation { duration: 200 } }
                     }
-                    
-                    contentItem: Text {
-                        text: parent.text
-                        font: parent.font
-                        color: parent.activeFocus ? "#ffffff" : "#00d4ff"
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        Behavior on color { ColorAnimation { duration: 200 } }
-                    }
             }
 
             Button {
                 id: psnLoginHeaderButton
-                    Layout.preferredHeight: 45
-                    Layout.preferredWidth: 210
-                    text: Chiaki.settings.psnAuthToken ? qsTr("Refresh PSN") : qsTr("Login to PSN")
-                    font.pixelSize: 14
-                    font.weight: Font.Medium
+                    Layout.preferredHeight: 48
+                    Layout.preferredWidth: 48
+                    flat: true
+                    icon.source: Chiaki.settings.psnAuthToken ? "qrc:/icons/refresh-24px.svg" : "qrc:/icons/login-24px.svg"
+                    icon.width: 24
+                    icon.height: 24
                 focusPolicy: Qt.StrongFocus
+                hoverEnabled: true
+                
+                ToolTip.visible: hovered || activeFocus
+                ToolTip.text: Chiaki.settings.psnAuthToken ? qsTr("Refresh PSN Games") : qsTr("Login to PSN")
                 
                 // Keyboard navigation
                 KeyNavigation.left: manuallyAddHeaderButton
                 KeyNavigation.right: settingsButton
                 KeyNavigation.down: hostsView.count === 0 ? addManuallyButton : hostsView
+                
+                // A button (Key_Return) support
+                Keys.onReturnPressed: {
+                    clicked();
+                    event.accepted = true;
+                }
                 
                 // When navigating down to GridView, ensure it has focus and a current item
                 Keys.onDownPressed: {
@@ -388,6 +408,12 @@ Pane {
                 }
                     onClicked: {
                         if (Chiaki.settings.psnAuthToken) {
+                            // Show immediate feedback toast
+                            errorTitleLabel.text = qsTr("Refreshing");
+                            errorTextLabel.text = qsTr("Updating PSN games...");
+                            errorToast.color = "#2196F3";
+                            errorHideTimer.start();
+                            
                             Chiaki.refreshPsnToken()
                         } else {
                             root.showPSNTokenDialog("", false)
@@ -397,7 +423,7 @@ Pane {
                     
                     background: Rectangle {
                         radius: 8
-                        color: parent.activeFocus ? Qt.rgba(0, 212/255, 255/255, 0.2) : Qt.rgba(0, 212/255, 255/255, 0.1)
+                        color: parent.activeFocus ? Qt.rgba(0, 212/255, 255/255, 0.2) : Qt.rgba(255, 255, 255, 0.1)
                         border.color: parent.activeFocus ? "#ffffff" : "#00d4ff"
                         border.width: parent.activeFocus ? 2 : 1
                         
@@ -405,7 +431,7 @@ Pane {
                             anchors.fill: parent
                             radius: parent.radius
                             color: "#00d4ff"
-                            opacity: parent.parent.hovered ? 0.2 : 0
+                            opacity: parent.parent.hovered ? 0.3 : 0
                             Behavior on opacity { NumberAnimation { duration: 200 } }
                         }
                         
@@ -416,7 +442,7 @@ Pane {
                             color: "transparent"
                             border.color: "#00d4ff"
                             border.width: 2
-                            opacity: parent.parent.activeFocus ? 0.5 : 0
+                            opacity: parent.parent.activeFocus ? 0.6 : 0
                             Behavior on opacity { NumberAnimation { duration: 200 } }
                         }
                         
@@ -424,34 +450,30 @@ Pane {
                         Behavior on border.color { ColorAnimation { duration: 200 } }
                         Behavior on border.width { NumberAnimation { duration: 200 } }
                     }
-                    
-                    contentItem: Text {
-                        text: parent.text
-                        font: parent.font
-                        color: parent.activeFocus ? "#ffffff" : "#00d4ff"
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        Behavior on color { ColorAnimation { duration: 200 } }
-                    }
             }
-
-
 
             Button {
                 id: settingsButton
-                    Layout.preferredHeight: 50
-                    Layout.preferredWidth: 50
+                    Layout.preferredHeight: 48
+                    Layout.preferredWidth: 48
                 flat: true
                     icon.source: "qrc:/icons/settings-20px.svg"
                     icon.width: 24
                     icon.height: 24
                 focusPolicy: Qt.StrongFocus
+                hoverEnabled: true
                 onClicked: root.showSettingsDialog()
                 
                 // Keyboard navigation
                 KeyNavigation.left: psnLoginHeaderButton
                 KeyNavigation.right: closeButton
                 KeyNavigation.down: hostsView.count === 0 ? addManuallyButton : hostsView
+                
+                // A button (Key_Return) support
+                Keys.onReturnPressed: {
+                    clicked();
+                    event.accepted = true;
+                }
                 
                 // When navigating down to GridView, ensure it has focus and a current item
                 Keys.onDownPressed: {
@@ -472,7 +494,7 @@ Pane {
                 }
                     
                     background: Rectangle {
-                        radius: 25
+                        radius: 8
                         color: parent.activeFocus ? Qt.rgba(0, 212/255, 255/255, 0.2) : Qt.rgba(255, 255, 255, 0.1)
                         border.color: parent.activeFocus ? "#ffffff" : "#00d4ff"
                         border.width: parent.activeFocus ? 2 : 1
@@ -507,18 +529,28 @@ Pane {
 
                 Button {
                     id: closeButton
-                    Layout.preferredHeight: 45
-                    Layout.preferredWidth: 45
+                    Layout.preferredHeight: 48
+                    Layout.preferredWidth: 48
                     flat: true
                     text: "×"
                     font.pixelSize: 24
                     font.weight: Font.Bold
                     focusPolicy: Qt.StrongFocus
+                    hoverEnabled: true
                     onClicked: Qt.quit()
+                    
+                    ToolTip.visible: hovered || activeFocus
+                    ToolTip.text: qsTr("Exit")
                     
                     // Keyboard navigation
                     KeyNavigation.left: settingsButton
                     KeyNavigation.down: hostsView.count === 0 ? (addManuallyButton.visible ? addManuallyButton : enableLocalDiscoveryButton.visible ? enableLocalDiscoveryButton : setupGuideButton) : hostsView
+                    
+                    // A button (Key_Return) support
+                    Keys.onReturnPressed: (event) => {
+                        clicked();
+                        event.accepted = true;
+                    }
                     
                     // When navigating down to GridView, ensure it has focus and a current item
                     Keys.onDownPressed: {
@@ -577,9 +609,6 @@ Pane {
                         verticalAlignment: Text.AlignVCenter
                         Behavior on color { ColorAnimation { duration: 200 } }
                     }
-                    
-                    ToolTip.visible: hovered || activeFocus
-                    ToolTip.text: qsTr("Quit PSStream")
                 }
             }
         }
