@@ -17,6 +17,7 @@
 #include <QCoreApplication>
 #include <QProcessEnvironment>
 #include <QImageReader>
+#include <QPainter>
 #include <algorithm>
 
 Q_LOGGING_CATEGORY(chiakiGuiGames, "chiaki.gui.games")
@@ -640,6 +641,70 @@ QPixmap QmlGamesBackend::downloadImageFromUrl(const QString &url, int timeoutMs)
     return pixmap;
 }
 
+QPixmap QmlGamesBackend::resizeImageToFit(const QPixmap &source, int targetWidth, int targetHeight)
+{
+    // Return empty pixmap if source is null/empty (graceful handling)
+    if (source.isNull() || source.width() == 0 || source.height() == 0) {
+        return QPixmap();
+    }
+    
+    // Create heavily blurred background using multiple-pass downscale/upscale technique
+    // First, scale to fill the target dimensions (stretched)
+    QPixmap stretched = source.scaled(targetWidth, targetHeight, 
+                                      Qt::IgnoreAspectRatio, 
+                                      Qt::SmoothTransformation);
+    
+    // Create extreme blur effect with multiple passes for smooth result
+    // Pass 1: Aggressive downscale for extreme blur
+    int blurSize1 = qMax(targetWidth, targetHeight) / 80;  // Very small for extreme blur
+    QPixmap downscaled1 = stretched.scaled(blurSize1, blurSize1, 
+                                           Qt::IgnoreAspectRatio, 
+                                           Qt::SmoothTransformation);
+    
+    // Pass 2: Intermediate upscale for smoother blur
+    int blurSize2 = qMax(targetWidth, targetHeight) / 40;
+    QPixmap intermediate = downscaled1.scaled(blurSize2, blurSize2, 
+                                              Qt::IgnoreAspectRatio, 
+                                              Qt::SmoothTransformation);
+    
+    // Pass 3: Another intermediate pass for extra smoothness
+    int blurSize3 = qMax(targetWidth, targetHeight) / 20;
+    QPixmap intermediate2 = intermediate.scaled(blurSize3, blurSize3, 
+                                                Qt::IgnoreAspectRatio, 
+                                                Qt::SmoothTransformation);
+    
+    // Final upscale to target size
+    QPixmap blurredBackground = intermediate2.scaled(targetWidth, targetHeight, 
+                                                     Qt::IgnoreAspectRatio, 
+                                                     Qt::SmoothTransformation);
+    
+    // Darken the background extremely for minimal distraction
+    QPainter bgPainter(&blurredBackground);
+    bgPainter.setCompositionMode(QPainter::CompositionMode_Darken);
+    bgPainter.fillRect(blurredBackground.rect(), QColor(0, 0, 0, 210));  // ~90% darker, nearly black
+    bgPainter.end();
+    
+    // Scale source maintaining aspect ratio for the centered foreground
+    QPixmap scaled = source.scaled(targetWidth, targetHeight, 
+                                    Qt::KeepAspectRatio, 
+                                    Qt::SmoothTransformation);
+    
+    // Calculate position to center the scaled image
+    int x = (targetWidth - scaled.width()) / 2;
+    int y = (targetHeight - scaled.height()) / 2;
+    
+    // Draw scaled image centered on blurred background
+    QPainter painter(&blurredBackground);
+    painter.drawPixmap(x, y, scaled);
+    painter.end();
+    
+    qCInfo(chiakiGuiGames) << "Resized image from" << source.size() 
+                           << "to" << blurredBackground.size() 
+                           << "(scaled:" << scaled.size() << ", with blurred background)";
+    
+    return blurredBackground;
+}
+
 void QmlGamesBackend::createGameSteamShortcut(const QString &titleId, const QString &gameName, 
                                                const QJSValue &callback, const QString &steamDir, const QString &deviceName)
 {
@@ -738,6 +803,12 @@ void QmlGamesBackend::createGameSteamShortcut(const QString &titleId, const QStr
     }
     qCInfo(chiakiGuiGames) << "Hero image result:" << (hero.isNull() ? "null" : QString("size %1x%2").arg(hero.width()).arg(hero.height()));
     
+    // Resize hero to 1920x620 if successfully downloaded
+    if (!hero.isNull()) {
+        infoLambda("[I] Resizing hero image to 1920x620...");
+        hero = resizeImageToFit(hero, 1920, 620);
+    }
+    
     infoLambda("[I] Downloading landscape image...");
     QPixmap landscape;
     // Try type 13 first, then type 12, then type 10
@@ -755,6 +826,12 @@ void QmlGamesBackend::createGameSteamShortcut(const QString &titleId, const QStr
     }
     qCInfo(chiakiGuiGames) << "Landscape image result:" << (landscape.isNull() ? "null" : QString("size %1x%2").arg(landscape.width()).arg(landscape.height()));
     
+    // Resize landscape to 920x430 if successfully downloaded
+    if (!landscape.isNull()) {
+        infoLambda("[I] Resizing landscape image to 920x430...");
+        landscape = resizeImageToFit(landscape, 920, 430);
+    }
+    
     infoLambda("[I] Downloading portrait image...");
     QPixmap portrait;
     // Use type 10 (box art) for portrait
@@ -763,6 +840,12 @@ void QmlGamesBackend::createGameSteamShortcut(const QString &titleId, const QStr
         portrait = downloadImageFromUrl(type10_url);
     }
     qCInfo(chiakiGuiGames) << "Portrait image result:" << (portrait.isNull() ? "null" : QString("size %1x%2").arg(portrait.width()).arg(portrait.height()));
+    
+    // Resize portrait to 600x900 if successfully downloaded
+    if (!portrait.isNull()) {
+        infoLambda("[I] Resizing portrait image to 600x900...");
+        portrait = resizeImageToFit(portrait, 600, 900);
+    }
     
     // Load fixed assets
     qCInfo(chiakiGuiGames) << "Loading fixed assets...";

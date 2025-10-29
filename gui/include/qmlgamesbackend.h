@@ -47,6 +47,7 @@ private:
                                  const QJsonArray &trophies_definitions = QJsonArray(), int retryStep = 0);
     bool canMakePsnRequest();
     QPixmap downloadImageFromUrl(const QString &url, int timeoutMs = 10000);
+    QPixmap resizeImageToFit(const QPixmap &source, int targetWidth, int targetHeight);
 
     struct TrophyCache {
         QString jsonData;
