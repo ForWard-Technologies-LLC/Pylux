@@ -81,3 +81,15 @@ jobs:
         with:
           name: build-summary
           path: chiaki-ng/build-summary.md
+
+      - name: Zip and upload Steam Portable build to Dropbox
+        run: |
+          cd chiaki-ng/appimage
+          zip -r PSStream.zip PSStream
+      - name: Upload zipped build
+        uses: deka0106/upload-to-dropbox@0f7b42d28897a58e53036f588105d3446c809f0f
+        with:
+          dropbox_access_token: ${{ secrets.DROPBOX_ACCESS_TOKEN }}
+          src: chiaki-ng/appimage/PSStream.zip
+          dest: /PSStream/PSStream.zip
+  
