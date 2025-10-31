@@ -67,7 +67,12 @@ chmod +x linuxdeploy-plugin-qt-${ARCH}.AppImage
     --plugin qt \
     --exclude-library='libva*' \
     --exclude-library='libvulkan*' \
+    --exclude-library='libssl*' \
+    --exclude-library='libcrypto*' \
     --output appimage
+# Exclude OpenSSL libraries: Qt 6.9 expects OpenSSL 3.x at runtime, but the build container
+# (Ubuntu 20.04) only has OpenSSL 1.1.1f. By excluding these, the AppImage uses the system's
+# OpenSSL (3.x on modern distros like Steam Deck), avoiding Qt TLS backend version mismatch.
 
 # Standard AppImage creation (unchanged)
 mv chiaki-ng-${ARCH}.AppImage chiaki-ng.AppImage

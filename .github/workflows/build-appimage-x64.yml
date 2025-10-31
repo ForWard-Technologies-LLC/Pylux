@@ -37,19 +37,36 @@ jobs:
             -t docker.io/streetpea/chiaki-ng-builder:qt6.9 \
             /bin/bash -c "sudo -E scripts/build-appimage.sh /build/appdir"
 
-      - name: Zip and upload Steam Portable build to Dropbox
+      - name: Zip Steam Portable build
         run: |
           cd chiaki-ng/appimage
           zip -r PSStream.zip PSStream
-      - name: Upload zipped build
-        uses: deka0106/upload-to-dropbox@0f7b42d28897a58e53036f588105d3446c809f0f
-        with:
-          dropbox_access_token: ${{ secrets.DROPBOX_ACCESS_TOKEN }}
-          src: chiaki-ng/appimage/PSStream.zip
-          dest: /PSStream/PSStream.zip
+      
+      - name: Upload to Dropbox
+        continue-on-error: true
+        env:
+          DROPBOX_REFRESH_TOKEN: ${{ secrets.DROPBOX_REFRESH_TOKEN }}
+          DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
+          DROPBOX_APP_SECRET: ${{ secrets.DROPBOX_APP_SECRET }}
+        run: |
+          # Get short-lived access token from refresh token
+          ACCESS_TOKEN=$(curl -s https://api.dropbox.com/oauth2/token \
+            -d refresh_token=$DROPBOX_REFRESH_TOKEN \
+            -d grant_type=refresh_token \
+            -d client_id=$DROPBOX_APP_KEY \
+            -d client_secret=$DROPBOX_APP_SECRET \
+            | jq -r '.access_token')
+          
+          # Upload file
+          curl -X POST https://content.dropboxapi.com/2/files/upload \
+            --header "Authorization: Bearer $ACCESS_TOKEN" \
+            --header "Dropbox-API-Arg: {\"path\": \"/PSStream/PSStream.zip\",\"mode\": \"overwrite\",\"autorename\": false}" \
+            --header "Content-Type: application/octet-stream" \
+            --data-binary @chiaki-ng/appimage/PSStream.zip
         
       # Upload traditional AppImage
       - name: Upload AppImage Artifact
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: chiaki-ng.AppImage_x86_64
@@ -59,6 +76,7 @@ jobs:
 
       # Upload Steam-compatible portable build (GitHub Actions will compress it)
       - name: Upload Steam Portable Linux Artifact
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: PSStream
@@ -88,6 +106,7 @@ jobs:
           du -sh appimage/PSStream >> build-summary.md || true
           
       - name: Upload build summary
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: build-summary

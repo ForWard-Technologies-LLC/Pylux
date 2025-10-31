@@ -57,7 +57,12 @@ then
         -d "${appdir}/usr/share/applications/chiaking.desktop" \
         --exclude-library='libva*' \
         --exclude-library='libvulkan*' \
-        --exclude-library='libhidapi*'
+        --exclude-library='libhidapi*' \
+        --exclude-library='libssl*' \
+        --exclude-library='libcrypto*'
+    # Exclude OpenSSL libraries: Qt 6.9 expects OpenSSL 3.x at runtime, but the build container
+    # (Ubuntu 20.04) only has OpenSSL 1.1.1f. By excluding these, the AppImage uses the system's
+    # OpenSSL (3.x on modern distros like Steam Deck), avoiding Qt TLS backend version mismatch.
     ./qemu-aarch64-static ./linuxdeploy-plugin-qt-${ARCH}.AppImage --appdir="${appdir}"
     ./qemu-aarch64-static ./appimagetool-aarch64.AppImage "${appdir}"
 else
@@ -69,7 +74,12 @@ else
         --exclude-library='libva*' \
         --exclude-library='libvulkan*' \
         --exclude-library='libhidapi*' \
+        --exclude-library='libssl*' \
+        --exclude-library='libcrypto*' \
         --output appimage
+    # Exclude OpenSSL libraries: Qt 6.9 expects OpenSSL 3.x at runtime, but the build container
+    # (Ubuntu 20.04) only has OpenSSL 1.1.1f. By excluding these, the AppImage uses the system's
+    # OpenSSL (3.x on modern distros like Steam Deck), avoiding Qt TLS backend version mismatch.
 fi
 
 mv chiaki-ng-${ARCH}.AppImage chiaki-ng.AppImage
