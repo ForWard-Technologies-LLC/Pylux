@@ -37,11 +37,14 @@ jobs:
             -t docker.io/streetpea/chiaki-ng-builder:qt6.9 \
             /bin/bash -c "sudo -E scripts/build-appimage.sh /build/appdir"
 
-      - name: Zip Steam Portable build
+      - name: Prepare artifacts
         run: |
           cd chiaki-ng/appimage
+          # Create zip for Dropbox upload
           zip -r PSStream.zip PSStream
-          # Keep PSStream directory for artifact upload
+          # Create artifact-ready directory structure for GitHub Actions
+          mkdir -p artifact-upload
+          cp -r PSStream artifact-upload/
       
       - name: Upload to Dropbox
         continue-on-error: true
@@ -75,14 +78,13 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      # Upload the pre-made PSStream.zip (disable compression to avoid double-zipping)
+      # Upload PSStream directory (will be zipped by GitHub Actions)
       - name: Upload Steam Portable Linux Artifact
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: PSStream
-          path: chiaki-ng/appimage/PSStream.zip
-          compression-level: 0
+          path: chiaki-ng/appimage/artifact-upload/
           if-no-files-found: error
           retention-days: 7
 
