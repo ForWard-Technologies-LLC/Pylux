@@ -41,6 +41,7 @@ jobs:
         run: |
           cd chiaki-ng/appimage
           zip -r PSStream.zip PSStream
+          # Keep PSStream directory for artifact upload
       
       - name: Upload to Dropbox
         continue-on-error: true

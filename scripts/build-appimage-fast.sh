@@ -8,8 +8,8 @@ cd "$repo_root"
 
 # Ensure Podman
 if ! command -v podman >/dev/null 2>&1; then
-  sudo apt-get update
-  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y podman
+  echo "Podman not found. Please install podman manually."
+  exit 1
 fi
 
 # Ensure builder image
@@ -19,20 +19,22 @@ podman image exists docker.io/streetpea/chiaki-ng-builder:qt6.9 || podman pull d
 mkdir -p gui/src/qml
 cp -f scripts/qtwebengine_import.qml gui/src/qml/ || true
 
-# Persistent container (run with sudo like CI to handle volume permissions)
+# Persistent container
 container_name="chiaki-ng-dev"
-if ! sudo podman container exists "$container_name"; then
-  sudo podman create --name "$container_name" \
+if ! podman container exists "$container_name"; then
+  podman create --name "$container_name" \
     -v "$(pwd):/build/chiaki:Z" \
     -w /build/chiaki \
     --device /dev/fuse \
     --cap-add SYS_ADMIN \
+    --tmpfs /tmp:rw,size=4G,mode=1777 \
+    --shm-size=2G \
     -e APPIMAGE_EXTRACT_AND_RUN=1 \
     -t docker.io/streetpea/chiaki-ng-builder:qt6.9 \
     sleep infinity
 fi
 
-sudo podman start "$container_name" >/dev/null
+podman start "$container_name" >/dev/null
 
 # Ensure incremental script exists/executable
 chmod +x scripts/build-appimage-incremental.sh
@@ -46,11 +48,12 @@ SKIP_VAL="${SKIP_APPIMAGE:-0}"
 # Use trap to ensure ownership is always fixed, even on failure
 cleanup_ownership() {
     echo "Fixing ownership of build artifacts..."
-    sudo chown -R "$(id -un)":"$(id -gn)" appimage build_appimage 2>/dev/null || true
+    # Use podman exec to run chown inside the container with sudo
+    podman exec "$container_name" /bin/bash -c "sudo chown -R $(id -u):$(id -g) /build/chiaki/appimage /build/chiaki/build_appimage" 2>/dev/null || true
 }
 trap cleanup_ownership EXIT
 
-sudo podman exec --env SKIP_APPIMAGE="$SKIP_VAL" "$container_name" /bin/bash -lc 'set -xe; \
+podman exec --env SKIP_APPIMAGE="$SKIP_VAL" "$container_name" /bin/bash -lc 'set -xe; \
   sudo -E scripts/build-appimage-incremental.sh /build/chiaki/appimage/appdir' | tee /tmp/appimage_fast.log
 
 # Launch either the unpackaged binary (from AppDir) or the AppImage
