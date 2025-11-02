@@ -75,14 +75,14 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      # Upload Steam-compatible portable build (GitHub Actions will auto-zip it)
-      # Remove trailing slash to preserve PSStream root directory in the zip
+      # Upload the pre-made PSStream.zip (disable compression to avoid double-zipping)
       - name: Upload Steam Portable Linux Artifact
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: PSStream
-          path: chiaki-ng/appimage/PSStream
+          path: chiaki-ng/appimage/PSStream.zip
+          compression-level: 0
           if-no-files-found: error
           retention-days: 7
 
