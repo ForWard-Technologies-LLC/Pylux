@@ -8,9 +8,7 @@ Dialog {
     id: dialog
     property alias text: label.text
     property var callback
-    property var rejectCallback
     property bool newDialogOpen: false
-    property bool keepDialogOpen: false  // Don't close dialog before callback (e.g., for quit)
     property Item restoreFocusItem
     parent: Overlay.overlay
     x: Math.round((root.width - width) / 2)
@@ -19,22 +17,11 @@ Dialog {
     Material.roundedScale: Material.MediumScale
     onOpened: label.forceActiveFocus(Qt.TabFocusReason)
     onAccepted: {
-        if (!keepDialogOpen) {
-            newDialogOpen = true;
-            restoreFocus();
-        }
+        newDialogOpen = true;
+        restoreFocus();
         callback();
     }
     onClosed: if(!newDialogOpen) { restoreFocus() }
-
-    onRejected: {
-        if(rejectCallback)
-        {
-            newDialogOpen = true;
-            restoreFocus();
-            rejectCallback();
-        }
-    }
 
     function restoreFocus() {
         if (restoreFocusItem)
@@ -53,16 +40,15 @@ Dialog {
 
         Label {
             id: label
-            Keys.onEscapePressed: dialog.reject()
+            Keys.onEscapePressed: dialog.accept()
             Keys.onReturnPressed: dialog.accept()
         }
 
         RowLayout {
             Layout.alignment: Qt.AlignCenter
-            spacing: 20
 
             Button {
-                text: qsTr("Yes")
+                text: qsTr("OK")
                 Material.background: Material.accent
                 flat: true
                 leftPadding: 50
@@ -81,27 +67,7 @@ Dialog {
                     source: root.controllerButton("cross")
                 }
             }
-
-            Button {
-                Material.background: Material.accent
-                text: qsTr("No")
-                flat: true
-                leftPadding: 50
-                onClicked: dialog.reject()
-                Material.roundedScale: Material.SmallScale
-
-                Image {
-                    anchors {
-                        left: parent.left
-                        verticalCenter: parent.verticalCenter
-                        leftMargin: 12
-                    }
-                    width: 28
-                    height: 28
-                    sourceSize: Qt.size(width, height)
-                    source: root.controllerButton("moon")
-                }
-            }
         }
     }
 }
+

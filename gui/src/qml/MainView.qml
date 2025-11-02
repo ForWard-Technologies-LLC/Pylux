@@ -85,7 +85,7 @@ Pane {
         }
     }
     // Y and N keys are now handled by the GridView directly
-    Keys.onEscapePressed: root.showConfirmDialog(qsTr("Quit"), qsTr("Are you sure you want to quit?"), () => Qt.quit())
+    Keys.onEscapePressed: root.showConfirmDialog(qsTr("Quit"), qsTr("Are you sure you want to quit?"), () => Qt.quit(), null, true)
     Keys.onPressed: (event) => {
         if (event.modifiers)
             return;
@@ -738,7 +738,7 @@ Pane {
             Keys.onEscapePressed: {
                 // Always pass ESC up to parent for quit dialog
                 // Force the main pane to handle quit dialog
-                root.showConfirmDialog(qsTr("Quit"), qsTr("Are you sure you want to quit?"), () => Qt.quit());
+                root.showConfirmDialog(qsTr("Quit"), qsTr("Are you sure you want to quit?"), () => Qt.quit(), null, true);
             }
 
                                       // Remove GridView highlight - using per-card highlighting instead

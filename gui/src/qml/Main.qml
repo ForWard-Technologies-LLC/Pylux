@@ -137,13 +137,22 @@ Item {
         stack.push(manualHostDialogComponent);
     }
 
-    function showConfirmDialog(title, text, callback, rejectCallback = null) {
+    function showConfirmDialog(title, text, callback, rejectCallback = null, keepDialogOpen = false) {
         confirmDialog.title = title;
         confirmDialog.text = text;
         confirmDialog.callback = callback;
         confirmDialog.rejectCallback = rejectCallback;
+        confirmDialog.keepDialogOpen = keepDialogOpen;
         confirmDialog.restoreFocusItem = Window.window.activeFocusItem;
         confirmDialog.open();
+    }
+
+    function showMessageDialog(title, text, callback) {
+        messageDialog.title = title;
+        messageDialog.text = text;
+        messageDialog.callback = callback;
+        messageDialog.restoreFocusItem = Window.window.activeFocusItem;
+        messageDialog.open();
     }
 
     function showToast(title, text, color = "#2196F3") {
@@ -360,6 +369,10 @@ Item {
 
     ConfirmDialog {
         id: confirmDialog
+    }
+
+    MessageDialog {
+        id: messageDialog
     }
 
     RemindDialog {

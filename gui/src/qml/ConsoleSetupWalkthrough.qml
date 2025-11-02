@@ -8,6 +8,7 @@ DialogView {
     property int currentStep: 0
     property int totalSteps: 4
     
+    toolbarHeight: 60
     title: qsTr("Console Setup Guide")
     buttonText: currentStep < totalSteps - 1 ? qsTr("Next") : qsTr("Done")
     buttonEnabled: true
@@ -52,8 +53,8 @@ DialogView {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.margins: 20
-            height: 80
-            radius: 12
+            height: 50
+            radius: 10
             gradient: Gradient {
                 GradientStop { position: 0.0; color: Qt.rgba(0, 212/255, 1, 0.15) }
                 GradientStop { position: 1.0; color: Qt.rgba(0, 212/255, 1, 0.05) }
@@ -63,19 +64,19 @@ DialogView {
             
             RowLayout {
                 anchors.fill: parent
-                anchors.margins: 20
+                anchors.margins: 12
                 
                 // Step counter
                 Rectangle {
-                    Layout.preferredWidth: 60
-                    Layout.preferredHeight: 40
-                    radius: 20
+                    Layout.preferredWidth: 45
+                    Layout.preferredHeight: 26
+                    radius: 13
                     color: Qt.rgba(0, 212/255, 1, 1)
                     
                     Label {
                         anchors.centerIn: parent
                         text: (walkthroughDialog.currentStep + 1) + "/" + walkthroughDialog.totalSteps
-                        font.pixelSize: 14
+                        font.pixelSize: 12
                         font.weight: Font.Bold
                         color: Qt.rgba(10/255, 15/255, 26/255, 1.0)
                     }
@@ -84,9 +85,9 @@ DialogView {
                 // Progress bar
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 6
+                    Layout.preferredHeight: 5
                     Layout.alignment: Qt.AlignVCenter
-                    radius: 3
+                    radius: 2.5
                     color: Qt.rgba(1, 1, 1, 0.1)
                     
                     Rectangle {
@@ -103,9 +104,9 @@ DialogView {
                 
                 // Step title
                 Label {
-                    Layout.preferredWidth: 200
+                    Layout.preferredWidth: 170
                     text: walkthroughDialog.getStepTitle(walkthroughDialog.currentStep)
-                    font.pixelSize: 16
+                    font.pixelSize: 14
                     font.weight: Font.Medium
                     color: Qt.rgba(0, 212/255, 1, 1)
                     horizontalAlignment: Text.AlignRight
@@ -166,7 +167,7 @@ DialogView {
                             // Step 1 content
                             ColumnLayout {
                                 anchors.fill: parent
-                                spacing: 30
+                                spacing: 20
                                 visible: index === 0
                                 
                                 // Icon and title
@@ -286,7 +287,7 @@ DialogView {
                             // Step 2 content
                             ColumnLayout {
                                 anchors.fill: parent
-                                spacing: 30
+                                spacing: 20
                                 visible: index === 1
                                 
                                 // Icon and title
@@ -383,7 +384,7 @@ DialogView {
                             // Step 3 content
                             ColumnLayout {
                                 anchors.fill: parent
-                                spacing: 30
+                                spacing: 20
                                 visible: index === 2
                                 
                                 // Icon and title
@@ -481,7 +482,7 @@ DialogView {
                             // Step 4 content
                             ColumnLayout {
                                 anchors.fill: parent
-                                spacing: 25
+                                spacing: 18
                                 visible: index === 3
                                 
                                 // Icon and title
@@ -646,8 +647,8 @@ DialogView {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.margins: 20
-            height: 80
-            radius: 12
+            height: 60
+            radius: 10
             gradient: Gradient {
                 GradientStop { position: 0.0; color: Qt.rgba(0, 212/255, 1, 0.1) }
                 GradientStop { position: 1.0; color: Qt.rgba(0, 212/255, 1, 0.05) }
@@ -657,7 +658,8 @@ DialogView {
             
             RowLayout {
                 anchors.fill: parent
-                anchors.margins: 20
+                anchors.margins: 10
+                spacing: 10
                 
                 // Exit button (left)
                 Button {

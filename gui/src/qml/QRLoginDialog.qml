@@ -58,7 +58,7 @@ DialogView {
             } else {
                 console.error("Failed to create PSStream code:", errorMsg);
                 // Show error to user
-                root.showConfirmDialog(qsTr("Error"), qsTr("Failed to create login code: %1").arg(errorMsg), () => {});
+                root.showMessageDialog(qsTr("Error"), qsTr("Failed to create login code: %1").arg(errorMsg), () => {});
             }
         });
     }
@@ -97,23 +97,23 @@ DialogView {
                         console.error("Failed to handle PSN login redirect");
                         isProcessing = false;
                         statusLabel.visible = false;
-                        root.showConfirmDialog(qsTr("Login Error"), qsTr("Invalid redirect URL. Please ensure the redirect URL you copied is valid and up to date. Try generating a new QR code."), () => {});
+                        root.showMessageDialog(qsTr("Login Error"), qsTr("Invalid redirect URL. Please ensure the redirect URL you copied is valid and up to date. Try generating a new QR code."), () => {});
                     }
                 } else {
                     console.error("Invalid token format received:", tokens);
                     statusLabel.visible = false;
-                    root.showConfirmDialog(qsTr("Login Error"), qsTr("Invalid token format received from server"), () => {});
+                    root.showMessageDialog(qsTr("Login Error"), qsTr("Invalid token format received from server"), () => {});
                 }
             } else if (!success) {
                 if (errorMsg === "No tokens found for this code") {
                     // This is normal - user hasn't completed login yet
                     console.log("No tokens yet, user still needs to complete mobile login");
                     statusLabel.visible = false;
-                    root.showConfirmDialog(qsTr("Sign-in Pending"), qsTr("Code not found. Please complete the sign-in process on your mobile device first."), () => {});
+                    root.showMessageDialog(qsTr("Sign-in Pending"), qsTr("Code not found. Please complete the sign-in process on your mobile device first."), () => {});
                 } else {
                     console.error("Failed to check PSStream status:", errorMsg);
                     statusLabel.visible = false;
-                    root.showConfirmDialog(qsTr("Error"), qsTr("Failed to check login status: %1").arg(errorMsg), () => {});
+                    root.showMessageDialog(qsTr("Error"), qsTr("Failed to check login status: %1").arg(errorMsg), () => {});
                 }
             }
         });
@@ -133,7 +133,7 @@ DialogView {
                 statusLabel.visible = false;
                 
                 // Show success dialog
-                root.showConfirmDialog(
+                root.showMessageDialog(
                     qsTr("Login Successful!"), 
                     qsTr("PSN login completed successfully! You can now connect to your console from the main menu."), 
                     () => {
@@ -141,6 +141,7 @@ DialogView {
                             callback(accountId);
                         }
                         dialog.close();
+                        root.showMainView();
                     }
                 );
             }
@@ -149,7 +150,7 @@ DialogView {
                 console.error("QR Login: PSN account ID error:", error);
                 isProcessing = false;
                 statusLabel.visible = false;
-                root.showConfirmDialog(qsTr("PSN Login Error"), qsTr("Invalid redirect URL. Please ensure the redirect URL you copied is valid and up to date. Try generating a new QR code."), () => {});
+                root.showMessageDialog(qsTr("PSN Login Error"), qsTr("Invalid redirect URL. Please ensure the redirect URL you copied is valid and up to date. Try generating a new QR code."), () => {});
             }
         }
 

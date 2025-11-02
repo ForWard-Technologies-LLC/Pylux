@@ -13,6 +13,7 @@ Item {
     property alias buttonVisible: okButton.visible
     property alias headerButton: okButton
     property Item restoreFocusItem
+    property int toolbarHeight: 80
     default property Item mainItem: null
 
     signal accepted()
@@ -80,7 +81,7 @@ Item {
             left: parent.left
             right: parent.right
         }
-        height: 80
+        height: dialog.toolbarHeight
         
         Material.background: "#0a0f1a"
         Material.foreground: "#ffffff"
