@@ -146,6 +146,13 @@ Item {
         confirmDialog.open();
     }
 
+    function showToast(title, text, color = "#2196F3") {
+        errorTitleLabel.text = title;
+        errorTextLabel.text = text;
+        errorToast.color = color;
+        errorHideTimer.start();
+    }
+
 
 
     function showRemindDialog(title, text, remotePlay, callback) {
@@ -354,8 +361,6 @@ Item {
     ConfirmDialog {
         id: confirmDialog
     }
-
-
 
     RemindDialog {
         id: remindDialog

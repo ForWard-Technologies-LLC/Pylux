@@ -11,6 +11,7 @@ Item {
     property alias buttonText: okButton.text
     property alias buttonEnabled: okButton.enabled
     property alias buttonVisible: okButton.visible
+    property alias headerButton: okButton
     property Item restoreFocusItem
     default property Item mainItem: null
 
@@ -192,6 +193,14 @@ Item {
                 
                 // Navigate down to the first focusable item in the main content
                 KeyNavigation.down: dialog.mainItem ? dialog.mainItem.nextItemInFocusChain() : null
+                
+                // Handle gamepad A button / keyboard Enter
+                Keys.onPressed: (event) => {
+                    if (event.key === Qt.Key_Return && enabled) {
+                        clicked();
+                        event.accepted = true;
+                    }
+                }
                 
                 background: Rectangle {
                     radius: 8

@@ -23,6 +23,16 @@ DialogView {
     Keys.onPressed: (event) => {
         if (event.modifiers)
             return;
+        
+        // Don't intercept Up/Down keys if any ComboBox popup is visible
+        // This allows ComboBoxes to handle navigation and selection
+        if (event.key === Qt.Key_Up || event.key === Qt.Key_Down) {
+            let focusedItem = Window.activeFocusItem;
+            if (focusedItem && focusedItem.popup && focusedItem.popup.visible) {
+                return;
+            }
+        }
+        
         switch (event.key) {
         case Qt.Key_PageUp:
             bar.decrementCurrentIndex();
@@ -1380,6 +1390,9 @@ DialogView {
                             currentIndex: Math.max(0, model.indexOf(Chiaki.settings.audioOutDevice))
                             onActivated: (index) => Chiaki.settings.audioOutDevice = index ? model[index] : ""
                             Keys.onPressed: (event) => {
+                                // Don't intercept keys when popup is open - let ComboBox handle it
+                                if (popup.visible)
+                                    return;
                                 if (event.modifiers)
                                     return;
                                 switch (event.key) {
@@ -1420,6 +1433,9 @@ DialogView {
                             currentIndex: Math.max(0, model.indexOf(Chiaki.settings.audioInDevice))
                             onActivated: (index) => Chiaki.settings.audioInDevice = index ? model[index] : ""
                             Keys.onPressed: (event) => {
+                                // Don't intercept keys when popup is open - let ComboBox handle it
+                                if (popup.visible)
+                                    return;
                                 if (event.modifiers)
                                     return;
                                 switch (event.key) {
@@ -2808,6 +2824,18 @@ DialogView {
                             root.showProfileDialog()
                         }
                         Material.roundedScale: Material.SmallScale
+                        
+                        // Handle gamepad navigation up - cycle through tabs
+                        Keys.onPressed: (event) => {
+                            if (event.key === Qt.Key_Up) {
+                                if (bar.currentIndex > 0) {
+                                    bar.currentIndex--;
+                                } else {
+                                    bar.currentIndex = bar.count - 1;  // Wrap to last tab
+                                }
+                                event.accepted = true;
+                            }
+                        }
                     }
 
                     C.Button {

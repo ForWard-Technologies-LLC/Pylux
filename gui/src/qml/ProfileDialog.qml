@@ -26,14 +26,26 @@ DialogView {
             !(profileComboBox.model[profileComboBox.currentIndex] == "default" && Chiaki.settings.currentProfile == "") && profileComboBox.model[profileComboBox.currentIndex] != Chiaki.settings.currentProfile
     }
     onAccepted: {
-        if(deleteBox.visible && deleteBox.checked)
+        if(deleteBox.visible && deleteBox.checked) {
             Chiaki.settings.deleteProfile(profileComboBox.model[profileComboBox.currentIndex])
-        else if(profileName.visible)
+        }
+        else if(profileName.visible) {
             Chiaki.settings.currentProfile = profileName.text.trim()
-        else
-            Chiaki.settings.currentProfile = profileComboBox.model[profileComboBox.currentIndex] == "default" ? "" : profileComboBox.model[profileComboBox.currentIndex]
+            stack.pop()
+            root.showToast(qsTr("Profile Created"), qsTr("Restart app for changes to take effect"), "#FF9800")
+            return
+        }
+        else {
+            let oldProfile = Chiaki.settings.currentProfile
+            let newProfile = profileComboBox.model[profileComboBox.currentIndex] == "default" ? "" : profileComboBox.model[profileComboBox.currentIndex]
+            if (oldProfile !== newProfile) {
+                Chiaki.settings.currentProfile = newProfile
+                stack.pop()
+                root.showToast(qsTr("Profile Switched"), qsTr("Restart app for changes to take effect"), "#FF9800")
+                return
+            }
+        }
         stack.pop()
-        
     }
 
     Item {
@@ -55,10 +67,33 @@ DialogView {
             C.ComboBox {
                 id: profileComboBox
                 Layout.preferredWidth: 400
-                firstInFocusChain: true
+                firstInFocusChain: false
                 model: Chiaki.settings.profiles
                 currentIndex: Math.max(0, model.indexOf(Chiaki.settings.currentProfile))
                 lastInFocusChain: model[currentIndex] == "default" || model[currentIndex] == Chiaki.settings.currentProfile
+                
+                // This handler is triggered when user selects an item (press A on item in popup)
+                onActivated: (index) => {
+                    currentIndex = index;
+                    // Auto-focus the "Switch Profile" button for quick profile switching
+                    if (headerButton && headerButton.visible && headerButton.enabled) {
+                        headerButton.forceActiveFocus(Qt.TabFocusReason);
+                    }
+                }
+                
+                // Allow navigation up to dialog header button
+                Keys.onPressed: (event) => {
+                    // Don't intercept keys when popup is open - let ComboBox handle it
+                    if (popup.visible)
+                        return;
+                    
+                    if (event.key === Qt.Key_Up) {
+                        if (headerButton && headerButton.visible && headerButton.enabled) {
+                            headerButton.forceActiveFocus(Qt.TabFocusReason)
+                            event.accepted = true
+                        }
+                    }
+                }
             }
 
             Label {
