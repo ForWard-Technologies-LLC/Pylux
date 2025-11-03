@@ -34,7 +34,7 @@ add_agpl_compliance() {
     REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
     
     # Create licenses directory (in standard location, less prominent)
-    local LICENSE_DIR="${DIST_ROOT}/usr/share/licenses/chiaki-ng"
+    local LICENSE_DIR="${DIST_ROOT}/usr/share/licenses/psstream"
     mkdir -p "${LICENSE_DIR}"
     
     # Copy the license file
@@ -58,7 +58,7 @@ add_agpl_compliance() {
         echo "  ⚠ Warning: agpl-source-notice.txt template not found"
     fi
     
-    echo "  ✓ AGPL compliance files added to: usr/share/licenses/chiaki-ng/"
+    echo "  ✓ AGPL compliance files added to: usr/share/licenses/psstream/"
     return 0
 }
 

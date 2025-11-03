@@ -1,5 +1,5 @@
 ================================================================================
-PSStream (chiaki-ng) - Source Code Availability
+PSStream - Source Code Availability
 ================================================================================
 
 This software is licensed under the GNU Affero General Public License v3.0
@@ -8,7 +8,7 @@ This software is licensed under the GNU Affero General Public License v3.0
 As required by the AGPL license, the complete corresponding source code
 used to build this binary is available for download at:
 
-    https://www.dropbox.com/scl/fo/XXXXXXXXXX/chiaki-ng-sources
+    https://www.dropbox.com/scl/fi/XXXXXXXXXX/psstream-source-latest.tar.gz
 
 The source code archive includes all source files, build scripts, and
 dependencies needed to compile and build this software from source.
