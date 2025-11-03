@@ -108,6 +108,16 @@ chmod +x chiaki-ng.AppImage
 # Rename extracted directory to PSStream
 mv squashfs-root "${PORTABLE_DIR}"
 
+# ============================================================================
+# AGPL COMPLIANCE: Add license and source code information
+# ============================================================================
+# Use the reusable helper script to add AGPL compliance files
+cd ..
+source scripts/add-agpl-compliance.sh
+add_agpl_compliance "appimage/${PORTABLE_DIR}"
+cd appimage
+# ============================================================================
+
 # Ensure cpp-steam-tools library is included
 cp ../build_appimage/third-party/cpp-steam-tools/libcpp-steam-tools.so "${PORTABLE_DIR}/usr/lib/" 2>/dev/null || true
 

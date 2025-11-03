@@ -132,17 +132,18 @@ DialogView {
                 isProcessing = false;
                 statusLabel.visible = false;
                 
-                // Show success dialog
-                root.showMessageDialog(
+                // Call callback and close dialog
+                if (callback) {
+                    callback(accountId);
+                }
+                dialog.close();
+                root.showMainView();
+                
+                // Show success toast notification
+                root.showToast(
                     qsTr("Login Successful!"), 
-                    qsTr("PSN login completed successfully! You can now connect to your console from the main menu."), 
-                    () => {
-                        if (callback) {
-                            callback(accountId);
-                        }
-                        dialog.close();
-                        root.showMainView();
-                    }
+                    qsTr("PSN login completed successfully!"),
+                    "#4CAF50"  // Green color for success
                 );
             }
 
