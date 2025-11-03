@@ -32,14 +32,15 @@ jobs:
           echo "Creating source archive: ${ARCHIVE_NAME}"
           echo "Git commit: ${GIT_HASH}"
           
-          # Create comprehensive source archive
-          tar -czf "${ARCHIVE_NAME}" \
+          # Create comprehensive source archive (output to /tmp to avoid including itself)
+          tar -czf "/tmp/${ARCHIVE_NAME}" \
             --exclude='.git' \
             --exclude='build*' \
             --exclude='appimage' \
             --exclude='build-output' \
             --exclude='*.AppImage' \
             --exclude='*.zip' \
+            --exclude='*.tar.gz' \
             --exclude='node_modules' \
             --exclude='*.pyc' \
             --exclude='__pycache__' \
@@ -47,6 +48,9 @@ jobs:
             --exclude='chiaki-build-env' \
             --transform "s,^,chiaki-ng-${GIT_SHORT_HASH}/," \
             .
+          
+          # Move archive to current directory for upload
+          mv "/tmp/${ARCHIVE_NAME}" .
           
           # Save metadata for later steps
           echo "ARCHIVE_NAME=${ARCHIVE_NAME}" >> $GITHUB_ENV
