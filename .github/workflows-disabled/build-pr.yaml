@@ -1,10 +1,8 @@
-# TEMPORARILY DISABLED - To re-enable, uncomment the "on:" section below
 name: Build chiaki-ng pull request
 
-# # on:
-# #   pull_request:
-# #     types: [opened, synchronize, reopened]
-# 
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
 jobs:
   build-windows_x64-msys2:
     name: Build windows msys2 version

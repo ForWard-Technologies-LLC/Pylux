@@ -1,16 +1,14 @@
-# TEMPORARILY DISABLED - To re-enable, uncomment the "on:" section below
 name: Upload Source Code for AGPL Compliance
 
-# # on:
-# #   workflow_dispatch:
-# #   push:
-# #     branches:
-# #       - main
-# #       - master
-# #       - release/**
-# #     tags:
-# #       - 'v*'
-# 
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+      - release/**
+    tags:
+      - 'v*'
 jobs:
   upload-source:
     name: Upload Source Code to Dropbox

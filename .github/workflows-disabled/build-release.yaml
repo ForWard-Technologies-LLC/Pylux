@@ -1,10 +1,8 @@
-# TEMPORARILY DISABLED - To re-enable, uncomment the "on:" section below
 name: Create chiaki-ng release
 
-# # on:
-# #   push:
-# #     tags: [ 'v*.*.*' ]
-# 
+on:
+  push:
+    tags: [ 'v*.*.*' ]
 jobs:
   create-release:
     name: Upload release

@@ -1,9 +1,7 @@
-# TEMPORARILY DISABLED - To re-enable, uncomment the "on:" section below
 name: Build chiaki-ng Appimage Compatibility
 
-# # on:
-# #   workflow_dispatch:
-# 
+on:
+  workflow_dispatch:
 jobs:
   build-appimage_compat_x64:
     name: Build compatibility chiaki-ng appimage_x64
