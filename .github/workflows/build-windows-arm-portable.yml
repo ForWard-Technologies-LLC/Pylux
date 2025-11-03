@@ -1,8 +1,9 @@
+# TEMPORARILY DISABLED - To re-enable, uncomment the "on:" section below
 name: Build chiaki-ng Windows arm64 portable (VC)
 
-on:
-  workflow_dispatch:
-
+# # on:
+# #   workflow_dispatch:
+# 
 jobs:
   build-win_arm64:
     name: Build chiaki-ng win_arm64 (VC)

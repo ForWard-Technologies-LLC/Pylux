@@ -1,10 +1,11 @@
+# TEMPORARILY DISABLED - To re-enable, uncomment the "on:" section below
 name: Build chiaki-ng weekly
 
-on:
-  workflow_dispatch:
-  # schedule:
-  #   - cron: "30 1 * * 1"
-
+# # on:
+# #   workflow_dispatch:
+# #   # schedule:
+# #   #   - cron: "30 1 * * 1"
+# 
 jobs:
   create-release:
     name: Upload weekly release

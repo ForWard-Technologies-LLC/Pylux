@@ -1,8 +1,9 @@
+# TEMPORARILY DISABLED - To re-enable, uncomment the "on:" section below
 name: Build chiaki-ng macOSX
 
-on:
-  workflow_dispatch:
-
+# # on:
+# #   workflow_dispatch:
+# 
 jobs:
   build-mac_x64:
     name: Build macOSX x86_64 version

@@ -1,8 +1,9 @@
+# TEMPORARILY DISABLED - To re-enable, uncomment the "on:" section below
 name: Build chiaki-ng for Switch
 
-on:
-  workflow_dispatch:
-
+# # on:
+# #   workflow_dispatch:
+# 
 jobs:
   build-switch_x64:
     name: Build chiaki-ng switch_x64

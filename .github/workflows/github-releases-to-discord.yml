@@ -1,8 +1,9 @@
+# TEMPORARILY DISABLED - To re-enable, uncomment the "on:" section below
 name: GitHub Releases to discord release
-on:
-  release:
-    types: [released]
-
+# # on:
+# #   release:
+# #     types: [released]
+# 
 jobs:
   github-releases-to-discord:
     runs-on: ubuntu-latest
