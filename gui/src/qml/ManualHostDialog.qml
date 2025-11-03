@@ -72,6 +72,12 @@ DialogView {
                     });
                     return m;
                 }
+                onActivated: {
+                    // Move focus to Add button when a valid option is selected
+                    if (model[currentIndex].index !== -1 && hostField.text.trim()) {
+                        headerButton.forceActiveFocus(Qt.TabFocusReason);
+                    }
+                }
             }
         }
     }

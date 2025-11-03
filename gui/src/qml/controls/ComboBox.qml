@@ -27,6 +27,7 @@ ComboBox {
             break;
         case Qt.Key_Return:
             if (popup.visible) {
+                currentIndex = highlightedIndex;
                 activated(highlightedIndex);
                 popup.close();
             } else {

@@ -621,7 +621,7 @@ Pane {
             top: headerBar.bottom
             left: parent.left
             right: parent.right
-            bottom: footerBar.top
+            bottom: buttonHintsFooter.top
             margins: 30
             topMargin: 20
         }
@@ -771,6 +771,9 @@ Pane {
                 // Make the delegate focusable
                 focus: hostsView.selectedIndex === index
                 activeFocusOnTab: true
+                
+                // Expose modelData so footer can access it
+                property var hostData: modelData
                 
                 // Booleans to express availability of actions without exposing buttons
                 property bool canHide: modelData.manual || (modelData.discovered && !modelData.registered)
@@ -945,7 +948,7 @@ Pane {
                                         anchors.right: firstActionImage.left
                                         anchors.rightMargin: 6
                                         anchors.verticalCenter: parent.verticalCenter
-                                        text: canHide ? (modelData.manual ? "Delete" : "Hide") : (canWake ? "Wake" : "PIN")
+                                        text: canHide ? (modelData.manual ? "Delete" : "Hide") : (canWake ? "Wake" : "Pin")
                                         font.pixelSize: 14
                                         font.weight: Font.Medium
                                         color: Qt.rgba(255, 255, 255, 0.8)
@@ -997,7 +1000,7 @@ Pane {
                                         anchors.right: secondActionImage.left
                                         anchors.rightMargin: 6
                                         anchors.verticalCenter: parent.verticalCenter
-                                        text: (canHide && canWake) ? "Wake" : (canHide && !canWake && canPin) ? "PIN" : (!canHide && canWake && canPin) ? "PIN" : ""
+                                        text: (canHide && canWake) ? "Wake" : (canHide && !canWake && canPin) ? "Pin" : (!canHide && canWake && canPin) ? "Pin" : ""
                                         font.pixelSize: 14
                                         font.weight: Font.Medium
                                         color: Qt.rgba(255, 255, 255, 0.8)
@@ -1144,49 +1147,7 @@ Pane {
         }
     }     
 
-    // Footer bar
-    Rectangle {
-        id: footerBar
-        anchors {
-            left: parent.left
-            right: parent.right
-            bottom: parent.bottom
-        }
-        height: 50
-        color: Qt.rgba(10/255, 20/255, 38/255, 0.9)
-        
-        Rectangle {
-            anchors {
-                left: parent.left
-                right: parent.right
-                top: parent.top
-            }
-            height: 1
-            color: Qt.rgba(0, 212/255, 255/255, 0.3)
-            }
-
-            RowLayout {
-                anchors {
-                    fill: parent
-                    leftMargin: 30
-                rightMargin: 30
-    }
-
-    Label {
-                text: Qt.application.version
-                font.pixelSize: 12
-                color: Qt.rgba(255, 255, 255, 0.5)
-            }
-            
-            Item { Layout.fillWidth: true }
-
-                Label {
-                text: qsTr("Use ↑↓ to navigate • Enter to connect • Menu for settings")
-                font.pixelSize: 11
-                color: Qt.rgba(255, 255, 255, 0.5)
-            }
-        }
-    }
+    // Old footer removed - merged into buttonHintsFooter below
 
     // No consoles state
     Rectangle {
@@ -1491,6 +1452,140 @@ Pane {
                     color: Qt.rgba(255, 255, 255, 0.5)
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.WordWrap
+                }
+            }
+        }
+    }
+    
+    // Button hints overlay footer
+    Rectangle {
+        id: buttonHintsFooter
+        anchors {
+            left: parent.left
+            right: parent.right
+            bottom: parent.bottom
+        }
+        height: 40
+        color: Qt.rgba(0, 0, 0, 0.6)
+        z: 100  // Ensure it's above other content
+        
+        Item {
+            anchors.fill: parent
+            
+            // Left side buttons
+            RowLayout {
+                anchors.left: parent.left
+                anchors.leftMargin: 15
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 15
+                
+                // Connect hint
+                RowLayout {
+                    spacing: 6
+                    Image {
+                        Layout.preferredWidth: 18
+                        Layout.preferredHeight: 18
+                        sourceSize: Qt.size(36, 36)
+                        source: root.controllerButton("cross")
+                        opacity: 0.9
+                        smooth: true
+                        antialiasing: true
+                    }
+                    Label {
+                        text: qsTr("Connect")
+                        font.pixelSize: 13
+                        font.weight: Font.Medium
+                        color: "white"
+                    }
+                }
+                
+                // Games hint (Y button - shown only if console has games)
+                RowLayout {
+                    spacing: 6
+                    visible: hostsView.currentItem !== null && hostsView.currentItem.hasGames
+                    Image {
+                        Layout.preferredWidth: 18
+                        Layout.preferredHeight: 18
+                        sourceSize: Qt.size(36, 36)
+                        source: root.controllerButton("pyramid")
+                        opacity: 0.9
+                        smooth: true
+                        antialiasing: true
+                    }
+                    Label {
+                        text: qsTr("Games")
+                        font.pixelSize: 13
+                        font.weight: Font.Medium
+                        color: "white"
+                    }
+                }
+                
+                // Dynamic action hint (X button - Delete/Hide/Wake/Pin based on selected console)
+                RowLayout {
+                    spacing: 6
+                    visible: hostsView.currentItem && hostsView.currentItem.hostData && (hostsView.currentItem.canHide || hostsView.currentItem.canWake || hostsView.currentItem.canPin)
+                    Image {
+                        Layout.preferredWidth: 18
+                        Layout.preferredHeight: 18
+                        sourceSize: Qt.size(36, 36)
+                        source: root.controllerButton("box")
+                        opacity: 0.9
+                        smooth: true
+                        antialiasing: true
+                    }
+                    Label {
+                        text: {
+                            if (!hostsView.currentItem) return ""
+                            var item = hostsView.currentItem
+                            if (!item.hostData) return ""
+                            // Match the exact logic from the console card (line 948)
+                            if (item.canHide) {
+                                return item.hostData.manual ? qsTr("Delete") : qsTr("Hide")
+                            }
+                            if (item.canWake) {
+                                return qsTr("Wake")
+                            }
+                            if (item.canPin) {
+                                return qsTr("Pin")
+                            }
+                            return ""
+                        }
+                        font.pixelSize: 13
+                        font.weight: Font.Medium
+                        color: "white"
+                    }
+                }
+            }
+            
+            // Center - Version number (absolutely centered)
+            Label {
+                anchors.centerIn: parent
+                text: Qt.application.version
+                font.pixelSize: 12
+                color: Qt.rgba(255, 255, 255, 0.5)
+                horizontalAlignment: Text.AlignHCenter
+            }
+            
+            // Right side - Exit hint (right-aligned)
+            RowLayout {
+                anchors.right: parent.right
+                anchors.rightMargin: 15
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 6
+                Image {
+                    Layout.preferredWidth: 18
+                    Layout.preferredHeight: 18
+                    sourceSize: Qt.size(36, 36)
+                    source: root.controllerButton("moon")
+                    opacity: 0.9
+                    smooth: true
+                    antialiasing: true
+                }
+                Label {
+                    text: qsTr("Exit")
+                    font.pixelSize: 13
+                    font.weight: Font.Medium
+                    color: "white"
                 }
             }
         }

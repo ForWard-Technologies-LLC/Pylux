@@ -3001,14 +3001,12 @@ DialogView {
                     wrapMode: Text.Wrap
                     text: "<h1>PSStream</h1> version %1
 
-                        <p>This program is free software: you can redistribute it and/or modify
-                        it under the terms of the GNU Affero General Public License version 3
-                        as published by the Free Software Foundation.</p>
+                        <p>Licensed under the GNU Affero General Public License version 3.</p>
 
                         <p>This program is distributed in the hope that it will be useful,
                         but WITHOUT ANY WARRANTY; without even the implied warranty of
-                        MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-                        GNU General Public License for more details.</p>".arg(Qt.application.version)
+                        MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. Source code available
+                        per license requirements in installed license files.</p>".arg(Qt.application.version)
                 }
             }
         }
