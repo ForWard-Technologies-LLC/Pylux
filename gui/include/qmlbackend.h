@@ -221,8 +221,8 @@ public:
 #if CHIAKI_GUI_ENABLE_STEAM_SHORTCUT
     QString getSteamBaseDir();
     QString getSteamUserId();
-    void configureSteamControllerLayout();
-    Q_INVOKABLE void createSteamShortcut(QString shortcutName, QString launchOptions, const QJSValue &callback, QString steamDir);
+	Q_INVOKABLE void configureSteamControllerLayout();
+	Q_INVOKABLE void createSteamShortcut(QString shortcutName, QString launchOptions, const QJSValue &callback, QString steamDir);
 #endif
 #ifdef CHIAKI_HAVE_WEBENGINE
     Q_INVOKABLE void setWebEngineHints(QQuickWebEngineProfile *profile);

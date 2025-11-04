@@ -131,7 +131,7 @@ int real_main(int argc, char *argv[])
 #ifdef Q_OS_MACOS
 	QGuiApplication::setWindowIcon(QIcon(":/icons/chiaking_macos.svg"));
 #else
-	QGuiApplication::setWindowIcon(QIcon(":/icons/chiaking.svg"));
+	QGuiApplication::setWindowIcon(QIcon(":/icons/steam_icon.png"));
 #endif
 
 	QCommandLineParser parser;
@@ -465,9 +465,8 @@ int real_main(int argc, char *argv[])
 int RunMain(QGuiApplication &app, Settings *settings, bool exit_app_on_stream_exit)
 {
 #ifdef CHIAKI_ENABLE_STEAMWORKS
-	// TODO: Uncomment this when app is released on Steam
 	// Check Steam ownership before creating any windows
-	/*SteamworksWrapper steamworks_check;
+	SteamworksWrapper steamworks_check;
 	if (!steamworks_check.initialize(3946320)) {
 		QMessageBox::critical(nullptr, "Steam Not Running", 
 			"Steam must be running to use PSStream.\n\nClick OK to exit.");
@@ -477,7 +476,11 @@ int RunMain(QGuiApplication &app, Settings *settings, bool exit_app_on_stream_ex
 	auto ownership = steamworks_check.checkOwnership();
 	if (ownership == SteamworksWrapper::NoLicense) {
 		QMessageBox::critical(nullptr, "License Verification Failed", 
-			"Could not verify your PSStream license.\n\nClick OK to exit.");
+			"You do not own PSStream.\n\nPlease purchase PSStream on Steam to continue.\n\nClick OK to exit.");
+		return 1;
+	} else if (ownership == SteamworksWrapper::NotAuthenticated) {
+		QMessageBox::critical(nullptr, "Authentication Required", 
+			"Steam user not yet authenticated for PSStream.\n\nPlease restart Steam and try again.\n\nClick OK to exit.");
 		return 1;
 	} else if (ownership == SteamworksWrapper::NotRunning) {
 		QMessageBox::critical(nullptr, "Steam Not Running", 
@@ -485,7 +488,6 @@ int RunMain(QGuiApplication &app, Settings *settings, bool exit_app_on_stream_ex
 		return 1;
 	}
 	// Don't shutdown yet - let QmlBackend reinitialize for actual use
-	*/
 #endif
 
 	QmlMainWindow main_window(settings, exit_app_on_stream_exit);
@@ -496,9 +498,8 @@ int RunMain(QGuiApplication &app, Settings *settings, bool exit_app_on_stream_ex
 int RunStream(QGuiApplication &app, const StreamSessionConnectInfo &connect_info)
 {
 #ifdef CHIAKI_ENABLE_STEAMWORKS
-	// TODO: Uncomment this when app is released on Steam
 	// Check Steam ownership before creating any windows
-	/*SteamworksWrapper steamworks_check;
+	SteamworksWrapper steamworks_check;
 	if (!steamworks_check.initialize(3946320)) {
 		QMessageBox::critical(nullptr, "Steam Not Running", 
 			"Steam must be running to use PSStream.\n\nClick OK to exit.");
@@ -508,7 +509,11 @@ int RunStream(QGuiApplication &app, const StreamSessionConnectInfo &connect_info
 	auto ownership = steamworks_check.checkOwnership();
 	if (ownership == SteamworksWrapper::NoLicense) {
 		QMessageBox::critical(nullptr, "License Verification Failed", 
-			"Could not verify your PSStream license.\n\nClick OK to exit.");
+			"You do not own PSStream.\n\nPlease purchase PSStream on Steam to continue.\n\nClick OK to exit.");
+		return 1;
+	} else if (ownership == SteamworksWrapper::NotAuthenticated) {
+		QMessageBox::critical(nullptr, "Authentication Required", 
+			"Steam user not yet authenticated for PSStream.\n\nPlease restart Steam and try again.\n\nClick OK to exit.");
 		return 1;
 	} else if (ownership == SteamworksWrapper::NotRunning) {
 		QMessageBox::critical(nullptr, "Steam Not Running", 
@@ -516,7 +521,6 @@ int RunStream(QGuiApplication &app, const StreamSessionConnectInfo &connect_info
 		return 1;
 	}
 	// Don't shutdown yet - let QmlBackend reinitialize for actual use
-	*/
 #endif
 
 	QmlMainWindow main_window(connect_info);

@@ -36,6 +36,7 @@
     <file>controls/RadioButton.qml</file>
     <file>controls/Slider.qml</file>
     <file>controls/TextField.qml</file>
+    <file>controls/SmartFlickable.qml</file>
 
   </qresource>
 </RCC>

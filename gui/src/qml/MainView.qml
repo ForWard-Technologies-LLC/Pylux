@@ -21,8 +21,13 @@ Pane {
     }
     
     StackView.onActivated: {
+        // Only set focus if MainView is actually visible (not when settings/other dialogs are open)
         // Set contextual focus based on current state
         Qt.callLater(() => {
+            // Check if we're actually the active view in the stack
+            if (StackView.status !== StackView.Active)
+                return;
+            
             if (hostsView.count > 0) {
                 // Has consoles - focus first console
                 hostsView.currentIndex = 0;
@@ -234,13 +239,13 @@ Pane {
                     KeyNavigation.down: hostsView.count === 0 ? (addManuallyButton.visible ? addManuallyButton : enableLocalDiscoveryButton.visible ? enableLocalDiscoveryButton : setupGuideButton) : hostsView
                     
                     // A button (Key_Return) support
-                    Keys.onReturnPressed: {
+                    Keys.onReturnPressed: (event) => {
                         toggle();
                         event.accepted = true;
                     }
                     
                     // When navigating down to GridView, ensure it has focus and a current item
-                    Keys.onDownPressed: {
+                    Keys.onDownPressed: (event) => {
                         if (hostsView.count > 0) {
                             hostsView.currentIndex = 0;  // Always go to first card
                             hostsView.selectedIndex = 0;  // Set custom selection
@@ -744,6 +749,10 @@ Pane {
                                       // Remove GridView highlight - using per-card highlighting instead
             
         onCountChanged: {
+            // Only update focus if MainView is actually active (not in settings or other dialogs)
+            if (StackView.status !== StackView.Active)
+                return;
+                
             if(!hostsView.currentItem && hostsView.count > 0) {
                 hostsView.currentIndex = 0;
                 hostsView.selectedIndex = 0;
@@ -830,12 +839,12 @@ Pane {
                     }
                     radius: 12
                     color: {
-                        if (hostsView.selectedIndex === index) return Qt.rgba(0, 212/255, 255/255, 0.4);
+                        if (hostsView.selectedIndex === index) return Qt.rgba(0, 212/255, 255/255, 0.15);
                         if (mouseArea.containsMouse) return Qt.rgba(0, 212/255, 255/255, 0.1);
                         return Qt.rgba(0, 212/255, 255/255, 0.05);
                     }
                     border.color: hostsView.selectedIndex === index ? "#00d4ff" : Qt.rgba(255, 255, 255, 0.1)
-                    border.width: hostsView.selectedIndex === index ? 4 : 1
+                    border.width: hostsView.selectedIndex === index ? 2 : 1
                     
                     Behavior on color { ColorAnimation { duration: 200 } }
                     Behavior on border.color { ColorAnimation { duration: 200 } }

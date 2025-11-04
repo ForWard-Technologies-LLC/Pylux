@@ -21,7 +21,8 @@ public:
     {
         HasLicense,
         NoLicense,
-        NotRunning
+        NotRunning,
+        NotAuthenticated
     };
 
     explicit SteamworksWrapper(QObject *parent = nullptr);

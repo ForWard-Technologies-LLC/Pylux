@@ -2289,7 +2289,7 @@ void QmlBackend::configureSteamControllerLayout()
     qCInfo(chiakiGui) << "Applying workshop ID:" << controller_layout_workshop_id;
     
     // Pass "PSStream" - it will be lowercased to "psstream" internally by updateControllerConfig
-    steam_tools->updateControllerConfig("PSStream", controller_layout_workshop_id);
+    steam_tools->updateControllerConfig("3946320", controller_layout_workshop_id);
     
     // Save this Steam user as configured so we never override their choice again
     settings->AddSteamControllerConfiguredUser(steam_user_id);

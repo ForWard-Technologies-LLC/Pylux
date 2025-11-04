@@ -116,30 +116,22 @@ SteamworksWrapper::OwnershipResult SteamworksWrapper::checkOwnership()
         return NotRunning;
     }
 
-    ISteamUser *steamUser = SteamUser();
-    if (!steamUser) {
-        qWarning() << "SteamworksWrapper: Failed to get Steam User interface";
+    ISteamApps *steamApps = SteamApps();
+    if (!steamApps) {
+        qWarning() << "SteamworksWrapper: Failed to get SteamApps interface";
         return NotRunning;
     }
-
-    CSteamID steamID = steamUser->GetSteamID();
-    EUserHasLicenseForAppResult result = steamUser->UserHasLicenseForApp(steamID, m_appId);
+    
+    bool isSubscribed = steamApps->BIsSubscribedApp(m_appId);
     
     runCallbacks();
     
-    switch (result) {
-        case k_EUserHasLicenseResultHasLicense:
-            qInfo() << "SteamworksWrapper: License verified successfully";
-            return HasLicense;
-        case k_EUserHasLicenseResultDoesNotHaveLicense:
-            qWarning() << "SteamworksWrapper: User does not have license for App ID" << m_appId;
-            return NoLicense;
-        case k_EUserHasLicenseResultNoAuth:
-            qInfo() << "SteamworksWrapper: User not yet authenticated for App ID" << m_appId;
-            return NotRunning;
-        default:
-            qWarning() << "SteamworksWrapper: Unknown license check result:" << result;
-            return NotRunning;
+    if (isSubscribed) {
+        qInfo() << "SteamworksWrapper: License verified - User owns App ID" << m_appId;
+        return HasLicense;
+    } else {
+        qWarning() << "SteamworksWrapper: User does not own App ID" << m_appId;
+        return NoLicense;
     }
 #else
     qWarning() << "SteamworksWrapper: Steamworks support not compiled in";

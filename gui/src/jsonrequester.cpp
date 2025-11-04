@@ -29,10 +29,11 @@ void JsonRequester::makeGetRequest(const QString& url, const QString& authHeader
 
 void JsonRequester::makeRequest(bool post, const QString& url, const QString& authHeader, const QString contentType,
                                 const QString body) {
-    // Log PSN network request details when verbose logging is enabled
-    qCDebug(chiakiGui) << "PSN Network Request:";
-    qCDebug(chiakiGui) << "  Method:" << (post ? "POST" : "GET");
-    qCDebug(chiakiGui) << "  URL:" << url;
+    // Always log the URL
+    qCInfo(chiakiGui) << "PSN" << (post ? "POST" : "GET") << "request:" << url;
+    
+    // Log full request details only in verbose mode
+    qCDebug(chiakiGui) << "PSN Network Request Details:";
     qCDebug(chiakiGui) << "  Content-Type:" << contentType;
     qCDebug(chiakiGui) << "  Authorization:" <<  authHeader;
     if (post && !body.isEmpty()) {
@@ -59,24 +60,29 @@ void JsonRequester::onRequestFinished(QNetworkReply* reply) {
     const QString url = currentReplies.value(reply);
     currentReplies.remove(reply);
 
-    // Log PSN network response details when verbose logging is enabled
-    qCDebug(chiakiGui) << "PSN Network Response:";
-    qCDebug(chiakiGui) << "  URL:" << url;
-    qCDebug(chiakiGui) << "  HTTP Status:" << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    qCDebug(chiakiGui) << "  Error Code:" << reply->error();
-
     if (reply->error() == QNetworkReply::NoError) {
         const QByteArray data = reply->readAll();
-        qCDebug(chiakiGui) << "  Response Size:" << data.size() << "bytes";
         
-        // Log response body with sensitive data redacted
-        QString responseStr = QString::fromUtf8(data);
-        qCDebug(chiakiGui) << "  Response Body:" << responseStr;
+        // Always log basic response info
+        qCInfo(chiakiGui) << "PSN response:" << url << "- Status:" 
+                          << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        
+        // Log full response details only in verbose mode
+        qCDebug(chiakiGui) << "PSN Network Response Details:";
+        qCDebug(chiakiGui) << "  URL:" << url;
+        qCDebug(chiakiGui) << "  HTTP Status:" << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        qCDebug(chiakiGui) << "  Response Size:" << data.size() << "bytes";
+        qCDebug(chiakiGui) << "  Response Body:" << QString::fromUtf8(data);
         
         const QJsonDocument jsonDocument = QJsonDocument::fromJson(data);
         emit requestFinished(url, jsonDocument);
     } else {
-        qCDebug(chiakiGui) << "  Error:" << reply->errorString();
+        // Always log errors
+        qCWarning(chiakiGui) << "PSN request error:" << url << "-" << reply->errorString();
+        
+        // Log error details only in verbose mode
+        qCDebug(chiakiGui) << "  Error Code:" << reply->error();
+        
         emit requestError(url, reply->errorString(), reply->error());
     }
 
