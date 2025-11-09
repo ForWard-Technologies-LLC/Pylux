@@ -18,6 +18,7 @@ class QmlSettings : public QObject
     Q_PROPERTY(int disconnectAction READ disconnectAction WRITE setDisconnectAction NOTIFY disconnectActionChanged)
     Q_PROPERTY(int suspendAction READ suspendAction WRITE setSuspendAction NOTIFY suspendActionChanged)
     Q_PROPERTY(bool logVerbose READ logVerbose WRITE setLogVerbose NOTIFY logVerboseChanged)
+    Q_PROPERTY(bool steamCloudSync READ steamCloudSync WRITE setSteamCloudSync NOTIFY steamCloudSyncChanged)
     Q_PROPERTY(int rumbleHapticsIntensity READ rumbleHapticsIntensity WRITE setRumbleHapticsIntensity NOTIFY rumbleHapticsIntensityChanged)
 #ifdef CHIAKI_GUI_ENABLE_STEAMDECK_NATIVE
     Q_PROPERTY(bool steamDeckHaptics READ steamDeckHaptics WRITE setSteamDeckHaptics NOTIFY steamDeckHapticsChanged)
@@ -196,6 +197,8 @@ public:
 
     bool logVerbose() const;
     void setLogVerbose(bool verbose);
+    bool steamCloudSync() const;
+    void setSteamCloudSync(bool enabled);
 
     int rumbleHapticsIntensity() const;
     void setRumbleHapticsIntensity(int intensity);
@@ -586,6 +589,7 @@ signals:
     void disconnectActionChanged();
     void suspendActionChanged();
     void logVerboseChanged();
+    void steamCloudSyncChanged();
     void rumbleHapticsIntensityChanged();
     void buttonsByPositionChanged();
     void allowJoystickBackgroundEventsChanged();

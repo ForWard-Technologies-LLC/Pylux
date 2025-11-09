@@ -1971,22 +1971,72 @@ void Settings::SaveProfiles()
 
 void Settings::DeleteProfile(QString profile)
 {
-	QSettings delete_profile(QCoreApplication::organizationName(), QStringLiteral("%1-%2").arg(QCoreApplication::applicationName(), profile));
-	registered_hosts.clear();
-	manual_hosts.clear();
-	controller_mappings.clear();
-	SaveRegisteredHosts(&delete_profile);
-	SaveHiddenHosts(&delete_profile);
-	SaveManualHosts(&delete_profile);
-	SaveControllerMappings(&delete_profile);
-	delete_profile.remove("settings");
-	profiles.removeOne(profile);
-	SaveProfiles();
-	emit ProfilesUpdated();
+	CHIAKI_LOGI(NULL, "Settings: DeleteProfile called for '%s'", profile.toUtf8().constData());
+	
+	bool isDefaultProfile = (profile.isEmpty() || profile == "default");
+	QString currentProfile = GetCurrentProfile();
+	bool isDeletingCurrent = (currentProfile == profile);
+	
+	QString psstreamDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+	QString psstreamFile = isDefaultProfile ? (psstreamDir + "/PSStream.conf") : (psstreamDir + QString("/PSStream-%1.conf").arg(profile));
+	
+	CHIAKI_LOGI(NULL, "Settings: Clearing data for profile at: %s", psstreamFile.toUtf8().constData());
+	
+	// ORIGINAL LOGIC - always clear the data (in separate scope so file gets closed)
+	{
+		QSettings delete_profile(psstreamFile, QSettings::IniFormat);
+		registered_hosts.clear();
+		manual_hosts.clear();
+		controller_mappings.clear();
+		SaveRegisteredHosts(&delete_profile);
+		SaveHiddenHosts(&delete_profile);
+		SaveManualHosts(&delete_profile);
+		SaveControllerMappings(&delete_profile);
+		delete_profile.remove("settings");
+	} // delete_profile destroyed here, file is now closed
+	
+	// Only delete file and remove from list if NOT default profile
+	if (!isDefaultProfile) {
+		CHIAKI_LOGI(NULL, "Settings: File exists before delete: %s", QFile::exists(psstreamFile) ? "YES" : "NO");
+		
+		if (QFile::exists(psstreamFile)) {
+			if (QFile::remove(psstreamFile)) {
+				CHIAKI_LOGI(NULL, "Settings: ✓ Successfully deleted PSStream file: %s", psstreamFile.toUtf8().constData());
+			} else {
+				CHIAKI_LOGE(NULL, "Settings: ✗ Failed to delete PSStream file: %s", psstreamFile.toUtf8().constData());
+			}
+		} else {
+			CHIAKI_LOGW(NULL, "Settings: File not found: %s", psstreamFile.toUtf8().constData());
+		}
+		
+		profiles.removeOne(profile);
+		SaveProfiles();
+		emit ProfilesUpdated();
+		
+		// If deleted current profile, switch to default
+		if (isDeletingCurrent) {
+			CHIAKI_LOGI(NULL, "Settings: Deleted current profile, switching to default");
+			SetCurrentProfile("");
+		}
+	} else {
+		CHIAKI_LOGI(NULL, "Settings: Default profile - data cleared but file kept");
+	}
+	
+	// Reload
 	LoadRegisteredHosts();
 	LoadHiddenHosts();
 	LoadManualHosts();
 	LoadControllerMappings();
+}
+
+void Settings::AddProfile(QString profile)
+{
+	if (profile.isEmpty() || profiles.contains(profile))
+		return;
+	
+	profiles.append(profile);
+	SaveProfiles();
+	emit ProfilesUpdated();
 }
 
 void Settings::LoadRegisteredHosts(QSettings *qsettings)

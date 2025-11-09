@@ -8,6 +8,7 @@ import org.streetpea.chiaking
 import "controls" as C
 
 DialogView {
+    id: profileDialog
 
     buttonText: {
         if(deleteBox.visible && deleteBox.checked)
@@ -27,7 +28,13 @@ DialogView {
     }
     onAccepted: {
         if(deleteBox.visible && deleteBox.checked) {
-            Chiaki.settings.deleteProfile(profileComboBox.model[profileComboBox.currentIndex])
+            let profileToDelete = profileComboBox.model[profileComboBox.currentIndex]
+            // Delete locally first
+            Chiaki.settings.deleteProfile(profileToDelete)
+            // Then delete from Steam Cloud if available
+            if (typeof Chiaki.deleteProfileFromCloud === "function") {
+                Chiaki.deleteProfileFromCloud(profileToDelete)
+            }
         }
         else if(profileName.visible) {
             Chiaki.settings.currentProfile = profileName.text.trim()
@@ -70,7 +77,7 @@ DialogView {
                 firstInFocusChain: false
                 model: Chiaki.settings.profiles
                 currentIndex: Math.max(0, model.indexOf(Chiaki.settings.currentProfile))
-                lastInFocusChain: model[currentIndex] == "default" || model[currentIndex] == Chiaki.settings.currentProfile
+                lastInFocusChain: false
                 
                 // This handler is triggered when user selects an item (press A on item in popup)
                 onActivated: (index) => {
@@ -116,7 +123,44 @@ DialogView {
             C.CheckBox {
                 id: deleteBox
                 visible: profileComboBox.model[profileComboBox.currentIndex] != "default" && profileComboBox.model[profileComboBox.currentIndex] != "create new profile" && profileComboBox.model[profileComboBox.currentIndex] != Chiaki.settings.currentProfile
+            }
+
+            Label {
+                Layout.alignment: Qt.AlignRight
+                Layout.topMargin: 20
+                text: qsTr("Steam Cloud Sync:")
+            }
+
+            C.CheckBox {
+                id: steamCloudSyncCheckbox
+                Layout.topMargin: 20
+                checked: Chiaki.settings.steamCloudSync
+                onToggled: Chiaki.settings.steamCloudSync = checked
+            }
+
+            Item {
+                Layout.columnSpan: 2
+                Layout.preferredHeight: 10
+            }
+
+            Item {
+                // Empty item to take up first column
+            }
+
+            C.Button {
+                id: clearCloudDataButton
+                Layout.preferredWidth: 400
+                Layout.preferredHeight: 50
+                text: qsTr("Clear Steam Cloud Data")
+                Material.roundedScale: Material.SmallScale
                 lastInFocusChain: true
+                onClicked: {
+                    root.showConfirmDialog(
+                        qsTr("Clear Steam Cloud Data"),
+                        qsTr("Are you sure you want to delete all PSStream configuration files from Steam Cloud?\n\nThis will permanently delete all synced profiles from the cloud.\n\nLocal files will not be affected."),
+                        () => Chiaki.clearSteamCloudData()
+                    );
+                }
             }
         }
     }

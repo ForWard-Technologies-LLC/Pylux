@@ -242,6 +242,8 @@ class Settings : public QObject
 
 		bool GetLogVerbose() const 				{ return settings.value("settings/log_verbose", false).toBool(); }
 		void SetLogVerbose(bool enabled)		{ settings.setValue("settings/log_verbose", enabled); }
+		bool GetSteamCloudSync() const 			{ return settings.value("settings/steam_cloud_sync", true).toBool(); }
+		void SetSteamCloudSync(bool enabled)	{ settings.setValue("settings/steam_cloud_sync", enabled); }
 		uint32_t GetLogLevelMask();
 
 		bool GetHideCursor() const				{ return settings.value("settings/hide_cursor", true).toBool(); }
@@ -438,6 +440,7 @@ class Settings : public QObject
 		void SetStreamMenuShortcut4(uint button);
 
 		void DeleteProfile(QString profile);
+	void AddProfile(QString profile);
 
 		QString GetPsnAccountId() const;
 		void SetPsnAccountId(QString account_id);

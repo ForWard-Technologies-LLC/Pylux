@@ -118,7 +118,7 @@ public:
         ConnectFailedConsoleUnreachable,
     };
     Q_ENUM(PsnConnectState);
-    QmlBackend(Settings *settings, QmlMainWindow *window);
+    QmlBackend(Settings *settings, QmlMainWindow *window, SteamworksWrapper *steamworks = nullptr);
     ~QmlBackend();
 
     QmlMainWindow *qmlWindow() const;
@@ -224,6 +224,15 @@ public:
 	Q_INVOKABLE void configureSteamControllerLayout();
 	Q_INVOKABLE void createSteamShortcut(QString shortcutName, QString launchOptions, const QJSValue &callback, QString steamDir);
 #endif
+
+#ifdef CHIAKI_ENABLE_STEAMWORKS
+	// Steam Cloud Sync methods
+	Q_INVOKABLE void syncSteamCloud();
+	Q_INVOKABLE void clearSteamCloudData();
+	Q_INVOKABLE void deleteProfileFromCloud(const QString &profileName);
+	Q_INVOKABLE bool isSteamCloudEnabled();
+	Q_INVOKABLE void setSteamCloudEnabled(bool enabled);
+#endif
 #ifdef CHIAKI_HAVE_WEBENGINE
     Q_INVOKABLE void setWebEngineHints(QQuickWebEngineProfile *profile);
     Q_INVOKABLE void clearCookies(QQuickWebEngineProfile *profile);
@@ -256,6 +265,7 @@ signals:
     void windowTypeUpdated(WindowType type);
 
     void error(const QString &title, const QString &text);
+    void error(const QString &title, const QString &text, int durationMs);
     void sessionError(const QString &title, const QString &text);
     void sessionPinDialogRequested();
     void sessionStopDialogRequested();

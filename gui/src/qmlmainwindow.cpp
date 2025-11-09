@@ -80,20 +80,20 @@ private:
     QWindow *window = {};
 };
 
-QmlMainWindow::QmlMainWindow(Settings *settings, bool exit_app_on_stream_exit)
+QmlMainWindow::QmlMainWindow(Settings *settings, bool exit_app_on_stream_exit, SteamworksWrapper *steamworks)
     : QWindow()
     , settings(settings)
 {
-    init(settings, exit_app_on_stream_exit);
+    init(settings, exit_app_on_stream_exit, steamworks);
 }
 
-QmlMainWindow::QmlMainWindow(const StreamSessionConnectInfo &connect_info)
+QmlMainWindow::QmlMainWindow(const StreamSessionConnectInfo &connect_info, SteamworksWrapper *steamworks)
     : QWindow()
     , settings(connect_info.settings)
 {
     direct_stream = true;
     emit directStreamChanged();
-    init(connect_info.settings);
+    init(connect_info.settings, false, steamworks);
     backend->createSession(connect_info);
 
     if (connect_info.zoom)
@@ -365,7 +365,7 @@ AVBufferRef *QmlMainWindow::vulkanHwDeviceCtx()
     return vulkan_hw_dev_ctx;
 }
 
-void QmlMainWindow::init(Settings *settings, bool exit_app_on_stream_exit)
+void QmlMainWindow::init(Settings *settings, bool exit_app_on_stream_exit, SteamworksWrapper *steamworks)
 {
     setSurfaceType(QWindow::VulkanSurface);
 
@@ -516,7 +516,7 @@ void QmlMainWindow::init(Settings *settings, bool exit_app_on_stream_exit)
         qml_engine->setIncubationController(quick_window->incubationController());
     connect(qml_engine, &QQmlEngine::quit, this, &QWindow::close);
 
-    backend = new QmlBackend(settings, this);
+    backend = new QmlBackend(settings, this, steamworks);
     connect(backend, &QmlBackend::sessionChanged, this, [this, exit_app_on_stream_exit](StreamSession *s) {
         session = s;
         grab_input = 0;

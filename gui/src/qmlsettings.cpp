@@ -214,6 +214,17 @@ void QmlSettings::setLogVerbose(bool verbose)
     emit logVerboseChanged();
 }
 
+bool QmlSettings::steamCloudSync() const
+{
+    return settings->GetSteamCloudSync();
+}
+
+void QmlSettings::setSteamCloudSync(bool enabled)
+{
+    settings->SetSteamCloudSync(enabled);
+    emit steamCloudSyncChanged();
+}
+
 int QmlSettings::rumbleHapticsIntensity() const
 {
     return static_cast<int>(settings->GetRumbleHapticsIntensity());

@@ -78,6 +78,8 @@ if(CHIAKI_ENABLE_STEAMWORKS)
 	list(APPEND SOURCE_FILES
 		include/steamworks/steamworks_wrapper.h
 		src/steamworks/steamworks_api.cpp
+		include/steamworks/steamworks_cloud_sync.h
+		src/steamworks/steamworks_cloud_sync.cpp
 	)
 endif()
 

@@ -399,11 +399,13 @@ Item {
             root.showPSNTokenDialog(true);
         }
 
-        function onError(title, text) {
+        function onError(title, text, durationMs) {
             errorTitleLabel.text = title;
             errorTextLabel.text = text;
             // Reset to default color for regular errors
             errorToast.color = Material.accent;
+            // Use provided duration or default to 2 seconds
+            errorHideTimer.interval = durationMs !== undefined ? durationMs : 2000;
             errorHideTimer.start();
         }
 

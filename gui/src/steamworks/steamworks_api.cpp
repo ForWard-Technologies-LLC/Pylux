@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #include "steamworks/steamworks_wrapper.h"
+#include "steamworks/steamworks_cloud_sync.h"
+#include "qmlmainwindow.h"
 
 #ifdef CHIAKI_ENABLE_STEAMWORKS
     // Include Steamworks SDK headers
@@ -8,13 +10,14 @@
 #endif
 
 #include <QDebug>
-#include <QFile>
+#include <QLoggingCategory>
 
 SteamworksWrapper::SteamworksWrapper(QObject *parent)
     : QObject(parent)
     , m_initialized(false)
     , m_steamAvailable(false)
     , m_appId(3946320)
+    , m_cloudSync(nullptr)
 {
 }
 
@@ -23,37 +26,47 @@ SteamworksWrapper::~SteamworksWrapper()
     shutdown();
 }
 
-bool SteamworksWrapper::initialize(uint32_t appId)
+bool SteamworksWrapper::initialize(uint32_t appId, Settings *settings)
 {
 #ifdef CHIAKI_ENABLE_STEAMWORKS
     m_appId = appId;
     
     if (appId == 0) {
-        qWarning() << "SteamworksWrapper: Invalid App ID provided";
+        qCWarning(chiakiGui) << "SteamworksWrapper: Invalid App ID provided";
         return false;
     }
     
     // Check if Steam client is running
     if (!SteamAPI_IsSteamRunning()) {
-        qWarning() << "SteamworksWrapper: Steam client is not running";
+        qCWarning(chiakiGui) << "SteamworksWrapper: Steam client is not running";
         return false;
     }
     
     // Initialize Steam API
     if (!SteamAPI_Init()) {
-        qWarning() << "SteamworksWrapper: Failed to initialize Steam API";
+        qCWarning(chiakiGui) << "SteamworksWrapper: Failed to initialize Steam API";
         return false;
     }
     
     m_initialized = true;
     m_steamAvailable = true;
     
-    qInfo() << "SteamworksWrapper: Successfully initialized with App ID" << appId;
+    // Initialize cloud sync
+    qCInfo(chiakiGui) << "SteamworksWrapper: Creating cloud sync instance...";
+    m_cloudSync = new SteamCloudSync(settings, this);
+    if (m_cloudSync->initialize()) {
+        qCInfo(chiakiGui) << "SteamworksWrapper: Cloud sync initialized successfully";
+    } else {
+        qCWarning(chiakiGui) << "SteamworksWrapper: Cloud sync initialization failed, but continuing";
+    }
+    
+    qCInfo(chiakiGui) << "SteamworksWrapper: Successfully initialized with App ID" << appId;
     return true;
     
 #else
     Q_UNUSED(appId)
-    qWarning() << "SteamworksWrapper: Steamworks support not compiled in";
+    Q_UNUSED(settings)
+    qCWarning(chiakiGui) << "SteamworksWrapper: Steamworks support not compiled in";
     return false;
 #endif
 }
@@ -100,6 +113,12 @@ void SteamworksWrapper::shutdown()
 {
 #ifdef CHIAKI_ENABLE_STEAMWORKS
     if (m_initialized) {
+        // Clean up cloud sync
+        if (m_cloudSync) {
+            delete m_cloudSync;
+            m_cloudSync = nullptr;
+        }
+        
         SteamAPI_Shutdown();
         m_initialized = false;
         m_steamAvailable = false;
@@ -136,125 +155,6 @@ SteamworksWrapper::OwnershipResult SteamworksWrapper::checkOwnership()
 #else
     qWarning() << "SteamworksWrapper: Steamworks support not compiled in";
     return NotRunning;
-#endif
-}
-
-bool SteamworksWrapper::syncConfigToCloud(const QString &filepath)
-{
-#ifdef CHIAKI_ENABLE_STEAMWORKS
-    if (!m_initialized || !m_steamAvailable) {
-        qWarning() << "SteamworksWrapper: Cannot sync to cloud - Steam API not initialized";
-        return false;
-    }
-
-    QFile file(filepath);
-    if (!file.open(QIODevice::ReadOnly)) {
-        qWarning() << "SteamworksWrapper: Failed to open config file for reading:" << filepath;
-        return false;
-    }
-
-    QByteArray fileData = file.readAll();
-    file.close();
-
-    if (fileData.isEmpty()) {
-        qWarning() << "SteamworksWrapper: Config file is empty, skipping cloud sync";
-        return false;
-    }
-
-    qInfo() << "SteamworksWrapper: Saving config to Steam Cloud..." << fileData.size() << "bytes";
-
-    ISteamRemoteStorage *remoteStorage = SteamRemoteStorage();
-    if (!remoteStorage) {
-        qWarning() << "SteamworksWrapper: Failed to get Steam Remote Storage interface";
-        return false;
-    }
-
-    // Use filename without path for Steam Cloud
-    QString cloudFilename = "PSStream.conf";
-    bool success = remoteStorage->FileWrite(cloudFilename.toUtf8().constData(), 
-                                            fileData.constData(), 
-                                            fileData.size());
-    
-    runCallbacks();
-
-    if (success) {
-        qInfo() << "SteamworksWrapper: Config saved to cloud (" << fileData.size() << "bytes)";
-    } else {
-        qWarning() << "SteamworksWrapper: Failed to write config to Steam Cloud";
-    }
-
-    return success;
-#else
-    Q_UNUSED(filepath)
-    qWarning() << "SteamworksWrapper: Steamworks support not compiled in";
-    return false;
-#endif
-}
-
-bool SteamworksWrapper::loadConfigFromCloud(const QString &filepath)
-{
-#ifdef CHIAKI_ENABLE_STEAMWORKS
-    if (!m_initialized || !m_steamAvailable) {
-        qWarning() << "SteamworksWrapper: Cannot load from cloud - Steam API not initialized";
-        return false;
-    }
-
-    ISteamRemoteStorage *remoteStorage = SteamRemoteStorage();
-    if (!remoteStorage) {
-        qWarning() << "SteamworksWrapper: Failed to get Steam Remote Storage interface";
-        return false;
-    }
-
-    QString cloudFilename = "PSStream.conf";
-    
-    // Check if file exists in cloud
-    if (!remoteStorage->FileExists(cloudFilename.toUtf8().constData())) {
-        qInfo() << "SteamworksWrapper: No config file found in Steam Cloud, skipping load";
-        return false;
-    }
-
-    int32 fileSize = remoteStorage->GetFileSize(cloudFilename.toUtf8().constData());
-    if (fileSize <= 0) {
-        qWarning() << "SteamworksWrapper: Config file in cloud has invalid size:" << fileSize;
-        return false;
-    }
-
-    qInfo() << "SteamworksWrapper: Loading config from Steam Cloud..." << fileSize << "bytes";
-
-    QByteArray buffer(fileSize, 0);
-    int32 bytesRead = remoteStorage->FileRead(cloudFilename.toUtf8().constData(), 
-                                              buffer.data(), 
-                                              fileSize);
-    
-    runCallbacks();
-
-    if (bytesRead != fileSize) {
-        qWarning() << "SteamworksWrapper: Failed to read complete config from cloud. Expected" 
-                   << fileSize << "bytes, got" << bytesRead;
-        return false;
-    }
-
-    // Write to local file
-    QFile file(filepath);
-    if (!file.open(QIODevice::WriteOnly)) {
-        qWarning() << "SteamworksWrapper: Failed to open config file for writing:" << filepath;
-        return false;
-    }
-
-    qint64 bytesWritten = file.write(buffer);
-    file.close();
-
-    if (bytesWritten != fileSize) {
-        qWarning() << "SteamworksWrapper: Failed to write complete config to disk";
-        return false;
-    }
-
-    qInfo() << "SteamworksWrapper: Config loaded from cloud (" << bytesRead << "bytes)";
-    return true;
-#else
-    Q_UNUSED(filepath)
-    qWarning() << "SteamworksWrapper: Steamworks support not compiled in";
-    return false;
 #endif
 }
 
@@ -302,6 +202,11 @@ void SteamworksWrapper::runCallbacks()
 #ifdef CHIAKI_ENABLE_STEAMWORKS
     if (m_initialized && m_steamAvailable) {
         SteamAPI_RunCallbacks();
+        
+        // Handle dynamic cloud sync updates
+        if (m_cloudSync) {
+            m_cloudSync->handleDynamicCloudChange();
+        }
     }
 #endif
 }

@@ -6,6 +6,10 @@
 #include <QString>
 #include <QObject>
 
+// Forward declarations
+class SteamCloudSync;
+class Settings;
+
 /**
  * Isolated Steamworks API wrapper for PSStream
  * 
@@ -31,9 +35,10 @@ public:
     /**
      * Initialize Steam API with the provided App ID
      * @param appId Your Steam App ID
+     * @param settings Settings object for cloud sync (optional)
      * @return true if Steam API initialized successfully
      */
-    bool initialize(uint32_t appId);
+    bool initialize(uint32_t appId, Settings *settings = nullptr);
 
     /**
      * Check if Steam client is running and API is available
@@ -46,20 +51,6 @@ public:
      * @return OwnershipResult indicating license status
      */
     OwnershipResult checkOwnership();
-
-    /**
-     * Save config file to Steam Cloud
-     * @param filepath Path to the config file to upload
-     * @return true if upload was successful
-     */
-    bool syncConfigToCloud(const QString &filepath);
-
-    /**
-     * Load config file from Steam Cloud
-     * @param filepath Path where to save the downloaded config
-     * @return true if download was successful
-     */
-    bool loadConfigFromCloud(const QString &filepath);
 
     /**
      * Set Steam Rich Presence status
@@ -86,10 +77,17 @@ public:
      */
     void shutdown();
 
+    /**
+     * Get cloud sync instance
+     * @return Pointer to cloud sync manager, or nullptr if not available
+     */
+    SteamCloudSync* getCloudSync() const { return m_cloudSync; }
+
 private:
     bool m_initialized;
     bool m_steamAvailable;
     uint32_t m_appId;
+    SteamCloudSync* m_cloudSync;
 };
 
 #endif // STEAMWORKS_WRAPPER_H

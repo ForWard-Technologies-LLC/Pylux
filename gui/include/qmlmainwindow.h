@@ -34,6 +34,9 @@ Q_DECLARE_LOGGING_CATEGORY(chiakiGui);
 class Settings;
 class StreamSession;
 class QmlBackend;
+#ifdef CHIAKI_ENABLE_STEAMWORKS
+class SteamworksWrapper;
+#endif
 
 class QmlMainWindow : public QWindow
 {
@@ -62,8 +65,8 @@ public:
     };
     Q_ENUM(VideoPreset);
 
-    QmlMainWindow(Settings *settings,  bool exit_app_on_stream_exit = false);
-    QmlMainWindow(const StreamSessionConnectInfo &connect_info);
+    QmlMainWindow(Settings *settings,  bool exit_app_on_stream_exit = false, SteamworksWrapper *steamworks = nullptr);
+    QmlMainWindow(const StreamSessionConnectInfo &connect_info, SteamworksWrapper *steamworks = nullptr);
     ~QmlMainWindow();
     void updateWindowType(WindowType type);
     void setSettings(Settings *new_settings);
@@ -116,7 +119,7 @@ signals:
     void directStreamChanged();
 
 private:
-    void init(Settings *settings, bool exit_app_on_stream_exit = false);
+    void init(Settings *settings, bool exit_app_on_stream_exit = false, SteamworksWrapper *steamworks = nullptr);
     void update();
     void scheduleUpdate();
     void createSwapchain();

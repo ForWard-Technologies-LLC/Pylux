@@ -2610,7 +2610,7 @@ DialogView {
 
                     C.CheckBox {
                         Layout.alignment: Qt.AlignHCenter
-                        Layout.topMargin: 10
+                        Layout.topMargin: 15
                         text: qsTr("Verbose Logging (unchecked)")
                         checked: Chiaki.settings.logVerbose
                         lastInFocusChain: true
