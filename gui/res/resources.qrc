@@ -28,5 +28,6 @@
     <file>steam_portrait.png</file>
     <file>game_shortcut_icon.png</file>
     <file>game_shortcut_logo.png</file>
+    <file>steamdeck-controls.png</file>
   </qresource>
 </RCC>

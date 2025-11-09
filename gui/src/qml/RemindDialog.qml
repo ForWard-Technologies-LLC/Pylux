@@ -18,6 +18,14 @@ Dialog {
     y: Math.round((root.height - height) / 2)
     modal: true
     Material.roundedScale: Material.MediumScale
+    
+    background: Rectangle {
+        color: Material.dialogColor
+        radius: 12
+        border.color: Material.accent
+        border.width: 2
+    }
+    
     onOpened: label.forceActiveFocus(Qt.TabFocusReason)
     onAccepted: {
         newDialogOpen = true;

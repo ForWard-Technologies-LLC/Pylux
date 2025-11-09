@@ -6,7 +6,7 @@ DialogView {
     id: walkthroughDialog
     
     property int currentStep: 0
-    property int totalSteps: 4
+    property int totalSteps: 5
     
     toolbarHeight: 60
     title: qsTr("Console Setup Guide")
@@ -38,6 +38,7 @@ DialogView {
             case 1: return qsTr("Same WiFi Network")
             case 2: return qsTr("Add Manually")
             case 3: return qsTr("Register Console")
+            case 4: return qsTr("Controls")
             default: return ""
         }
     }
@@ -143,7 +144,7 @@ DialogView {
                     }
                 }
                 
-                model: 4
+                model: 5
                 delegate: Item {
                     width: stepView.width
                     height: stepView.height
@@ -622,6 +623,157 @@ DialogView {
                                     horizontalAlignment: Text.AlignHCenter
                                     wrapMode: Text.WordWrap
                                     font.italic: true
+                                }
+                            }
+                            
+                            // Step 5 content - Controls
+                            Item {
+                                anchors.fill: parent
+                                visible: index === 4
+                                
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    spacing: 0
+                                    
+                                    // Controller image
+                                    Item {
+                                        Layout.fillWidth: true
+                                        Layout.fillHeight: true
+                                        
+                                        Image {
+                                            anchors.fill: parent
+                                            anchors.margins: 20
+                                            source: "qrc:/icons/steamdeck-controls.png"
+                                            fillMode: Image.PreserveAspectFit
+                                            smooth: true
+                                        }
+                                    }
+                                    
+                                    // Bottom info bar with 3 columns
+                                    Rectangle {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 90
+                                        gradient: Gradient {
+                                            GradientStop { position: 0.0; color: Qt.rgba(156/255, 39/255, 176/255, 0.25) }
+                                            GradientStop { position: 1.0; color: Qt.rgba(156/255, 39/255, 176/255, 0.15) }
+                                        }
+                                        border.color: Qt.rgba(156/255, 39/255, 176/255, 0.4)
+                                        border.width: 1
+                                        
+                                        RowLayout {
+                                            anchors.fill: parent
+                                            anchors.margins: 15
+                                            spacing: 20
+                                            
+                                            // Left column - Open Stream Menu
+                                            ColumnLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 8
+                                                
+                                                Label {
+                                                    Layout.alignment: Qt.AlignHCenter
+                                                    Layout.fillWidth: true
+                                                    text: qsTr("📱 Open Stream Menu")
+                                                    font.pixelSize: 14
+                                                    font.weight: Font.Bold
+                                                    color: Qt.rgba(33/255, 150/255, 243/255, 1)
+                                                    horizontalAlignment: Text.AlignHCenter
+                                                }
+                                                
+                                                Label {
+                                                    Layout.alignment: Qt.AlignHCenter
+                                                    Layout.fillWidth: true
+                                                    text: qsTr("L1+R1+L3+R3")
+                                                    font.pixelSize: 13
+                                                    color: Qt.rgba(1, 1, 1, 0.9)
+                                                    horizontalAlignment: Text.AlignHCenter
+                                                }
+                                            }
+                                            
+                                            // Separator
+                                            Rectangle {
+                                                Layout.preferredWidth: 1
+                                                Layout.fillHeight: true
+                                                color: Qt.rgba(156/255, 39/255, 176/255, 0.3)
+                                            }
+                                            
+                                            // Middle column - Back Paddle Buttons
+                                            ColumnLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 8
+                                                
+                                                Label {
+                                                    Layout.alignment: Qt.AlignHCenter
+                                                    text: qsTr("🎯 Back Paddle Buttons")
+                                                    font.pixelSize: 14
+                                                    font.weight: Font.Bold
+                                                    color: Qt.rgba(156/255, 39/255, 176/255, 1)
+                                                }
+                                                
+                                                RowLayout {
+                                                    Layout.alignment: Qt.AlignHCenter
+                                                    spacing: 15
+                                                    
+                                                    Label {
+                                                        text: qsTr("L4: Mute")
+                                                        font.pixelSize: 12
+                                                        color: Qt.rgba(1, 1, 1, 0.9)
+                                                    }
+                                                    
+                                                    Label {
+                                                        text: qsTr("L5: End")
+                                                        font.pixelSize: 12
+                                                        color: Qt.rgba(1, 1, 1, 0.9)
+                                                    }
+                                                    
+                                                    Label {
+                                                        text: qsTr("R4: Zoom")
+                                                        font.pixelSize: 12
+                                                        color: Qt.rgba(1, 1, 1, 0.9)
+                                                    }
+                                                    
+                                                    Label {
+                                                        text: qsTr("R5: Stretch")
+                                                        font.pixelSize: 12
+                                                        color: Qt.rgba(1, 1, 1, 0.9)
+                                                    }
+                                                }
+                                            }
+                                            
+                                            // Separator
+                                            Rectangle {
+                                                Layout.preferredWidth: 1
+                                                Layout.fillHeight: true
+                                                color: Qt.rgba(156/255, 39/255, 176/255, 0.3)
+                                            }
+                                            
+                                            // Right column - PS Button
+                                            ColumnLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 8
+                                                
+                                                Label {
+                                                    Layout.alignment: Qt.AlignHCenter
+                                                    Layout.fillWidth: true
+                                                    text: qsTr("🎮 PS Button")
+                                                    font.pixelSize: 14
+                                                    font.weight: Font.Bold
+                                                    color: Qt.rgba(244/255, 67/255, 54/255, 1)
+                                                    horizontalAlignment: Text.AlignHCenter
+                                                }
+                                                
+                                                Label {
+                                                    Layout.alignment: Qt.AlignHCenter
+                                                    Layout.fillWidth: true
+                                                    text: qsTr("Down on Left Trackpad")
+                                                    font.pixelSize: 12
+                                                    color: Qt.rgba(1, 1, 1, 0.9)
+                                                    horizontalAlignment: Text.AlignHCenter
+                                                    wrapMode: Text.WordWrap
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }

@@ -115,7 +115,7 @@ Pane {
             left: parent.left
             right: parent.right
         }
-        height: 100
+        height: 70
         
         gradient: Gradient {
             orientation: Gradient.Vertical
@@ -136,12 +136,12 @@ Pane {
                 bottom: parent.bottom
             }
             height: 2
-            color: "#00d4ff"
+            color: "#50d4ff"
             opacity: 0.7
             
             Rectangle {
                 anchors.fill: parent
-                color: "#00d4ff"
+                color: "#50d4ff"
                 layer.enabled: true
                 layer.effect: MultiEffect {
                     blurEnabled: true
@@ -154,22 +154,22 @@ Pane {
         RowLayout {
             anchors {
                 fill: parent
-                leftMargin: 25
-                rightMargin: 25
-                topMargin: 8
-                bottomMargin: 8
+                leftMargin: 20
+                rightMargin: 20
+                topMargin: 5
+                bottomMargin: 5
             }
-            spacing: 20
+            spacing: 15
             
             Button {
                 id: backButton
                 text: qsTr("← Back")
                 onClicked: root.goBack()
-                font.pixelSize: 14
+                font.pixelSize: 13
                 font.weight: Font.Medium
                 focusPolicy: Qt.StrongFocus
-                Layout.preferredHeight: 40
-                Layout.preferredWidth: 110
+                Layout.preferredHeight: 35
+                Layout.preferredWidth: 100
                 KeyNavigation.down: gamesGrid
                 
                 background: Rectangle {
@@ -194,7 +194,7 @@ Pane {
             
             Label {
                 text: deviceName ? qsTr("Games - %1").arg(deviceName) : qsTr("My Games")
-                font.pixelSize: 24
+                font.pixelSize: 20
                 font.bold: true
                 color: "white"
             }
@@ -203,7 +203,7 @@ Pane {
             
             Label {
                 text: allGames.length > 0 ? qsTr("%1 games total").arg(allGames.length) : qsTr("No games found")
-                font.pixelSize: 14
+                font.pixelSize: 13
                 opacity: 0.8
                 color: "white"
             }
@@ -215,7 +215,7 @@ Pane {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        anchors.topMargin: 20
+        anchors.topMargin: 10
         spacing: 0
         
         // Games Grid
@@ -234,6 +234,7 @@ Pane {
                 
                 // Remove contentWidth to prevent horizontal scrolling
                 ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+                contentWidth: scrollView.availableWidth
                 
                 GridView {
                     id: gamesGrid
@@ -248,9 +249,9 @@ Pane {
                     }
                     // Height needs to be implicit to enable scrolling
                     height: implicitHeight
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    cellWidth: 245  // Fit 5 columns on 1280px wide screens
-                    cellHeight: 310  // Image fills remaining space, buttons always fit
+                    x: (scrollView.availableWidth - width) / 2
+                    cellWidth: 310  // Fit 4 columns on 1280px wide screens
+                    cellHeight: 310  // Fit 2 rows on 800px tall screens
                     focus: true
                     clip: false
                     interactive: false  // Disable GridView's own scrolling, let ScrollView handle it

@@ -151,12 +151,12 @@ Pane {
                 bottom: parent.bottom
             }
             height: 2
-            color: "#00d4ff"
+            color: "#50d4ff"
             opacity: 0.7
             
             Rectangle {
                 anchors.fill: parent
-                color: "#00d4ff"
+                color: "#50d4ff"
                 layer.enabled: true
                 layer.effect: MultiEffect {
                     blurEnabled: true
@@ -266,11 +266,11 @@ Pane {
                     background: Rectangle {
                         radius: 8
                         color: {
-                            if (parent.activeFocus) return Qt.rgba(0, 212/255, 255/255, 0.4)
-                            else if (parent.checked) return Qt.rgba(0, 212/255, 255/255, 0.3)
+                            if (parent.activeFocus) return Qt.rgba(80/255, 212/255, 255/255, 0.4)
+                            else if (parent.checked) return Qt.rgba(80/255, 212/255, 255/255, 0.3)
                             else return Qt.rgba(255, 255, 255, 0.1)
                         }
-                        border.color: parent.activeFocus ? "#ffffff" : "#00d4ff"
+                        border.color: parent.activeFocus ? "#ffffff" : "#50d4ff"
                         border.width: parent.activeFocus ? 2 : 1
                         
                         Behavior on color { ColorAnimation { duration: 200 } }
@@ -282,7 +282,7 @@ Pane {
                             anchors.fill: parent
                             radius: parent.radius
                             color: "transparent"
-                            border.color: "#00d4ff"
+                            border.color: "#50d4ff"
                             border.width: 2
                             opacity: parent.parent.activeFocus ? 0.6 : 0
                             Behavior on opacity { NumberAnimation { duration: 200 } }
@@ -646,7 +646,7 @@ Pane {
             
             contentItem: Rectangle {
                 radius: 4
-                color: "#00d4ff"
+                color: "#50d4ff"
                 opacity: 0.7
             }
         }
@@ -839,11 +839,11 @@ Pane {
                     }
                     radius: 12
                     color: {
-                        if (hostsView.selectedIndex === index) return Qt.rgba(0, 212/255, 255/255, 0.15);
-                        if (mouseArea.containsMouse) return Qt.rgba(0, 212/255, 255/255, 0.1);
-                        return Qt.rgba(0, 212/255, 255/255, 0.05);
+                        if (hostsView.selectedIndex === index) return Qt.rgba(80/255, 212/255, 255/255, 0.15);
+                        if (mouseArea.containsMouse) return Qt.rgba(80/255, 212/255, 255/255, 0.1);
+                        return Qt.rgba(80/255, 212/255, 255/255, 0.05);
                     }
-                    border.color: hostsView.selectedIndex === index ? "#00d4ff" : Qt.rgba(255, 255, 255, 0.1)
+                    border.color: hostsView.selectedIndex === index ? "#50d4ff" : Qt.rgba(255, 255, 255, 0.1)
                     border.width: hostsView.selectedIndex === index ? 2 : 1
                     
                     Behavior on color { ColorAnimation { duration: 200 } }

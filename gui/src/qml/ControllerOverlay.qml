@@ -259,11 +259,11 @@ Item {
         id: dismissButton
         anchors.bottom: parent.bottom
         anchors.horizontalCenter: parent.horizontalCenter
-        anchors.bottomMargin: 50
+        anchors.bottomMargin: 20
         width: 240
-        height: 55
-        text: qsTr("Dismiss (Press B)")
-        font.pixelSize: 20
+        height: 50
+        text: qsTr("Dismiss (B)")
+        font.pixelSize: 18
         font.bold: true
         Material.background: Material.accent
         Material.roundedScale: Material.MediumScale
