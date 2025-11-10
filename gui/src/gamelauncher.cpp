@@ -26,6 +26,7 @@ GameLauncher::GameLauncher(StreamSession *session, const QString &game_name, QOb
 	, start_timestamp(0)
 	, current_action_index(0)
 	, is_shutting_down(std::make_shared<bool>(false))
+	, is_completed(false)
 {
 	if (session) {
 		log = session->GetChiakiLog();
@@ -310,6 +311,9 @@ void GameLauncher::onComplete()
 	qint64 elapsed = QDateTime::currentMSecsSinceEpoch() - start_timestamp;
 	logAction("Automation complete");
 	CHIAKI_LOGI(log, "GameLauncher: [T+%lld ms] Automation complete", elapsed);
+	
+	// Mark as completed so keyboard rejection can resume
+	is_completed = true;
 	
 	// Only emit signal if session is still valid
 	if (session)

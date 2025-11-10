@@ -48,6 +48,7 @@ private:
 	std::vector<Action> actions;
 	size_t current_action_index;
 	std::shared_ptr<bool> is_shutting_down;
+	bool is_completed;
 
 	// Helper methods
 	bool shouldAbort() const { return *is_shutting_down; }
@@ -73,6 +74,7 @@ public:
 	~GameLauncher();
 
 	void start();
+	bool isCompleted() const { return is_completed; }
 };
 
 #endif // CHIAKI_GAMELAUNCHER_H

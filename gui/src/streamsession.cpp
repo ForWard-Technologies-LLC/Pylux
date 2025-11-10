@@ -1849,6 +1849,26 @@ void StreamSession::Event(ChiakiEvent *event)
 		case CHIAKI_EVENT_NICKNAME_RECEIVED:
 			emit NicknameReceived(event->server_nickname);
 			break;
+		case CHIAKI_EVENT_KEYBOARD_OPEN:
+			{
+				QString initialText = event->keyboard.text_str ? QString::fromUtf8(event->keyboard.text_str) : QString();
+				
+				// Only allow keyboard for GameLauncher automation
+				if (!game_launcher.isNull() && !game_launcher->isCompleted()) {
+					CHIAKI_LOGI(log.GetChiakiLog(), "PlayStation keyboard open requested (GameLauncher active) - initial text: %s", 
+						initialText.isEmpty() ? "(empty)" : initialText.toUtf8().constData());
+				} else {
+					// Reject keyboard after 1 seconds to close without showing UI - We dont support direct text input yet... This will allow normal UI to show
+					CHIAKI_LOGI(log.GetChiakiLog(), "PlayStation keyboard open requested - rejecting after 2 seconds to prevent keyboard UI");
+					QTimer::singleShot(1000, this, [this]() {
+						chiaki_session_keyboard_reject(&session);
+					});
+				}
+			}
+			break;
+		case CHIAKI_EVENT_KEYBOARD_REMOTE_CLOSE:
+			CHIAKI_LOGI(log.GetChiakiLog(), "PlayStation keyboard close notification received");
+			break;
 		case CHIAKI_EVENT_RUMBLE: {
 			if(ps5_rumble_intensity < 0)
 				return;

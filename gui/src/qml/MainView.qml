@@ -815,20 +815,6 @@ Pane {
                     if (canPin)  { seen++; if (seen === 2) { setConsolePin(); return true; } }
                     return false;
                 }
-
-                
-                // Key navigation within the console card
-                // Return key is handled by the GridView
-                Keys.onTabPressed: {
-                    // Navigate to first button in the card
-                    if (hideButton.visible) {
-                        hideButton.forceActiveFocus();
-                    } else if (wakeButton.visible) {
-                        wakeButton.forceActiveFocus();
-                    } else if (pinButton.visible) {
-                        pinButton.forceActiveFocus();
-                    }
-                }
                 
                 // Console Card
                 Rectangle {

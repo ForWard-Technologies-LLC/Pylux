@@ -151,7 +151,7 @@ Item {
                 anchors.centerIn: parent
                 width: 70
                 height: width
-                visible: sessionLoading && launchingGame
+                visible: sessionLoading
             }
 
             Label {
