@@ -4,11 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - main
-      - master
-      - release/**
-    tags:
-      - 'v*'
+      - release/dev
 jobs:
   upload-source:
     name: Upload Source Code to Dropbox
