@@ -167,10 +167,7 @@ fi
 cat > "${PORTABLE_DIR}/launch.sh" << 'EOF'
 #!/bin/bash
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# Set Steam App ID for Steamworks API initialization
-export SteamAppId=3946320
-export SteamGameId=3946320
+cd "${DIR}"
 
 # Always prioritize our bundled libs (NSS, Steam libs, Qt, etc.)
 LIBS="${DIR}/usr/lib"
@@ -187,6 +184,10 @@ exec "${DIR}/usr/bin/chiaki" "$@"
 EOF
 
 chmod +x "${PORTABLE_DIR}/launch.sh"
+
+# Copy steam_appid.txt for Steam API initialization
+echo "Copying steam_appid.txt for Steam API..."
+cp ../steam_appid.txt "${PORTABLE_DIR}/steam_appid.txt" 2>/dev/null || echo "Warning: steam_appid.txt not found"
 
 # Don't package here - will be done outside container where zip is available
 
