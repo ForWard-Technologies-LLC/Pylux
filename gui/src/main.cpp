@@ -227,7 +227,7 @@ int real_main(int argc, char *argv[])
 		
 		// Look up game name from settings based on title_id
 		QString game_name;
-		QString psn_games_json = settings.GetPsnGamesJson();
+		QString psn_games_json = (use_alt_settings ? alt_settings : settings).GetPsnGamesJson();
 		if(!psn_games_json.isEmpty())
 		{
 			QJsonDocument doc = QJsonDocument::fromJson(psn_games_json.toUtf8());
@@ -299,7 +299,7 @@ int real_main(int argc, char *argv[])
 		QString host;
 		QString console_pin;
 		
-		for(const auto &temphost : settings.GetRegisteredHosts())
+		for(const auto &temphost : (use_alt_settings ? alt_settings : settings).GetRegisteredHosts())
 		{
 			if(temphost.GetServerNickname() == nickname)
 			{

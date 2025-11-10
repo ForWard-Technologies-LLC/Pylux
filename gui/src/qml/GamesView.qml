@@ -232,9 +232,9 @@ Pane {
                 anchors.bottomMargin: 60  // Space for the footer overlay
                 clip: true  // Clip scrolling content
                 
-                // Remove contentWidth to prevent horizontal scrolling
+                // Completely disable horizontal scrolling
                 ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
-                contentWidth: scrollView.availableWidth
+                contentWidth: availableWidth  // Lock content width to available width
                 
                 GridView {
                     id: gamesGrid
@@ -244,18 +244,19 @@ Pane {
                         let availableWidth = scrollView.availableWidth
                         let cols = Math.floor(availableWidth / cellWidth)
                         if (cols === 0) cols = 1
-                        // Return width for exactly that many columns (centered)
-                        return cols * cellWidth
+                        // Return width for exactly that many columns (centered), but never exceed availableWidth
+                        return Math.min(cols * cellWidth, availableWidth)
                     }
                     // Height needs to be implicit to enable scrolling
                     height: implicitHeight
-                    x: (scrollView.availableWidth - width) / 2
-                    cellWidth: 310  // Fit 4 columns on 1280px wide screens
-                    cellHeight: 310  // Fit 2 rows on 800px tall screens
+                    x: Math.max(0, (scrollView.availableWidth - width) / 2)
+                    cellWidth: 240  // Fit 5 columns on 1280px wide screens
+                    cellHeight: 340  // Fit 2 rows on 800px tall screens
                     focus: true
-                    clip: false
+                    clip: true  // Clip content to prevent overflow
                     interactive: false  // Disable GridView's own scrolling, let ScrollView handle it
                     flickableDirection: Flickable.VerticalFlick  // Explicitly disable horizontal flicking
+                    boundsBehavior: Flickable.StopAtBounds  // Stop at bounds instead of bouncing
                 
                 model: currentPageGames
                 highlightFollowsCurrentItem: true
@@ -318,6 +319,33 @@ Pane {
                     
                     let cols = Math.floor(scrollView.availableWidth / cellWidth)
                     if (cols === 0) cols = 1
+                    
+                    // Handle left navigation - prevent going beyond left edge
+                    if (event.key === Qt.Key_Left) {
+                        if (currentIndex % cols !== 0) {
+                            // Not at left edge, allow move left
+                            currentIndex = Math.max(0, currentIndex - 1)
+                        }
+                        // If at left edge, do nothing (don't scroll)
+                        event.accepted = true
+                        return
+                    }
+                    
+                    // Handle right navigation - prevent going beyond right edge
+                    if (event.key === Qt.Key_Right) {
+                        let totalItems = model.length
+                        let colInRow = currentIndex % cols
+                        let isLastItem = currentIndex === totalItems - 1
+                        let isRightmostInRow = colInRow === cols - 1
+                        
+                        if (!isLastItem && !isRightmostInRow) {
+                            // Not at right edge and not last item, allow move right
+                            currentIndex = Math.min(totalItems - 1, currentIndex + 1)
+                        }
+                        // If at right edge or last item, do nothing (don't scroll)
+                        event.accepted = true
+                        return
+                    }
                     
                     // Handle up navigation to back button when on first row
                     if (event.key === Qt.Key_Up) {

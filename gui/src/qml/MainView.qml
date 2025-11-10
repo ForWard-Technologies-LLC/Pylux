@@ -28,6 +28,11 @@ Pane {
             if (StackView.status !== StackView.Active)
                 return;
             
+            // Additional check: only set focus if we're the only item in the stack
+            // This prevents stealing focus when dialogs/settings are open on top of MainView
+            if (StackView.view && StackView.view.depth > 1)
+                return;
+            
             if (hostsView.count > 0) {
                 // Has consoles - focus first console
                 hostsView.currentIndex = 0;
@@ -752,6 +757,11 @@ Pane {
             // Only update focus if MainView is actually active (not in settings or other dialogs)
             if (StackView.status !== StackView.Active)
                 return;
+            
+            // Additional check: only update if we're the only item in the stack
+            // This prevents interfering when dialogs/settings are open on top of MainView
+            if (StackView.view && StackView.view.depth > 1)
+                return;
                 
             if(!hostsView.currentItem && hostsView.count > 0) {
                 hostsView.currentIndex = 0;
@@ -1176,14 +1186,8 @@ Pane {
             function onHostsChanged() {
                 console.log("MainView: Hosts changed, count is now:", hostsView.count);
                 
-                // If consoles were found, focus the first one
-                if (hostsView.count > 0) {
-                    Qt.callLater(() => {
-                        hostsView.currentIndex = 0;
-                        hostsView.selectedIndex = 0;
-                        hostsView.forceActiveFocus();
-                    });
-                }
+                // Don't automatically steal focus when hosts are discovered
+                // Users can navigate to the hosts manually if needed
             }
         }
 
