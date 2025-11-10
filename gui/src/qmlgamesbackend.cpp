@@ -36,6 +36,12 @@ QmlGamesBackend::~QmlGamesBackend()
 {
 }
 
+void QmlGamesBackend::setSettings(Settings *new_settings)
+{
+    settings = new_settings;
+    qCInfo(chiakiGuiGames) << "QmlGamesBackend: Settings instance updated";
+}
+
 bool QmlGamesBackend::canMakePsnRequest()
 {
     // Rate limit: 5 requests per second

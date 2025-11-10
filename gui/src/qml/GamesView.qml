@@ -33,11 +33,10 @@ Pane {
         return `image://svg/button-${type}#${name}`;
     }
     
-    Component.onCompleted: {
-        loadGames()
-    }
-    
     StackView.onActivated: {
+        // Reload games when view is activated (handles both initial load and profile changes)
+        loadGames()
+        
         Qt.callLater(() => {
             if (gamesGrid.count > 0) {
                 gamesGrid.forceActiveFocus()

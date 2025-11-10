@@ -30,6 +30,9 @@ public:
     Q_INVOKABLE QString getCachedStoreResponse(const QString &titleId);
     Q_INVOKABLE void createGameSteamShortcut(const QString &titleId, const QString &gameName, 
                                               const QJSValue &callback, const QString &steamDir, const QString &deviceName = QString());
+    
+    // Update settings instance (e.g., when profile changes)
+    void setSettings(Settings *new_settings);
 
 signals:
     void trophyDataReceived(const QString &npCommunicationId, const QString &jsonData);

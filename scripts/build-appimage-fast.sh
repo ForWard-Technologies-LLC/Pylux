@@ -2,6 +2,10 @@
 set -euo pipefail
 
 # Host wrapper: uses a persistent container + incremental build, then launches the AppImage.
+#
+# Environment variables:
+#   SKIP_APPIMAGE=1   - Skip AppImage packaging, launch from AppDir instead
+#   LAUNCH_ONLY=1     - Skip build entirely, launch the last built artifact
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
@@ -42,22 +46,28 @@ chmod +x scripts/build-appimage-incremental.sh
 # Pre-create directories with correct permissions to avoid container permission issues
 mkdir -p appimage/appdir build_appimage
 
-# Run incremental build in container
+# Run incremental build in container (unless LAUNCH_ONLY is set)
 SKIP_VAL="${SKIP_APPIMAGE:-0}"
+LAUNCH_ONLY="${LAUNCH_ONLY:-0}"
 
-# Use trap to ensure ownership is always fixed, even on failure
-cleanup_ownership() {
-    echo "Fixing ownership of build artifacts..."
-    # Use podman exec to run chown inside the container with sudo
-    podman exec "$container_name" /bin/bash -c "sudo chown -R $(id -u):$(id -g) /build/chiaki/appimage /build/chiaki/build_appimage" 2>/dev/null || true
-}
-trap cleanup_ownership EXIT
+if [ "$LAUNCH_ONLY" = "1" ]; then
+  echo "LAUNCH_ONLY=1: Skipping build, will launch existing artifact..."
+else
+  # Use trap to ensure ownership is always fixed, even on failure
+  cleanup_ownership() {
+      echo "Fixing ownership of build artifacts..."
+      # Use podman exec to run chown inside the container with sudo
+      podman exec "$container_name" /bin/bash -c "sudo chown -R $(id -u):$(id -g) /build/chiaki/appimage /build/chiaki/build_appimage" 2>/dev/null || true
+  }
+  trap cleanup_ownership EXIT
 
-podman exec --env SKIP_APPIMAGE="$SKIP_VAL" "$container_name" /bin/bash -lc 'set -xe; \
-  sudo -E scripts/build-appimage-incremental.sh /build/chiaki/appimage/appdir' | tee /tmp/appimage_fast.log
+  podman exec --env SKIP_APPIMAGE="$SKIP_VAL" "$container_name" /bin/bash -lc 'set -xe; \
+    sudo -E scripts/build-appimage-incremental.sh /build/chiaki/appimage/appdir' | tee /tmp/appimage_fast.log
+fi
 
 # Launch either the unpackaged binary (from AppDir) or the AppImage
-if [ "${SKIP_APPIMAGE:-0}" = "1" ]; then
+if [ "${SKIP_APPIMAGE:-0}" = "1" ] || [ "$LAUNCH_ONLY" = "1" ]; then
+  # Launch from AppDir (unpackaged binary) - used for SKIP_APPIMAGE or LAUNCH_ONLY
   if [ -x appimage/appdir/usr/bin/chiaki ]; then
     echo "Starting application in foreground with verbose logging enabled..."
     echo "Note: All PSN HTTP requests and responses will be logged to the terminal."
@@ -74,6 +84,7 @@ if [ "${SKIP_APPIMAGE:-0}" = "1" ]; then
     exit 1
   fi
 else
+  # Normal build+launch: run in background from appimage location
   if [ -f appimage/chiaki-ng.AppImage ]; then
     nohup env APPIMAGE_EXTRACT_AND_RUN=1 ./appimage/chiaki-ng.AppImage > /tmp/chiaki_run.log 2>&1 &
     echo $! > /tmp/chiaki_app.pid

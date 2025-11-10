@@ -14,6 +14,7 @@
 #include <QFuture>
 
 class QNetworkAccessManager;
+class QmlGamesBackend;
 
 // PSStream Configuration
 #define PSSTREAM_URL "https://www.xbgamestream.com"
@@ -309,6 +310,7 @@ private:
 
     Settings *settings = {};
     QmlSettings *settings_qml = {};
+    QmlGamesBackend *games_backend = {};
     QmlMainWindow *window = {};
     StreamSession *session = {};
     QThread *frame_thread = {};

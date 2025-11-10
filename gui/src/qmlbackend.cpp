@@ -126,7 +126,8 @@ QmlBackend::QmlBackend(Settings *settings, QmlMainWindow *window, SteamworksWrap
 
     const char *uri = "org.streetpea.chiaking";
     qmlRegisterSingletonInstance(uri, 1, 0, "Chiaki", this);
-    qmlRegisterSingletonInstance(uri, 1, 0, "ChiakiGames", new QmlGamesBackend(settings, this));
+    games_backend = new QmlGamesBackend(settings, this);
+    qmlRegisterSingletonInstance(uri, 1, 0, "ChiakiGames", games_backend);
     qmlRegisterUncreatableType<QmlMainWindow>(uri, 1, 0, "ChiakiWindow", {});
     qmlRegisterUncreatableType<QmlSettings>(uri, 1, 0, "ChiakiSettings", {});
     qmlRegisterUncreatableType<StreamSession>(uri, 1, 0, "ChiakiSession", {});
@@ -465,6 +466,7 @@ void QmlBackend::profileChanged()
     connect(settings, &Settings::CurrentProfileChanged, this, &QmlBackend::profileChanged);
     connect(settings, &Settings::ControllerMappingsUpdated, this, &QmlBackend::updateControllerMappings);
     settings_qml->setSettings(settings);
+    games_backend->setSettings(settings);  // Update games backend settings too
     discovery_manager.SetSettings(settings);
     window->setSettings(settings);
     setDiscoveryEnabled(true);
