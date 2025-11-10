@@ -168,6 +168,10 @@ cat > "${PORTABLE_DIR}/launch.sh" << 'EOF'
 #!/bin/bash
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Set Steam App ID for Steamworks API initialization
+export SteamAppId=3946320
+export SteamGameId=3946320
+
 # Always prioritize our bundled libs (NSS, Steam libs, Qt, etc.)
 LIBS="${DIR}/usr/lib"
 
