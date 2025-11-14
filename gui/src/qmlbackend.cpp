@@ -3123,9 +3123,9 @@ void QmlBackend::checkPSStreamStatus(const QString &code, const QJSValue &callba
 }
 
 // Steam Cloud Sync methods
+#ifdef CHIAKI_ENABLE_STEAMWORKS
 void QmlBackend::syncSteamCloud()
 {
-#ifdef CHIAKI_ENABLE_STEAMWORKS
     if (!steamworks_wrapper || !steamworks_wrapper->isSteamAvailable()) {
         qWarning() << "QmlBackend: Steam not available for cloud sync";
         return;
@@ -3145,14 +3145,10 @@ void QmlBackend::syncSteamCloud()
     } else {
         qWarning() << "QmlBackend: Manual cloud sync failed";
     }
-#else
-    qWarning() << "QmlBackend: Steamworks support not compiled in";
-#endif
 }
 
 void QmlBackend::clearSteamCloudData()
 {
-#ifdef CHIAKI_ENABLE_STEAMWORKS
     qCInfo(chiakiGui) << "QmlBackend: clearSteamCloudData() called";
     
     if (!steamworks_wrapper || !steamworks_wrapper->isSteamAvailable()) {
@@ -3174,14 +3170,10 @@ void QmlBackend::clearSteamCloudData()
     } else {
         qCWarning(chiakiGui) << "QmlBackend: ✗ Failed to clear cloud data";
     }
-#else
-    qCWarning(chiakiGui) << "QmlBackend: Steamworks support not compiled in";
-#endif
 }
 
 void QmlBackend::deleteProfileFromCloud(const QString &profileName)
 {
-#ifdef CHIAKI_ENABLE_STEAMWORKS
     qCInfo(chiakiGui) << "QmlBackend: deleteProfileFromCloud() called for profile:" << profileName;
     
     if (!steamworks_wrapper || !steamworks_wrapper->isSteamAvailable()) {
@@ -3203,15 +3195,10 @@ void QmlBackend::deleteProfileFromCloud(const QString &profileName)
     } else {
         qCWarning(chiakiGui) << "QmlBackend: ✗ Failed to delete profile" << profileName << "from cloud";
     }
-#else
-    Q_UNUSED(profileName)
-    qCWarning(chiakiGui) << "QmlBackend: Steamworks support not compiled in";
-#endif
 }
 
 bool QmlBackend::isSteamCloudEnabled()
 {
-#ifdef CHIAKI_ENABLE_STEAMWORKS
     if (!steamworks_wrapper || !steamworks_wrapper->isSteamAvailable()) {
         return false;
     }
@@ -3222,14 +3209,10 @@ bool QmlBackend::isSteamCloudEnabled()
     }
     
     return cloudSync->isEnabled();
-#else
-    return false;
-#endif
 }
 
 void QmlBackend::setSteamCloudEnabled(bool enabled)
 {
-#ifdef CHIAKI_ENABLE_STEAMWORKS
     qCInfo(chiakiGui) << "QmlBackend: setSteamCloudEnabled called with:" << enabled;
     
     if (!steamworks_wrapper || !steamworks_wrapper->isSteamAvailable()) {
@@ -3245,11 +3228,8 @@ void QmlBackend::setSteamCloudEnabled(bool enabled)
     
     cloudSync->setEnabled(enabled);
     qCInfo(chiakiGui) << "QmlBackend: Steam Cloud sync" << (enabled ? "enabled" : "disabled");
-#else
-    Q_UNUSED(enabled)
-    qCWarning(chiakiGui) << "QmlBackend: Steamworks support not compiled in";
-#endif
 }
+#endif  // CHIAKI_ENABLE_STEAMWORKS
 
 void PsnConnectionWorker::ConnectPsnConnection(StreamSession *session, const QString &duid, const bool &ps5)
 {

@@ -34,9 +34,7 @@ Q_DECLARE_LOGGING_CATEGORY(chiakiGui);
 class Settings;
 class StreamSession;
 class QmlBackend;
-#ifdef CHIAKI_ENABLE_STEAMWORKS
-class SteamworksWrapper;
-#endif
+class SteamworksWrapper;  // Always forward-declare for pointer parameters
 
 class QmlMainWindow : public QWindow
 {

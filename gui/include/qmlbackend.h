@@ -24,9 +24,7 @@ class QmlGamesBackend;
 #include <QWebEngineUrlRequestInterceptor>
 #endif
 
-#ifdef CHIAKI_ENABLE_STEAMWORKS
-class SteamworksWrapper;
-#endif
+class SteamworksWrapper;  // Always forward-declare for pointer parameters
 
 class SystemdInhibit;
 #ifdef Q_OS_MACOS
