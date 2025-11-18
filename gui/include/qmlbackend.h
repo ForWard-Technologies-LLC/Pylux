@@ -5,6 +5,7 @@
 #include "qmlmainwindow.h"
 #include "qmlcontroller.h"
 #include "qmlsettings.h"
+#include "cloudstreamingbackend.h"
 
 #include <QObject>
 #include <QThread>
@@ -99,6 +100,7 @@ class QmlBackend : public QObject
     Q_PROPERTY(bool controllerMappingInProgress READ controllerMappingInProgress NOTIFY controllerMappingInProgressChanged)
     Q_PROPERTY(bool controllerMappingAltered READ controllerMappingAltered NOTIFY controllerMappingAlteredChanged)
     Q_PROPERTY(bool enableAnalogStickMapping READ enableAnalogStickMapping WRITE setEnableAnalogStickMapping NOTIFY enableAnalogStickMappingChanged)
+    Q_PROPERTY(CloudStreamingBackend* cloudStreaming READ cloudStreaming CONSTANT)
 
 public:
 
@@ -124,6 +126,7 @@ public:
     QmlSettings *qmlSettings() const;
     StreamSession *qmlSession() const;
     QList<QmlController*> qmlControllers() const;
+    CloudStreamingBackend *cloudStreaming() const;
 
     bool discoveryEnabled() const;
     void setDiscoveryEnabled(bool enabled);
@@ -309,6 +312,7 @@ private:
     Settings *settings = {};
     QmlSettings *settings_qml = {};
     QmlGamesBackend *games_backend = {};
+    CloudStreamingBackend *cloud_streaming_backend = {};
     QmlMainWindow *window = {};
     StreamSession *session = {};
     QThread *frame_thread = {};

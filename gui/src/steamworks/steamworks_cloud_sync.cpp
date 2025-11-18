@@ -706,6 +706,13 @@ bool SteamCloudSync::uploadFile(const QString &localPath)
         qCWarning(chiakiGui) << "SteamCloudSync: File is empty, skipping upload:" << localPath;
         return false;
     }
+    
+    // Additional validation: ensure file size is reasonable
+    if (data.size() <= 0 || data.size() > 20 * 1024 * 1024) {  // Max 20MB for profile configs
+        qCWarning(chiakiGui) << "SteamCloudSync: File size invalid or too large:" << localPath 
+                   << "- Size:" << data.size() << "bytes";
+        return false;
+    }
 
     // Get local file info for logging
     QFileInfo localInfo(localPath);
@@ -720,7 +727,20 @@ bool SteamCloudSync::uploadFile(const QString &localPath)
                                             data.size());
 
     if (success) {
-        qCInfo(chiakiGui) << "SteamCloudSync: Successfully uploaded" << cloudFilename << "to Steam Cloud";
+        // Verify the upload by checking the cloud file size
+        int32 cloudFileSize = remoteStorage->GetFileSize(cloudFilename.toUtf8().constData());
+        if (cloudFileSize == data.size()) {
+            qCInfo(chiakiGui) << "SteamCloudSync: Successfully uploaded" << cloudFilename << "to Steam Cloud"
+                     << "- Verified size:" << cloudFileSize << "bytes";
+        } else {
+            qCWarning(chiakiGui) << "SteamCloudSync: Upload succeeded but size mismatch for" << cloudFilename
+                       << "- Expected:" << data.size() << "bytes, Cloud has:" << cloudFileSize << "bytes";
+            
+            // Delete the corrupted upload
+            remoteStorage->FileDelete(cloudFilename.toUtf8().constData());
+            qCWarning(chiakiGui) << "SteamCloudSync: Deleted corrupted upload:" << cloudFilename;
+            return false;
+        }
     } else {
         qCWarning(chiakiGui) << "SteamCloudSync: Failed to upload" << cloudFilename;
         qCWarning(chiakiGui) << "SteamCloudSync: This usually means Steam Cloud is not enabled in Steamworks Partner";
@@ -755,6 +775,16 @@ bool SteamCloudSync::downloadFile(const QString &cloudFilename)
     int32 fileSize = remoteStorage->GetFileSize(cloudFilename.toUtf8().constData());
     if (fileSize <= 0) {
         qCWarning(chiakiGui) << "SteamCloudSync: Invalid file size for" << cloudFilename;
+        qCWarning(chiakiGui) << "SteamCloudSync: Deleting corrupted cloud file:" << cloudFilename;
+        
+        // Delete the corrupted file from Steam Cloud
+        bool deleted = remoteStorage->FileDelete(cloudFilename.toUtf8().constData());
+        if (deleted) {
+            qCInfo(chiakiGui) << "SteamCloudSync: Successfully deleted corrupted file:" << cloudFilename;
+        } else {
+            qCWarning(chiakiGui) << "SteamCloudSync: Failed to delete corrupted file:" << cloudFilename;
+        }
+        
         return false;
     }
 

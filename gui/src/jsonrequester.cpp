@@ -19,16 +19,16 @@ QString JsonRequester::generateBasicAuthHeader(QString username, QString passwor
 }
 
 void JsonRequester::makePostRequest(const QString& url, const QString& authHeader, const QString contentType,
-                                    const QString body) {
-    makeRequest(true, url, authHeader, contentType, body);
+                                    const QString body, QString userAgent) {
+    makeRequest(true, url, authHeader, contentType, body, userAgent);
 }
 
-void JsonRequester::makeGetRequest(const QString& url, const QString& authHeader, const QString contentType) {
-    makeRequest(false, url, authHeader, contentType, nullptr);
+void JsonRequester::makeGetRequest(const QString& url, const QString& authHeader, const QString contentType, QString userAgent) {
+    makeRequest(false, url, authHeader, contentType, nullptr, userAgent);
 }
 
 void JsonRequester::makeRequest(bool post, const QString& url, const QString& authHeader, const QString contentType,
-                                const QString body) {
+                                const QString body, QString userAgent) {
     // Always log the URL
     qCInfo(chiakiGui) << "PSN" << (post ? "POST" : "GET") << "request:" << url;
     
@@ -36,6 +36,9 @@ void JsonRequester::makeRequest(bool post, const QString& url, const QString& au
     qCDebug(chiakiGui) << "PSN Network Request Details:";
     qCDebug(chiakiGui) << "  Content-Type:" << contentType;
     qCDebug(chiakiGui) << "  Authorization:" <<  authHeader;
+    if (!userAgent.isEmpty()) {
+        qCDebug(chiakiGui) << "  User-Agent:" << userAgent;
+    }
     if (post && !body.isEmpty()) {
         qCDebug(chiakiGui) << "  Body:" << body;
     }
@@ -44,6 +47,11 @@ void JsonRequester::makeRequest(bool post, const QString& url, const QString& au
     QNetworkRequest request(q_url);
     request.setRawHeader("Authorization", authHeader.toUtf8());
     request.setRawHeader("Content-Type", contentType.toUtf8());
+    
+    // Set User-Agent if provided
+    if (!userAgent.isEmpty()) {
+        request.setRawHeader("User-Agent", userAgent.toUtf8());
+    }
 
     QNetworkReply* reply;
     if (post) {

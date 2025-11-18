@@ -390,7 +390,7 @@ Pane {
                 
                 // Keyboard navigation
                 KeyNavigation.left: manuallyAddHeaderButton
-                KeyNavigation.right: settingsButton
+                KeyNavigation.right: cloudAuthButton
                 KeyNavigation.down: hostsView.count === 0 ? addManuallyButton : hostsView
                 
                 // A button (Key_Return) support
@@ -463,6 +463,107 @@ Pane {
             }
 
             Button {
+                id: cloudAuthButton
+                Layout.preferredHeight: 48
+                Layout.preferredWidth: 48
+                flat: true
+                text: "☁"
+                font.pixelSize: 24
+                font.weight: Font.Bold
+                focusPolicy: Qt.StrongFocus
+                hoverEnabled: true
+                
+                ToolTip.visible: hovered || activeFocus
+                ToolTip.text: qsTr("Test Cloud Streaming Auth")
+                
+                // Keyboard navigation
+                KeyNavigation.left: psnLoginHeaderButton
+                KeyNavigation.right: settingsButton
+                KeyNavigation.down: hostsView.count === 0 ? addManuallyButton : hostsView
+                
+                // A button (Key_Return) support
+                Keys.onReturnPressed: {
+                    clicked();
+                    event.accepted = true;
+                }
+                
+                // When navigating down to GridView, ensure it has focus and a current item
+                Keys.onDownPressed: {
+                    if (hostsView.count > 0) {
+                        hostsView.currentIndex = 0;
+                        hostsView.forceActiveFocus();
+                        event.accepted = true;
+                    } else {
+                        if (addManuallyButton.visible) {
+                            addManuallyButton.forceActiveFocus();
+                        } else {
+                            setupGuideButton.forceActiveFocus();
+                        }
+                        event.accepted = true;
+                    }
+                }
+                
+                onClicked: {
+                    console.log("=== Cloud Streaming Button Clicked ===");
+                    
+                    // Show immediate feedback
+                    errorTitleLabel.text = qsTr("Cloud Streaming");
+                    errorTextLabel.text = qsTr("Initializing cloud streaming session...");
+                    errorToast.color = "#2196F3";
+                    errorHideTimer.start();
+                    
+                    // Single call - does ALL 13 steps automatically
+                    Chiaki.cloudStreaming.startCompleteCloudSession(function(success, message, serverIp) {
+                        console.log("=== Cloud Streaming:", success ? "SUCCESS" : "FAILED", "===");
+                        console.log("Result:", message);
+                        
+                        if (success) {
+                            console.log("Allocated Server IP:", serverIp);
+                            errorTitleLabel.text = qsTr("Ready to Stream!");
+                            errorTextLabel.text = message;
+                            errorToast.color = "#4CAF50";
+                            errorHideTimer.start();
+                        } else {
+                            errorTitleLabel.text = qsTr("Cloud Streaming Failed");
+                            errorTextLabel.text = message;
+                            errorToast.color = "#F44336";
+                            errorHideTimer.start();
+                        }
+                    });
+                }
+                
+                background: Rectangle {
+                    radius: 8
+                    color: parent.activeFocus ? Qt.rgba(0, 212/255, 255/255, 0.2) : Qt.rgba(255, 255, 255, 0.1)
+                    border.color: parent.activeFocus ? "#ffffff" : "#FFD700"
+                    border.width: parent.activeFocus ? 2 : 1
+                    
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: parent.radius
+                        color: "#FFD700"
+                        opacity: parent.parent.hovered ? 0.3 : 0
+                        Behavior on opacity { NumberAnimation { duration: 200 } }
+                    }
+                    
+                    // Focus glow effect
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: parent.radius
+                        color: "transparent"
+                        border.color: "#FFD700"
+                        border.width: 2
+                        opacity: parent.parent.activeFocus ? 0.6 : 0
+                        Behavior on opacity { NumberAnimation { duration: 200 } }
+                    }
+                    
+                    Behavior on color { ColorAnimation { duration: 200 } }
+                    Behavior on border.color { ColorAnimation { duration: 200 } }
+                    Behavior on border.width { NumberAnimation { duration: 200 } }
+                }
+            }
+
+            Button {
                 id: settingsButton
                     Layout.preferredHeight: 48
                     Layout.preferredWidth: 48
@@ -475,7 +576,7 @@ Pane {
                 onClicked: root.showSettingsDialog()
                 
                 // Keyboard navigation
-                KeyNavigation.left: psnLoginHeaderButton
+                KeyNavigation.left: cloudAuthButton
                 KeyNavigation.right: closeButton
                 KeyNavigation.down: hostsView.count === 0 ? addManuallyButton : hostsView
                 

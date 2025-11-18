@@ -128,6 +128,7 @@ QmlBackend::QmlBackend(Settings *settings, QmlMainWindow *window, SteamworksWrap
     qmlRegisterSingletonInstance(uri, 1, 0, "Chiaki", this);
     games_backend = new QmlGamesBackend(settings, this);
     qmlRegisterSingletonInstance(uri, 1, 0, "ChiakiGames", games_backend);
+    cloud_streaming_backend = new CloudStreamingBackend(settings, this);
     qmlRegisterUncreatableType<QmlMainWindow>(uri, 1, 0, "ChiakiWindow", {});
     qmlRegisterUncreatableType<QmlSettings>(uri, 1, 0, "ChiakiSettings", {});
     qmlRegisterUncreatableType<StreamSession>(uri, 1, 0, "ChiakiSession", {});
@@ -381,6 +382,11 @@ QmlMainWindow *QmlBackend::qmlWindow() const
 QmlSettings *QmlBackend::qmlSettings() const
 {
     return settings_qml;
+}
+
+CloudStreamingBackend *QmlBackend::cloudStreaming() const
+{
+    return cloud_streaming_backend;
 }
 
 StreamSession *QmlBackend::qmlSession() const

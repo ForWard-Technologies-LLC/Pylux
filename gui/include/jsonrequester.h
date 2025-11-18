@@ -15,9 +15,9 @@ public:
     explicit JsonRequester(QObject* parent = nullptr);
 
     void makePostRequest(const QString& url, const QString& authHeader, QString contentType = "application/json",
-    QString body = "");
+    QString body = "", QString userAgent = "");
 
-    void makeGetRequest(const QString& url, const QString& authHeader, QString contentType = "application/json");
+    void makeGetRequest(const QString& url, const QString& authHeader, QString contentType = "application/json", QString userAgent = "");
 
     static QString generateBearerAuthHeader(QString bearerToken);
 
@@ -33,7 +33,7 @@ private slots:
 
 private:
     void makeRequest(bool post, const QString& url, const QString& authHeader, QString contentType,
-                     QString body = nullptr);
+                     QString body = nullptr, QString userAgent = "");
 
     QNetworkAccessManager* networkManager;
     QHash<QNetworkReply *, QString> currentReplies;
