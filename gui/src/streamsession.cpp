@@ -144,6 +144,10 @@ StreamSessionConnectInfo::StreamSessionConnectInfo(
 	this->dpad_touch_shortcut4 = settings->GetDpadTouchShortcut4();
 	if(this->dpad_touch_shortcut4 > 0)
 		this->dpad_touch_shortcut4 = 1 << (this->dpad_touch_shortcut4 - 1);
+	this->cloud_mode = false;
+	this->cloud_launch_spec = QString();
+	this->cloud_handshake_key = QString();
+	this->cloud_session_id = QString();
 }
 
 static void AudioSettingsCb(uint32_t channels, uint32_t rate, void *user);
@@ -291,15 +295,33 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 		chiaki_connect_info.video_profile.codec = CHIAKI_CODEC_H264;
 	}
 #endif
-	if(connect_info.duid.isEmpty())
+	// Cloud mode: skip regist_key/morning validation (not used for cloud streaming)
+	if(connect_info.cloud_mode)
 	{
+		CHIAKI_LOGI(GetChiakiLog(), "Cloud mode: skipping regist_key/morning validation");
+	}
+	else if(connect_info.duid.isEmpty())
+	{
+		CHIAKI_LOGI(GetChiakiLog(), "Local connection: validating regist_key and morning");
 		if(connect_info.regist_key.size() != sizeof(chiaki_connect_info.regist_key))
+		{
+			CHIAKI_LOGE(GetChiakiLog(), "RegistKey invalid: size=%zu, expected=%zu", 
+				(size_t)connect_info.regist_key.size(), sizeof(chiaki_connect_info.regist_key));
 			throw ChiakiException("RegistKey invalid");
+		}
 		memcpy(chiaki_connect_info.regist_key, connect_info.regist_key.constData(), sizeof(chiaki_connect_info.regist_key));
 
 		if(connect_info.morning.size() != sizeof(chiaki_connect_info.morning))
+		{
+			CHIAKI_LOGE(GetChiakiLog(), "Morning invalid: size=%zu, expected=%zu", 
+				(size_t)connect_info.morning.size(), sizeof(chiaki_connect_info.morning));
 			throw ChiakiException("Morning invalid");
+		}
 		memcpy(chiaki_connect_info.morning, connect_info.morning.constData(), sizeof(chiaki_connect_info.morning));
+	}
+	else
+	{
+		CHIAKI_LOGI(GetChiakiLog(), "PSN connection: skipping regist_key/morning (using holepunch)");
 	}
 
 	if(chiaki_connect_info.ps5)
@@ -335,9 +357,62 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 			SendFeedbackState();
 		}
 	});
-	// If duid isn't empty connect with psn
+	// Cloud mode: skip holepunch/PSN setup, use direct connection
 	chiaki_connect_info.holepunch_session = NULL;
-	if(!connect_info.duid.isEmpty())
+	if(connect_info.cloud_mode)
+	{
+		// Cloud streaming mode - set cloud parameters
+		chiaki_connect_info.cloud_mode = true;
+		QByteArray cloud_launch_spec_bytes = connect_info.cloud_launch_spec.toUtf8();
+		QByteArray cloud_handshake_key_bytes = connect_info.cloud_handshake_key.toUtf8();
+		QByteArray cloud_session_id_bytes = connect_info.cloud_session_id.toUtf8();
+		
+		// Store cloud parameters (need to keep them alive for the session)
+		cloud_launch_spec_storage = cloud_launch_spec_bytes;
+		cloud_handshake_key_storage = cloud_handshake_key_bytes;
+		cloud_session_id_storage = cloud_session_id_bytes;
+		
+		chiaki_connect_info.cloud_launch_spec = cloud_launch_spec_storage.constData();
+		chiaki_connect_info.cloud_handshake_key = cloud_handshake_key_storage.constData();
+		chiaki_connect_info.cloud_session_id = cloud_session_id_storage.constData();
+		
+		// Extract port from host string if it contains "IP:PORT" format
+		// getaddrinfo needs just the IP, not IP:PORT
+		QString hostStr = connect_info.host;
+		CHIAKI_LOGI(GetChiakiLog(), "Cloud mode: parsing host string: %s", hostStr.toUtf8().constData());
+		int colonPos = hostStr.lastIndexOf(':');
+		if(colonPos > 0)
+		{
+			QString portStr = hostStr.mid(colonPos + 1);
+			CHIAKI_LOGI(GetChiakiLog(), "Cloud mode: found port string: %s", portStr.toUtf8().constData());
+			bool ok;
+			uint16_t port = portStr.toUShort(&ok);
+			if(ok && port > 0)
+			{
+				chiaki_connect_info.cloud_port = port;
+				// Update host to be just the IP address for getaddrinfo
+				hostStr = hostStr.left(colonPos);
+				QByteArray hostBytes = hostStr.toUtf8();
+				host_storage = hostBytes;
+				chiaki_connect_info.host = host_storage.constData();
+				CHIAKI_LOGI(GetChiakiLog(), "Cloud mode: successfully extracted port %u from host string", port);
+				CHIAKI_LOGI(GetChiakiLog(), "Cloud mode: using IP address: %s", chiaki_connect_info.host);
+			}
+			else
+			{
+				CHIAKI_LOGW(GetChiakiLog(), "Cloud mode: failed to parse port '%s' as valid port number", portStr.toUtf8().constData());
+				chiaki_connect_info.cloud_port = 0;
+			}
+		}
+		else
+		{
+			CHIAKI_LOGW(GetChiakiLog(), "Cloud mode: no ':' found in host string, assuming no port specified");
+			CHIAKI_LOGW(GetChiakiLog(), "Cloud mode: host string: %s", connect_info.host.toUtf8().constData());
+			chiaki_connect_info.cloud_port = 0;
+		}
+	}
+	// If duid isn't empty connect with psn (skip for cloud mode)
+	else if(!connect_info.duid.isEmpty())
 	{
 		err = InitiatePsnConnection(connect_info.psn_token);
 		if (err != CHIAKI_ERR_SUCCESS)
@@ -348,6 +423,13 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
             throw ChiakiException((tr("Invalid Account-ID"), tr("The PSN Account-ID must be exactly %1 bytes encoded as base64.")).arg(CHIAKI_PSN_ACCOUNT_ID_SIZE));
         }
         memcpy(chiaki_connect_info.psn_account_id, psn_account_id.constData(), CHIAKI_PSN_ACCOUNT_ID_SIZE);
+	}
+	else
+	{
+		chiaki_connect_info.cloud_mode = false;
+		chiaki_connect_info.cloud_launch_spec = NULL;
+		chiaki_connect_info.cloud_handshake_key = NULL;
+		chiaki_connect_info.cloud_session_id = NULL;
 	}
 	err = chiaki_session_init(&session, &chiaki_connect_info, GetChiakiLog());
 	if(err != CHIAKI_ERR_SUCCESS)

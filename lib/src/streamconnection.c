@@ -158,14 +158,20 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_run(ChiakiStreamConnectio
 		if(!takion_info.sa)
 			return CHIAKI_ERR_MEMORY;
 		memcpy(takion_info.sa, session->connect_info.host_addrinfo_selected->ai_addr, takion_info.sa_len);
-		err = set_port(takion_info.sa, htons(STREAM_CONNECTION_PORT));
+		// Cloud mode: use API-provided port, Remote play: use default port
+		uint16_t port = (session->cloud_mode && session->cloud_port > 0) ? session->cloud_port : STREAM_CONNECTION_PORT;
+		CHIAKI_LOGI(session->log, "Setting Takion connection port=%u (cloud_mode=%d, cloud_port=%u)", 
+			port, session->cloud_mode, session->cloud_port);
+		err = set_port(takion_info.sa, htons(port));
 		assert(err == CHIAKI_ERR_SUCCESS);
 	}
 	takion_info.ip_dontfrag = session->dontfrag;
 
-	takion_info.enable_crypt = true;
+	takion_info.enable_crypt = session->cloud_mode ? false : true;
 	takion_info.enable_dualsense = session->connect_info.enable_dualsense;
-	takion_info.protocol_version = chiaki_target_is_ps5(session->target) ? 12 : 9;
+	// Cloud Play requires protocol version 9
+	takion_info.protocol_version = session->cloud_mode ? 9 : (chiaki_target_is_ps5(session->target) ? 12 : 9);
+	takion_info.protocol = session->cloud_mode ? CHIAKI_TAKION_PROTOCOL_CLOUD_PLAY : CHIAKI_TAKION_PROTOCOL_REMOTE_PLAY;
 
 	takion_info.cb = stream_connection_takion_cb;
 	takion_info.cb_user = stream_connection;
@@ -788,11 +794,14 @@ static void stream_connection_takion_data_expect_bang(ChiakiStreamConnection *st
 		return;
 	}
 
-	CHIAKI_LOGI(stream_connection->log, "BANG received");
+	CHIAKI_LOGI(stream_connection->log, "BANG received: server_version=%u, token=%u, encrypted_key_accepted=%d, version_accepted=%d",
+		msg.bang_payload.server_version, msg.bang_payload.token,
+		msg.bang_payload.encrypted_key_accepted, msg.bang_payload.version_accepted);
 
 	if(!msg.bang_payload.version_accepted)
 	{
-		CHIAKI_LOGE(stream_connection->log, "StreamConnection bang remote didn't accept version");
+		CHIAKI_LOGE(stream_connection->log, "StreamConnection bang remote didn't accept version (sent client_version=%u, server reports server_version=%u)",
+			stream_connection->takion.version, msg.bang_payload.server_version);
 		goto error;
 	}
 
@@ -994,50 +1003,63 @@ static bool chiaki_pb_encode_zero_encrypted_key(pb_ostream_t *stream, const pb_f
 static ChiakiErrorCode stream_connection_send_big(ChiakiStreamConnection *stream_connection)
 {
 	ChiakiSession *session = stream_connection->session;
+	ChiakiErrorCode err;
+	const char *launch_spec_b64_ptr;
 
-	ChiakiLaunchSpec launch_spec;
-	launch_spec.target = session->target;
-	launch_spec.mtu = session->mtu_in;
-	launch_spec.rtt = session->rtt_us / 1000;
-	launch_spec.handshake_key = session->handshake_key;
-
-	launch_spec.width = session->connect_info.video_profile.width;
-	launch_spec.height = session->connect_info.video_profile.height;
-	launch_spec.max_fps = session->connect_info.video_profile.max_fps;
-	launch_spec.codec = session->connect_info.video_profile.codec;
-	launch_spec.bw_kbps_sent = session->connect_info.video_profile.bitrate;
-
-	union
+	// Cloud Play: use API-provided launch spec directly
+	if(session->cloud_mode)
 	{
-		char json[LAUNCH_SPEC_JSON_BUF_SIZE];
-		char b64[LAUNCH_SPEC_JSON_BUF_SIZE * 2];
-	} launch_spec_buf;
-	int launch_spec_json_size = chiaki_launchspec_format(launch_spec_buf.json, sizeof(launch_spec_buf.json), &launch_spec);
-	if(launch_spec_json_size < 0)
-	{
-		CHIAKI_LOGE(stream_connection->log, "StreamConnection failed to format LaunchSpec json");
-		return CHIAKI_ERR_UNKNOWN;
+		if(!session->cloud_launch_spec)
+			return CHIAKI_ERR_INVALID_DATA;
+		launch_spec_b64_ptr = session->cloud_launch_spec;
 	}
-	launch_spec_json_size += 1; // we also want the trailing 0
-
-	CHIAKI_LOGV(stream_connection->log, "LaunchSpec: %s", launch_spec_buf.json);
-
-	uint8_t launch_spec_json_enc[LAUNCH_SPEC_JSON_BUF_SIZE];
-	memset(launch_spec_json_enc, 0, (size_t)launch_spec_json_size);
-	ChiakiErrorCode err = chiaki_rpcrypt_encrypt(&session->rpcrypt, 0, launch_spec_json_enc, launch_spec_json_enc,
-			(size_t)launch_spec_json_size);
-	if(err != CHIAKI_ERR_SUCCESS)
+	else
 	{
-		CHIAKI_LOGE(stream_connection->log, "StreamConnection failed to encrypt LaunchSpec");
-		return err;
-	}
+		// Remote Play: generate and encrypt launch spec
+		ChiakiLaunchSpec launch_spec;
+		launch_spec.target = session->target;
+		launch_spec.mtu = session->mtu_in;
+		launch_spec.rtt = session->rtt_us / 1000;
+		launch_spec.handshake_key = session->handshake_key;
+		launch_spec.width = session->connect_info.video_profile.width;
+		launch_spec.height = session->connect_info.video_profile.height;
+		launch_spec.max_fps = session->connect_info.video_profile.max_fps;
+		launch_spec.codec = session->connect_info.video_profile.codec;
+		launch_spec.bw_kbps_sent = session->connect_info.video_profile.bitrate;
 
-	xor_bytes(launch_spec_json_enc, (uint8_t *)launch_spec_buf.json, (size_t)launch_spec_json_size);
-	err = chiaki_base64_encode(launch_spec_json_enc, (size_t)launch_spec_json_size, launch_spec_buf.b64, sizeof(launch_spec_buf.b64));
-	if(err != CHIAKI_ERR_SUCCESS)
-	{
-		CHIAKI_LOGE(stream_connection->log, "StreamConnection failed to encode LaunchSpec as base64");
-		return err;
+		union
+		{
+			char json[LAUNCH_SPEC_JSON_BUF_SIZE];
+			char b64[LAUNCH_SPEC_JSON_BUF_SIZE * 2];
+		} launch_spec_buf;
+		int launch_spec_json_size = chiaki_launchspec_format(launch_spec_buf.json, sizeof(launch_spec_buf.json), &launch_spec);
+		if(launch_spec_json_size < 0)
+		{
+			CHIAKI_LOGE(stream_connection->log, "StreamConnection failed to format LaunchSpec json");
+			return CHIAKI_ERR_UNKNOWN;
+		}
+		launch_spec_json_size += 1;
+
+		CHIAKI_LOGV(stream_connection->log, "LaunchSpec: %s", launch_spec_buf.json);
+
+		uint8_t launch_spec_json_enc[LAUNCH_SPEC_JSON_BUF_SIZE];
+		memset(launch_spec_json_enc, 0, (size_t)launch_spec_json_size);
+		err = chiaki_rpcrypt_encrypt(&session->rpcrypt, 0, launch_spec_json_enc, launch_spec_json_enc,
+				(size_t)launch_spec_json_size);
+		if(err != CHIAKI_ERR_SUCCESS)
+		{
+			CHIAKI_LOGE(stream_connection->log, "StreamConnection failed to encrypt LaunchSpec");
+			return err;
+		}
+
+		xor_bytes(launch_spec_json_enc, (uint8_t *)launch_spec_buf.json, (size_t)launch_spec_json_size);
+		err = chiaki_base64_encode(launch_spec_json_enc, (size_t)launch_spec_json_size, launch_spec_buf.b64, sizeof(launch_spec_buf.b64));
+		if(err != CHIAKI_ERR_SUCCESS)
+		{
+			CHIAKI_LOGE(stream_connection->log, "StreamConnection failed to encode LaunchSpec as base64");
+			return err;
+		}
+		launch_spec_b64_ptr = launch_spec_buf.b64;
 	}
 
 	uint8_t ecdh_pub_key[128];
@@ -1060,9 +1082,10 @@ static ChiakiErrorCode stream_connection_send_big(ChiakiStreamConnection *stream
 	msg.type = tkproto_TakionMessage_PayloadType_BIG;
 	msg.has_big_payload = true;
 	msg.big_payload.client_version = stream_connection->takion.version;
+	CHIAKI_LOGI(stream_connection->log, "Sending BIG with client_version=%u", stream_connection->takion.version);
 	msg.big_payload.session_key.arg = session->session_id;
 	msg.big_payload.session_key.funcs.encode = chiaki_pb_encode_string;
-	msg.big_payload.launch_spec.arg = launch_spec_buf.b64;
+	msg.big_payload.launch_spec.arg = launch_spec_b64_ptr;
 	msg.big_payload.launch_spec.funcs.encode = chiaki_pb_encode_string;
 	msg.big_payload.encrypted_key.funcs.encode = chiaki_pb_encode_zero_encrypted_key;
 	msg.big_payload.ecdh_pub_key.arg = &ecdh_pub_key_buf;
@@ -1070,7 +1093,8 @@ static ChiakiErrorCode stream_connection_send_big(ChiakiStreamConnection *stream
 	msg.big_payload.ecdh_sig.arg = &ecdh_sig_buf;
 	msg.big_payload.ecdh_sig.funcs.encode = chiaki_pb_encode_buf;
 
-	uint8_t buf[2048];
+	// Cloud play needs larger buffer for API-provided launch spec (~5000+ bytes)
+	uint8_t buf[8192];
 	size_t buf_size;
 
 	pb_ostream_t stream = pb_ostream_from_buffer(buf, sizeof(buf));
@@ -1083,21 +1107,25 @@ static ChiakiErrorCode stream_connection_send_big(ChiakiStreamConnection *stream
 
 	int32_t total_size = stream.bytes_written;
 	uint32_t mtu = (session->mtu_in < session->mtu_out) ? session->mtu_in : session->mtu_out;
-	// Take into account overhead of network
-	mtu -= 50;
+	// Cloud play: 28 bytes overhead, 30/29 chunk overhead (PSN wrapper adds 4 bytes)
+	// Remote play: 50 bytes overhead, 26/25 chunk overhead
+	uint32_t net_overhead = session->cloud_mode ? 28 : 50;
+	uint32_t first_chunk_overhead = session->cloud_mode ? 30 : 26;
+	uint32_t cont_chunk_overhead = session->cloud_mode ? 29 : 25;
+	mtu -= net_overhead;
 	uint32_t buf_pos = 0;
 	bool first = true;
-	while((mtu < total_size + 26) || (mtu < total_size + 25 && !first))
+	while((mtu < total_size + first_chunk_overhead) || (mtu < total_size + cont_chunk_overhead && !first))
 	{
 		if(first)
 		{
-			buf_size = mtu - 26;
+			buf_size = mtu - first_chunk_overhead;
 			err = chiaki_takion_send_message_data(&stream_connection->takion, 0, 1, buf + buf_pos, buf_size, NULL);
 			first = false;
 		}
 		else
 		{
-			buf_size = mtu - 25;
+			buf_size = mtu - cont_chunk_overhead;
 			err = chiaki_takion_send_message_data_cont(&stream_connection->takion, 0, 1, buf + buf_pos, buf_size, NULL);
 		}
 		buf_pos += buf_size;

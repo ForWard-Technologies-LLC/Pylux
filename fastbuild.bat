@@ -62,11 +62,19 @@ echo   Launching Application:
 echo ========================================
 echo.
 
-REM Run directly so we can see logs (including errors)
-"chiaki-ng-Win\chiaki.exe"
-
+REM Run and save all output to log file
+set LOGFILE=chiaki_fastbuild_logs.txt
+echo Saving logs to: %LOGFILE%
 echo.
-echo Exit code: %ERRORLEVEL%
+
+REM Run with output redirected to both console and file using PowerShell
+powershell -Command "& { & 'chiaki-ng-Win\chiaki.exe' 2>&1 | Tee-Object -FilePath '%LOGFILE%' }"
+
+set EXITCODE=%ERRORLEVEL%
+echo.
+echo Exit code: %EXITCODE%
+echo.
+echo Logs saved to: %LOGFILE%
 
 echo.
 echo ========================================

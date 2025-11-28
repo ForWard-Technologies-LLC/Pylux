@@ -68,6 +68,48 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_ecdh_init(ChiakiECDH *ecdh)
 	return CHIAKI_ERR_SUCCESS;
 }
 
+CHIAKI_EXPORT ChiakiErrorCode chiaki_ecdh_init_p256(ChiakiECDH *ecdh)
+{
+	memset(ecdh, 0, sizeof(ChiakiECDH));
+#ifdef CHIAKI_LIB_ENABLE_MBEDTLS
+#define CHECK(err) if((err) != 0) { \
+	chiaki_ecdh_fini(ecdh); \
+	return CHIAKI_ERR_UNKNOWN; }
+	const char pers[] = "ecdh_p256";
+	mbedtls_entropy_context entropy;
+	mbedtls_entropy_init(&entropy);
+	mbedtls_ecdh_init(&ecdh->ctx);
+	mbedtls_ctr_drbg_init(&ecdh->drbg);
+
+	// Build RNG seed
+	CHECK(mbedtls_ctr_drbg_seed(&ecdh->drbg, mbedtls_entropy_func, &entropy,
+		(const unsigned char *) pers, sizeof pers));
+
+	// Use P-256 curve (SECP256R1) for Cloud Play - produces 65-byte keys
+	CHECK(mbedtls_ecp_group_load(&ecdh->ctx.grp, MBEDTLS_ECP_DP_SECP256R1));
+	
+	// Generate key pair
+	CHECK(mbedtls_ecdh_gen_public(&ecdh->ctx.grp, &ecdh->ctx.d,
+		&ecdh->ctx.Q, mbedtls_ctr_drbg_random, &ecdh->drbg));
+
+	mbedtls_entropy_free(&entropy);
+#undef CHECK
+
+#else
+#define CHECK(a) if(!(a)) { chiaki_ecdh_fini(ecdh); return CHIAKI_ERR_UNKNOWN; }
+	// Use P-256 curve (prime256v1) for Cloud Play - produces 65-byte keys
+	CHECK(ecdh->group = EC_GROUP_new_by_curve_name(NID_X9_62_prime256v1));
+
+	CHECK(ecdh->key_local = EC_KEY_new());
+	CHECK(EC_KEY_set_group(ecdh->key_local, ecdh->group));
+	CHECK(EC_KEY_generate_key(ecdh->key_local));
+
+#undef CHECK
+#endif
+
+	return CHIAKI_ERR_SUCCESS;
+}
+
 CHIAKI_EXPORT void chiaki_ecdh_fini(ChiakiECDH *ecdh)
 {
 #ifdef CHIAKI_LIB_ENABLE_MBEDTLS

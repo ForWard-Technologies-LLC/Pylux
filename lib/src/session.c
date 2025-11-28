@@ -221,12 +221,139 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_session_init(ChiakiSession *session, Chiaki
 		goto error_ctrl;
 	}
 
-	if(session->holepunch_session)
+	// Cloud mode: use direct connection with pre-provided parameters
+	if(connect_info->cloud_mode)
 	{
+		CHIAKI_LOGI(session->log, "=== CLOUD MODE INITIALIZATION ===");
+		CHIAKI_LOGI(session->log, "Cloud mode enabled - using direct connection");
+		CHIAKI_LOGI(session->log, "Host: %s", connect_info->host);
+		CHIAKI_LOGI(session->log, "Cloud port: %u", connect_info->cloud_port);
+		
+		// Store cloud mode flag and parameters
+		session->cloud_mode = true;
+		session->cloud_launch_spec = connect_info->cloud_launch_spec;
+		session->cloud_handshake_key = connect_info->cloud_handshake_key;
+		session->cloud_port = connect_info->cloud_port;
+		
+		if(connect_info->cloud_launch_spec)
+			CHIAKI_LOGI(session->log, "Cloud launch spec provided: length=%zu", strlen(connect_info->cloud_launch_spec));
+		else
+			CHIAKI_LOGW(session->log, "Cloud launch spec is NULL!");
+		
+		if(connect_info->cloud_handshake_key)
+			CHIAKI_LOGI(session->log, "Cloud handshake key provided: length=%zu", strlen(connect_info->cloud_handshake_key));
+		else
+			CHIAKI_LOGW(session->log, "Cloud handshake key is NULL!");
+		
+		// Store cloud session ID
+		if(connect_info->cloud_session_id)
+		{
+			size_t session_id_len = strlen(connect_info->cloud_session_id);
+			if(session_id_len >= CHIAKI_SESSION_ID_SIZE_MAX)
+				session_id_len = CHIAKI_SESSION_ID_SIZE_MAX - 1;
+			memcpy(session->session_id, connect_info->cloud_session_id, session_id_len);
+			session->session_id[session_id_len] = '\0';
+			CHIAKI_LOGI(session->log, "Cloud session ID set: length=%zu, value=%.*s", session_id_len, (int)session_id_len, session->session_id);
+		}
+		else
+		{
+			CHIAKI_LOGW(session->log, "Cloud session ID is NULL!");
+		}
+		
+		// Decode and store handshake key
+		if(connect_info->cloud_handshake_key)
+		{
+			size_t handshake_key_size = CHIAKI_HANDSHAKE_KEY_SIZE;
+			CHIAKI_LOGI(session->log, "Decoding cloud handshake key from base64...");
+			ChiakiErrorCode err = chiaki_base64_decode(connect_info->cloud_handshake_key, strlen(connect_info->cloud_handshake_key), session->handshake_key, &handshake_key_size);
+			if(err != CHIAKI_ERR_SUCCESS || handshake_key_size != CHIAKI_HANDSHAKE_KEY_SIZE)
+			{
+				CHIAKI_LOGE(session->log, "Failed to decode cloud handshake key: err=%d, size=%zu (expected %d)", err, handshake_key_size, CHIAKI_HANDSHAKE_KEY_SIZE);
+				chiaki_session_fini(session);
+				return CHIAKI_ERR_INVALID_DATA;
+			}
+			CHIAKI_LOGI(session->log, "Cloud handshake key decoded successfully: size=%zu", handshake_key_size);
+		}
+		
+		// Resolve host for cloud connection
+		CHIAKI_LOGI(session->log, "Resolving host address: %s", connect_info->host);
+		struct addrinfo hints;
+		memset(&hints, 0, sizeof(hints));
+		hints.ai_socktype = SOCK_DGRAM;
+		char *ipv6 = strchr(connect_info->host, ':');
+		if(ipv6)
+		{
+			hints.ai_family = AF_INET6;
+			CHIAKI_LOGI(session->log, "Detected IPv6 address format");
+		}
+		else
+		{
+			hints.ai_family = AF_INET;
+			CHIAKI_LOGI(session->log, "Detected IPv4 address format");
+		}
+		int r = getaddrinfo(connect_info->host, NULL, &hints, &session->connect_info.host_addrinfos);
+		if(r != 0)
+		{
+			CHIAKI_LOGE(session->log, "Failed to resolve host address '%s': getaddrinfo error %d", connect_info->host, r);
+			chiaki_session_fini(session);
+			return CHIAKI_ERR_PARSE_ADDR;
+		}
+		CHIAKI_LOGI(session->log, "Host address resolved successfully");
+		
+		// Set hostname for logging (getnameinfo might fail, so use the host string as fallback)
+		if(session->connect_info.host_addrinfos)
+		{
+			int nameinfo_r = getnameinfo(session->connect_info.host_addrinfos->ai_addr, 
+				(socklen_t)session->connect_info.host_addrinfos->ai_addrlen, 
+				session->connect_info.hostname, sizeof(session->connect_info.hostname), 
+				NULL, 0, NI_NUMERICHOST);
+			if(nameinfo_r != 0)
+			{
+				CHIAKI_LOGW(session->log, "getnameinfo failed, using host string as hostname");
+				strncpy(session->connect_info.hostname, connect_info->host, sizeof(session->connect_info.hostname) - 1);
+				session->connect_info.hostname[sizeof(session->connect_info.hostname) - 1] = '\0';
+			}
+			CHIAKI_LOGI(session->log, "Cloud mode: hostname set to %s", session->connect_info.hostname);
+		}
+		
+		// Cloud mode doesn't use regist_key/morning
+		memset(session->connect_info.regist_key, 0, sizeof(session->connect_info.regist_key));
+		memset(session->connect_info.morning, 0, sizeof(session->connect_info.morning));
+		CHIAKI_LOGI(session->log, "Cloud mode: regist_key and morning cleared (not used)");
+		
+		// Set host_addrinfo_selected to the first resolved address (needed for stream connection)
+		if(session->connect_info.host_addrinfos)
+		{
+			session->connect_info.host_addrinfo_selected = session->connect_info.host_addrinfos;
+			CHIAKI_LOGI(session->log, "Cloud mode: host_addrinfo_selected set to first resolved address");
+		}
+		else
+		{
+			CHIAKI_LOGE(session->log, "Cloud mode: host_addrinfos is NULL after resolution!");
+			chiaki_session_fini(session);
+			return CHIAKI_ERR_PARSE_ADDR;
+		}
+		
+		// Set target for cloud mode (PS5 is typical for cloud streaming)
+		session->target = CHIAKI_TARGET_PS5_1;
+		CHIAKI_LOGI(session->log, "Cloud mode: target set to PS5");
+		
+		CHIAKI_LOGI(session->log, "=== CLOUD MODE INITIALIZATION COMPLETE ===");
+	}
+	else if(session->holepunch_session)
+	{
+		session->cloud_mode = false;
+		session->cloud_launch_spec = NULL;
+		session->cloud_handshake_key = NULL;
+		session->cloud_port = 0;
 		memcpy(session->connect_info.psn_account_id, connect_info->psn_account_id, sizeof(connect_info->psn_account_id));
 	}
 	else
 	{
+		session->cloud_mode = false;
+		session->cloud_launch_spec = NULL;
+		session->cloud_handshake_key = NULL;
+		session->cloud_port = 0;
 		// make hostname use ipv4 for now
 		struct addrinfo hints;
 		memset(&hints, 0, sizeof(hints));
@@ -477,6 +604,79 @@ static void *session_thread_func(void *arg)
 		session->quit_reason = CHIAKI_QUIT_REASON_STOPPED;
 		QUIT(quit);
 	}
+	
+	// Cloud mode: skip session request, ctrl, and Senkusha - go directly to stream connection
+	if(session->cloud_mode)
+	{
+		CHIAKI_LOGI(session->log, "=== CLOUD MODE: Skipping session request, going directly to stream connection ===");
+		
+		// Set default MTU values for cloud play from API (mtuUpstream: 1254)
+		// The cloud server specifies the exact MTU to use
+		session->mtu_in = 1254;
+		session->mtu_out = 1254;
+		session->rtt_us = 1000;
+		session->dontfrag = false;
+		CHIAKI_LOGI(session->log, "Cloud mode: Using official app MTU values (in=%d, out=%d, rtt=%llu us)", 
+			session->mtu_in, session->mtu_out, (unsigned long long)session->rtt_us);
+		
+		// Generate a nonce for RPCrypt (even though we use pre-encoded launch spec, RPCrypt might be needed)
+		uint8_t nonce[CHIAKI_RPCRYPT_KEY_SIZE];
+		uint8_t morning[CHIAKI_RPCRYPT_KEY_SIZE];
+		ChiakiErrorCode err = chiaki_random_bytes_crypt(nonce, sizeof(nonce));
+		if(err != CHIAKI_ERR_SUCCESS)
+		{
+			CHIAKI_LOGE(session->log, "Cloud mode: Failed to generate nonce");
+			QUIT(quit);
+		}
+		memset(morning, 0, sizeof(morning)); // Cloud mode doesn't use morning
+		memcpy(session->nonce, nonce, sizeof(nonce));
+		
+		// Initialize RPCrypt (needed even for cloud mode, even if we use pre-encoded launch spec)
+		chiaki_rpcrypt_init_auth(&session->rpcrypt, session->target, session->nonce, morning);
+		CHIAKI_LOGI(session->log, "Cloud mode: RPCrypt initialized");
+		
+		// Initialize ECDH with P-256 curve for Cloud Play (produces 65-byte keys)
+		err = chiaki_ecdh_init_p256(&session->ecdh);
+		if(err != CHIAKI_ERR_SUCCESS)
+		{
+			CHIAKI_LOGE(session->log, "Cloud mode: Failed to initialize ECDH (P-256)");
+			QUIT(quit);
+		}
+		CHIAKI_LOGI(session->log, "Cloud mode: ECDH (P-256) initialized successfully");
+		
+		// Go directly to stream connection (no data_sock for cloud mode, it will create its own)
+		chiaki_mutex_unlock(&session->state_mutex);
+		err = chiaki_stream_connection_run(&session->stream_connection, NULL);
+		chiaki_mutex_lock(&session->state_mutex);
+		
+		if(err == CHIAKI_ERR_DISCONNECTED)
+		{
+			CHIAKI_LOGE(session->log, "Cloud mode: Remote disconnected from StreamConnection");
+			if(!strcmp(session->stream_connection.remote_disconnect_reason, "Server shutting down"))
+				session->quit_reason = CHIAKI_QUIT_REASON_STREAM_CONNECTION_REMOTE_SHUTDOWN;
+			else
+				session->quit_reason = CHIAKI_QUIT_REASON_STREAM_CONNECTION_REMOTE_DISCONNECTED;
+			session->quit_reason_str = strdup(session->stream_connection.remote_disconnect_reason);
+		}
+		else if(err != CHIAKI_ERR_SUCCESS && err != CHIAKI_ERR_CANCELED)
+		{
+			CHIAKI_LOGE(session->log, "Cloud mode: StreamConnection run failed: %s", chiaki_error_string(err));
+			session->quit_reason = CHIAKI_QUIT_REASON_STREAM_CONNECTION_UNKNOWN;
+		}
+		else
+		{
+			CHIAKI_LOGI(session->log, "Cloud mode: StreamConnection completed successfully");
+			session->quit_reason = CHIAKI_QUIT_REASON_STOPPED;
+		}
+		
+		chiaki_mutex_unlock(&session->state_mutex);
+		chiaki_ecdh_fini(&session->ecdh);
+		chiaki_mutex_lock(&session->state_mutex);
+		
+		CHIAKI_LOGI(session->log, "Cloud mode: Session thread completed");
+		QUIT(quit);
+	}
+	
 	CHIAKI_LOGI(session->log, "Starting session request for %s", session->connect_info.ps5 ? "PS5" : "PS4");
 
 	ChiakiTarget server_target = CHIAKI_TARGET_PS4_UNKNOWN;

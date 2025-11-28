@@ -3,11 +3,19 @@
 #include "cloudstreamingbackend.h"
 #include "cloudstreaming/pskamajisession.h"
 #include "cloudstreaming/psgaikaistreaming.h"
+#include "streamsession.h"
+#include "exception.h"
 #include "chiaki/remote/holepunch.h"
+#include "chiaki/session.h"
 
 #include <QObject>
 #include <QDateTime>
 #include <QLoggingCategory>
+#include <QSet>
+
+extern "C" {
+#include <libavcodec/avcodec.h>
+}
 
 Q_DECLARE_LOGGING_CATEGORY(chiakiGui)
 
@@ -17,7 +25,7 @@ Q_DECLARE_LOGGING_CATEGORY(chiakiGui)
 namespace CloudConfig {
     // Test values (will be passed as parameters when ready for production)
     static const QString TEST_NPSSO = "qg7lzIy8Rg3zYu7FPQ9WAhcrEP1zceCuhYdIqRLuxazz4s8V0CT78AS8NTXs0PhC";
-    static const QString TEST_ENTITLEMENT_ID = "UP0082-CUSA16704_00-PSRSVD0000000000";
+    static const QString TEST_ENTITLEMENT_ID = "UP0001-CUSA09311_00-PSRSVD0000000000";
     
     // User preferences (will be settings later)
     static const int RESOLUTION = 1080;
@@ -98,13 +106,126 @@ void CloudStreamingBackend::startCompleteCloudSession(const QJSValue &callback)
             qInfo() << "Ready to connect to streaming server:";
             qInfo() << "  IP:" << serverIp;
             qInfo() << "  Port:" << serverPort;
+            qInfo() << "  Session ID:" << sessionId;
             
-            if (callback.isCallable()) {
-                callback.call({
-                    true, 
-                    "Cloud session ready",
-                    serverIp
-                });
+            qInfo() << "Creating StreamSessionConnectInfo for cloud streaming";
+            qInfo() << "  Server IP:" << serverIp;
+            qInfo() << "  Server Port:" << serverPort;
+            qInfo() << "  Session ID length:" << sessionId.length();
+            qInfo() << "  Handshake key length:" << handshakeKey.length();
+            qInfo() << "  Launch spec length:" << launchSpec.length();
+            
+            // Create StreamSessionConnectInfo with cloud parameters
+            // Pass host as "IP:PORT" format - StreamSession will extract port for cloud mode
+            StreamSessionConnectInfo connect_info(
+                settings,
+                CHIAKI_TARGET_PS5_1, // Cloud streaming uses PS5 target
+                QString("%1:%2").arg(serverIp).arg(serverPort), // host:port (will be split in StreamSession)
+                QString(), // nickname
+                QByteArray(), // regist_key (not used for cloud)
+                QByteArray(), // morning (not used for cloud)
+                QString(), // initial_login_pin
+                QString(), // duid (not used for cloud, direct connection)
+                false, // auto_regist
+                false, // fullscreen
+                false, // zoom
+                false  // stretch
+            );
+            
+            // Set cloud mode parameters BEFORE any validation
+            connect_info.cloud_mode = true;
+            connect_info.cloud_launch_spec = launchSpec;
+            connect_info.cloud_handshake_key = handshakeKey;
+            connect_info.cloud_session_id = sessionId;
+            
+            qInfo() << "Cloud mode parameters set:";
+            qInfo() << "  cloud_mode:" << connect_info.cloud_mode;
+            qInfo() << "  cloud_session_id set:" << !connect_info.cloud_session_id.isEmpty();
+            qInfo() << "  cloud_handshake_key set:" << !connect_info.cloud_handshake_key.isEmpty();
+            qInfo() << "  cloud_launch_spec set:" << !connect_info.cloud_launch_spec.isEmpty();
+            
+            // Resolve "auto" hardware decoder to actual decoder
+            if(connect_info.hw_decoder == "auto")
+            {
+                connect_info.hw_decoder = QString();
+                // Auto-detect available hardware decoder
+                static QSet<QString> allowed = {
+                    "vulkan",
+#if defined(Q_OS_LINUX)
+                    "vaapi",
+#elif defined(Q_OS_MACOS)
+                    "videotoolbox",
+#elif defined(Q_OS_WIN)
+                    "d3d11va",
+#endif
+                };
+                
+                enum AVHWDeviceType hw_dev = AV_HWDEVICE_TYPE_NONE;
+                QStringList available;
+                while (true) {
+                    hw_dev = av_hwdevice_iterate_types(hw_dev);
+                    if (hw_dev == AV_HWDEVICE_TYPE_NONE)
+                        break;
+                    const QString name = QString::fromUtf8(av_hwdevice_get_type_name(hw_dev));
+                    if (allowed.contains(name))
+                        available.append(name);
+                }
+                
+                // Select decoder based on platform preferences
+                if (available.contains("vulkan")) {
+                    connect_info.hw_decoder = "vulkan";
+                    qInfo() << "Auto-selected hardware decoder: vulkan";
+                }
+#if defined(Q_OS_LINUX)
+                else if (available.contains("vaapi")) {
+                    connect_info.hw_decoder = "vaapi";
+                    qInfo() << "Auto-selected hardware decoder: vaapi";
+                }
+#elif defined(Q_OS_WIN)
+                else if (available.contains("d3d11va")) {
+                    connect_info.hw_decoder = "d3d11va";
+                    qInfo() << "Auto-selected hardware decoder: d3d11va";
+                }
+#elif defined(Q_OS_MACOS)
+                else if (available.contains("videotoolbox")) {
+                    connect_info.hw_decoder = "videotoolbox";
+                    qInfo() << "Auto-selected hardware decoder: videotoolbox";
+                }
+#endif
+                else {
+                    qInfo() << "No hardware decoder available, using software decoding";
+                }
+            }
+            
+            // Create and start StreamSession
+            qInfo() << "=== Creating StreamSession ===";
+            try {
+                qInfo() << "Instantiating StreamSession with cloud parameters...";
+                StreamSession *session = new StreamSession(connect_info, this);
+                qInfo() << "StreamSession created successfully, starting stream...";
+                
+                // Note: Start() is asynchronous - success will be reported via session events
+                // Do NOT report success here - wait for actual connection
+                session->Start();
+                qInfo() << "StreamSession Start() called (connection is asynchronous)";
+                
+                // Success will be reported when the stream actually connects
+                // For now, just indicate that we've initiated the connection
+                if (callback.isCallable()) {
+                    callback.call({
+                        true, 
+                        "Cloud session connection initiated (waiting for server response...)",
+                        serverIp
+                    });
+                }
+            } catch (const Exception &e) {
+                qWarning() << "Failed to start cloud streaming session:" << e.what();
+                if (callback.isCallable()) {
+                    callback.call({
+                        false, 
+                        QString("Failed to start session: %1").arg(e.what())
+                    });
+                }
             }
             
             // Clean up

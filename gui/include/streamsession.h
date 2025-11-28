@@ -116,6 +116,11 @@ struct StreamSessionConnectInfo
 	uint dpad_touch_shortcut4;
 	QString game_name;
 	QString title_id;
+	// Cloud streaming mode fields
+	bool cloud_mode;
+	QString cloud_launch_spec;
+	QString cloud_handshake_key;
+	QString cloud_session_id;
 
 	StreamSessionConnectInfo() {}
 	StreamSessionConnectInfo(
@@ -263,6 +268,11 @@ class StreamSession : public QObject
 		MicBuf mic_buf;
 		QMap<Qt::Key, int> key_map;
 		QElapsedTimer connect_timer;
+		// Cloud streaming parameter storage (keep alive for session lifetime)
+		QByteArray cloud_launch_spec_storage;
+		QByteArray cloud_handshake_key_storage;
+		QByteArray cloud_session_id_storage;
+		QByteArray host_storage; // For cloud mode when we modify host string
 
 		void PushAudioFrame(int16_t *buf, size_t samples_count);
 		void PushHapticsFrame(uint8_t *buf, size_t buf_size);

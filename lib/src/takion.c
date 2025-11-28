@@ -1,6 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
-
-#include "chiaki/feedback.h"
+﻿#include "chiaki/feedback.h"
 #include <chiaki/takion.h>
 #include <chiaki/congestioncontrol.h>
 #include <chiaki/random.h>
@@ -134,6 +132,29 @@ typedef struct takion_message_payload_init_t
 } TakionMessagePayloadInit;
 
 #define TAKION_COOKIE_SIZE 0x20
+#define TAKION_PSN_WRAPPER_TYPE 0x01
+#define TAKION_PSN_WRAPPER_SIZE 4
+
+/**
+ * Prepends the 4-byte PSN wrapper for Cloud Play packets.
+ * Shifts the existing data down by 4 bytes and adds the wrapper at the beginning.
+ * @param buf Buffer containing the packet (must have 4 extra bytes of space at the beginning)
+ * @param size Current size of the packet
+ * @return New size of the packet (size + 4)
+ */
+static size_t takion_add_cloud_wrapper(uint8_t *buf, size_t size)
+{
+	// Shift everything down by 4 bytes
+	memmove(buf + TAKION_PSN_WRAPPER_SIZE, buf, size);
+	
+	// Add the 4-byte PSN wrapper at the beginning
+	buf[0] = 0x00;
+	buf[1] = 0x00;
+	buf[2] = 0x00;
+	buf[3] = TAKION_PSN_WRAPPER_TYPE;
+	
+	return size + TAKION_PSN_WRAPPER_SIZE;
+}
 
 typedef struct takion_message_payload_init_ack_t
 {
@@ -184,6 +205,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, Chiaki
 	takion->log = info->log;
 	takion->close_socket = info->close_socket;
 	takion->version = info->protocol_version;
+	takion->protocol = info->protocol;
 	takion->disable_audio_video = info->disable_audio_video;
 
 	switch(takion->version)
@@ -212,7 +234,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, Chiaki
 	takion->cb_user = info->cb_user;
 	takion->a_rwnd = TAKION_A_RWND;
 
-	takion->tag_local = chiaki_random_32(); // 0x4823
+	takion->tag_local = chiaki_random_32();
 	takion->seq_num_local = takion->tag_local;
 	ret = chiaki_mutex_init(&takion->seq_num_local_mutex, false);
 	if(ret != CHIAKI_ERR_SUCCESS)
@@ -225,7 +247,8 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, Chiaki
 	takion->postponed_packets_count = 0;
 	takion->enable_dualsense = info->enable_dualsense;
 
-	CHIAKI_LOGI(takion->log, "Takion connecting (version %u)", (unsigned int)info->protocol_version);
+	CHIAKI_LOGI(takion->log, "Takion connecting (version %u, protocol: %s)", (unsigned int)info->protocol_version, 
+		takion->protocol == CHIAKI_TAKION_PROTOCOL_CLOUD_PLAY ? "Cloud Play" : "Remote Play");
 	bool mac_dontfrag = true;
 
 	ChiakiErrorCode err = chiaki_stop_pipe_init(&takion->stop_pipe);
@@ -482,6 +505,32 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_crypt_advance_key_pos(ChiakiTakion *
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_send_raw(ChiakiTakion *takion, const uint8_t *buf, size_t buf_size)
 {
+	// Get peer address for logging
+	struct sockaddr_storage peer_addr;
+	socklen_t peer_len = sizeof(peer_addr);
+	char peer_ip[INET6_ADDRSTRLEN] = "unknown";
+	uint16_t peer_port = 0;
+	
+	if(getpeername(takion->sock, (struct sockaddr*)&peer_addr, &peer_len) == 0)
+	{
+		if(peer_addr.ss_family == AF_INET)
+		{
+			struct sockaddr_in *s = (struct sockaddr_in*)&peer_addr;
+			inet_ntop(AF_INET, &s->sin_addr, peer_ip, sizeof(peer_ip));
+			peer_port = ntohs(s->sin_port);
+		}
+		else if(peer_addr.ss_family == AF_INET6)
+		{
+			struct sockaddr_in6 *s = (struct sockaddr_in6*)&peer_addr;
+			inet_ntop(AF_INET6, &s->sin6_addr, peer_ip, sizeof(peer_ip));
+			peer_port = ntohs(s->sin6_port);
+		}
+	}
+	
+	// RAW socket send logging - log EVERYTHING being sent before it goes on the wire
+	CHIAKI_LOGI(takion->log, "RAW SOCKET SEND: %zu bytes to %s:%u", buf_size, peer_ip, peer_port);
+	chiaki_log_hexdump(takion->log, CHIAKI_LOG_INFO, buf, buf_size);
+	
 	int r = send(takion->sock, buf, buf_size, 0);
 	if(r < 0)
 	{
@@ -496,6 +545,7 @@ static ChiakiErrorCode chiaki_takion_packet_read_key_pos(ChiakiTakion *takion, u
 	if(buf_size < 1)
 		return CHIAKI_ERR_BUF_TOO_SMALL;
 
+	// Incoming packets do NOT have PSN wrapper (only outgoing packets have it)
 	TakionPacketType base_type = buf[0] & TAKION_PACKET_BASE_TYPE_MASK;
 	int key_pos_offset = takion_packet_type_key_pos_offset(base_type);
 	if(key_pos_offset < 0)
@@ -510,16 +560,23 @@ static ChiakiErrorCode chiaki_takion_packet_read_key_pos(ChiakiTakion *takion, u
 	return CHIAKI_ERR_SUCCESS;
 }
 
-CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_packet_mac(ChiakiGKCrypt *crypt, uint8_t *buf, size_t buf_size, uint64_t key_pos, uint8_t *mac_out, uint8_t *mac_old_out)
+CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_packet_mac(ChiakiGKCrypt *crypt, uint8_t *buf, size_t buf_size, uint64_t key_pos, uint8_t *mac_out, uint8_t *mac_old_out, bool has_psn_wrapper)
 {
 	if(buf_size < 1)
 		return CHIAKI_ERR_BUF_TOO_SMALL;
 
-	TakionPacketType base_type = buf[0] & TAKION_PACKET_BASE_TYPE_MASK;
+	// Adjust offsets if PSN wrapper is present (cloud play)
+	int psn_offset = has_psn_wrapper ? TAKION_PSN_WRAPPER_SIZE : 0;
+
+	TakionPacketType base_type = buf[psn_offset] & TAKION_PACKET_BASE_TYPE_MASK;
 	int mac_offset = takion_packet_type_mac_offset(base_type);
 	int key_pos_offset = takion_packet_type_key_pos_offset(base_type);
 	if(mac_offset < 0 || key_pos_offset < 0)
 		return CHIAKI_ERR_INVALID_DATA;
+	
+	// Add PSN wrapper offset to all field positions
+	mac_offset += psn_offset;
+	key_pos_offset += psn_offset;
 
 	if(buf_size < mac_offset + CHIAKI_GKCRYPT_GMAC_SIZE || buf_size < key_pos_offset + sizeof(uint32_t))
 		return CHIAKI_ERR_BUF_TOO_SMALL;
@@ -556,7 +613,8 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_send(ChiakiTakion *takion, uint8_t *
 	if(err != CHIAKI_ERR_SUCCESS)
 		return err;
 	uint8_t mac[CHIAKI_GKCRYPT_GMAC_SIZE];
-	err = chiaki_takion_packet_mac(takion->gkcrypt_local, buf, buf_size, key_pos, mac, NULL);
+	bool has_psn_wrapper = (takion->protocol == CHIAKI_TAKION_PROTOCOL_CLOUD_PLAY);
+	err = chiaki_takion_packet_mac(takion->gkcrypt_local, buf, buf_size, key_pos, mac, NULL, has_psn_wrapper);
 	chiaki_mutex_unlock(&takion->gkcrypt_local_mutex);
 	if(err != CHIAKI_ERR_SUCCESS)
 		return err;
@@ -577,7 +635,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_send_message_data(ChiakiTakion *taki
 	if(err != CHIAKI_ERR_SUCCESS)
 		return err;
 
-	size_t packet_size = 1 + TAKION_MESSAGE_HEADER_SIZE + 9 + buf_size;
+	size_t packet_size = 1 + (TAKION_MESSAGE_HEADER_SIZE + TAKION_PSN_WRAPPER_SIZE) + 9 + buf_size;
 	uint8_t *packet_buf = malloc(packet_size);
 	if(!packet_buf)
 		return CHIAKI_ERR_MEMORY;
@@ -599,7 +657,12 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_send_message_data(ChiakiTakion *taki
 	*(msg_payload + 8) = 0;
 	memcpy(msg_payload + 9, buf, buf_size);
 
-	err = chiaki_takion_send(takion, packet_buf, packet_size, key_pos); // will alter packet_buf with gmac
+	size_t actual_packet_size = 1 + TAKION_MESSAGE_HEADER_SIZE + 9 + buf_size;
+	if(takion->protocol == CHIAKI_TAKION_PROTOCOL_CLOUD_PLAY)
+		actual_packet_size = takion_add_cloud_wrapper(packet_buf, actual_packet_size);
+	
+	CHIAKI_LOGI(takion->log, "Takion sending DATA message: seq_num=%#x, channel=%u, size=%zu", seq_num_val, channel, buf_size);
+	err = chiaki_takion_send(takion, packet_buf, actual_packet_size, key_pos); // will alter packet_buf with gmac
 	if(err != CHIAKI_ERR_SUCCESS)
 	{
 		CHIAKI_LOGE(takion->log, "Takion failed to send data packet: %s", chiaki_error_string(err));
@@ -607,7 +670,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_send_message_data(ChiakiTakion *taki
 		return err;
 	}
 
-	chiaki_takion_send_buffer_push(&takion->send_buffer, seq_num_val, packet_buf, packet_size);
+	chiaki_takion_send_buffer_push(&takion->send_buffer, seq_num_val, packet_buf, actual_packet_size);
 
 	if(seq_num)
 		*seq_num = seq_num_val;
@@ -625,7 +688,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_send_message_data_cont(ChiakiTakion 
 	if(err != CHIAKI_ERR_SUCCESS)
 		return err;
 
-	size_t packet_size = 1 + TAKION_MESSAGE_HEADER_SIZE + 8 + buf_size;
+	size_t packet_size = 1 + (TAKION_MESSAGE_HEADER_SIZE + TAKION_PSN_WRAPPER_SIZE) + 8 + buf_size;
 	uint8_t *packet_buf = malloc(packet_size);
 	if(!packet_buf)
 		return CHIAKI_ERR_MEMORY;
@@ -646,7 +709,12 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_send_message_data_cont(ChiakiTakion 
 	*((chiaki_unaligned_uint16_t *)(msg_payload + 6)) = 0;
 	memcpy(msg_payload + 8, buf, buf_size);
 
-	err = chiaki_takion_send(takion, packet_buf, packet_size, key_pos); // will alter packet_buf with gmac
+	size_t actual_packet_size = 1 + TAKION_MESSAGE_HEADER_SIZE + 8 + buf_size;
+	if(takion->protocol == CHIAKI_TAKION_PROTOCOL_CLOUD_PLAY)
+		actual_packet_size = takion_add_cloud_wrapper(packet_buf, actual_packet_size);
+	
+	CHIAKI_LOGI(takion->log, "Takion sending DATA_CONT message: seq_num=%#x, channel=%u, size=%zu", seq_num_val, channel, buf_size);
+	err = chiaki_takion_send(takion, packet_buf, actual_packet_size, key_pos); // will alter packet_buf with gmac
 	if(err != CHIAKI_ERR_SUCCESS)
 	{
 		CHIAKI_LOGE(takion->log, "Takion failed to send data packet: %s", chiaki_error_string(err));
@@ -654,7 +722,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_send_message_data_cont(ChiakiTakion 
 		return err;
 	}
 
-	chiaki_takion_send_buffer_push(&takion->send_buffer, seq_num_val, packet_buf, packet_size);
+	chiaki_takion_send_buffer_push(&takion->send_buffer, seq_num_val, packet_buf, actual_packet_size);
 
 	if(seq_num)
 		*seq_num = seq_num_val;
@@ -664,7 +732,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_send_message_data_cont(ChiakiTakion 
 
 static ChiakiErrorCode chiaki_takion_send_message_data_ack(ChiakiTakion *takion, uint32_t seq_num)
 {
-	uint8_t buf[1 + TAKION_MESSAGE_HEADER_SIZE + 0xc];
+	uint8_t buf[1 + (TAKION_MESSAGE_HEADER_SIZE + TAKION_PSN_WRAPPER_SIZE) + 0xc];
 	buf[0] = TAKION_PACKET_TYPE_CONTROL;
 
 	uint64_t key_pos;
@@ -680,7 +748,11 @@ static ChiakiErrorCode chiaki_takion_send_message_data_ack(ChiakiTakion *takion,
 	*((chiaki_unaligned_uint16_t *)(data_ack + 8)) = 0;
 	*((chiaki_unaligned_uint16_t *)(data_ack + 0xa)) = 0;
 
-	return chiaki_takion_send(takion, buf, sizeof(buf), key_pos);
+	size_t actual_packet_size = 1 + TAKION_MESSAGE_HEADER_SIZE + 0xc;
+	if(takion->protocol == CHIAKI_TAKION_PROTOCOL_CLOUD_PLAY)
+		actual_packet_size = takion_add_cloud_wrapper(buf, actual_packet_size);
+	
+	return chiaki_takion_send(takion, buf, actual_packet_size, key_pos);
 }
 
 CHIAKI_EXPORT void chiaki_takion_format_congestion(uint8_t *buf, ChiakiTakionCongestionPacket *packet, uint64_t key_pos)
@@ -700,9 +772,15 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_send_congestion(ChiakiTakion *takion
 	if(err != CHIAKI_ERR_SUCCESS)
 		return err;
 
-	uint8_t buf[CHIAKI_TAKION_CONGESTION_PACKET_SIZE];
+	// Allocate buffer with space for PSN wrapper if needed
+	uint8_t buf[CHIAKI_TAKION_CONGESTION_PACKET_SIZE + TAKION_PSN_WRAPPER_SIZE];
 	chiaki_takion_format_congestion(buf, packet, key_pos);
-	return chiaki_takion_send(takion, buf, sizeof(buf), key_pos);
+	
+	size_t actual_size = CHIAKI_TAKION_CONGESTION_PACKET_SIZE;
+	if(takion->protocol == CHIAKI_TAKION_PROTOCOL_CLOUD_PLAY)
+		actual_size = takion_add_cloud_wrapper(buf, actual_size);
+	
+	return chiaki_takion_send_raw(takion, buf, actual_size);
 }
 
 static ChiakiErrorCode takion_send_feedback_packet(ChiakiTakion *takion, uint8_t *buf, size_t buf_size)
@@ -730,7 +808,11 @@ static ChiakiErrorCode takion_send_feedback_packet(ChiakiTakion *takion, uint8_t
 	if(err != CHIAKI_ERR_SUCCESS)
 		goto beach;
 
-	chiaki_takion_send_raw(takion, buf, buf_size);
+	size_t actual_size = buf_size;
+	if(takion->protocol == CHIAKI_TAKION_PROTOCOL_CLOUD_PLAY)
+		actual_size = takion_add_cloud_wrapper(buf, actual_size);
+	
+	chiaki_takion_send_raw(takion, buf, actual_size);
 
 beach:
 	chiaki_mutex_unlock(&takion->gkcrypt_local_mutex);
@@ -739,7 +821,7 @@ beach:
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_send_feedback_state(ChiakiTakion *takion, ChiakiSeqNum16 seq_num, ChiakiFeedbackState *feedback_state)
 {
-	uint8_t buf[0xc + CHIAKI_FEEDBACK_STATE_BUF_SIZE_MAX];
+	uint8_t buf[0xc + CHIAKI_FEEDBACK_STATE_BUF_SIZE_MAX + TAKION_PSN_WRAPPER_SIZE];
 	buf[0] = TAKION_PACKET_TYPE_FEEDBACK_STATE;
 	*((chiaki_unaligned_uint16_t *)(buf + 1)) = htons(seq_num);
 	buf[3] = 0; // TODO
@@ -785,7 +867,11 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_send_mic_packet(ChiakiTakion *takion
 	if(err != CHIAKI_ERR_SUCCESS)
 		goto beach;
 
-	chiaki_takion_send_raw(takion, buf, buf_size);
+	size_t actual_size = buf_size;
+	if(takion->protocol == CHIAKI_TAKION_PROTOCOL_CLOUD_PLAY)
+		actual_size = takion_add_cloud_wrapper(buf, actual_size);
+	
+	chiaki_takion_send_raw(takion, buf, actual_size);
 beach:
 	chiaki_mutex_unlock(&takion->gkcrypt_local_mutex);
 	return err;
@@ -793,7 +879,7 @@ beach:
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_send_feedback_history(ChiakiTakion *takion, ChiakiSeqNum16 seq_num, uint8_t *payload, size_t payload_size)
 {
-	size_t buf_size = 0xc + payload_size;
+	size_t buf_size = 0xc + payload_size + TAKION_PSN_WRAPPER_SIZE;
 	uint8_t *buf = malloc(buf_size);
 	if(!buf)
 		return CHIAKI_ERR_MEMORY;
@@ -803,7 +889,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_send_feedback_history(ChiakiTakion *
 	*((chiaki_unaligned_uint32_t *)(buf + 4)) = 0; // key pos
 	*((chiaki_unaligned_uint32_t *)(buf + 8)) = 0; // gmac
 	memcpy(buf + 0xc, payload, payload_size);
-	ChiakiErrorCode err = takion_send_feedback_packet(takion, buf, buf_size);
+	ChiakiErrorCode err = takion_send_feedback_packet(takion, buf, 0xc + payload_size);
 	free(buf);
 	return err;
 }
@@ -990,6 +1076,9 @@ static void *takion_thread_func(void *user)
 			free(buf);
 			break;
 		}
+		
+		CHIAKI_LOGI(takion->log, "Takion received packet: %zu bytes, type=%#x", received_size, buf[0]);
+		
 		uint8_t *resized_buf = realloc(buf, received_size);
 		if(!resized_buf)
 		{
@@ -1042,6 +1131,33 @@ static ChiakiErrorCode takion_recv(ChiakiTakion *takion, uint8_t *buf, size_t *b
 			CHIAKI_LOGE(takion->log, "Takion recv returned 0");
 		return CHIAKI_ERR_NETWORK;
 	}
+	
+	// Get peer address for logging
+	struct sockaddr_storage peer_addr;
+	socklen_t peer_len = sizeof(peer_addr);
+	char peer_ip[INET6_ADDRSTRLEN] = "unknown";
+	uint16_t peer_port = 0;
+	
+	if(getpeername(takion->sock, (struct sockaddr*)&peer_addr, &peer_len) == 0)
+	{
+		if(peer_addr.ss_family == AF_INET)
+		{
+			struct sockaddr_in *s = (struct sockaddr_in*)&peer_addr;
+			inet_ntop(AF_INET, &s->sin_addr, peer_ip, sizeof(peer_ip));
+			peer_port = ntohs(s->sin_port);
+		}
+		else if(peer_addr.ss_family == AF_INET6)
+		{
+			struct sockaddr_in6 *s = (struct sockaddr_in6*)&peer_addr;
+			inet_ntop(AF_INET6, &s->sin6_addr, peer_ip, sizeof(peer_ip));
+			peer_port = ntohs(s->sin6_port);
+		}
+	}
+	
+	// RAW socket receive logging - log EVERYTHING that comes in before any processing
+	CHIAKI_LOGI(takion->log, "RAW SOCKET RECV: %zu bytes from %s:%u", (size_t)received_sz, peer_ip, peer_port);
+	chiaki_log_hexdump(takion->log, CHIAKI_LOG_INFO, buf, received_sz);
+	
 	*buf_size = (size_t)received_sz;
 	return CHIAKI_ERR_SUCCESS;
 }
@@ -1060,7 +1176,8 @@ static ChiakiErrorCode takion_handle_packet_mac(ChiakiTakion *takion, uint8_t ba
 		CHIAKI_LOGE(takion->log, "Takion failed to pull key_pos out of received packet");
 		return err;
 	}
-	err = chiaki_takion_packet_mac(takion->gkcrypt_remote, buf, buf_size, key_pos, mac_expected, mac);
+	// Incoming packets do NOT have PSN wrapper (only outgoing packets have it)
+	err = chiaki_takion_packet_mac(takion->gkcrypt_remote, buf, buf_size, key_pos, mac_expected, mac, false);
 	if(err != CHIAKI_ERR_SUCCESS)
 	{
 		CHIAKI_LOGE(takion->log, "Takion failed to calculate mac for received packet");
@@ -1154,8 +1271,10 @@ static void takion_handle_packet_message(ChiakiTakion *takion, uint8_t *buf, siz
 		return;
 	}
 
-	//CHIAKI_LOGD(takion->log, "Takion received message with tag %#x, key pos %#x, type (%#x, %#x), payload size %#x, payload:", msg.tag, msg.key_pos, msg.type_a, msg.type_b, msg.payload_size);
-	//chiaki_log_hexdump(takion->log, CHIAKI_LOG_DEBUG, buf, buf_size);
+	CHIAKI_LOGI(takion->log, "Takion received message: chunk_type=%#x, chunk_flags=%#x, tag=%#x, payload_size=%#x", 
+		msg.chunk_type, msg.chunk_flags, msg.tag, msg.payload_size);
+	CHIAKI_LOGD(takion->log, "Takion received message with tag %#x, key pos %#llx, chunk_type=%#x, chunk_flags=%#x, payload size %#x", 
+		msg.tag, (unsigned long long)msg.key_pos, msg.chunk_type, msg.chunk_flags, msg.payload_size);
 
 	switch(msg.chunk_type)
 	{
@@ -1273,6 +1392,8 @@ static void takion_handle_packet_message_data_ack(ChiakiTakion *takion, uint8_t 
 	if(dup_tsns_count != 0)
 		CHIAKI_LOGW(takion->log, "Takion received data ack with nonzero dup_tsns_count %#x", dup_tsns_count);
 
+	CHIAKI_LOGI(takion->log, "Takion received DATA_ACK: cumulative_seq_num=%#x, a_rwnd=%#x, gap_ack_blocks=%#x",
+			cumulative_seq_num, a_rwnd, gap_ack_blocks_count);
 	CHIAKI_LOGV(takion->log, "Takion received data ack with cumulative_seq_num = %#x, a_rwnd = %#x, gap_ack_blocks_count = %#x, dup_tsns_count = %#x",
 			cumulative_seq_num, a_rwnd, gap_ack_blocks_count, dup_tsns_count);
 
@@ -1345,7 +1466,7 @@ static ChiakiErrorCode takion_parse_message(ChiakiTakion *takion, uint8_t *buf, 
 
 static ChiakiErrorCode takion_send_message_init(ChiakiTakion *takion, TakionMessagePayloadInit *payload)
 {
-	uint8_t message[1 + TAKION_MESSAGE_HEADER_SIZE + 0x10];
+	uint8_t message[1 + (TAKION_MESSAGE_HEADER_SIZE + TAKION_PSN_WRAPPER_SIZE) + 0x10];
 	message[0] = TAKION_PACKET_TYPE_CONTROL;
 	takion_write_message_header(message + 1, takion->tag_remote, 0, TAKION_CHUNK_TYPE_INIT, 0, 0x10);
 
@@ -1356,16 +1477,25 @@ static ChiakiErrorCode takion_send_message_init(ChiakiTakion *takion, TakionMess
 	*((chiaki_unaligned_uint16_t *)(pl + 0xa)) = htons(payload->inbound_streams);
 	*((chiaki_unaligned_uint32_t *)(pl + 0xc)) = htonl(payload->initial_seq_num);
 
-	return chiaki_takion_send_raw(takion, message, sizeof(message));
+	size_t actual_message_size = 1 + TAKION_MESSAGE_HEADER_SIZE + 0x10;
+	if(takion->protocol == CHIAKI_TAKION_PROTOCOL_CLOUD_PLAY)
+		actual_message_size = takion_add_cloud_wrapper(message, actual_message_size);
+	
+	return chiaki_takion_send_raw(takion, message, actual_message_size);
 }
 
 static ChiakiErrorCode takion_send_message_cookie(ChiakiTakion *takion, uint8_t *cookie)
 {
-	uint8_t message[1 + TAKION_MESSAGE_HEADER_SIZE + TAKION_COOKIE_SIZE];
+	uint8_t message[1 + (TAKION_MESSAGE_HEADER_SIZE + TAKION_PSN_WRAPPER_SIZE) + TAKION_COOKIE_SIZE];
 	message[0] = TAKION_PACKET_TYPE_CONTROL;
 	takion_write_message_header(message + 1, takion->tag_remote, 0, TAKION_CHUNK_TYPE_COOKIE, 0, TAKION_COOKIE_SIZE);
 	memcpy(message + 1 + TAKION_MESSAGE_HEADER_SIZE, cookie, TAKION_COOKIE_SIZE);
-	return chiaki_takion_send_raw(takion, message, sizeof(message));
+	
+	size_t actual_message_size = 1 + TAKION_MESSAGE_HEADER_SIZE + TAKION_COOKIE_SIZE;
+	if(takion->protocol == CHIAKI_TAKION_PROTOCOL_CLOUD_PLAY)
+		actual_message_size = takion_add_cloud_wrapper(message, actual_message_size);
+	
+	return chiaki_takion_send_raw(takion, message, actual_message_size);
 }
 
 static ChiakiErrorCode takion_recv_message_init_ack(ChiakiTakion *takion, TakionMessagePayloadInitAck *payload)

@@ -88,6 +88,12 @@ typedef struct chiaki_connect_info_t
 	chiaki_socket_t *rudp_sock;
 	uint8_t psn_account_id[CHIAKI_PSN_ACCOUNT_ID_SIZE];
 	double packet_loss_max;
+	// Cloud streaming mode fields
+	bool cloud_mode;
+	const char *cloud_launch_spec; // pre-encoded launch spec JSON (base64)
+	const char *cloud_handshake_key; // pre-encoded handshake key (base64)
+	const char *cloud_session_id; // session ID from Gaikai
+	uint16_t cloud_port; // port for cloud streaming connection (0 if not cloud mode)
 } ChiakiConnectInfo;
 
 
@@ -230,6 +236,11 @@ typedef struct chiaki_session_t
 	uint64_t rtt_us;
 	bool dontfrag;
 	ChiakiECDH ecdh;
+	// Cloud streaming mode parameters
+	bool cloud_mode;
+	const char *cloud_launch_spec; // pre-encoded launch spec JSON (base64)
+	const char *cloud_handshake_key; // pre-encoded handshake key (base64)
+	uint16_t cloud_port; // port for cloud streaming connection (0 if not cloud mode)
 
 	ChiakiQuitReason quit_reason;
 	char *quit_reason_str; // additional reason string from remote

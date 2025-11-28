@@ -20,7 +20,8 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_audio_sender_init(ChiakiAudioSender *audio_
     audio_sender->frame_buf = malloc(audio_sender->frame_buf_size);
     if(!audio_sender->frame_buf)
         return CHIAKI_ERR_MEMORY;
-    audio_sender->filled_packet_buf = malloc(audio_sender->frame_buf_size + 20);
+    // Allocate extra space for packet header (19 bytes) + PS5 byte (1) + PSN wrapper (4)
+    audio_sender->filled_packet_buf = malloc(audio_sender->frame_buf_size + 24);
     if(!audio_sender->filled_packet_buf)
         return CHIAKI_ERR_MEMORY;
 
