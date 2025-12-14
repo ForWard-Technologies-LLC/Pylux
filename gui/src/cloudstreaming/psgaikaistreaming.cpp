@@ -2,6 +2,7 @@
 
 #include "cloudstreaming/psgaikaistreaming.h"
 #include "chiaki/remote/holepunch.h"
+#include "chiaki/common.h"
 
 #include <QObject>
 #include <QJsonDocument>
@@ -84,10 +85,16 @@ QJsonObject PSGaikaiStreaming::buildRequestGameSpec(QString entitlementId)
 {
     QJsonObject spec;
     
+    // Configuration constants (matching CloudConfig in cloudstreamingbackend.cpp)
+    // TODO: Pass these as parameters from CloudStreamingBackend when ready
+    static const int RESOLUTION = 1080;  // Supported values: 720 or 1080 only
+    static const QString LANGUAGE = "en-US";
+    static const QString TIMEZONE = "UTC-08:00";
+    
     // Core Game Configuration
     spec["entitlementId"] = entitlementId;
     spec["npEnv"] = "np";
-    spec["language"] = "en-US";
+    spec["language"] = LANGUAGE;
     
     // Cloud Infrastructure
     spec["cloudEndpoint"] = "https://cc.prod.gaikai.com";
@@ -100,10 +107,24 @@ QJsonObject PSGaikaiStreaming::buildRequestGameSpec(QString entitlementId)
     spec["audioUploadNumChannels"] = 1;
     spec["audioUploadSamplingFrequency"] = 48000;
     
-    // Video Configuration
-    spec["resolutionSetting"] = "1080";
-    spec["clientWidth"] = 1920;
-    spec["clientHeight"] = 1080;
+    // Video Configuration - Only support 720 or 1080
+    int resolution = RESOLUTION;
+    QString resolutionSetting;
+    int clientWidth, clientHeight;
+    if (resolution == 720) {
+        resolutionSetting = "720";
+        clientWidth = 1280;
+        clientHeight = 720;
+    } else {
+        // Default to 1080 (or if invalid value)
+        resolutionSetting = "1080";
+        clientWidth = 1920;
+        clientHeight = 1080;
+    }
+    
+    spec["resolutionSetting"] = resolutionSetting;
+    spec["clientWidth"] = clientWidth;
+    spec["clientHeight"] = clientHeight;
     spec["adaptiveStreamMode"] = "resize";
     
     // Service/platform-specific video encoder
@@ -151,7 +172,7 @@ QJsonObject PSGaikaiStreaming::buildRequestGameSpec(QString entitlementId)
     
     // Timezone
     spec["summerTime"] = 0;
-    spec["timeZone"] = "UTC-08:00";
+    spec["timeZone"] = TIMEZONE;
     
     // Accessibility Features (all disabled)
     spec["accessibilityMarqueeSpeed"] = 0;
@@ -194,13 +215,13 @@ QJsonObject PSGaikaiStreaming::buildRequestGameSpec(QString entitlementId)
     // PSNOW does not use these settings - it uses H.264 with hw4.1
     if (serviceType == "pscloud") {
         QJsonObject videoStreamSettings;
-        videoStreamSettings["clientHeight"] = 1080;
-        videoStreamSettings["supportedMaxResolution"] = 1080;
+        videoStreamSettings["clientHeight"] = clientHeight;
+        videoStreamSettings["supportedMaxResolution"] = clientHeight;
         QJsonArray videoProfiles;
         videoProfiles.append("hevc_hw4");
         videoStreamSettings["supportedVideoEncoderProfiles"] = videoProfiles;
         videoStreamSettings["supportedDynamicRange"] = "sdr";
-        videoStreamSettings["preferredMaxResolution"] = 1080;
+        videoStreamSettings["preferredMaxResolution"] = clientHeight;
         videoStreamSettings["preferredDynamicRange"] = "sdr";
         videoStreamSettings["hqMode"] = 0;
         spec["videoStreamSettings"] = videoStreamSettings;

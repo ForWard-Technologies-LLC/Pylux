@@ -26,7 +26,8 @@ namespace CloudConfig {
     // Test values (will be passed as parameters when ready for production)
     static const QString TEST_NPSSO = "3CQAgA4utomnErZT2wNQVylUSqF2wqXjrKGnTKOrYBMrvQdbb4LBY0RXacRZmQ1w";
     
-    // User preferences (will be settings later)
+    // User preferences (configurable at top of file for now)
+    // Resolution: 720 or 1080 (integer value for resolutionSetting field)
     static const int RESOLUTION = 1080;
     static const QString LANGUAGE = "en-US";
     static const QString TIMEZONE = "UTC-08:00";

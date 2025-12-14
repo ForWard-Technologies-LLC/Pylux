@@ -516,9 +516,9 @@ Pane {
                     // Parameters: serviceType, platform, gameIdentifier, callback
                     // For now, using hardcoded test values - eventually will come from UI selection
                     Chiaki.cloudStreaming.startCompleteCloudSession(
-                        "pscloud",           // serviceType: "psnow" or "pscloud"
-                        "ps5",             // platform: "ps3", "ps4", or "ps5"
-                        "UB0190-PPSA28978_00-0443767622865334",  // gameIdentifier: Product ID (PSNOW) or Entitlement ID (PSCLOUD)
+                        "psnow",           // serviceType: "psnow" or "pscloud"
+                        "ps4",             // platform: "ps3", "ps4", or "ps5"
+                        "UP4139-CUSA13583_00-AOWPLANETFALL000",  // gameIdentifier: Product ID (PSNOW) or Entitlement ID (PSCLOUD)
                         function(success, message, serverIp) {
                         console.log("=== Cloud Streaming:", success ? "SUCCESS" : "FAILED", "===");
                         console.log("Result:", message);

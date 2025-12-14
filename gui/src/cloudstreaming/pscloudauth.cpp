@@ -2,6 +2,7 @@
 
 #include "cloudstreaming/pscloudauth.h"
 #include "jsonrequester.h"
+#include "chiaki/remote/holepunch.h"
 
 #include <QObject>
 #include <QJsonObject>
@@ -19,6 +20,13 @@ void PSCloudAuth::ExchangeNPSSO(QString npssoToken)
 {
     qInfo() << "Cloud Auth: Exchanging NPSSO token for access token...";
     
+    // Generate DUID dynamically
+    size_t duid_size = CHIAKI_DUID_STR_SIZE;
+    char duid_arr[duid_size];
+    chiaki_holepunch_generate_client_device_uid(duid_arr, &duid_size);
+    QString duid = QString(duid_arr);
+    qInfo() << "Cloud Auth: Generated DUID:" << duid;
+    
     // Build the request body - MUST NOT use .arg() because URL-encoded % will be treated as placeholders!
     // Exact format from successful capture:
     // scope=id_token%3Aemail%20id_token%3Ais_child%20id_token%3Aage%20openid%20kamaji%3Aget_privacy_settings%20user%3AbasicProfile.get%20user%3AbasicProfile.update
@@ -30,7 +38,7 @@ void PSCloudAuth::ExchangeNPSSO(QString npssoToken)
                    "&client_id=" + PSCloudAuthConsts::CLIENT_ID + 
                    "&client_secret=" + PSCloudAuthConsts::CLIENT_SECRET + 
                    "&grant_type=sso_token" +
-                   "&duid=000000070040008834303a65633a39393a63613a64323a3965";
+                   "&duid=" + duid;
     
     qInfo() << "Cloud Auth: Request body (first 100 chars):" << body.left(100);
     
