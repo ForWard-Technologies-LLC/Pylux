@@ -223,9 +223,14 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 		ffmpeg_decoder = new ChiakiFfmpegDecoder;
 		ChiakiLogSniffer sniffer;
 		chiaki_log_sniffer_init(&sniffer, CHIAKI_LOG_ALL, GetChiakiLog());
+		ChiakiCodec codec = chiaki_target_is_ps5(connect_info.target) ? connect_info.video_profile.codec : CHIAKI_CODEC_H264;
+		const char* codec_name = (codec == CHIAKI_CODEC_H264) ? "H264" : 
+		                         (codec == CHIAKI_CODEC_H265) ? "H265" : 
+		                         (codec == CHIAKI_CODEC_H265_HDR) ? "H265_HDR" : "UNKNOWN";
+		CHIAKI_LOGI(GetChiakiLog(), "Initializing FFmpeg decoder with codec: %s (%d)", codec_name, codec);
 		err = chiaki_ffmpeg_decoder_init(ffmpeg_decoder,
 				chiaki_log_sniffer_get_log(&sniffer),
-				chiaki_target_is_ps5(connect_info.target) ? connect_info.video_profile.codec : CHIAKI_CODEC_H264,
+				codec,
 				connect_info.hw_decoder.isEmpty() ? NULL : connect_info.hw_decoder.toUtf8().constData(),
 				connect_info.hw_device_ctx, FfmpegFrameCb, this);
 		if(err != CHIAKI_ERR_SUCCESS)
@@ -375,6 +380,7 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 		chiaki_connect_info.cloud_launch_spec = cloud_launch_spec_storage.constData();
 		chiaki_connect_info.cloud_handshake_key = cloud_handshake_key_storage.constData();
 		chiaki_connect_info.cloud_session_id = cloud_session_id_storage.constData();
+		chiaki_connect_info.cloud_psn_wrapper_type = connect_info.cloud_psn_wrapper_type;
 		
 		// Extract port from host string if it contains "IP:PORT" format
 		// getaddrinfo needs just the IP, not IP:PORT
@@ -430,6 +436,7 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 		chiaki_connect_info.cloud_launch_spec = NULL;
 		chiaki_connect_info.cloud_handshake_key = NULL;
 		chiaki_connect_info.cloud_session_id = NULL;
+		chiaki_connect_info.cloud_psn_wrapper_type = 0;
 	}
 	err = chiaki_session_init(&session, &chiaki_connect_info, GetChiakiLog());
 	if(err != CHIAKI_ERR_SUCCESS)

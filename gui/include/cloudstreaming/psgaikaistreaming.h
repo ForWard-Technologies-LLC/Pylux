@@ -37,6 +37,7 @@ public:
     int getServerPort() const { return allocatedServerPort; }
     QString getHandshakeKey() const { return allocatedHandshakeKey; }
     QString getLaunchSpec() const { return allocatedLaunchSpec; }
+    uint8_t getPsnWrapperType() const { return allocatedPsnWrapperType; }
     QString getGaikaiSessionId() const { return allocatedSessionId; }
 
 private:
@@ -55,6 +56,7 @@ private:
     int allocatedServerPort;
     QString allocatedHandshakeKey;
     QString allocatedLaunchSpec;
+    uint8_t allocatedPsnWrapperType;
     QString allocatedSessionId;
     
     // State management

@@ -167,11 +167,19 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_run(ChiakiStreamConnectio
 	}
 	takion_info.ip_dontfrag = session->dontfrag;
 
-	takion_info.enable_crypt = session->cloud_mode ? false : true;
+	// Cloud Play and Remote Play should behave identically (except PSN wrapper)
+	takion_info.enable_crypt = true; // Both use encryption
 	takion_info.enable_dualsense = session->connect_info.enable_dualsense;
-	// Cloud Play requires protocol version 9
-	takion_info.protocol_version = session->cloud_mode ? 9 : (chiaki_target_is_ps5(session->target) ? 12 : 9);
+	takion_info.protocol_version = 9; // Use version 9 for this entitlement - TODO this should be 12 eentually for ps5 cloud streaming!
 	takion_info.protocol = session->cloud_mode ? CHIAKI_TAKION_PROTOCOL_CLOUD_PLAY : CHIAKI_TAKION_PROTOCOL_REMOTE_PLAY;
+	takion_info.psn_wrapper_type = session->cloud_mode ? session->cloud_psn_wrapper_type : 0;
+	
+	if(session->cloud_mode)
+		CHIAKI_LOGI(session->log, "Cloud Play PSN wrapper type: 0x%02x (from private IP last octet)", session->cloud_psn_wrapper_type);
+	
+	CHIAKI_LOGI(session->log, "Takion config: enable_crypt=%d, protocol_version=%u, protocol=%s",
+		takion_info.enable_crypt, takion_info.protocol_version,
+		session->cloud_mode ? "Cloud Play" : "Remote Play");
 
 	takion_info.cb = stream_connection_takion_cb;
 	takion_info.cb_user = stream_connection;
@@ -905,6 +913,15 @@ static bool pb_decode_resolution(pb_istream_t *stream, const pb_field_t *field, 
 	profile->height = resolution.height;
 	profile->header_sz = header_buf.size;
 	profile->header = header_buf_padded;
+	
+	// Log the full profile header for Cloud Play debugging
+	if(ctx->stream_connection->session->cloud_mode)
+	{
+		CHIAKI_LOGI(ctx->stream_connection->session->log, "Cloud Play profile %zu (%ux%u) header (%zu bytes):", 
+			ctx->video_profiles_count - 1, profile->width, profile->height, profile->header_sz);
+		chiaki_log_hexdump(ctx->stream_connection->session->log, CHIAKI_LOG_INFO, profile->header, profile->header_sz);
+	}
+	
 	return true;
 }
 
@@ -1011,6 +1028,8 @@ static ChiakiErrorCode stream_connection_send_big(ChiakiStreamConnection *stream
 	{
 		if(!session->cloud_launch_spec)
 			return CHIAKI_ERR_INVALID_DATA;
+		
+		// Use API-provided launch spec as-is (full compound format)
 		launch_spec_b64_ptr = session->cloud_launch_spec;
 	}
 	else
@@ -1041,7 +1060,6 @@ static ChiakiErrorCode stream_connection_send_big(ChiakiStreamConnection *stream
 		launch_spec_json_size += 1;
 
 		CHIAKI_LOGV(stream_connection->log, "LaunchSpec: %s", launch_spec_buf.json);
-
 		uint8_t launch_spec_json_enc[LAUNCH_SPEC_JSON_BUF_SIZE];
 		memset(launch_spec_json_enc, 0, (size_t)launch_spec_json_size);
 		err = chiaki_rpcrypt_encrypt(&session->rpcrypt, 0, launch_spec_json_enc, launch_spec_json_enc,
@@ -1053,6 +1071,11 @@ static ChiakiErrorCode stream_connection_send_big(ChiakiStreamConnection *stream
 		}
 
 		xor_bytes(launch_spec_json_enc, (uint8_t *)launch_spec_buf.json, (size_t)launch_spec_json_size);
+		
+		CHIAKI_LOGI(stream_connection->log, "After encryption+XOR, hex dump:");
+		chiaki_log_hexdump(stream_connection->log, CHIAKI_LOG_INFO, launch_spec_json_enc, 
+			launch_spec_json_size < 128 ? launch_spec_json_size : 128);
+		
 		err = chiaki_base64_encode(launch_spec_json_enc, (size_t)launch_spec_json_size, launch_spec_buf.b64, sizeof(launch_spec_buf.b64));
 		if(err != CHIAKI_ERR_SUCCESS)
 		{
@@ -1075,6 +1098,11 @@ static ChiakiErrorCode stream_connection_send_big(ChiakiStreamConnection *stream
 		CHIAKI_LOGE(stream_connection->log, "StreamConnection failed to get ECDH key and sig");
 		return err;
 	}
+	
+	CHIAKI_LOGI(stream_connection->log, "ECDH key generated: size=%zu bytes", ecdh_pub_key_buf.size);
+	chiaki_log_hexdump(stream_connection->log, CHIAKI_LOG_INFO, ecdh_pub_key, ecdh_pub_key_buf.size);
+	CHIAKI_LOGI(stream_connection->log, "ECDH signature generated: size=%zu bytes", ecdh_sig_buf.size);
+	chiaki_log_hexdump(stream_connection->log, CHIAKI_LOG_INFO, ecdh_sig, ecdh_sig_buf.size);
 
 	tkproto_TakionMessage msg;
 	memset(&msg, 0, sizeof(msg));
@@ -1260,6 +1288,14 @@ static ChiakiErrorCode stream_connection_send_disconnect(ChiakiStreamConnection 
 static void stream_connection_takion_av(ChiakiStreamConnection *stream_connection, ChiakiTakionAVPacket *packet)
 {
 	chiaki_gkcrypt_decrypt(stream_connection->gkcrypt_remote, packet->key_pos + CHIAKI_GKCRYPT_BLOCK_SIZE, packet->data, packet->data_size);
+	
+	// Normalize codec 3 (Cloud Play H.264) to codec 0 (standard H.264)
+	// Cloud Play uses codec value 3, but it's identical to standard H.264 format
+	if(packet->codec == 3)
+	{
+		packet->codec = CHIAKI_CODEC_H264;  // 0
+		CHIAKI_LOGV(stream_connection->log, "Normalized Cloud Play codec 3 to H.264 (0)");
+	}
 
 	if(packet->is_video)
 		chiaki_video_receiver_av_packet(stream_connection->video_receiver, packet);

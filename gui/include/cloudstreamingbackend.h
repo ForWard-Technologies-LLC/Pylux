@@ -23,6 +23,8 @@
  *     └─> PSKamajiSession (Steps 1-6: Kamaji auth)
  *     └─> PSGaikaiStreaming (Steps 7-13: Gaikai allocation)
  */
+class StreamSession; // Forward declaration
+
 class CloudStreamingBackend : public QObject
 {
     Q_OBJECT
@@ -32,6 +34,10 @@ public:
 
     // MAIN ENTRY POINT - Complete cloud streaming session (Steps 1-13)
     Q_INVOKABLE void startCompleteCloudSession(const QJSValue &callback);
+
+signals:
+    // Emitted when a cloud streaming session is created and ready to be registered
+    void sessionCreated(StreamSession *session);
 
 private:
     Settings *settings;

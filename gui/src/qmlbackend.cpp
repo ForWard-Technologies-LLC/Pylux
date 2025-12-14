@@ -129,6 +129,98 @@ QmlBackend::QmlBackend(Settings *settings, QmlMainWindow *window, SteamworksWrap
     games_backend = new QmlGamesBackend(settings, this);
     qmlRegisterSingletonInstance(uri, 1, 0, "ChiakiGames", games_backend);
     cloud_streaming_backend = new CloudStreamingBackend(settings, this);
+    
+    // Connect cloud streaming backend to register sessions
+    connect(cloud_streaming_backend, &CloudStreamingBackend::sessionCreated, this, 
+            [this, window](StreamSession *session_to_register) {
+        qInfo() << "QmlBackend: Registering cloud streaming session";
+        
+        // Clean up any existing session first
+        if (session) {
+            qWarning() << "QmlBackend: Closing existing session before registering new cloud session";
+            chiaki_log_mutex.lock();
+            chiaki_log_ctx = nullptr;
+            chiaki_log_mutex.unlock();
+            session->deleteLater();
+        }
+        
+        // Register the new session
+        session = session_to_register;
+        
+        // Setup logging
+        chiaki_log_mutex.lock();
+        chiaki_log_ctx = session->GetChiakiLog();
+        chiaki_log_mutex.unlock();
+        
+        // Connect frame presentation (critical for video display!)
+        connect(session, &StreamSession::FfmpegFrameAvailable, frame_thread->parent(), [this, window]() {
+            ChiakiFfmpegDecoder *decoder = session->GetFfmpegDecoder();
+            if (!decoder) {
+                qCCritical(chiakiGui) << "Session has no FFmpeg decoder";
+                return;
+            }
+            int32_t frames_lost;
+            AVFrame *frame = chiaki_ffmpeg_decoder_pull_frame(decoder, &frames_lost);
+            if (!frame)
+                return;
+
+            static const QSet<int> zero_copy_formats = {
+                AV_PIX_FMT_VULKAN,
+#ifdef Q_OS_LINUX
+                AV_PIX_FMT_VAAPI,
+#endif
+            };
+            if (frame->hw_frames_ctx && (!zero_copy_formats.contains(frame->format) || disable_zero_copy)) {
+                AVFrame *sw_frame = av_frame_alloc();
+                if (av_hwframe_transfer_data(sw_frame, frame, 0) < 0) {
+                    qCWarning(chiakiGui) << "Failed to transfer frame from hardware";
+                    av_frame_unref(frame);
+                    av_frame_free(&sw_frame);
+                    return;
+                }
+                av_frame_copy_props(sw_frame, frame);
+                av_frame_unref(frame);
+                frame = sw_frame;
+            }
+            QMetaObject::invokeMethod(window, std::bind(&QmlMainWindow::presentFrame, window, frame, frames_lost));
+        });
+
+        // Connect session quit handler
+        connect(session, &StreamSession::SessionQuit, this, [this](ChiakiQuitReason reason, const QString &reason_str) {
+            if (chiaki_quit_reason_is_error(reason)) {
+                QString m = tr("PSStream Session has quit") + ":\n" + chiaki_quit_reason_string(reason);
+                if (!reason_str.isEmpty())
+                    m += "\n" + tr("Reason") + ": \"" + reason_str + "\"";
+                emit sessionError(tr("Session has quit"), m);
+            }
+
+            chiaki_log_mutex.lock();
+            chiaki_log_ctx = nullptr;
+            chiaki_log_mutex.unlock();
+
+            session->deleteLater();
+            session = nullptr;
+            emit sessionChanged(session);
+
+            sleep_inhibit->release();
+            setDiscoveryEnabled(true);
+        });
+
+        // Connect discovery state handler
+        connect(session, &StreamSession::ConnectedChanged, this, [this]() {
+            if (session->IsConnected())
+                setDiscoveryEnabled(false);
+        });
+        
+        // Notify QML that session is available
+        emit sessionChanged(session);
+        
+        // Inhibit sleep
+        sleep_inhibit->inhibit();
+        
+        qInfo() << "QmlBackend: Cloud streaming session registered successfully";
+    });
+    
     qmlRegisterUncreatableType<QmlMainWindow>(uri, 1, 0, "ChiakiWindow", {});
     qmlRegisterUncreatableType<QmlSettings>(uri, 1, 0, "ChiakiSettings", {});
     qmlRegisterUncreatableType<StreamSession>(uri, 1, 0, "ChiakiSession", {});

@@ -121,6 +121,7 @@ struct StreamSessionConnectInfo
 	QString cloud_launch_spec;
 	QString cloud_handshake_key;
 	QString cloud_session_id;
+	uint8_t cloud_psn_wrapper_type;
 
 	StreamSessionConnectInfo() {}
 	StreamSessionConnectInfo(

@@ -94,6 +94,7 @@ typedef struct chiaki_connect_info_t
 	const char *cloud_handshake_key; // pre-encoded handshake key (base64)
 	const char *cloud_session_id; // session ID from Gaikai
 	uint16_t cloud_port; // port for cloud streaming connection (0 if not cloud mode)
+	uint8_t cloud_psn_wrapper_type; // PSN wrapper type (last octet of private IP)
 } ChiakiConnectInfo;
 
 
@@ -241,6 +242,7 @@ typedef struct chiaki_session_t
 	const char *cloud_launch_spec; // pre-encoded launch spec JSON (base64)
 	const char *cloud_handshake_key; // pre-encoded handshake key (base64)
 	uint16_t cloud_port; // port for cloud streaming connection (0 if not cloud mode)
+	uint8_t cloud_psn_wrapper_type; // PSN wrapper type (last octet of private IP)
 
 	ChiakiQuitReason quit_reason;
 	char *quit_reason_str; // additional reason string from remote

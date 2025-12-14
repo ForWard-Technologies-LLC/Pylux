@@ -45,7 +45,7 @@ QJsonObject PSGaikaiStreaming::buildRequestGameSpec(QString entitlementId)
         "acceptButton": "X",
         "audioEncoderProfile": "default",
         "videoEncoderProfile": "hw4.1",
-        "adaptiveStreamMode": "pad",
+        "adaptiveStreamMode": "resize",
         "gkCloudAuthCode": "%2",
         "ps3AuthCode": "%3",
         "streamServerAuthCode": "%4",
@@ -83,7 +83,14 @@ QJsonObject PSGaikaiStreaming::buildRequestGameSpec(QString entitlementId)
         .arg(redirectUriUrl);
     
     QJsonDocument doc = QJsonDocument::fromJson(jsonStr.toUtf8());
-    return doc.object();
+    QJsonObject obj = doc.object();
+    
+    // Log the full JSON for inspection
+    qInfo() << "=== buildRequestGameSpec - Full JSON ===";
+    qInfo() << QJsonDocument(obj).toJson(QJsonDocument::Indented);
+    qInfo() << "========================================";
+    
+    return obj;
 }
 
 void PSGaikaiStreaming::updateSessionKey(QNetworkReply *reply)
@@ -570,6 +577,14 @@ void PSGaikaiStreaming::step13_AllocateSlot()
     body["streamTestTime"] = 11262.8423;
     
     QJsonDocument doc(body);
+    
+    // Log the full allocate request JSON for inspection
+    qInfo() << "=== Step 13: Allocate Request - Full JSON ===";
+    qInfo() << "URL:" << urlStr;
+    qInfo() << "Body:";
+    qInfo() << doc.toJson(QJsonDocument::Indented);
+    qInfo() << "=============================================";
+    
     QNetworkReply *reply = manager->post(req, doc.toJson());
     
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
@@ -588,20 +603,42 @@ void PSGaikaiStreaming::step13_AllocateSlot()
         QJsonDocument jsonDoc = QJsonDocument::fromJson(data);
         QJsonObject allocation = jsonDoc.object();
         
+        // Log the full allocation response for inspection
+        qInfo() << "=== Step 13: Allocate Response - Full JSON ===";
+        qInfo() << jsonDoc.toJson(QJsonDocument::Indented);
+        qInfo() << "==============================================";
+        
         // Extract critical connection info
         QJsonObject launchSlot = allocation["launchSlot"].toObject();
         allocatedServerIp = launchSlot["publicIp"].toString();
         allocatedServerPort = launchSlot["port"].toInt();
+        QString privateIp = launchSlot["privateIp"].toString();
         allocatedHandshakeKey = allocation["handshakeKey"].toString();
         allocatedLaunchSpec = allocation["launchSpecification"].toString();
         allocatedSessionId = allocation["sessionId"].toString();
+        
+        // Extract PSN wrapper type from private IP's last octet
+        allocatedPsnWrapperType = 0x01; // default fallback
+        if (!privateIp.isEmpty()) {
+            int lastDotPos = privateIp.lastIndexOf('.');
+            if (lastDotPos != -1) {
+                QString lastOctet = privateIp.mid(lastDotPos + 1);
+                bool ok;
+                int octetValue = lastOctet.toInt(&ok);
+                if (ok && octetValue >= 0 && octetValue <= 255) {
+                    allocatedPsnWrapperType = static_cast<uint8_t>(octetValue);
+                    qInfo() << "Private IP:" << privateIp << "-> PSN wrapper type:" << QString("0x%1").arg(allocatedPsnWrapperType, 2, 16, QChar('0'));
+                }
+            }
+        }
         
         qInfo() << "=== Gaikai Step 13: ALLOCATION SUCCESSFUL ===";
         qInfo() << "Server IP:" << allocatedServerIp;
         qInfo() << "Server Port:" << allocatedServerPort;
         qInfo() << "Handshake Key:" << allocatedHandshakeKey;
         qInfo() << "Session ID:" << allocatedSessionId;
-        qInfo() << "Launch Spec:" << allocatedLaunchSpec.left(50) << "...";
+        qInfo() << "Launch Spec (FULL):" << allocatedLaunchSpec;
+        qInfo() << "Launch Spec Length:" << allocatedLaunchSpec.length();
         qInfo() << "[Allocation results stored in class for Takion connection]";
         
         // Extract additional info

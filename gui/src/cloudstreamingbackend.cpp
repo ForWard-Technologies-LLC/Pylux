@@ -24,8 +24,8 @@ Q_DECLARE_LOGGING_CATEGORY(chiakiGui)
 // ============================================================================
 namespace CloudConfig {
     // Test values (will be passed as parameters when ready for production)
-    static const QString TEST_NPSSO = "qg7lzIy8Rg3zYu7FPQ9WAhcrEP1zceCuhYdIqRLuxazz4s8V0CT78AS8NTXs0PhC";
-    static const QString TEST_ENTITLEMENT_ID = "UP0001-CUSA09311_00-PSRSVD0000000000";
+    static const QString TEST_NPSSO = "3CQAgA4utomnErZT2wNQVylUSqF2wqXjrKGnTKOrYBMrvQdbb4LBY0RXacRZmQ1w";
+    static const QString TEST_ENTITLEMENT_ID = "UP9000-CUSA02320_00-PSRSVD0000000000";
     
     // User preferences (will be settings later)
     static const int RESOLUTION = 1080;
@@ -137,12 +137,20 @@ void CloudStreamingBackend::startCompleteCloudSession(const QJSValue &callback)
             connect_info.cloud_launch_spec = launchSpec;
             connect_info.cloud_handshake_key = handshakeKey;
             connect_info.cloud_session_id = sessionId;
+            connect_info.cloud_psn_wrapper_type = gaikaiStreaming->getPsnWrapperType();
+            
+            // Cloud Play uses H.264 (confirmed from official app Frida logs)
+            // The server sends codec=3 in packets, but we normalize to H.264 (0)
+            // We also need to set it here so the video decoder initializes with H.264
+            connect_info.video_profile.codec = CHIAKI_CODEC_H264;
+            qInfo() << "Cloud Play: Forcing initial codec to H.264 for decoder initialization";
             
             qInfo() << "Cloud mode parameters set:";
             qInfo() << "  cloud_mode:" << connect_info.cloud_mode;
             qInfo() << "  cloud_session_id set:" << !connect_info.cloud_session_id.isEmpty();
             qInfo() << "  cloud_handshake_key set:" << !connect_info.cloud_handshake_key.isEmpty();
             qInfo() << "  cloud_launch_spec set:" << !connect_info.cloud_launch_spec.isEmpty();
+            qInfo() << "  cloud_psn_wrapper_type:" << QString("0x%1").arg(connect_info.cloud_psn_wrapper_type, 2, 16, QChar('0'));
             
             // Resolve "auto" hardware decoder to actual decoder
             if(connect_info.hw_decoder == "auto")
@@ -201,11 +209,14 @@ void CloudStreamingBackend::startCompleteCloudSession(const QJSValue &callback)
             qInfo() << "=== Creating StreamSession ===";
             try {
                 qInfo() << "Instantiating StreamSession with cloud parameters...";
-                StreamSession *session = new StreamSession(connect_info, this);
-                qInfo() << "StreamSession created successfully, starting stream...";
+                // Create session with QmlBackend as parent so it can manage it
+                StreamSession *session = new StreamSession(connect_info, parent());
+                qInfo() << "StreamSession created successfully, emitting sessionCreated signal...";
                 
-                // Note: Start() is asynchronous - success will be reported via session events
-                // Do NOT report success here - wait for actual connection
+                // Emit signal so QmlBackend can register the session
+                emit sessionCreated(session);
+                
+                // Start the session
                 session->Start();
                 qInfo() << "StreamSession Start() called (connection is asynchronous)";
                 

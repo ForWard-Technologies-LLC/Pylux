@@ -234,6 +234,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_session_init(ChiakiSession *session, Chiaki
 		session->cloud_launch_spec = connect_info->cloud_launch_spec;
 		session->cloud_handshake_key = connect_info->cloud_handshake_key;
 		session->cloud_port = connect_info->cloud_port;
+		session->cloud_psn_wrapper_type = connect_info->cloud_psn_wrapper_type;
 		
 		if(connect_info->cloud_launch_spec)
 			CHIAKI_LOGI(session->log, "Cloud launch spec provided: length=%zu", strlen(connect_info->cloud_launch_spec));
@@ -334,9 +335,10 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_session_init(ChiakiSession *session, Chiaki
 			return CHIAKI_ERR_PARSE_ADDR;
 		}
 		
-		// Set target for cloud mode (PS5 is typical for cloud streaming)
-		session->target = CHIAKI_TARGET_PS5_1;
-		CHIAKI_LOGI(session->log, "Cloud mode: target set to PS5");
+		// Set target for cloud mode (PS4 since we use protocol v9 and H.264)
+		// TODO this should eventually be ps5 for ps5 cloud streaming!
+		session->target = CHIAKI_TARGET_PS4_10;
+		CHIAKI_LOGI(session->log, "Cloud mode: target set to PS4 (protocol v9)");
 		
 		CHIAKI_LOGI(session->log, "=== CLOUD MODE INITIALIZATION COMPLETE ===");
 	}
@@ -346,6 +348,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_session_init(ChiakiSession *session, Chiaki
 		session->cloud_launch_spec = NULL;
 		session->cloud_handshake_key = NULL;
 		session->cloud_port = 0;
+		session->cloud_psn_wrapper_type = 0;
 		memcpy(session->connect_info.psn_account_id, connect_info->psn_account_id, sizeof(connect_info->psn_account_id));
 	}
 	else
@@ -354,6 +357,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_session_init(ChiakiSession *session, Chiaki
 		session->cloud_launch_spec = NULL;
 		session->cloud_handshake_key = NULL;
 		session->cloud_port = 0;
+		session->cloud_psn_wrapper_type = 0;
 		// make hostname use ipv4 for now
 		struct addrinfo hints;
 		memset(&hints, 0, sizeof(hints));
@@ -635,133 +639,105 @@ static void *session_thread_func(void *arg)
 		chiaki_rpcrypt_init_auth(&session->rpcrypt, session->target, session->nonce, morning);
 		CHIAKI_LOGI(session->log, "Cloud mode: RPCrypt initialized");
 		
-		// Initialize ECDH with P-256 curve for Cloud Play (produces 65-byte keys)
-		err = chiaki_ecdh_init_p256(&session->ecdh);
-		if(err != CHIAKI_ERR_SUCCESS)
-		{
-			CHIAKI_LOGE(session->log, "Cloud mode: Failed to initialize ECDH (P-256)");
-			QUIT(quit);
-		}
-		CHIAKI_LOGI(session->log, "Cloud mode: ECDH (P-256) initialized successfully");
-		
-		// Go directly to stream connection (no data_sock for cloud mode, it will create its own)
-		chiaki_mutex_unlock(&session->state_mutex);
-		err = chiaki_stream_connection_run(&session->stream_connection, NULL);
-		chiaki_mutex_lock(&session->state_mutex);
-		
-		if(err == CHIAKI_ERR_DISCONNECTED)
-		{
-			CHIAKI_LOGE(session->log, "Cloud mode: Remote disconnected from StreamConnection");
-			if(!strcmp(session->stream_connection.remote_disconnect_reason, "Server shutting down"))
-				session->quit_reason = CHIAKI_QUIT_REASON_STREAM_CONNECTION_REMOTE_SHUTDOWN;
-			else
-				session->quit_reason = CHIAKI_QUIT_REASON_STREAM_CONNECTION_REMOTE_DISCONNECTED;
-			session->quit_reason_str = strdup(session->stream_connection.remote_disconnect_reason);
-		}
-		else if(err != CHIAKI_ERR_SUCCESS && err != CHIAKI_ERR_CANCELED)
-		{
-			CHIAKI_LOGE(session->log, "Cloud mode: StreamConnection run failed: %s", chiaki_error_string(err));
-			session->quit_reason = CHIAKI_QUIT_REASON_STREAM_CONNECTION_UNKNOWN;
-		}
-		else
-		{
-			CHIAKI_LOGI(session->log, "Cloud mode: StreamConnection completed successfully");
-			session->quit_reason = CHIAKI_QUIT_REASON_STOPPED;
-		}
-		
-		chiaki_mutex_unlock(&session->state_mutex);
-		chiaki_ecdh_fini(&session->ecdh);
-		chiaki_mutex_lock(&session->state_mutex);
-		
-		CHIAKI_LOGI(session->log, "Cloud mode: Session thread completed");
-		QUIT(quit);
+		// handshake_key is already set from API (decoded at session init)
+		// Skip session request and fall through to common ECDH + stream connection path
 	}
 	
-	CHIAKI_LOGI(session->log, "Starting session request for %s", session->connect_info.ps5 ? "PS5" : "PS4");
-
-	ChiakiTarget server_target = CHIAKI_TARGET_PS4_UNKNOWN;
-	ChiakiErrorCode err = session_thread_request_session(session, &server_target);
-
-	if(err == CHIAKI_ERR_VERSION_MISMATCH && !chiaki_target_is_unknown(server_target))
+	ChiakiErrorCode err;
+	
+	// Cloud mode skips session request and uses API parameters
+	if(!session->cloud_mode)
 	{
-		CHIAKI_LOGI(session->log, "Attempting to re-request session with Server's RP-Version");
-		session->target = server_target;
+		CHIAKI_LOGI(session->log, "Starting session request for %s", session->connect_info.ps5 ? "PS5" : "PS4");
+
+		ChiakiTarget server_target = CHIAKI_TARGET_PS4_UNKNOWN;
 		err = session_thread_request_session(session, &server_target);
-	}
-	else if(err != CHIAKI_ERR_SUCCESS)
-		QUIT(quit);
 
-	if(err == CHIAKI_ERR_VERSION_MISMATCH && !chiaki_target_is_unknown(server_target))
-	{
-		CHIAKI_LOGI(session->log, "Attempting to re-request session even harder with Server's RP-Version!!!");
-		session->target = server_target;
-		err = session_thread_request_session(session, NULL);
-	}
-	else if(err != CHIAKI_ERR_SUCCESS)
-		QUIT(quit);
-
-	if(err != CHIAKI_ERR_SUCCESS)
-		QUIT(quit);
-
-	CHIAKI_LOGI(session->log, "Session request successful");
-
-	chiaki_rpcrypt_init_auth(&session->rpcrypt, session->target, session->nonce, session->connect_info.morning);
-
-	// PS4 doesn't always react right away, sleep a bit
-	chiaki_cond_timedwait_pred(&session->state_cond, &session->state_mutex, 10, session_check_state_pred, session);
-
-	CHIAKI_LOGI(session->log, "Starting ctrl");
-
-	err = chiaki_ctrl_start(&session->ctrl);
-	if(err != CHIAKI_ERR_SUCCESS)
-		QUIT(quit);
-
-	err = chiaki_cond_timedwait_pred(&session->state_cond, &session->state_mutex, SESSION_EXPECT_CTRL_START_MS, session_check_state_pred_ctrl_start, session);
-	CHECK_STOP(quit_ctrl);
-
-	if(session->ctrl_failed)
-	{
-		CHIAKI_LOGE(session->log, "Ctrl has failed while waiting for ctrl startup");
-		goto ctrl_failed;
-	}
-
-	bool pin_incorrect = false;
-	while(session->ctrl_login_pin_requested)
-	{
-		session->ctrl_login_pin_requested = false;
-		if(pin_incorrect)
-			CHIAKI_LOGI(session->log, "Login PIN was incorrect, requested again by Ctrl");
-		else
-			CHIAKI_LOGI(session->log, "Ctrl requested Login PIN");
-		ChiakiEvent event = { 0 };
-		event.type = CHIAKI_EVENT_LOGIN_PIN_REQUEST;
-		event.login_pin_request.pin_incorrect = pin_incorrect;
-		chiaki_session_send_event(session, &event);
-		pin_incorrect = true;
-		err = chiaki_cond_timedwait_pred(&session->state_cond, &session->state_mutex, UINT64_MAX, session_check_state_pred_pin, session);
-		CHECK_STOP(quit_ctrl);
-		if(session->ctrl_failed)
+		if(err == CHIAKI_ERR_VERSION_MISMATCH && !chiaki_target_is_unknown(server_target))
 		{
-			CHIAKI_LOGE(session->log, "Ctrl has failed while waiting for PIN entry");
-			goto ctrl_failed;
+			CHIAKI_LOGI(session->log, "Attempting to re-request session with Server's RP-Version");
+			session->target = server_target;
+			err = session_thread_request_session(session, &server_target);
 		}
+		else if(err != CHIAKI_ERR_SUCCESS)
+			QUIT(quit);
 
-		assert(session->login_pin_entered && session->login_pin);
-		CHIAKI_LOGI(session->log, "Session received entered Login PIN, forwarding to Ctrl");
-		chiaki_ctrl_set_login_pin(&session->ctrl, session->login_pin, session->login_pin_size);
-		session->login_pin_entered = false;
-		free(session->login_pin);
-		session->login_pin = NULL;
-		session->login_pin_size = 0;
-		// wait for session id or new login pin request
-		err = chiaki_cond_timedwait_pred(&session->state_cond, &session->state_mutex, SESSION_EXPECT_CTRL_START_MS, session_check_state_pred_ctrl_start, session);
-		CHECK_STOP(quit_ctrl);
+		if(err == CHIAKI_ERR_VERSION_MISMATCH && !chiaki_target_is_unknown(server_target))
+		{
+			CHIAKI_LOGI(session->log, "Attempting to re-request session even harder with Server's RP-Version!!!");
+			session->target = server_target;
+			err = session_thread_request_session(session, NULL);
+		}
+		else if(err != CHIAKI_ERR_SUCCESS)
+			QUIT(quit);
+
+		if(err != CHIAKI_ERR_SUCCESS)
+			QUIT(quit);
+
+		CHIAKI_LOGI(session->log, "Session request successful");
+
+		chiaki_rpcrypt_init_auth(&session->rpcrypt, session->target, session->nonce, session->connect_info.morning);
 	}
 
 	chiaki_socket_t *data_sock = NULL;
-	if(session->rudp)
+	
+	// Cloud mode skips ctrl/holepunch/senkusha and goes directly to stream connection
+	if(!session->cloud_mode)
 	{
-		ChiakiErrorCode err = holepunch_session_create_offer(session->holepunch_session);
+		// PS4 doesn't always react right away, sleep a bit
+		chiaki_cond_timedwait_pred(&session->state_cond, &session->state_mutex, 10, session_check_state_pred, session);
+
+		CHIAKI_LOGI(session->log, "Starting ctrl");
+
+		err = chiaki_ctrl_start(&session->ctrl);
+		if(err != CHIAKI_ERR_SUCCESS)
+			QUIT(quit);
+
+		err = chiaki_cond_timedwait_pred(&session->state_cond, &session->state_mutex, SESSION_EXPECT_CTRL_START_MS, session_check_state_pred_ctrl_start, session);
+		CHECK_STOP(quit_ctrl);
+
+		if(session->ctrl_failed)
+		{
+			CHIAKI_LOGE(session->log, "Ctrl has failed while waiting for ctrl startup");
+			goto ctrl_failed;
+		}
+
+		bool pin_incorrect = false;
+		while(session->ctrl_login_pin_requested)
+		{
+			session->ctrl_login_pin_requested = false;
+			if(pin_incorrect)
+				CHIAKI_LOGI(session->log, "Login PIN was incorrect, requested again by Ctrl");
+			else
+				CHIAKI_LOGI(session->log, "Ctrl requested Login PIN");
+			ChiakiEvent event = { 0 };
+			event.type = CHIAKI_EVENT_LOGIN_PIN_REQUEST;
+			event.login_pin_request.pin_incorrect = pin_incorrect;
+			chiaki_session_send_event(session, &event);
+			pin_incorrect = true;
+			err = chiaki_cond_timedwait_pred(&session->state_cond, &session->state_mutex, UINT64_MAX, session_check_state_pred_pin, session);
+			CHECK_STOP(quit_ctrl);
+			if(session->ctrl_failed)
+			{
+				CHIAKI_LOGE(session->log, "Ctrl has failed while waiting for PIN entry");
+				goto ctrl_failed;
+			}
+
+			assert(session->login_pin_entered && session->login_pin);
+			CHIAKI_LOGI(session->log, "Session received entered Login PIN, forwarding to Ctrl");
+			chiaki_ctrl_set_login_pin(&session->ctrl, session->login_pin, session->login_pin_size);
+			session->login_pin_entered = false;
+			free(session->login_pin);
+			session->login_pin = NULL;
+			session->login_pin_size = 0;
+			// wait for session id or new login pin request
+			err = chiaki_cond_timedwait_pred(&session->state_cond, &session->state_mutex, SESSION_EXPECT_CTRL_START_MS, session_check_state_pred_ctrl_start, session);
+			CHECK_STOP(quit_ctrl);
+		}
+
+		if(session->rudp)
+		{
+			err = holepunch_session_create_offer(session->holepunch_session);
 		if (err != CHIAKI_ERR_SUCCESS)
 		{
 			CHIAKI_LOGE(session->log, "!! Failed to create offer msg for data connection");
@@ -840,7 +816,6 @@ ctrl_failed:
 #endif
 	if(session->rudp)
 	{
-		ChiakiErrorCode err;
 		err = chiaki_rudp_send_switch_to_stream_connection_message(session->rudp);
 		if(err != CHIAKI_ERR_SUCCESS)
 		{
@@ -854,14 +829,20 @@ ctrl_failed:
 			QUIT(quit_ctrl);
 		}
 		CHECK_STOP(quit_ctrl);
-		CHIAKI_LOGI(session->log, "Received Switch to Stream Connection Ack... Switching to Stream Connection now");
-	}
+			CHIAKI_LOGI(session->log, "Received Switch to Stream Connection Ack... Switching to Stream Connection now");
+		}
+	}  // End of remote play specific setup
 
-	err = chiaki_random_bytes_crypt(session->handshake_key, sizeof(session->handshake_key));
-	if(err != CHIAKI_ERR_SUCCESS)
+	// For cloud mode, handshake_key is already set from API (decoded at session init)
+	// For remote play, generate random handshake_key
+	if(!session->cloud_mode)
 	{
-		CHIAKI_LOGE(session->log, "Session failed to generate handshake key");
-		QUIT(quit_ctrl);
+		err = chiaki_random_bytes_crypt(session->handshake_key, sizeof(session->handshake_key));
+		if(err != CHIAKI_ERR_SUCCESS)
+		{
+			CHIAKI_LOGE(session->log, "Session failed to generate handshake key");
+			QUIT(quit_ctrl);
+		}
 	}
 
 	err = chiaki_ecdh_init(&session->ecdh);

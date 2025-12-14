@@ -123,6 +123,7 @@ typedef struct chiaki_takion_connect_info_t
 	uint8_t protocol_version;
 	bool close_socket; // close socket when finishing takion
 	ChiakiTakionProtocol protocol; // Remote Play or Cloud Play protocol variant
+	uint8_t psn_wrapper_type; // PSN wrapper type for Cloud Play (last octet of private IP)
 } ChiakiTakionConnectInfo;
 
 
@@ -131,6 +132,7 @@ typedef struct chiaki_takion_t
 	ChiakiLog *log;
 	uint8_t version;
 	ChiakiTakionProtocol protocol; // Remote Play or Cloud Play protocol variant
+	uint8_t psn_wrapper_type; // PSN wrapper type for Cloud Play (last octet of private IP)
 
 	// Whether or not audio or video is disabled from further processing beyond basic ack
 	ChiakiDisableAudioVideo disable_audio_video;

@@ -128,7 +128,7 @@ bool SteamCloudSync::syncBidirectional()
 
     qCInfo(chiakiGui) << "SteamCloudSync: Found" << localFiles.size() << "local config file(s)";
     for (const QString &file : localFiles) {
-        qCInfo(chiakiGui) << "  Local:" << QFileInfo(file).fileName();
+        qCInfo(chiakiGui) << "  Local:" << file;
     }
     qCInfo(chiakiGui) << "SteamCloudSync: Found" << cloudFiles.size() << "cloud config file(s)";
     for (const QString &file : cloudFiles) {
