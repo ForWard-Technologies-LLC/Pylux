@@ -34,6 +34,8 @@ public:
         Settings *settings,
         QString npsso,
         QString duid,
+        QString platform,  // "ps3", "ps4", or "ps5"
+        QString productId, // Product ID (will be converted to Entitlement ID)
         QString accountBaseUrl,
         QString redirectUri,
         QString userAgent,
@@ -41,7 +43,7 @@ public:
     );
 
     /**
-     * Start the complete Kamaji session creation flow (Steps 1-6)
+     * Start the complete Kamaji session creation flow (Steps 0.5a-0.5d, 5-6)
      */
     void startSessionCreation();
 
@@ -56,15 +58,20 @@ public:
     QString getAccountId() const { return accountId; }
     QString getOnlineId() const { return onlineId; }
     QString getSessionUrl() const { return sessionUrl; }
+    QString getEntitlementId() const { return entitlementId; }
 
 signals:
-    void sessionComplete(bool success, QString message);
+    void sessionComplete(bool success, QString message, QString entitlementId);
 
 private slots:
-    void handleDeleteResponse(QNetworkReply *reply);
-    void handleCreateResponse(QNetworkReply *reply);
-    void handleSignOutResponse(QNetworkReply *reply);
     void handleAuthorizeCheckResponse(QNetworkReply *reply);
+    void handleAnonAuthCodeResponse(QNetworkReply *reply);
+    void handleAnonSessionResponse(QNetworkReply *reply);
+    void handleProductIdConversionResponse(QNetworkReply *reply);
+    void handleCommerceOAuthTokenResponse(QNetworkReply *reply);
+    void handleCheckEntitlementResponse(QNetworkReply *reply);
+    void handleCheckoutPreviewResponse(QNetworkReply *reply);
+    void handleCheckoutBuynowResponse(QNetworkReply *reply);
     void handleAuthCodeResponse(QNetworkReply *reply);
     void handleAuthSessionResponse(QNetworkReply *reply);
 
@@ -79,25 +86,37 @@ private:
     QString accountBase;
     QString kamajiClientId;
     QString duid;
+    QString platform;
+    QString productId;
     QString redirectUriUrl;
     QString scopesStr;
     QString userAgentString;
     
     // State tracking
-    QString authorizationCode;
+    QString anonAuthCode;      // OAuth code for anonymous session
+    QString authorizationCode; // OAuth code for authenticated session
+    QString jsessionId;        // JSESSIONID from anonymous session
+    QString entitlementId;     // Converted from productId
+    QString streamingSku;      // SKU from product ID conversion (for entitlement check)
+    QString commerceOAuthToken; // OAuth token for Commerce API (Bearer token)
     
     // Session data (set after successful authentication)
     QString accountId;
     QString onlineId;
     QString sessionUrl;
     
-    // Step functions (parallel to PSGaikaiStreaming structure)
-    void step1_DeleteExisting();
-    void step2_CreateAnonymous();
-    void step3_SignOut();
-    void step4_AuthorizeCheck();
-    void step5_GetAuthCode();
-    void step6_CreateAuthSession();
+    // Step functions (simplified PSNOW flow)
+    void step0_5a_AuthorizeCheck();     // POST /authorizeCheck (FIRST step)
+    void step0_5b_GetAnonymousAuthCode(); // GET /oauth/authorize (for anonymous session code)
+    void step0_5c_CreateAnonymousSession(); // POST /user/session (anonymous, with OAuth code)
+    void step0_5d_ConvertProductId();   // GET /store/api/pcnow/.../container/.../{PRODUCT_ID}
+    void step0_5e_CheckEntitlement();   // Check and acquire entitlement if needed (entitlement_check.py flow)
+    void step0_5e_GetCommerceOAuthToken(); // GET /oauth/authorize (response_type=token for Commerce API)
+    void step0_5e_CheckEntitlementExists(); // GET /commerce/api/v1/users/me/internal_entitlements/{entitlementId}
+    void step0_5e_CheckoutPreview();    // POST /checkout/buynow/preview
+    void step0_5e_CheckoutBuynow();     // POST /checkout/buynow
+    void step5_GetAuthCode();           // GET /oauth/authorize (for authenticated session code)
+    void step6_CreateAuthSession();     // POST /user/session (authenticated, with OAuth code)
 };
 
 #endif // CHIAKI_PSKAMAJISESSION_H

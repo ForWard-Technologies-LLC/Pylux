@@ -9,6 +9,8 @@
 #include <QString>
 #include <QJSValue>
 
+class QNetworkCookieJar;  // Forward declaration
+
 /**
  * CloudStreamingBackend - Orchestrates PlayStation Plus Cloud Gaming flow
  * 
@@ -33,7 +35,11 @@ public:
     explicit CloudStreamingBackend(Settings *settings, QObject *parent = nullptr);
 
     // MAIN ENTRY POINT - Complete cloud streaming session (Steps 1-13)
-    Q_INVOKABLE void startCompleteCloudSession(const QJSValue &callback);
+    // Parameters:
+    //   serviceType: "psnow" or "pscloud"
+    //   platform: "ps3", "ps4", or "ps5"
+    //   gameIdentifier: Product ID (PSNOW) or Entitlement ID (PSCLOUD)
+    Q_INVOKABLE void startCompleteCloudSession(QString serviceType, QString platform, QString gameIdentifier, const QJSValue &callback);
 
 signals:
     // Emitted when a cloud streaming session is created and ready to be registered
@@ -41,6 +47,12 @@ signals:
 
 private:
     Settings *settings;
+    
+    // Helper method to start Gaikai allocation (shared between PSNOW and PSCLOUD flows)
+    void startGaikaiAllocation(QString serviceType, QString platform, QString entitlementId,
+                                QString duid, QNetworkCookieJar *cookieJar,
+                                QString redirectUri, QString userAgent, QString oauthApiPath,
+                                ChiakiTarget target, const QJSValue &callback, QObject *kamajiSession);
 };
 
 #endif // CLOUDSTREAMINGBACKEND_H

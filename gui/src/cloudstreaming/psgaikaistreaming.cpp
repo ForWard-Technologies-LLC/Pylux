@@ -9,6 +9,7 @@
 #include <QJsonArray>
 #include <QNetworkRequest>
 #include <QNetworkReply>
+#include <QNetworkCookie>
 #include <QUrlQuery>
 
 // ============================================================================
@@ -19,78 +20,204 @@ namespace GaikaiConsts {
     static const QString GAIKAI_BASE = "https://cc.prod.gaikai.com/v1";
 }
 
-PSGaikaiStreaming::PSGaikaiStreaming(Settings *settings, QString npsso, QString deviceUid, QNetworkCookieJar *cookieJar,
-                                   QString accountBase, QString redirectUri, QString userAgent, QObject *parent)
+PSGaikaiStreaming::PSGaikaiStreaming(Settings *settings, QString npsso, QString deviceUid,
+                                   QString serviceTypeParam, QString platformParam,
+                                   QNetworkCookieJar *cookieJar,
+                                   QString accountBase, QString redirectUri, QString userAgent, QString oauthApiPathParam,
+                                   QObject *parent)
     : QObject(parent)
     , settings(settings)
     , npsso(npsso)
     , duid(deviceUid)
+    , serviceType(serviceTypeParam.toLower())
+    , platform(platformParam.toLower())
     , cookieJar(cookieJar)
     , accountBaseUrl(accountBase)
     , redirectUriUrl(redirectUri)
     , userAgentString(userAgent)
+    , oauthApiPath(oauthApiPathParam)
 {
+    // Determine virtType from platform
+    if (platform == "ps3") {
+        virtType = "konan";
+    } else if (platform == "ps4") {
+        virtType = "kratos";
+    } else if (platform == "ps5") {
+        virtType = "cronos";
+    }
+    
     manager = new QNetworkAccessManager(this);
     manager->setCookieJar(cookieJar);
+    
+    // Ensure NPSSO cookie is in the cookie jar for OAuth requests (needed for PSCLOUD)
+    // For PSNOW, this should already be set by Kamaji session, but adding here ensures it's there
+    QList<QNetworkCookie> existingCookies = cookieJar->cookiesForUrl(QUrl("https://ca.account.sony.com"));
+    bool hasNpsso = false;
+    for (const QNetworkCookie &cookie : existingCookies) {
+        if (cookie.name() == "npsso") {
+            hasNpsso = true;
+            break;
+        }
+    }
+    
+    if (!hasNpsso && !npsso.isEmpty()) {
+        // Add NPSSO cookie for account.sony.com domains
+        QNetworkCookie npssoCookie("npsso", npsso.toUtf8());
+        npssoCookie.setDomain(".account.sony.com");
+        npssoCookie.setPath("/");
+        cookieJar->insertCookie(npssoCookie);
+        
+        // Also add for ca.account.sony.com specifically
+        QNetworkCookie npssoCookieCa("npsso", npsso.toUtf8());
+        npssoCookieCa.setDomain("ca.account.sony.com");
+        npssoCookieCa.setPath("/");
+        cookieJar->insertCookie(npssoCookieCa);
+        
+        qInfo() << "Added NPSSO cookie to cookie jar for Gaikai OAuth requests";
+    }
+    
+    // Initialize port to 0 (will be set from step12 response)
+    selectedDatacenterPort = 0;
 }
 
 QJsonObject PSGaikaiStreaming::buildRequestGameSpec(QString entitlementId)
 {
-    // Build as raw JSON string - easy to edit and compare with PowerShell script
-    // Only auth codes are parameterized, rest is hardcoded for visibility
-    QString jsonStr = QString(R"({
-        "entitlementId": "%1",
-        "audioChannels": "2.1",
-        "language": "en-US",
-        "acceptButton": "X",
-        "audioEncoderProfile": "default",
-        "videoEncoderProfile": "hw4.1",
-        "adaptiveStreamMode": "resize",
-        "gkCloudAuthCode": "%2",
-        "ps3AuthCode": "%3",
-        "streamServerAuthCode": "%4",
-        "resolutionSetting": 1080,
-        "npEnv": "np",
-        "parentalLevel": 0,
-        "yuvCoefficient": "",
-        "timeZone": "UTC-08:00",
-        "summerTime": 0,
-        "encryptionSupported": true,
-        "homeSharing": false,
-        "gaikaiPlayer": "12.5.0",
-        "protocolVersion": 9,
-        "audioUploadSamplingFrequency": 48000,
-        "audioUploadNumChannels": 1,
-        "audioUploadEnabled": 1,
-        "accessibilityTtsEnable": 0,
-        "accessibilityTtsSpeed": 0,
-        "accessibilityTtsVolume": 0,
-        "accessibilityMarqueeSpeed": 0,
-        "accessibilityLargeText": 0,
-        "accessibilityBoldText": 0,
-        "accessibilityContrast": 0,
-        "partyCapability": false,
-        "capabilities": ["cloudDrivenSenkushaTest", "kratos"],
-            "redirectUri": "%5",
-        "connectedControllers": ["xinput"],
-        "model": "WINDOWS",
-        "platform": "PC"
-    })")
-        .arg(entitlementId)
-        .arg(gkCloudAuthCode)
-        .arg(ps3AuthCode)
-        .arg(streamServerAuthCode)
-        .arg(redirectUriUrl);
+    QJsonObject spec;
     
-    QJsonDocument doc = QJsonDocument::fromJson(jsonStr.toUtf8());
-    QJsonObject obj = doc.object();
+    // Core Game Configuration
+    spec["entitlementId"] = entitlementId;
+    spec["npEnv"] = "np";
+    spec["language"] = "en-US";
+    
+    // Cloud Infrastructure
+    spec["cloudEndpoint"] = "https://cc.prod.gaikai.com";
+    spec["redirectUri"] = redirectUriUrl;
+    
+    // Audio Configuration
+    spec["audioChannels"] = (serviceType == "pscloud") ? "2" : "2.1";
+    spec["audioEncoderProfile"] = "default";
+    spec["audioUploadEnabled"] = true;
+    spec["audioUploadNumChannels"] = 1;
+    spec["audioUploadSamplingFrequency"] = 48000;
+    
+    // Video Configuration
+    spec["resolutionSetting"] = "1080";
+    spec["clientWidth"] = 1920;
+    spec["clientHeight"] = 1080;
+    spec["adaptiveStreamMode"] = "resize";
+    
+    // Service/platform-specific video encoder
+    if (serviceType == "pscloud") {
+        spec["videoEncoderProfile"] = "hw5.0";  // PSCLOUD PS5
+    } else {
+        spec["videoEncoderProfile"] = "hw4.1";  // PSNOW PS3/PS4
+    }
+    spec["useClientBwLadder"] = true;
+    
+    // Input Configuration
+    QJsonObject inputObj;
+    QJsonArray controllersArray;
+    if (serviceType == "pscloud") {
+        controllersArray.append("ds4");
+        controllersArray.append("ds5");
+        controllersArray.append("xinput");
+        spec["connectedControllers"] = controllersArray;
+    } else {
+        spec["connectedControllers"] = QJsonArray::fromStringList({"xinput"});
+    }
+    inputObj["controllers"] = controllersArray;
+    spec["input"] = inputObj;
+    spec["acceptButton"] = "X";
+    
+    // Device/Platform Info
+    if (serviceType == "pscloud") {
+        spec["model"] = "portal";
+        spec["platform"] = "qlite";
+    } else {
+        spec["model"] = "WINDOWS";
+        spec["platform"] = "PC";
+    }
+    spec["httpUserAgent"] = userAgentString;
+    
+    // Protocol Settings
+    if (serviceType == "pscloud") {
+        spec["gaikaiPlayer"] = "16.4.0";      // PSCLOUD PS5
+        spec["protocolVersion"] = 12;
+    } else {
+        spec["gaikaiPlayer"] = "12.5.0";      // PSNOW PS3/PS4
+        spec["protocolVersion"] = 9;
+    }
+    spec["encryptionSupported"] = true;
+    
+    // Timezone
+    spec["summerTime"] = 0;
+    spec["timeZone"] = "UTC-08:00";
+    
+    // Accessibility Features (all disabled)
+    spec["accessibilityMarqueeSpeed"] = 0;
+    spec["accessibilityLargeText"] = 0;
+    spec["accessibilityBoldText"] = 0;
+    spec["accessibilityContrast"] = 0;
+    spec["accessibilityTtsEnable"] = 0;
+    spec["accessibilityTtsSpeed"] = 0;
+    spec["accessibilityTtsVolume"] = 0;
+    
+    // Capability Flags
+    spec["partyCapability"] = false;
+    spec["homesharing"] = false;
+    spec["isFirstBoot"] = false;
+    spec["isPlusMember"] = true;
+    spec["parentalLevel"] = 0;
+    spec["yuvCoefficient"] = "";
+    
+    // Auth Codes (will be updated later in step 9)
+    spec["gkCloudAuthCode"] = gkCloudAuthCode;
+    if (serviceType == "pscloud") {
+        spec["ps3AuthCode"] = "";  // PSCLOUD: empty
+        spec["streamServerAuthCode"] = streamServerAuthCode;
+    } else {
+        spec["ps3AuthCode"] = ps3AuthCode;  // PSNOW: use ps3AuthCode
+        spec["streamServerAuthCode"] = ps3AuthCode;  // PSNOW: same as ps3AuthCode
+    }
+    
+    // Capabilities (service/platform-specific)
+    QJsonArray capabilitiesArray;
+    capabilitiesArray.append("cloudDrivenSenkushaTest");
+    if (serviceType == "pscloud") {
+        capabilitiesArray.append("cronos");  // PSCLOUD PS5
+    } else {
+        capabilitiesArray.append("kratos");  // PSNOW PS3/PS4 (both use kratos)
+    }
+    spec["capabilities"] = capabilitiesArray;
+    
+    // Conditionally add video/audio stream settings for PSCLOUD (PS5)
+    if (serviceType == "pscloud") {
+        QJsonObject videoStreamSettings;
+        videoStreamSettings["clientHeight"] = 1080;
+        videoStreamSettings["supportedMaxResolution"] = 1080;
+        QJsonArray videoProfiles;
+        videoProfiles.append("hevc_hw4");
+        videoStreamSettings["supportedVideoEncoderProfiles"] = videoProfiles;
+        videoStreamSettings["supportedDynamicRange"] = "sdr";
+        videoStreamSettings["preferredMaxResolution"] = 1080;
+        videoStreamSettings["preferredDynamicRange"] = "sdr";
+        videoStreamSettings["hqMode"] = 0;
+        spec["videoStreamSettings"] = videoStreamSettings;
+        
+        QJsonObject audioStreamSettings;
+        audioStreamSettings["audioEncoderProfile"] = "default";
+        audioStreamSettings["maxAudioChannels"] = "2";
+        audioStreamSettings["preferredNumberAudioChannels"] = "2";
+        spec["audioStreamSettings"] = audioStreamSettings;
+    }
     
     // Log the full JSON for inspection
     qInfo() << "=== buildRequestGameSpec - Full JSON ===";
-    qInfo() << QJsonDocument(obj).toJson(QJsonDocument::Indented);
+    qInfo() << "Service:" << serviceType << "Platform:" << platform;
+    qInfo() << QJsonDocument(spec).toJson(QJsonDocument::Indented);
     qInfo() << "========================================";
     
-    return obj;
+    return spec;
 }
 
 void PSGaikaiStreaming::updateSessionKey(QNetworkReply *reply)
@@ -122,14 +249,63 @@ void PSGaikaiStreaming::logDebugResponse(const QString &stepName, QNetworkReply 
 
 void PSGaikaiStreaming::StartAllocationFlow(QString entitlementId, const QJSValue &callback)
 {
-    qInfo() << "Gaikai Allocation: Starting complete flow for entitlement:" << entitlementId;
+    qInfo() << "Gaikai Allocation: Starting complete flow";
+    qInfo() << "  Service Type:" << serviceType;
+    qInfo() << "  Platform:" << platform;
+    qInfo() << "  virtType:" << virtType;
+    qInfo() << "  Entitlement ID:" << entitlementId;
     finalCallback = callback;
     
-    // Store entitlement for later use
+    // Store entitlement for later use (will be updated with auth codes in step 8)
     requestGameSpec = buildRequestGameSpec(entitlementId);
     
-    // Start with Step 7
-    step7_GetConfig();
+    // Start with Step 0: Get Client IDs (MUST happen FIRST)
+    step0_GetClientIds();
+}
+
+// Step 0: Get Client IDs (MUST happen FIRST before step7)
+void PSGaikaiStreaming::step0_GetClientIds()
+{
+    qInfo() << "Gaikai Step 0: Getting client IDs for virtType:" << virtType;
+    
+    QString url = QString("https://cc.prod.gaikai.com/v1/client_ids?virtType=%1").arg(virtType);
+    
+    QNetworkRequest req{QUrl(url)};
+    req.setRawHeader("User-Agent", userAgentString.toUtf8());
+    req.setRawHeader("Accept", "*/*");
+    
+    QNetworkReply *reply = manager->get(req);
+    
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        reply->deleteLater();
+        
+        if (reply->error() != QNetworkReply::NoError) {
+            qWarning() << "Gaikai Step 0 failed:" << reply->errorString();
+            emit AllocationError(QString("Client IDs failed: %1").arg(reply->errorString()));
+            emit Finished();
+            return;
+        }
+        
+        QByteArray data = reply->readAll();
+        QJsonDocument jsonDoc = QJsonDocument::fromJson(data);
+        QJsonObject jsonObj = jsonDoc.object();
+        
+        gkClientId = jsonObj["gkClientId"].toString();
+        ps3GkClientId = jsonObj["ps3GkClientId"].toString();  // Present for PSNOW (PS3/PS4)
+        streamServerClientId = jsonObj["streamServerClientId"].toString();  // Present for PSCLOUD (PS5)
+        
+        qInfo() << "Gaikai Step 0 complete:";
+        qInfo() << "  gkClientId:" << gkClientId;
+        if (!ps3GkClientId.isEmpty()) {
+            qInfo() << "  ps3GkClientId:" << ps3GkClientId;
+        }
+        if (!streamServerClientId.isEmpty()) {
+            qInfo() << "  streamServerClientId:" << streamServerClientId;
+        }
+        
+        // Continue to Step 7
+        step7_GetConfig();
+    });
 }
 
 // Step 7: Get Gaikai configuration
@@ -144,8 +320,14 @@ void PSGaikaiStreaming::step7_GetConfig()
     req.setRawHeader("User-Agent", userAgentString.toUtf8());
     
     QJsonObject body;
-    body["product"] = "psnow";
-    body["platform"] = "PC";
+    // Set product/platform based on service type
+    if (serviceType == "pscloud") {
+        body["product"] = "qlite";
+        body["platform"] = "qlite";
+    } else {
+        body["product"] = "psnow";
+        body["platform"] = "PC";
+    }
     body["sessionId"] = "";
     
     QJsonDocument doc(body);
@@ -221,47 +403,63 @@ void PSGaikaiStreaming::step8_StartSession(QString entitlementId)
         QJsonObject jsonObj = jsonDoc.object();
         
         gaikaiSessionId = jsonObj["sessionId"].toString();
-        gkClientId = jsonObj["gkClientId"].toString();
-        ps3GkClientId = jsonObj["ps3GkClientId"].toString();
-        streamServerClientId = jsonObj["streamServerClientId"].toString();
+        // Client IDs are already set from Step 0, but log them for verification
         
         qInfo() << "Gaikai Step 8 complete:";
         qInfo() << "  sessionId:" << gaikaiSessionId;
         qInfo() << "  gkClientId:" << gkClientId;
-        qInfo() << "  ps3GkClientId:" << ps3GkClientId;
+        if (!ps3GkClientId.isEmpty()) {
+            qInfo() << "  ps3GkClientId:" << ps3GkClientId;
+        }
+        if (!streamServerClientId.isEmpty()) {
+            qInfo() << "  streamServerClientId:" << streamServerClientId;
+        }
         
         // Continue to Step 8a
         step8a_GetGkAuthCode();
     });
 }
 
-// Step 8a: Get gkClientId authorization code
+// Step 8a: Get gkClientId authorization code (cloudAuthCode)
 void PSGaikaiStreaming::step8a_GetGkAuthCode()
 {
-    qInfo() << "Gaikai Step 8a: Getting gkClientId auth code...";
+    qInfo() << "Gaikai Step 8a: Getting gkClientId auth code (cloudAuthCode)...";
     
-    QUrl url(accountBaseUrl + "/v1/oauth/authorize");
+    QUrl url(accountBaseUrl + oauthApiPath + "/oauth/authorize");
     QUrlQuery query;
-    query.addQueryItem("smcid", "pc:psnow");
-    query.addQueryItem("applicationId", "psnow");
     query.addQueryItem("response_type", "code");
-    query.addQueryItem("scope", "kamaji:commerce_native versa:user_update_entitlements_first_play kamaji:lists");
     query.addQueryItem("client_id", gkClientId);
-    query.addQueryItem("redirect_uri", "https://psnow.playstation.com/app/2.2.0/133/5cdcc037d/grc-response.html");
+    query.addQueryItem("redirect_uri", redirectUriUrl);
     query.addQueryItem("service_entity", "urn:service-entity:psn");
     query.addQueryItem("prompt", "none");
-    query.addQueryItem("renderMode", "mobilePortrait");
-    query.addQueryItem("hidePageElements", "forgotPasswordLink");
-    query.addQueryItem("displayFooter", "none");
-    query.addQueryItem("disableLinks", "qriocityLink");
-    query.addQueryItem("mid", "PSNOW");
-    query.addQueryItem("layout_type", "popup");
-    query.addQueryItem("service_logo", "ps");
-    query.addQueryItem("tp_psn", "true");
-    query.addQueryItem("noEVBlock", "true");
+    query.addQueryItem("duid", duid);
+    
+    if (serviceType == "pscloud") {
+        // PSCLOUD (PS5) configuration
+        query.addQueryItem("smcid", "qlite");
+        query.addQueryItem("applicationId", "qlite");
+        query.addQueryItem("mid", "qlite");
+        query.addQueryItem("scope", "id_token:psn.basic_claims kamaji:s2s.subscriptionsPremium.get id_token:duid id_token:online_id openid psn:s2s");
+    } else {
+        // PSNOW (PS3/PS4) configuration
+        query.addQueryItem("smcid", "pc:psnow");
+        query.addQueryItem("applicationId", "psnow");
+        query.addQueryItem("mid", "PSNOW");
+        query.addQueryItem("scope", "kamaji:commerce_native versa:user_update_entitlements_first_play kamaji:lists");
+        query.addQueryItem("renderMode", "mobilePortrait");
+        query.addQueryItem("hidePageElements", "forgotPasswordLink");
+        query.addQueryItem("displayFooter", "none");
+        query.addQueryItem("disableLinks", "qriocityLink");
+        query.addQueryItem("layout_type", "popup");
+        query.addQueryItem("service_logo", "ps");
+        query.addQueryItem("tp_psn", "true");
+        query.addQueryItem("noEVBlock", "true");
+    }
+    
     url.setQuery(query);
     
     QNetworkRequest req(url);
+    req.setRawHeader("User-Agent", userAgentString.toUtf8());
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::ManualRedirectPolicy);
     
     QNetworkReply *reply = manager->get(req);
@@ -269,50 +467,118 @@ void PSGaikaiStreaming::step8a_GetGkAuthCode()
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         reply->deleteLater();
         
-        QUrl redirectUrl = reply->attribute(QNetworkRequest::RedirectionTargetAttribute).toUrl();
-        gkCloudAuthCode = QUrlQuery(redirectUrl).queryItemValue("code");
+        int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         
-        if (gkCloudAuthCode.isEmpty()) {
-            qWarning() << "Gaikai Step 8a failed: No auth code in redirect";
-            emit AllocationError("Failed to get gkClientId auth code");
+        if (settings && settings->GetLogVerbose()) {
+            qInfo() << "=== Gaikai Step 8a Response ===";
+            qInfo() << "  Status:" << statusCode;
+            qInfo() << "  Headers:";
+            for (const auto &header : reply->rawHeaderPairs()) {
+                qInfo() << "    " << header.first << ":" << header.second;
+            }
+            QUrl redirectUrl = reply->attribute(QNetworkRequest::RedirectionTargetAttribute).toUrl();
+            if (!redirectUrl.isEmpty()) {
+                qInfo() << "  Redirect URL:" << redirectUrl.toString();
+            }
+        }
+        
+        // OAuth redirect should return 302
+        if (statusCode != 302) {
+            qWarning() << "Gaikai Step 8a failed: Expected 302 redirect, got:" << statusCode;
+            QByteArray response = reply->readAll();
+            qWarning() << "Response body:" << QString(response);
+            emit AllocationError(QString("OAuth request failed with status %1").arg(statusCode));
             emit Finished();
             return;
         }
         
-        qInfo() << "Gaikai Step 8a complete - Got gkCloudAuthCode:" << gkCloudAuthCode;
+        // Extract auth code from redirect URL (Location header)
+        QUrl redirectUrl = reply->attribute(QNetworkRequest::RedirectionTargetAttribute).toUrl();
+        
+        // If redirectUrl is empty, try getting Location header directly
+        if (redirectUrl.isEmpty()) {
+            QByteArray locationHeader = reply->rawHeader("Location");
+            if (!locationHeader.isEmpty()) {
+                redirectUrl = QUrl::fromEncoded(locationHeader);
+                qInfo() << "Got Location header:" << redirectUrl.toString();
+            }
+        }
+        
+        if (!redirectUrl.isEmpty()) {
+            gkCloudAuthCode = QUrlQuery(redirectUrl).queryItemValue("code");
+        }
+        
+        if (gkCloudAuthCode.isEmpty()) {
+            qWarning() << "Gaikai Step 8a failed: No auth code in redirect";
+            qWarning() << "  Status Code:" << statusCode;
+            qWarning() << "  Redirect URL:" << redirectUrl.toString();
+            emit AllocationError("Failed to get gkClientId auth code - no code parameter in redirect");
+            emit Finished();
+            return;
+        }
+        
+        qInfo() << "Gaikai Step 8a complete - Got gkCloudAuthCode:" << gkCloudAuthCode.left(20) << "...";
         
         // Continue to Step 8b
         step8b_GetPs3AuthCode();
     });
 }
 
-// Step 8b: Get ps3GkClientId authorization code
+// Step 8b: Get ps3GkClientId/streamServerClientId authorization code (serverAuthCode)
 void PSGaikaiStreaming::step8b_GetPs3AuthCode()
 {
-    qInfo() << "Gaikai Step 8b: Getting ps3GkClientId auth code...";
+    qInfo() << "Gaikai Step 8b: Getting server auth code...";
     
-    QUrl url(accountBaseUrl + "/v1/oauth/authorize");
+    QUrl url(accountBaseUrl + oauthApiPath + "/oauth/authorize");
     QUrlQuery query;
-    query.addQueryItem("smcid", "pc:psnow");
-    query.addQueryItem("applicationId", "psnow");
     query.addQueryItem("response_type", "code");
-    query.addQueryItem("scope", "sso:none");
-    query.addQueryItem("client_id", ps3GkClientId);
-    query.addQueryItem("redirect_uri", "https://psnow.playstation.com/app/2.2.0/133/5cdcc037d/grc-response.html");
+    query.addQueryItem("redirect_uri", redirectUriUrl);
     query.addQueryItem("service_entity", "urn:service-entity:psn");
     query.addQueryItem("prompt", "none");
-    query.addQueryItem("renderMode", "mobilePortrait");
-    query.addQueryItem("hidePageElements", "forgotPasswordLink");
-    query.addQueryItem("displayFooter", "none");
-    query.addQueryItem("disableLinks", "qriocityLink");
-    query.addQueryItem("mid", "PSNOW");
-    query.addQueryItem("layout_type", "popup");
-    query.addQueryItem("service_logo", "ps");
-    query.addQueryItem("tp_psn", "true");
-    query.addQueryItem("noEVBlock", "true");
+    
+    if (serviceType == "pscloud") {
+        // PSCLOUD (PS5): Use streamServerClientId
+        qInfo() << "  Using streamServerClientId for PSCLOUD";
+        query.addQueryItem("client_id", streamServerClientId);
+        query.addQueryItem("smcid", "qlite");
+        query.addQueryItem("applicationId", "qlite");
+        query.addQueryItem("mid", "qlite");
+        query.addQueryItem("scope", "id_token:duid id_token:online_id openid oauth:create_authn_ticket_for_cloud_console_signin");
+        query.addQueryItem("duid", duid);
+    } else {
+        // PSNOW (PS3/PS4): Use ps3GkClientId
+        qInfo() << "  Using ps3GkClientId for PSNOW";
+        query.addQueryItem("client_id", ps3GkClientId);
+        query.addQueryItem("smcid", "pc:psnow");
+        query.addQueryItem("applicationId", "psnow");
+        query.addQueryItem("mid", "PSNOW");
+        
+        // Platform-specific scope
+        if (platform == "ps3") {
+            query.addQueryItem("scope", "kamaji:commerce_native");
+        } else {
+            query.addQueryItem("scope", "sso:none");  // PS4
+        }
+        
+        // Include DUID for PS4, omit for PS3
+        if (platform != "ps3") {
+            query.addQueryItem("duid", duid);
+        }
+        
+        query.addQueryItem("renderMode", "mobilePortrait");
+        query.addQueryItem("hidePageElements", "forgotPasswordLink");
+        query.addQueryItem("displayFooter", "none");
+        query.addQueryItem("disableLinks", "qriocityLink");
+        query.addQueryItem("layout_type", "popup");
+        query.addQueryItem("service_logo", "ps");
+        query.addQueryItem("tp_psn", "true");
+        query.addQueryItem("noEVBlock", "true");
+    }
+    
     url.setQuery(query);
     
     QNetworkRequest req(url);
+    req.setRawHeader("User-Agent", userAgentString.toUtf8());
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::ManualRedirectPolicy);
     
     QNetworkReply *reply = manager->get(req);
@@ -320,18 +586,69 @@ void PSGaikaiStreaming::step8b_GetPs3AuthCode()
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         reply->deleteLater();
         
-        QUrl redirectUrl = reply->attribute(QNetworkRequest::RedirectionTargetAttribute).toUrl();
-        ps3AuthCode = QUrlQuery(redirectUrl).queryItemValue("code");
-        streamServerAuthCode = ps3AuthCode; // Same code used for both
+        int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         
-        if (ps3AuthCode.isEmpty()) {
-            qWarning() << "Gaikai Step 8b failed: No auth code in redirect";
-            emit AllocationError("Failed to get ps3GkClientId auth code");
+        if (settings && settings->GetLogVerbose()) {
+            qInfo() << "=== Gaikai Step 8b Response ===";
+            qInfo() << "  Status:" << statusCode;
+            qInfo() << "  Headers:";
+            for (const auto &header : reply->rawHeaderPairs()) {
+                qInfo() << "    " << header.first << ":" << header.second;
+            }
+            QUrl redirectUrl = reply->attribute(QNetworkRequest::RedirectionTargetAttribute).toUrl();
+            if (!redirectUrl.isEmpty()) {
+                qInfo() << "  Redirect URL:" << redirectUrl.toString();
+            }
+        }
+        
+        // OAuth redirect should return 302
+        if (statusCode != 302) {
+            qWarning() << "Gaikai Step 8b failed: Expected 302 redirect, got:" << statusCode;
+            QByteArray response = reply->readAll();
+            qWarning() << "Response body:" << QString(response);
+            emit AllocationError(QString("OAuth request failed with status %1").arg(statusCode));
             emit Finished();
             return;
         }
         
-        qInfo() << "Gaikai Step 8b complete - Got ps3AuthCode:" << ps3AuthCode;
+        // Extract auth code from redirect URL (Location header)
+        QUrl redirectUrl = reply->attribute(QNetworkRequest::RedirectionTargetAttribute).toUrl();
+        
+        // If redirectUrl is empty, try getting Location header directly
+        if (redirectUrl.isEmpty()) {
+            QByteArray locationHeader = reply->rawHeader("Location");
+            if (!locationHeader.isEmpty()) {
+                redirectUrl = QUrl::fromEncoded(locationHeader);
+                qInfo() << "Got Location header:" << redirectUrl.toString();
+            }
+        }
+        
+        QString serverAuthCode;
+        if (!redirectUrl.isEmpty()) {
+            serverAuthCode = QUrlQuery(redirectUrl).queryItemValue("code");
+        }
+        
+        if (serverAuthCode.isEmpty()) {
+            qWarning() << "Gaikai Step 8b failed: No auth code in redirect";
+            qWarning() << "  Status Code:" << statusCode;
+            qWarning() << "  Redirect URL:" << redirectUrl.toString();
+            emit AllocationError("Failed to get server auth code - no code parameter in redirect");
+            emit Finished();
+            return;
+        }
+        
+        // Set auth codes based on service type
+        if (serviceType == "pscloud") {
+            // PSCLOUD: Use serverAuthCode for streamServer, leave ps3AuthCode empty
+            streamServerAuthCode = serverAuthCode;
+            ps3AuthCode = "";
+            qInfo() << "Gaikai Step 8b complete - Got streamServerAuthCode:" << streamServerAuthCode.left(20) << "...";
+        } else {
+            // PSNOW: Both ps3AuthCode AND streamServerAuthCode use the same code
+            ps3AuthCode = serverAuthCode;
+            streamServerAuthCode = serverAuthCode;
+            qInfo() << "Gaikai Step 8b complete - Got ps3AuthCode (used for both):" << ps3AuthCode.left(20) << "...";
+        }
         
         // Update requestGameSpec with auth codes
         requestGameSpec["gkCloudAuthCode"] = gkCloudAuthCode;
@@ -361,13 +678,93 @@ void PSGaikaiStreaming::step9_AuthorizeSession()
     body["requestGameSpecification"] = requestGameSpec;
     
     QJsonDocument doc(body);
-    QNetworkReply *reply = manager->post(req, doc.toJson());
+    QByteArray requestBody = doc.toJson();
+    
+    if (settings && settings->GetLogVerbose()) {
+        qInfo() << "=== Gaikai Step 9 Request ===";
+        qInfo() << "  URL:" << urlStr;
+        qInfo() << "  X-Gaikai-SessionId:" << gaikaiSessionId;
+        qInfo() << "  X-Gaikai-Session:" << configKey.left(30) << "...";
+        qInfo() << "  Body:" << QString::fromUtf8(requestBody);
+    }
+    
+    QNetworkReply *reply = manager->post(req, requestBody);
     
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         reply->deleteLater();
         
+        int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        QByteArray responseBody = reply->readAll();
+        
+        if (settings && settings->GetLogVerbose()) {
+            qInfo() << "=== Gaikai Step 9 Response ===";
+            qInfo() << "  Status:" << statusCode;
+            qInfo() << "  Headers:";
+            for (const auto &header : reply->rawHeaderPairs()) {
+                qInfo() << "    " << header.first << ":" << header.second;
+            }
+            if (!responseBody.isEmpty()) {
+                qInfo() << "  Body:" << QString::fromUtf8(responseBody);
+            }
+        }
+        
+        // Check for HTTP errors (401, 400, etc.)
+        if (statusCode != 200) {
+            QString errorMsg = QString("Authorize failed with status %1").arg(statusCode);
+            
+            // Parse JSON error response for detailed error messages
+            if (!responseBody.isEmpty()) {
+                QJsonParseError parseError;
+                QJsonDocument errorDoc = QJsonDocument::fromJson(responseBody, &parseError);
+                if (parseError.error == QJsonParseError::NoError && errorDoc.isObject()) {
+                    QJsonObject errorObj = errorDoc.object();
+                    
+                    // Extract errors array
+                    if (errorObj.contains("errors") && errorObj["errors"].isArray()) {
+                        QJsonArray errorsArray = errorObj["errors"].toArray();
+                        QStringList errorDescriptions;
+                        for (const QJsonValue &errorValue : errorsArray) {
+                            if (errorValue.isObject()) {
+                                QJsonObject error = errorValue.toObject();
+                                if (error.contains("description")) {
+                                    errorDescriptions << error["description"].toString();
+                                } else if (error.contains("eventCode")) {
+                                    errorDescriptions << QString("Event: %1").arg(error["eventCode"].toString());
+                                }
+                            }
+                        }
+                        if (!errorDescriptions.isEmpty()) {
+                            errorMsg += "\n" + errorDescriptions.join("\n");
+                        }
+                    } else if (errorObj.contains("description")) {
+                        errorMsg += ": " + errorObj["description"].toString();
+                    } else {
+                        // Fallback to raw body if we can't parse
+                        errorMsg += ": " + QString::fromUtf8(responseBody);
+                    }
+                } else {
+                    // Not JSON, use raw body
+                    errorMsg += ": " + QString::fromUtf8(responseBody);
+                }
+            }
+            
+            // Check for x-gaikai-event header for additional context
+            QByteArray eventHeader = reply->rawHeader("x-gaikai-event");
+            if (!eventHeader.isEmpty()) {
+                qWarning() << "Gaikai event:" << QString::fromUtf8(eventHeader);
+            }
+            
+            qWarning() << "Gaikai Step 9 failed:" << errorMsg;
+            emit AllocationError(errorMsg);
+            emit Finished();
+            return;
+        }
+        
         if (reply->error() != QNetworkReply::NoError) {
             qWarning() << "Gaikai Step 9 failed:" << reply->errorString();
+            if (!responseBody.isEmpty()) {
+                qWarning() << "Response body:" << QString::fromUtf8(responseBody);
+            }
             emit AllocationError(QString("Authorize failed: %1").arg(reply->errorString()));
             emit Finished();
             return;
@@ -482,6 +879,14 @@ void PSGaikaiStreaming::step11_GetDatacenters()
         QJsonObject firstDc = datacenters[0].toObject();
         selectedDatacenter = firstDc["dataCenter"].toString();
         
+        // Extract port from datacenter response (dynamic, not hardcoded)
+        int dcPort = firstDc["port"].toInt();
+        if (dcPort <= 0) {
+            qWarning() << "Gaikai Step 11: Invalid port in datacenter response, defaulting to 2053";
+            dcPort = 2053;
+        }
+        qInfo() << "  Selected datacenter:" << selectedDatacenter << "Port:" << dcPort;
+        
         // Build fake ping results (for testing)
         QJsonArray pingResults;
         QJsonObject pingResult;
@@ -490,7 +895,7 @@ void PSGaikaiStreaming::step11_GetDatacenters()
         QJsonArray rtts;
         for (int i = 0; i < 10; i++) rtts.append(25 + (i % 5));
         pingResult["rtts"] = rtts;
-        pingResult["port"] = 2053;
+        pingResult["port"] = dcPort;  // Use extracted port
         pingResults.append(pingResult);
         
         // Continue to Step 12
@@ -535,10 +940,17 @@ void PSGaikaiStreaming::step12_SelectDatacenter(QJsonArray pingResults)
         QJsonDocument jsonDoc = QJsonDocument::fromJson(data);
         QJsonObject selected = jsonDoc.object();
         
-        qInfo() << "Gaikai Step 12 complete - Selected:" << selected["dataCenter"].toString()
-                << selected["publicIp"].toString() << ":" << selected["port"].toInt();
+        // Extract port from selected datacenter response (dynamic, not hardcoded)
+        selectedDatacenterPort = selected["port"].toInt();
+        if (selectedDatacenterPort <= 0) {
+            qWarning() << "Gaikai Step 12: Invalid port in response, defaulting to 2053";
+            selectedDatacenterPort = 2053;
+        }
         
-        // Continue to Step 13
+        qInfo() << "Gaikai Step 12 complete - Selected:" << selected["dataCenter"].toString()
+                << selected["publicIp"].toString() << ":" << selectedDatacenterPort;
+        
+        // Continue to Step 13 (port will be used in network object and also extracted from allocate response)
         step13_AllocateSlot();
     });
 }
@@ -561,13 +973,13 @@ void PSGaikaiStreaming::step13_AllocateSlot()
     body["requestGameSpecification"] = requestGameSpec;
     body["dataCenter"] = selectedDatacenter;
     
-    // Network info
+    // Network info (use port from step12 response, not hardcoded)
     QJsonObject network;
     network["bwKbpsSent"] = 22794;
     network["bwLoss"] = 0.056522;
     network["mtu"] = 1454;
     network["rtt"] = 25;
-    network["port"] = 2053;
+    network["port"] = selectedDatacenterPort;  // Use port from step12 (dynamic)
     network["bwKbpsReceived"] = 4678;
     network["bwLossUpstream"] = 0;
     network["mtuUpstream"] = 1254;

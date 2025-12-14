@@ -20,8 +20,11 @@ class PSGaikaiStreaming : public QObject {
     Q_OBJECT
 
 public:
-    explicit PSGaikaiStreaming(Settings *settings, QString npsso, QString duid, QNetworkCookieJar *cookieJar, 
-                              QString accountBase, QString redirectUri, QString userAgent, QObject *parent = nullptr);
+    explicit PSGaikaiStreaming(Settings *settings, QString npsso, QString duid, 
+                              QString serviceType, QString platform,
+                              QNetworkCookieJar *cookieJar, 
+                              QString accountBase, QString redirectUri, QString userAgent, QString oauthApiPath,
+                              QObject *parent = nullptr);
     
     // Complete allocation flow - calls all steps in sequence
     void StartAllocationFlow(QString entitlementId, const QJSValue &callback);
@@ -46,10 +49,16 @@ private:
     QNetworkAccessManager *manager;
     QNetworkCookieJar *cookieJar;
     
+    // Service/platform configuration
+    QString serviceType;      // "psnow" or "pscloud"
+    QString platform;         // "ps3", "ps4", or "ps5"
+    QString virtType;         // "konan" (PS3), "kratos" (PS4), "cronos" (PS5)
+    
     // Shared config (passed from CloudConfig)
     QString accountBaseUrl;
     QString redirectUriUrl;
     QString userAgentString;
+    QString oauthApiPath;     // "/api/v1" (PSNOW) or "/api/authz/v3" (PSCLOUD)
     
     // Allocation results (stored as class members)
     QString allocatedServerIp;
@@ -69,12 +78,16 @@ private:
     QString ps3AuthCode;
     QString streamServerAuthCode;
     QString selectedDatacenter;
+    int selectedDatacenterPort;  // Port from step12 response (dynamic)
     QString duid;
     QJsonObject requestGameSpec;
     QJSValue finalCallback;
     
-    // Helper to build request game specification
+    // Helper to build request game specification (service/platform-specific)
     QJsonObject buildRequestGameSpec(QString entitlementId);
+    
+    // Step 0: Get client IDs (MUST happen FIRST before step7)
+    void step0_GetClientIds();
     
     // Step 7: Get config
     void step7_GetConfig();
