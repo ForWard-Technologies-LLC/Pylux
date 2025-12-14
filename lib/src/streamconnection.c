@@ -1289,12 +1289,15 @@ static void stream_connection_takion_av(ChiakiStreamConnection *stream_connectio
 {
 	chiaki_gkcrypt_decrypt(stream_connection->gkcrypt_remote, packet->key_pos + CHIAKI_GKCRYPT_BLOCK_SIZE, packet->data, packet->data_size);
 	
-	// Normalize codec 3 (Cloud Play H.264) to codec 0 (standard H.264)
-	// Cloud Play uses codec value 3, but it's identical to standard H.264 format
+	// Normalize codec 3 (Cloud Play codec identifier)
+	// For Cloud Play, codec 3 is used, but we need to map it to the actual codec
+	// Use the session's configured codec (H265 for PSCLOUD, H264 for PSNOW)
+	// instead of hardcoding H.264
 	if(packet->codec == 3)
 	{
-		packet->codec = CHIAKI_CODEC_H264;  // 0
-		CHIAKI_LOGV(stream_connection->log, "Normalized Cloud Play codec 3 to H.264 (0)");
+		// Use the codec from the session's video profile (set based on service type)
+		packet->codec = stream_connection->session->connect_info.video_profile.codec;
+		CHIAKI_LOGV(stream_connection->log, "Normalized Cloud Play codec 3 to codec %d (from session profile)", packet->codec);
 	}
 
 	if(packet->is_video)

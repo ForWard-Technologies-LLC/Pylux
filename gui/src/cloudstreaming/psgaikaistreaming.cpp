@@ -190,7 +190,8 @@ QJsonObject PSGaikaiStreaming::buildRequestGameSpec(QString entitlementId)
     }
     spec["capabilities"] = capabilitiesArray;
     
-    // Conditionally add video/audio stream settings for PSCLOUD (PS5)
+    // Conditionally add video/audio stream settings for PSCLOUD (PS5) only
+    // PSNOW does not use these settings - it uses H.264 with hw4.1
     if (serviceType == "pscloud") {
         QJsonObject videoStreamSettings;
         videoStreamSettings["clientHeight"] = 1080;

@@ -208,7 +208,7 @@ void CloudStreamingBackend::startGaikaiAllocation(QString serviceType, QString p
     
     // When Gaikai completes successfully
     connect(gaikaiStreaming, &PSGaikaiStreaming::AllocationComplete, this,
-            [this, gaikaiStreaming, kamajiSession, callback, target](QString serverIp, int serverPort, QString handshakeKey, QString launchSpec, QString sessionId) {
+            [this, gaikaiStreaming, kamajiSession, callback, target, serviceType](QString serverIp, int serverPort, QString handshakeKey, QString launchSpec, QString sessionId) {
         qInfo() << "=== COMPLETE CLOUD SESSION SUCCESS ===";
         qInfo() << "Ready to connect to streaming server:";
         qInfo() << "  IP:" << serverIp;
@@ -248,7 +248,7 @@ void CloudStreamingBackend::startGaikaiAllocation(QString serviceType, QString p
         
         // Set codec based on target (service type):
         // - PSCLOUD (PS5): Uses H.265/HEVC (as configured in videoStreamSettings: "hevc_hw4")
-        // - PSNOW (PS3/PS4): Uses H.264
+        // - PSNOW (PS3/PS4): Uses H.264 (server only supports H.264 for PSNOW)
         // This must match what the server sends and what the decoder is initialized with
         if (chiaki_target_is_ps5(target)) {
             connect_info.video_profile.codec = CHIAKI_CODEC_H265;
