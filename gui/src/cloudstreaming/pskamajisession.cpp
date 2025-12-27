@@ -19,6 +19,59 @@
 
 Q_DECLARE_LOGGING_CATEGORY(chiakiGui)
 
+// Helper function to log request headers
+static void logKamajiRequest(const QString &stepName, const QNetworkRequest &request, const QByteArray &body = QByteArray())
+{
+    qInfo() << "=== Kamaji" << stepName << "Request ===";
+    qInfo() << "URL:" << request.url().toString();
+    qInfo() << "Method:" << (body.isEmpty() ? "GET" : "POST");
+    qInfo() << "Request Headers:";
+    
+    // QNetworkRequest doesn't have rawHeaderPairs(), so we use rawHeaderList() and rawHeader()
+    QList<QByteArray> headerNames = request.rawHeaderList();
+    for (const QByteArray &headerName : headerNames) {
+        QByteArray headerValue = request.rawHeader(headerName);
+        QString headerNameStr = QString::fromUtf8(headerName);
+        QString headerValueStr = QString::fromUtf8(headerValue);
+        
+        // Truncate long values for readability
+        if (headerNameStr.compare("X-Gaikai-Session", Qt::CaseInsensitive) == 0 ||
+            headerNameStr.compare("Authorization", Qt::CaseInsensitive) == 0) {
+            headerValueStr = headerValueStr.left(30) + "...";
+        }
+        
+        qInfo() << "  " << headerNameStr << ":" << headerValueStr;
+    }
+    
+    // Also check Content-Type header (might be set via setHeader instead of setRawHeader)
+    QVariant contentType = request.header(QNetworkRequest::ContentTypeHeader);
+    if (contentType.isValid() && !contentType.toString().isEmpty()) {
+        qInfo() << "  Content-Type:" << contentType.toString();
+    }
+    
+    if (!body.isEmpty()) {
+        // Try to parse as JSON and format it nicely
+        QJsonParseError parseError;
+        QJsonDocument jsonDoc = QJsonDocument::fromJson(body, &parseError);
+        if (parseError.error == QJsonParseError::NoError) {
+            qInfo() << "Request Body:";
+            QByteArray formattedJson = jsonDoc.toJson(QJsonDocument::Indented);
+            QString jsonString = QString::fromUtf8(formattedJson);
+            // Output each line separately so it's properly formatted in logs
+            QStringList lines = jsonString.split('\n', Qt::SkipEmptyParts);
+            for (const QString &line : lines) {
+                if (!line.trimmed().isEmpty()) {
+                    qInfo().noquote() << line;
+                }
+            }
+        } else {
+            // If not valid JSON, just output as-is
+            qInfo() << "Request Body:" << QString::fromUtf8(body);
+        }
+    }
+    qInfo() << "========================================";
+}
+
 // ============================================================================
 // Kamaji-specific constants
 // ============================================================================
@@ -37,7 +90,6 @@ PSKamajiSession::PSKamajiSession(
     Settings *settings,
     QString npsso,
     QString deviceUid,
-    QString platformParam,
     QString productIdParam,
     QString accountBaseUrl,
     QString redirectUri,
@@ -48,20 +100,15 @@ PSKamajiSession::PSKamajiSession(
     , settings(settings)
     , npssoToken(npsso)
     , duid(deviceUid)
-    , platform(platformParam.toLower())
+    , platform("ps4")  // Default, will be detected from API response
     , productId(productIdParam)
     , kamajiBase(KamajiConsts::KAMAJI_BASE)
     , accountBase(accountBaseUrl)
     , kamajiClientId(KamajiConsts::CLIENT_ID)
     , redirectUriUrl(redirectUri)
     , userAgentString(userAgent)
+    , scopesStr(KamajiConsts::PS4_SCOPES)  // Default to PS4 scopes, will be updated when platform is detected
 {
-    // Determine scopes based on platform
-    if (platform == "ps3") {
-        scopesStr = KamajiConsts::PS3_SCOPES;
-    } else {
-        scopesStr = KamajiConsts::PS4_SCOPES; // Default to PS4 scopes
-    }
     
     manager = new QNetworkAccessManager(this);
     cookieJar = new QNetworkCookieJar(this);
@@ -85,9 +132,10 @@ PSKamajiSession::PSKamajiSession(
 
 void PSKamajiSession::startSessionCreation()
 {
-    qInfo() << "Kamaji Session: Starting simplified authentication flow (Steps 0.5a-0.5d, 5-6)...";
+    qInfo() << "Kamaji Session: Starting authentication flow (Steps 0.5b-0.5d, 5-6)...";
     qInfo() << "Platform:" << platform;
     qInfo() << "Product ID:" << productId;
+    qInfo() << "Note: Authorization check is now handled centrally by CloudStreamingBackend";
     
     if (npssoToken.isEmpty()) {
         QString error = "NPSSO token is empty";
@@ -96,75 +144,14 @@ void PSKamajiSession::startSessionCreation()
         return;
     }
     
-    // Step 0.5a: POST /authorizeCheck (FIRST step)
-    step0_5a_AuthorizeCheck();
-}
-
-// ============================================================================
-// Step 0.5a: POST /authorizeCheck (FIRST step after NPSSO setup)
-// ============================================================================
-void PSKamajiSession::step0_5a_AuthorizeCheck()
-{
-    QString url = accountBase + "/authz/v3/oauth/authorizeCheck";
-    
-    QJsonObject body;
-    body["client_id"] = kamajiClientId;
-    body["scope"] = scopesStr;
-    body["redirect_uri"] = redirectUriUrl;
-    body["response_type"] = "code";
-    body["service_entity"] = "urn:service-entity:psn";
-    body["duid"] = duid;
-    
-    QJsonDocument doc(body);
-    
-    qInfo() << "Kamaji Step 0.5a: POST /authorizeCheck";
-    if (settings && settings->GetLogVerbose()) {
-        qInfo() << "  URL:" << url;
-        qInfo() << "  Method: POST";
-        qInfo() << "  Content-Type: application/json; charset=UTF-8";
-        qInfo() << "  Body:" << doc.toJson(QJsonDocument::Compact);
-    }
-    
-    QNetworkRequest req{QUrl(url)};
-    req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json; charset=UTF-8");
-    req.setRawHeader("User-Agent", userAgentString.toUtf8());
-    
-    QNetworkReply *reply = manager->post(req, doc.toJson());
-    
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        handleAuthorizeCheckResponse(reply);
-    });
-}
-
-void PSKamajiSession::handleAuthorizeCheckResponse(QNetworkReply *reply)
-{
-    reply->deleteLater();
-    
-    if (settings && settings->GetLogVerbose()) {
-        int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        qInfo() << "=== Kamaji Step 0.5a Response ===";
-        qInfo() << "  Status:" << statusCode;
-        qInfo() << "  Headers:";
-        for (const auto &header : reply->rawHeaderPairs()) {
-            qInfo() << "    " << header.first << ":" << header.second;
-        }
-        QByteArray response = reply->readAll();
-        if (!response.isEmpty()) {
-            qInfo() << "  Body:" << QString(response);
-        }
-    }
-    
-    if (reply->error() != QNetworkReply::NoError) {
-        emit sessionComplete(false, QString("authorizeCheck failed: %1").arg(reply->errorString()), QString());
-        return;
-    }
-    
-    // Continue to Step 0.5b: Get anonymous session OAuth code
+    // Authorization check is now done centrally by CloudStreamingBackend before creating PSKamajiSession
+    // Start directly with Step 0.5b: Get anonymous session OAuth code
     step0_5b_GetAnonymousAuthCode();
 }
 
 // ============================================================================
 // Step 0.5b: GET /oauth/authorize (for anonymous session OAuth code)
+// Note: Step 0.5a (authorizeCheck) is now handled centrally by CloudStreamingBackend
 // ============================================================================
 void PSKamajiSession::step0_5b_GetAnonymousAuthCode()
 {
@@ -199,6 +186,9 @@ void PSKamajiSession::step0_5b_GetAnonymousAuthCode()
     QNetworkRequest req(url);
     req.setRawHeader("User-Agent", userAgentString.toUtf8());
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::ManualRedirectPolicy);
+    
+    logKamajiRequest("Step 0.5b: GetAnonymousAuthCode", req);
+    
     QNetworkReply *reply = manager->get(req);
     
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
@@ -291,7 +281,10 @@ void PSKamajiSession::step0_5c_CreateAnonymousSession()
     req.setRawHeader("Sec-Fetch-Dest", "empty");
     req.setRawHeader("Referer", "https://psnow.playstation.com/app/2.2.0/133/5cdcc037d/");
     
-    QNetworkReply *reply = tempManager->post(req, body.toUtf8());
+    QByteArray requestBody = body.toUtf8();
+    logKamajiRequest("Step 0.5c: CreateAnonymousSession", req, requestBody);
+    
+    QNetworkReply *reply = tempManager->post(req, requestBody);
     
     connect(reply, &QNetworkReply::finished, this, [this, reply, tempManager, emptyCookieJar]() {
         handleAnonSessionResponse(reply);
@@ -370,6 +363,8 @@ void PSKamajiSession::step0_5d_ConvertProductId()
     req.setRawHeader("Accept", "application/json");
     req.setRawHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
     
+    logKamajiRequest("Step 0.5d: ConvertProductId", req);
+    
     QNetworkReply *reply = manager->get(req);
     
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
@@ -431,6 +426,26 @@ void PSKamajiSession::handleProductIdConversionResponse(QNetworkReply *reply)
     QString streamingEntitlementId;
     QString sku;
     
+    // Extract platform from playable_platform field (contains strings like "PS3™", "PS4™")
+    // Pick highest available platform (PS4 > PS3)
+    QString detectedPlatform = "ps4"; // Default to PS4
+    QJsonArray playablePlatformArray;
+    
+    // Try to get playable_platform from root level first
+    if (obj.contains("playable_platform") && obj["playable_platform"].isArray()) {
+        playablePlatformArray = obj["playable_platform"].toArray();
+    }
+    // Fallback to metadata.playable_platform.values
+    else if (obj.contains("metadata") && obj["metadata"].isObject()) {
+        QJsonObject metadata = obj["metadata"].toObject();
+        if (metadata.contains("playable_platform") && metadata["playable_platform"].isObject()) {
+            QJsonObject playablePlatformObj = metadata["playable_platform"].toObject();
+            if (playablePlatformObj.contains("values") && playablePlatformObj["values"].isArray()) {
+                playablePlatformArray = playablePlatformObj["values"].toArray();
+            }
+        }
+    }
+    
     // Look for streaming SKU and entitlement
     if (obj.contains("skus") && obj["skus"].isArray()) {
         QJsonArray skus = obj["skus"].toArray();
@@ -471,6 +486,41 @@ void PSKamajiSession::handleProductIdConversionResponse(QNetworkReply *reply)
             }
         }
     }
+    
+    // Determine platform from playable_platform strings (pick highest: PS4 > PS3)
+    if (!playablePlatformArray.isEmpty()) {
+        bool hasPS4 = false;
+        bool hasPS3 = false;
+        for (const QJsonValue &platformValue : playablePlatformArray) {
+            QString platformStr = platformValue.toString();
+            // Check for PS4 (handles "PS4™" and "PS4")
+            if (platformStr.contains("PS4", Qt::CaseInsensitive)) {
+                hasPS4 = true;
+            }
+            // Check for PS3 (handles "PS3™" and "PS3")
+            else if (platformStr.contains("PS3", Qt::CaseInsensitive)) {
+                hasPS3 = true;
+            }
+        }
+        if (hasPS4) {
+            detectedPlatform = "ps4";
+        } else if (hasPS3) {
+            detectedPlatform = "ps3";
+        }
+        qInfo() << "Detected platform from playable_platform:" << detectedPlatform;
+    } else {
+        qWarning() << "No playable_platform found in response, defaulting to PS4";
+    }
+    
+    platform = detectedPlatform;
+    
+    // Update scopes based on detected platform
+    if (platform == "ps3") {
+        scopesStr = KamajiConsts::PS3_SCOPES;
+    } else {
+        scopesStr = KamajiConsts::PS4_SCOPES;
+    }
+    qInfo() << "Updated scopes for platform" << platform << ":" << scopesStr;
     
     // Fallback: infer entitlement ID if not found in API
     if (streamingEntitlementId.isEmpty()) {
@@ -556,6 +606,8 @@ void PSKamajiSession::step0_5e_GetCommerceOAuthToken()
     QNetworkRequest req(url);
     req.setRawHeader("User-Agent", userAgentString.toUtf8());
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::ManualRedirectPolicy);
+    
+    logKamajiRequest("Step 0.5e.1: GetCommerceOAuthToken", req);
     
     // Only use npsso cookie, NOT JSESSIONID
     QList<QNetworkCookie> cookies = cookieJar->cookiesForUrl(QUrl("https://ca.account.sony.com"));
@@ -646,6 +698,8 @@ void PSKamajiSession::step0_5e_CheckEntitlementExists()
     req.setRawHeader("User-Agent", userAgentString.toUtf8());
     req.setRawHeader("Accept", "application/json");
     
+    logKamajiRequest("Step 0.5e.2: CheckEntitlementExists", req);
+    
     QNetworkReply *reply = manager->get(req);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         handleCheckEntitlementResponse(reply);
@@ -735,6 +789,8 @@ void PSKamajiSession::step0_5e_CheckoutPreview()
     req.setRawHeader("Referer", "https://psnow.playstation.com/app/2.2.0/133/5cdcc037d/");
     req.setRawHeader("Accept-Encoding", "identity");
     req.setRawHeader("Accept-Language", "en-US");
+    
+    logKamajiRequest("Step 0.5e.3: CheckoutPreview", req, postData);
     
     // Add JSESSIONID cookie
     QList<QNetworkCookie> cookies = cookieJar->cookiesForUrl(QUrl("https://psnow.playstation.com"));
@@ -867,6 +923,8 @@ void PSKamajiSession::step0_5e_CheckoutBuynow()
     req.setRawHeader("Accept", "application/json");
     req.setRawHeader("Authorization", QString("Bearer %1").arg(commerceOAuthToken).toUtf8());
     
+    logKamajiRequest("Step 0.5e.4: CheckoutBuynow", req, postData);
+    
     // Add JSESSIONID cookie
     QList<QNetworkCookie> cookies = cookieJar->cookiesForUrl(QUrl("https://psnow.playstation.com"));
     QByteArray cookieHeader;
@@ -993,6 +1051,9 @@ void PSKamajiSession::step5_GetAuthCode()
     QNetworkRequest req(url);
     req.setRawHeader("User-Agent", userAgentString.toUtf8());
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::ManualRedirectPolicy);
+    
+    logKamajiRequest("Step 5: GetAuthCode", req);
+    
     QNetworkReply *reply = manager->get(req);
     
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
@@ -1071,7 +1132,10 @@ void PSKamajiSession::step6_CreateAuthSession()
     req.setRawHeader("Origin", "https://psnow.playstation.com");
     req.setRawHeader("Referer", "https://psnow.playstation.com/app/2.2.0/133/5cdcc037d/");
     
-    QNetworkReply *reply = manager->post(req, body.toUtf8());
+    QByteArray requestBody = body.toUtf8();
+    logKamajiRequest("Step 6: CreateAuthSession", req, requestBody);
+    
+    QNetworkReply *reply = manager->post(req, requestBody);
     
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         handleAuthSessionResponse(reply);

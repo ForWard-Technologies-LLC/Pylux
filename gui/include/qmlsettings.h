@@ -15,6 +15,16 @@ class QmlSettings : public QObject
     Q_PROPERTY(int resolutionRemotePS4 READ resolutionRemotePS4 WRITE setResolutionRemotePS4 NOTIFY resolutionRemotePS4Changed)
     Q_PROPERTY(int resolutionLocalPS5 READ resolutionLocalPS5 WRITE setResolutionLocalPS5 NOTIFY resolutionLocalPS5Changed)
     Q_PROPERTY(int resolutionRemotePS5 READ resolutionRemotePS5 WRITE setResolutionRemotePS5 NOTIFY resolutionRemotePS5Changed)
+    // PSCloud settings
+    Q_PROPERTY(int cloudResolutionPSCloud READ cloudResolutionPSCloud WRITE setCloudResolutionPSCloud NOTIFY cloudResolutionPSCloudChanged)
+    Q_PROPERTY(QString cloudLanguagePSCloud READ cloudLanguagePSCloud WRITE setCloudLanguagePSCloud NOTIFY cloudLanguagePSCloudChanged)
+    Q_PROPERTY(QString cloudDatacenterPSCloud READ cloudDatacenterPSCloud WRITE setCloudDatacenterPSCloud NOTIFY cloudDatacenterPSCloudChanged)
+    Q_PROPERTY(QString cloudDatacentersJsonPSCloud READ cloudDatacentersJsonPSCloud NOTIFY cloudDatacentersJsonPSCloudChanged)
+    // PSNOW settings
+    Q_PROPERTY(int cloudResolutionPSNOW READ cloudResolutionPSNOW WRITE setCloudResolutionPSNOW NOTIFY cloudResolutionPSNOWChanged)
+    Q_PROPERTY(QString cloudLanguagePSNOW READ cloudLanguagePSNOW WRITE setCloudLanguagePSNOW NOTIFY cloudLanguagePSNOWChanged)
+    Q_PROPERTY(QString cloudDatacenterPSNOW READ cloudDatacenterPSNOW WRITE setCloudDatacenterPSNOW NOTIFY cloudDatacenterPSNOWChanged)
+    Q_PROPERTY(QString cloudDatacentersJsonPSNOW READ cloudDatacentersJsonPSNOW NOTIFY cloudDatacentersJsonPSNOWChanged)
     Q_PROPERTY(int disconnectAction READ disconnectAction WRITE setDisconnectAction NOTIFY disconnectActionChanged)
     Q_PROPERTY(int suspendAction READ suspendAction WRITE setSuspendAction NOTIFY suspendActionChanged)
     Q_PROPERTY(bool logVerbose READ logVerbose WRITE setLogVerbose NOTIFY logVerboseChanged)
@@ -75,8 +85,11 @@ class QmlSettings : public QObject
     Q_PROPERTY(QString psnRefreshToken READ psnRefreshToken WRITE setPsnRefreshToken NOTIFY psnRefreshTokenChanged)
     Q_PROPERTY(QString psnAuthToken READ psnAuthToken WRITE setPsnAuthToken NOTIFY psnAuthTokenChanged)
     Q_PROPERTY(QString psnAuthTokenExpiry READ psnAuthTokenExpiry WRITE setPsnAuthTokenExpiry NOTIFY psnAuthTokenExpiryChanged)
+    Q_PROPERTY(QString psnNpssoToken READ psnNpssoToken WRITE setPsnNpssoToken NOTIFY psnNpssoTokenChanged)
     Q_PROPERTY(QString psnAccountId READ psnAccountId WRITE setPsnAccountId NOTIFY psnAccountIdChanged)
     Q_PROPERTY(bool psnGamesSyncEnabled READ psnGamesSyncEnabled WRITE setPsnGamesSyncEnabled NOTIFY psnGamesSyncEnabledChanged)
+    Q_PROPERTY(int lastSelectedMainTab READ lastSelectedMainTab WRITE setLastSelectedMainTab NOTIFY lastSelectedMainTabChanged)
+    Q_PROPERTY(QString lastSelectedCloudSection READ lastSelectedCloudSection WRITE setLastSelectedCloudSection NOTIFY lastSelectedCloudSectionChanged)
     Q_PROPERTY(bool mouseTouchEnabled READ mouseTouchEnabled WRITE setMouseTouchEnabled NOTIFY mouseTouchEnabledChanged)
     Q_PROPERTY(bool keyboardEnabled READ keyboardEnabled WRITE setKeyboardEnabled NOTIFY keyboardEnabledChanged)
     Q_PROPERTY(bool dpadTouchEnabled READ dpadTouchEnabled WRITE setDpadTouchEnabled NOTIFY dpadTouchEnabledChanged)
@@ -202,6 +215,23 @@ public:
 
     int rumbleHapticsIntensity() const;
     void setRumbleHapticsIntensity(int intensity);
+
+    // PSCloud settings
+    int cloudResolutionPSCloud() const;
+    void setCloudResolutionPSCloud(int resolution);
+    QString cloudLanguagePSCloud() const;
+    void setCloudLanguagePSCloud(const QString &language);
+    QString cloudDatacenterPSCloud() const;
+    void setCloudDatacenterPSCloud(const QString &datacenter);
+    QString cloudDatacentersJsonPSCloud() const;
+    // PSNOW settings
+    int cloudResolutionPSNOW() const;
+    void setCloudResolutionPSNOW(int resolution);
+    QString cloudLanguagePSNOW() const;
+    void setCloudLanguagePSNOW(const QString &language);
+    QString cloudDatacenterPSNOW() const;
+    void setCloudDatacenterPSNOW(const QString &datacenter);
+    QString cloudDatacentersJsonPSNOW() const;
 
 #ifdef CHIAKI_GUI_ENABLE_STEAMDECK_NATIVE
     bool steamDeckHaptics() const;
@@ -508,8 +538,17 @@ public:
     QString psnAuthTokenExpiry() const;
     void setPsnAuthTokenExpiry(const QString &expiry);
 
+    QString psnNpssoToken() const;
+    void setPsnNpssoToken(const QString &npsso_token);
+
     QString psnAccountId() const;
     void setPsnAccountId(const QString &account_id);
+    
+    int lastSelectedMainTab() const;
+    void setLastSelectedMainTab(int tabIndex);
+    
+    QString lastSelectedCloudSection() const;
+    void setLastSelectedCloudSection(const QString &section);
 
     bool psnGamesSyncEnabled() const;
     void setPsnGamesSyncEnabled(bool enabled);
@@ -586,6 +625,14 @@ signals:
     void resolutionRemotePS4Changed();
     void resolutionLocalPS5Changed();
     void resolutionRemotePS5Changed();
+    void cloudResolutionPSCloudChanged();
+    void cloudLanguagePSCloudChanged();
+    void cloudDatacenterPSCloudChanged();
+    void cloudDatacentersJsonPSCloudChanged();
+    void cloudResolutionPSNOWChanged();
+    void cloudLanguagePSNOWChanged();
+    void cloudDatacenterPSNOWChanged();
+    void cloudDatacentersJsonPSNOWChanged();
     void disconnectActionChanged();
     void suspendActionChanged();
     void logVerboseChanged();
@@ -645,8 +692,11 @@ signals:
     void psnAuthTokenChanged();
     void psnRefreshTokenChanged();
     void psnAuthTokenExpiryChanged();
+    void psnNpssoTokenChanged();
     void psnAccountIdChanged();
     void psnGamesSyncEnabledChanged();
+    void lastSelectedMainTabChanged();
+    void lastSelectedCloudSectionChanged();
     void mouseTouchEnabledChanged();
     void keyboardEnabledChanged();
     void dpadTouchEnabledChanged();

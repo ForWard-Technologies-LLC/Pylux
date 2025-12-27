@@ -195,7 +195,7 @@ DialogView {
                             psnLoginToolbar.visible = false;
                             nativeErrorGrid.visible = false;
                             webView.visible = false;
-                            loginForm.visible = true;
+                            loginFormScroll.visible = true;
                             dialog.buttonVisible = true;
                             psnurl = Chiaki.openPsnLink();
                             if(psnurl)
@@ -362,17 +362,28 @@ DialogView {
                 }
             }
         }
-        GridLayout {
-            id: loginForm
+        ScrollView {
+            id: loginFormScroll
             anchors {
                 top: parent.top
-                horizontalCenter: parent.horizontalCenter
+                left: parent.left
+                right: parent.right
+                bottom: parent.bottom
                 topMargin: 50
+                leftMargin: 20
+                rightMargin: 20
+                bottomMargin: 20
             }
             visible: false
-            columns: 2
-            rowSpacing: 10
-            columnSpacing: 20
+            clip: true
+            ScrollBar.vertical.policy: ScrollBar.AsNeeded
+            
+            GridLayout {
+                id: loginForm
+                width: loginFormScroll.availableWidth
+                columns: 2
+                rowSpacing: 10
+                columnSpacing: 20
 
             Label {
                 id: errorHeader
@@ -418,7 +429,8 @@ DialogView {
             TextField {
                 id: url
                 echoMode: Chiaki.settings.streamerMode ? TextInput.Password : TextInput.Normal
-                Layout.preferredWidth: 400
+                Layout.fillWidth: true
+                Layout.maximumWidth: 400
                 KeyNavigation.priority: {
                     if(readOnly)
                         KeyNavigation.BeforeItem
@@ -450,9 +462,74 @@ DialogView {
                         else
                             pasteUrl
                     }
-                    KeyNavigation.down: pasteUrl
+                    KeyNavigation.down: npssoToken
+                }
+            }
+
+            Label {
+                text: qsTr("NPSSO Token (Cloud Play Only, Optional)")
+                Layout.topMargin: 15
+            }
+
+            TextField {
+                id: npssoToken
+                echoMode: Chiaki.settings.streamerMode ? TextInput.Password : TextInput.Normal
+                text: Chiaki.settings.psnNpssoToken
+                Layout.fillWidth: true
+                Layout.maximumWidth: 400
+                onTextChanged: {
+                    // Parse input: extract token from JSON format or use as-is
+                    let inputText = text.trim();
+                    let token = inputText;
+                    
+                    // Try to parse as JSON
+                    if (inputText.startsWith("{") && inputText.includes("npsso")) {
+                        try {
+                            let json = JSON.parse(inputText);
+                            if (json.npsso) {
+                                token = json.npsso;
+                            }
+                        } catch (e) {
+                            // Not valid JSON, use as-is
+                        }
+                    }
+                    
+                    Chiaki.settings.psnNpssoToken = token;
+                }
+                KeyNavigation.priority: KeyNavigation.AfterItem
+                KeyNavigation.up: pasteUrl
+                KeyNavigation.down: openNpssoButton
+                C.Button {
+                    id: openNpssoButton
+                    text: qsTr("Open NPSSO Page")
+                    anchors {
+                        left: parent.right
+                        verticalCenter: parent.verticalCenter
+                        leftMargin: 10
+                    }
+                    KeyNavigation.priority: KeyNavigation.BeforeItem
+                    onClicked: {
+                        Chiaki.openNpssoPage()
+                    }
+                    KeyNavigation.left: npssoToken
+                    KeyNavigation.up: npssoToken
+                    Keys.onUpPressed: (event) => {
+                        npssoToken.forceActiveFocus();
+                        event.accepted = true;
+                    }
                     lastInFocusChain: true
                 }
+            }
+
+            Label {
+                Layout.columnSpan: 2
+                Layout.topMargin: 5
+                text: qsTr("Required for cloud play only. Sign in to PSN first, then copy the full token from the page.")
+                wrapMode: Text.Wrap
+                font.pixelSize: 11
+                opacity: 0.8
+                color: Qt.rgba(255, 255, 255, 0.7)
+            }
             }
         }
 

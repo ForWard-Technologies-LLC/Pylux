@@ -65,6 +65,7 @@ public:
 
     QmlMainWindow(Settings *settings,  bool exit_app_on_stream_exit = false, SteamworksWrapper *steamworks = nullptr);
     QmlMainWindow(const StreamSessionConnectInfo &connect_info, SteamworksWrapper *steamworks = nullptr);
+    QmlMainWindow(Settings *settings, const QString &serviceType, const QString &gameIdentifier, SteamworksWrapper *steamworks = nullptr);
     ~QmlMainWindow();
     void updateWindowType(WindowType type);
     void setSettings(Settings *new_settings);
@@ -103,6 +104,7 @@ public:
     void updatePlacebo();
     void show();
     void presentFrame(AVFrame *frame, int32_t frames_lost);
+    void startCloudStreaming(const QString &serviceType, const QString &gameIdentifier);
 
     AVBufferRef *vulkanHwDeviceCtx();
 

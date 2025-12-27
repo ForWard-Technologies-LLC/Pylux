@@ -73,34 +73,56 @@ DialogView {
         statusLabel.text = qsTr("Checking login status...");
         statusLabel.visible = true;
         
-        Chiaki.checkPSStreamStatus(qrCode, function(success, errorMsg, tokens) {
-            console.log("PSStream API response - success:", success, "error:", errorMsg, "tokens:", tokens);
+        Chiaki.checkPSStreamStatus(qrCode, function(success, errorMsg, npssoToken) {
+            console.log("PSStream API response - success:", success, "error:", errorMsg, "npsso:", npssoToken);
             
             isCheckingStatus = false;
             
-            if (success && tokens) {
-                console.log("PSStream login successful! Processing tokens:", tokens);
+            if (success && npssoToken) {
+                console.log("PSStream login successful! Processing npsso token...");
                 
-                // Validate that tokens is a proper redirect URL
-                if (tokens.startsWith("https://remoteplay.dl.playstation.net/remoteplay/redirect")) {
-                    console.log("Valid PSN redirect URL detected, processing...");
+                // Check if we got an npsso token (new v3 flow) or redirect URL (old flow for backwards compatibility)
+                if (npssoToken.startsWith("https://remoteplay.dl.playstation.net/remoteplay/redirect")) {
+                    // Old format: redirect URL (backwards compatibility)
+                    console.log("Legacy redirect URL detected, using old flow...");
                     isProcessing = true;
                     statusLabel.text = qsTr("Processing login tokens...");
                     statusLabel.visible = true;
                     
-                    // Handle the PSN redirect URL using the existing flow
-                    // This will trigger the psnLoginAccountIdDone signal that we'll handle
-                    if (Chiaki.handlePsnLoginRedirect(tokens)) {
+                    if (Chiaki.handlePsnLoginRedirect(npssoToken)) {
                         console.log("PSN login redirect processing started successfully!");
-                        // Don't close the dialog here - let the signal handler do it
                     } else {
                         console.error("Failed to handle PSN login redirect");
                         isProcessing = false;
                         statusLabel.visible = false;
                         root.showMessageDialog(qsTr("Login Error"), qsTr("Invalid redirect URL. Please ensure the redirect URL you copied is valid and up to date. Try generating a new QR code."), () => {});
                     }
+                } else if (npssoToken.length > 0) {
+                    // New format: npsso token (v3 flow)
+                    console.log("NPSSO token received, using v3 authentication flow...");
+                    isProcessing = true;
+                    statusLabel.text = qsTr("Processing login tokens...");
+                    statusLabel.visible = true;
+                    
+                    // Use the new OAuth v3 flow
+                    Chiaki.initPsnAuthV3(npssoToken, function(msg, ok, done) {
+                        if (!done) {
+                            statusLabel.text = msg;
+                        } else {
+                            if (ok) {
+                                console.log("PSStream login completed successfully!");
+                                statusLabel.visible = false;
+                                dialog.accept();
+                            } else {
+                                console.error("PSStream login failed:", msg);
+                                isProcessing = false;
+                                statusLabel.visible = false;
+                                root.showMessageDialog(qsTr("Login Error"), msg, () => {});
+                            }
+                        }
+                    });
                 } else {
-                    console.error("Invalid token format received:", tokens);
+                    console.error("Invalid token format received (empty):", npssoToken);
                     statusLabel.visible = false;
                     root.showMessageDialog(qsTr("Login Error"), qsTr("Invalid token format received from server"), () => {});
                 }

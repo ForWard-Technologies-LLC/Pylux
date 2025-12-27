@@ -5,6 +5,8 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QLoggingCategory>
+#include <QHash>
+#include <QString>
 
 Q_DECLARE_LOGGING_CATEGORY(chiakiGui)
 
@@ -15,9 +17,9 @@ public:
     explicit JsonRequester(QObject* parent = nullptr);
 
     void makePostRequest(const QString& url, const QString& authHeader, QString contentType = "application/json",
-    QString body = "", QString userAgent = "");
+    QString body = "", QString userAgent = "", const QHash<QString, QString>& additionalHeaders = QHash<QString, QString>());
 
-    void makeGetRequest(const QString& url, const QString& authHeader, QString contentType = "application/json", QString userAgent = "");
+    void makeGetRequest(const QString& url, const QString& authHeader, QString contentType = "application/json", QString userAgent = "", const QHash<QString, QString>& additionalHeaders = QHash<QString, QString>());
 
     static QString generateBearerAuthHeader(QString bearerToken);
 
@@ -33,7 +35,7 @@ private slots:
 
 private:
     void makeRequest(bool post, const QString& url, const QString& authHeader, QString contentType,
-                     QString body = nullptr, QString userAgent = "");
+                     QString body = nullptr, QString userAgent = "", const QHash<QString, QString>& additionalHeaders = QHash<QString, QString>());
 
     QNetworkAccessManager* networkManager;
     QHash<QNetworkReply *, QString> currentReplies;

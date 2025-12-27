@@ -15,6 +15,13 @@ Dialog {
     property string deviceName: ""
     property string currentState: "setup"  // "setup", "creating", "success", "failed"
     
+    // Cloud streaming properties (mutually exclusive with remote play properties)
+    property string gameIdentifier: ""
+    property string serviceType: ""
+    property string command: ""
+    property string imageUrl: ""
+    property bool isCloudShortcut: false
+    
     signal showToast(string message, string color)
     signal allDialogsClosed()
     
@@ -37,7 +44,8 @@ Dialog {
             return
         }
         
-        // Reset to setup state
+        // Reset to remote play mode
+        isCloudShortcut = false
         currentState = "setup"
         titleId = gameTitleId
         gameName = gameTitle
@@ -49,6 +57,37 @@ Dialog {
         let escaped_titleId = gameTitleId.replace(/"/g, '\\"')
         launchOptionsField.text = `--nickname "${escaped_console}" --title-id "${escaped_titleId}" launchTitle`
         coverImage.source = ChiakiGames.getGameImage(gameTitleId)
+        
+        open()
+    }
+    
+    function showCloudDialog(gameTitle, gameIdentifierValue, serviceTypeValue, commandValue, imageUrlValue) {
+        // Validate parameters
+        if (!gameTitle || !gameIdentifierValue || !commandValue) {
+            dialog.showToast(qsTr("⚠ Error: Missing required information"), "#F44336")
+            return
+        }
+        
+        // Reset to cloud shortcut mode
+        isCloudShortcut = true
+        currentState = "setup"
+        gameIdentifier = gameIdentifierValue
+        gameName = gameTitle
+        serviceType = serviceTypeValue
+        command = commandValue
+        imageUrl = imageUrlValue || ""
+        
+        // Populate fields
+        gameNameField.text = gameTitle
+        let escaped_identifier = gameIdentifier.replace(/"/g, '\\"')
+        if (command === "cloudGameCatalog") {
+            launchOptionsField.text = `--product-id "${escaped_identifier}" cloudGameCatalog`
+        } else if (command === "cloudGameLibrary") {
+            launchOptionsField.text = `--entitlement-id "${escaped_identifier}" cloudGameLibrary`
+        }
+        if (imageUrl) {
+            coverImage.source = imageUrl
+        }
         
         open()
     }
@@ -119,35 +158,77 @@ Dialog {
             KeyNavigation.up: launchOptionsField
             
             onClicked: {
-                // Validate cached data
-                let cachedData = ChiakiGames.getCachedStoreResponse(titleId)
-                if (!cachedData || cachedData.length === 0) {
-                    dialog.close()
-                    dialog.showToast(qsTr("⚠ Game artwork is still loading. Please wait and try again."), "#FF9800")
-                    return
+                if (isCloudShortcut) {
+                    // Cloud shortcut creation
+                    // Validate cached game details
+                    let cachedDetails = Chiaki.cloudCatalog.getCachedData("game_details_" + gameIdentifier, 7 * 24 * 60 * 60 * 1000)
+                    if (!cachedDetails || cachedDetails.length === 0) {
+                        dialog.close()
+                        dialog.showToast(qsTr("⚠ Game details are still loading. Please wait and try again."), "#FF9800")
+                        return
+                    }
+                    
+                    // Switch to creating state
+                    currentState = "creating"
+                    logArea.text = qsTr("Starting shortcut creation...\n")
+                    
+                    // Get Steam base directory
+                    let steamDir = ""
+                    try {
+                        steamDir = Chiaki.getSteamBaseDir()
+                    } catch (e) {
+                        console.warn("Could not get Steam base dir:", e)
+                    }
+                    
+                    // Start creation
+                    Chiaki.cloudCatalog.createCloudSteamShortcut(
+                        gameIdentifier,
+                        gameNameField.text.trim(),
+                        command,
+                        function(msg, ok, done) {
+                            logArea.text += msg + "\n"
+                            
+                            if (done) {
+                                // Switch to success or failed state
+                                currentState = ok ? "success" : "failed"
+                                // Focus the close button
+                                Qt.callLater(() => closeButton.forceActiveFocus())
+                            }
+                        },
+                        steamDir
+                    )
+                } else {
+                    // Remote play shortcut creation
+                    // Validate cached data
+                    let cachedData = ChiakiGames.getCachedStoreResponse(titleId)
+                    if (!cachedData || cachedData.length === 0) {
+                        dialog.close()
+                        dialog.showToast(qsTr("⚠ Game artwork is still loading. Please wait and try again."), "#FF9800")
+                        return
+                    }
+                    
+                    // Switch to creating state
+                    currentState = "creating"
+                    logArea.text = qsTr("Starting shortcut creation...\n")
+                    
+                    // Start creation
+                    ChiakiGames.createGameSteamShortcut(
+                        titleId,
+                        gameNameField.text.trim(),
+                        function(msg, ok, done) {
+                            logArea.text += msg + "\n"
+                            
+                            if (done) {
+                                // Switch to success or failed state
+                                currentState = ok ? "success" : "failed"
+                                // Focus the close button
+                                Qt.callLater(() => closeButton.forceActiveFocus())
+                            }
+                        },
+                        "",
+                        deviceName
+                    )
                 }
-                
-                // Switch to creating state
-                currentState = "creating"
-                logArea.text = qsTr("Starting shortcut creation...\n")
-                
-                // Start creation
-                ChiakiGames.createGameSteamShortcut(
-                    titleId,
-                    gameNameField.text.trim(),
-                    function(msg, ok, done) {
-                        logArea.text += msg + "\n"
-                        
-                        if (done) {
-                            // Switch to success or failed state
-                            currentState = ok ? "success" : "failed"
-                            // Focus the close button
-                            Qt.callLater(() => closeButton.forceActiveFocus())
-                        }
-                    },
-                    "",
-                    deviceName
-                )
             }
             
             Keys.onPressed: (event) => {
@@ -258,13 +339,15 @@ Dialog {
                     
                     Label {
                         Layout.alignment: Qt.AlignRight | Qt.AlignTop
-                        text: qsTr("Console")
+                        text: isCloudShortcut ? qsTr("Service") : qsTr("Console")
                         font.weight: Font.Medium
                     }
                     
                     Label {
                         Layout.fillWidth: true
-                        text: deviceName || qsTr("(Unknown)")
+                        text: isCloudShortcut ? 
+                              (serviceType === "psnow" ? "PSNOW" : serviceType === "pscloud" ? "PS Cloud" : serviceType) :
+                              (deviceName || qsTr("(Unknown)"))
                         wrapMode: Text.Wrap
                         font.pixelSize: 14
                     }
@@ -310,7 +393,9 @@ Dialog {
                 
                 Label {
                     Layout.fillWidth: true
-                    text: qsTr("This will create a Steam shortcut that launches directly into this game.")
+                    text: isCloudShortcut ? 
+                          qsTr("This will create a Steam shortcut that launches directly into this cloud game.") :
+                          qsTr("This will create a Steam shortcut that launches directly into this game.")
                     wrapMode: Text.Wrap
                     opacity: 0.7
                     font.pixelSize: 12

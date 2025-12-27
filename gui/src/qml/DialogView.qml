@@ -195,6 +195,17 @@ Item {
                 // Navigate down to the first focusable item in the main content
                 KeyNavigation.down: dialog.mainItem ? dialog.mainItem.nextItemInFocusChain() : null
                 
+                // Navigate up to main tab bar when in a StackView
+                Keys.onUpPressed: (event) => {
+                    if (dialog.StackView && dialog.StackView.view && dialog.StackView.view.depth > 0) {
+                        let mainView = dialog.StackView.view.get(0);
+                        if (mainView && mainView.mainTabBar && mainView.mainTabBar.itemAt(0)) {
+                            mainView.mainTabBar.itemAt(0).forceActiveFocus();
+                            event.accepted = true;
+                        }
+                    }
+                }
+                
                 // Handle gamepad A button / keyboard Enter
                 Keys.onPressed: (event) => {
                     if (event.key === Qt.Key_Return && enabled) {
@@ -207,36 +218,40 @@ Item {
                     radius: 8
                     color: {
                         if (!parent.enabled) return Qt.rgba(0.3, 0.3, 0.3, 0.2);
-                        if (parent.hovered || parent.activeFocus) return Qt.rgba(0, 212/255, 255/255, 0.2);
+                        if (parent.activeFocus) return Qt.rgba(0, 212/255, 255/255, 0.4);
+                        if (parent.hovered) return Qt.rgba(0, 212/255, 255/255, 0.2);
                         return Qt.rgba(0, 212/255, 255/255, 0.1);
                     }
                     border.color: {
                         if (!parent.enabled) return Qt.rgba(0.5, 0.5, 0.5, 0.5);
-                        if (parent.hovered || parent.activeFocus) return "#00d4ff";
+                        if (parent.activeFocus) return "#00d4ff";
+                        if (parent.hovered) return Qt.rgba(0, 212/255, 255/255, 0.9);
                         return Qt.rgba(0, 212/255, 255/255, 0.8);
                     }
-                    border.width: 2
+                    border.width: parent.activeFocus ? 3 : 2
                     opacity: parent.enabled ? 1.0 : 0.6
                     
                     Behavior on color { ColorAnimation { duration: 200 } }
                     Behavior on border.color { ColorAnimation { duration: 200 } }
+                    Behavior on border.width { NumberAnimation { duration: 200 } }
                     Behavior on opacity { NumberAnimation { duration: 200 } }
                     
-                    // Glow effect when enabled
+                    // Enhanced glow effect when focused
                     Rectangle {
                         anchors.fill: parent
-                        radius: parent.radius
+                        anchors.margins: -2
+                        radius: parent.radius + 1
                         color: "transparent"
-                        border.color: parent.enabled ? "#00d4ff" : "transparent"
-                        border.width: 1
-                        opacity: parent.enabled ? (parent.activeFocus ? 0.6 : 0.4) : 0
-                        visible: parent.enabled
+                        border.color: parent.enabled && parent.activeFocus ? "#00d4ff" : "transparent"
+                        border.width: 2
+                        opacity: parent.enabled && parent.activeFocus ? 0.8 : 0
+                        visible: parent.enabled && parent.activeFocus
                         
-                        layer.enabled: parent.enabled
+                        layer.enabled: parent.enabled && parent.activeFocus
                         layer.effect: MultiEffect {
                             blurEnabled: true
-                            blurMax: 6
-                            blur: 0.3
+                            blurMax: 8
+                            blur: 0.5
                         }
                         
                         Behavior on opacity { NumberAnimation { duration: 200 } }

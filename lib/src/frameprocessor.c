@@ -199,7 +199,7 @@ CHIAKI_EXPORT void chiaki_frame_processor_report_packet_stats(ChiakiFrameProcess
 
 static ChiakiErrorCode chiaki_frame_processor_fec(ChiakiFrameProcessor *frame_processor)
 {
-	CHIAKI_LOGI(frame_processor->log, "Frame Processor received %u+%u / %u+%u units, attempting FEC",
+	CHIAKI_LOGV(frame_processor->log, "Frame Processor received %u+%u / %u+%u units, attempting FEC",
 				frame_processor->units_source_received, frame_processor->units_fec_received,
 				frame_processor->units_source_expected, frame_processor->units_fec_expected);
 

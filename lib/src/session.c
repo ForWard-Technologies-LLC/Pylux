@@ -184,6 +184,9 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_session_init(ChiakiSession *session, Chiaki
 	session->rudp = NULL;
 	session->dontfrag = true;
 
+	// Defensive defaulting: if the caller didn't initialize service_type, treat it as Remote Play.
+	connect_info->service_type = chiaki_service_type_normalize(connect_info->service_type);
+
 	ChiakiErrorCode err = chiaki_cond_init(&session->state_cond);
 	if(err != CHIAKI_ERR_SUCCESS)
 		goto error;
@@ -221,20 +224,31 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_session_init(ChiakiSession *session, Chiaki
 		goto error_ctrl;
 	}
 
-	// Cloud mode: use direct connection with pre-provided parameters
-	if(connect_info->cloud_mode)
+	// Cloud streaming: use direct connection with pre-provided parameters
+	if(chiaki_service_type_is_cloud(connect_info->service_type))
 	{
-		CHIAKI_LOGI(session->log, "=== CLOUD MODE INITIALIZATION ===");
-		CHIAKI_LOGI(session->log, "Cloud mode enabled - using direct connection");
+		CHIAKI_LOGI(session->log, "=== CLOUD STREAMING INITIALIZATION ===");
+		CHIAKI_LOGI(session->log, "Cloud streaming enabled - using direct connection");
 		CHIAKI_LOGI(session->log, "Host: %s", connect_info->host);
 		CHIAKI_LOGI(session->log, "Cloud port: %u", connect_info->cloud_port);
+		CHIAKI_LOGI(session->log, "Service type: %s", chiaki_service_type_string(connect_info->service_type));
 		
-		// Store cloud mode flag and parameters
-		session->cloud_mode = true;
+		// Store service type and parameters
+		session->service_type = connect_info->service_type;
 		session->cloud_launch_spec = connect_info->cloud_launch_spec;
 		session->cloud_handshake_key = connect_info->cloud_handshake_key;
 		session->cloud_port = connect_info->cloud_port;
 		session->cloud_psn_wrapper_type = connect_info->cloud_psn_wrapper_type;
+		
+		// Store MTU values from ping results if available, otherwise will use defaults later
+		if(connect_info->cloud_mtu_in > 0 && connect_info->cloud_mtu_out > 0)
+		{
+			session->mtu_in = connect_info->cloud_mtu_in;
+			session->mtu_out = connect_info->cloud_mtu_out;
+			session->rtt_us = connect_info->cloud_rtt_us > 0 ? connect_info->cloud_rtt_us : 1000;
+			CHIAKI_LOGI(session->log, "Cloud mode: Stored MTU values from ping results (in=%d, out=%d, rtt=%llu us)", 
+				session->mtu_in, session->mtu_out, (unsigned long long)session->rtt_us);
+		}
 		
 		if(connect_info->cloud_launch_spec)
 			CHIAKI_LOGI(session->log, "Cloud launch spec provided: length=%zu", strlen(connect_info->cloud_launch_spec));
@@ -344,7 +358,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_session_init(ChiakiSession *session, Chiaki
 	}
 	else if(session->holepunch_session)
 	{
-		session->cloud_mode = false;
+		session->service_type = CHIAKI_SERVICE_TYPE_REMOTE_PLAY;
 		session->cloud_launch_spec = NULL;
 		session->cloud_handshake_key = NULL;
 		session->cloud_port = 0;
@@ -353,7 +367,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_session_init(ChiakiSession *session, Chiaki
 	}
 	else
 	{
-		session->cloud_mode = false;
+		session->service_type = CHIAKI_SERVICE_TYPE_REMOTE_PLAY;
 		session->cloud_launch_spec = NULL;
 		session->cloud_handshake_key = NULL;
 		session->cloud_port = 0;
@@ -609,19 +623,29 @@ static void *session_thread_func(void *arg)
 		QUIT(quit);
 	}
 	
-	// Cloud mode: skip session request, ctrl, and Senkusha - go directly to stream connection
-	if(session->cloud_mode)
+	// Cloud streaming: skip session request, ctrl, and Senkusha - go directly to stream connection
+	if(chiaki_service_type_is_cloud(session->service_type))
 	{
-		CHIAKI_LOGI(session->log, "=== CLOUD MODE: Skipping session request, going directly to stream connection ===");
+		CHIAKI_LOGI(session->log, "=== CLOUD STREAMING: Skipping session request, going directly to stream connection ===");
 		
-		// Set default MTU values for cloud play from API (mtuUpstream: 1254)
-		// The cloud server specifies the exact MTU to use
-		session->mtu_in = 1254;
-		session->mtu_out = 1254;
-		session->rtt_us = 1000;
+		// Use MTU values that were stored during initialization (from ping results if available)
+		// If not set during init (mtu_in == 0), use default values
+		if(session->mtu_in == 0 || session->mtu_out == 0)
+		{
+			// Fallback to default values if ping results not available
+			// Default MTU values: mtu=1454, upstreamMtu=1254
+			session->mtu_in = 1454;
+			session->mtu_out = 1254;
+			session->rtt_us = 1000;
+			CHIAKI_LOGI(session->log, "Cloud streaming: Using default MTU values (in=%d, out=%d, rtt=%llu us)", 
+				session->mtu_in, session->mtu_out, (unsigned long long)session->rtt_us);
+		}
+		else
+		{
+			CHIAKI_LOGI(session->log, "Cloud streaming: Using MTU values from ping results (in=%d, out=%d, rtt=%llu us)", 
+				session->mtu_in, session->mtu_out, (unsigned long long)session->rtt_us);
+		}
 		session->dontfrag = false;
-		CHIAKI_LOGI(session->log, "Cloud mode: Using official app MTU values (in=%d, out=%d, rtt=%llu us)", 
-			session->mtu_in, session->mtu_out, (unsigned long long)session->rtt_us);
 		
 		// Generate a nonce for RPCrypt (even though we use pre-encoded launch spec, RPCrypt might be needed)
 		uint8_t nonce[CHIAKI_RPCRYPT_KEY_SIZE];
@@ -637,7 +661,7 @@ static void *session_thread_func(void *arg)
 		
 		// Initialize RPCrypt (needed even for cloud mode, even if we use pre-encoded launch spec)
 		chiaki_rpcrypt_init_auth(&session->rpcrypt, session->target, session->nonce, morning);
-		CHIAKI_LOGI(session->log, "Cloud mode: RPCrypt initialized");
+		CHIAKI_LOGI(session->log, "Cloud streaming: RPCrypt initialized");
 		
 		// handshake_key is already set from API (decoded at session init)
 		// Skip session request and fall through to common ECDH + stream connection path
@@ -645,8 +669,8 @@ static void *session_thread_func(void *arg)
 	
 	ChiakiErrorCode err;
 	
-	// Cloud mode skips session request and uses API parameters
-	if(!session->cloud_mode)
+	// Remote Play uses session request; cloud streaming skips it and uses API parameters
+	if(!chiaki_service_type_is_cloud(session->service_type))
 	{
 		CHIAKI_LOGI(session->log, "Starting session request for %s", session->connect_info.ps5 ? "PS5" : "PS4");
 
@@ -681,8 +705,8 @@ static void *session_thread_func(void *arg)
 
 	chiaki_socket_t *data_sock = NULL;
 	
-	// Cloud mode skips ctrl/holepunch/senkusha and goes directly to stream connection
-	if(!session->cloud_mode)
+	// Remote Play uses ctrl/holepunch/senkusha; cloud streaming goes directly to stream connection
+	if(!chiaki_service_type_is_cloud(session->service_type))
 	{
 		// PS4 doesn't always react right away, sleep a bit
 		chiaki_cond_timedwait_pred(&session->state_cond, &session->state_mutex, 10, session_check_state_pred, session);
@@ -833,9 +857,9 @@ ctrl_failed:
 		}
 	}  // End of remote play specific setup
 
-	// For cloud mode, handshake_key is already set from API (decoded at session init)
+	// For cloud streaming, handshake_key is already set from API (decoded at session init)
 	// For remote play, generate random handshake_key
-	if(!session->cloud_mode)
+	if(!chiaki_service_type_is_cloud(session->service_type))
 	{
 		err = chiaki_random_bytes_crypt(session->handshake_key, sizeof(session->handshake_key));
 		if(err != CHIAKI_ERR_SUCCESS)

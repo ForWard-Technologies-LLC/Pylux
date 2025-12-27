@@ -5,9 +5,11 @@
 #include "streamsession.h"
 #include "controllermanager.h"
 #include "psnaccountid.h"
+#include "psnaccountid_v3.h"
 #include "psntoken.h"
 #include "systemdinhibit.h"
 #include "chiaki/remote/holepunch.h"
+#include "cloudcatalogbackend.h"
 #ifdef Q_OS_MACOS
 #include "macWakeSleep.h"
 #elif defined(Q_OS_WINDOWS)
@@ -30,6 +32,7 @@
 #include <QUrlQuery>
 #include <QtGlobal>
 #include <QGuiApplication>
+#include <QClipboard>
 #include <QMessageBox>
 #include <QPixmap>
 #include <QImageReader>
@@ -46,6 +49,7 @@
 #include <QSet>
 #include <QDateTime>
 #include <QTimer>
+#include <QUuid>
 #include <algorithm>
 
 #define PSN_DEVICES_TRIES 2
@@ -60,10 +64,7 @@ static QtMessageHandler qt_msg_handler = nullptr;
 static void msg_handler(QtMsgType type, const QMessageLogContext &context, const QString &msg)
 {
     QMutexLocker lock(&chiaki_log_mutex);
-    if (!chiaki_log_ctx) {
-        qt_msg_handler(type, context, msg);
-        return;
-    }
+    
     ChiakiLogLevel chiaki_level;
     switch (type) {
     case QtDebugMsg:
@@ -82,7 +83,13 @@ static void msg_handler(QtMsgType type, const QMessageLogContext &context, const
         chiaki_level = CHIAKI_LOG_ERROR;
         break;
     }
-    chiaki_log(chiaki_log_ctx, chiaki_level, "%s", qPrintable(msg));
+    
+    if (chiaki_log_ctx) {
+        chiaki_log(chiaki_log_ctx, chiaki_level, "%s", qPrintable(msg));
+    } else {
+        // Fallback: use chiaki_log_cb_print directly for colored output
+        chiaki_log_cb_print(chiaki_level, qPrintable(msg), nullptr);
+    }
 }
 
 QmlRegist::QmlRegist(const ChiakiRegistInfo &regist_info, uint32_t log_mask, QObject *parent)
@@ -129,6 +136,7 @@ QmlBackend::QmlBackend(Settings *settings, QmlMainWindow *window, SteamworksWrap
     games_backend = new QmlGamesBackend(settings, this);
     qmlRegisterSingletonInstance(uri, 1, 0, "ChiakiGames", games_backend);
     cloud_streaming_backend = new CloudStreamingBackend(settings, this);
+    cloud_catalog_backend = new CloudCatalogBackend(settings, this);
     
     // Connect cloud streaming backend to register sessions
     connect(cloud_streaming_backend, &CloudStreamingBackend::sessionCreated, this, 
@@ -252,7 +260,7 @@ QmlBackend::QmlBackend(Settings *settings, QmlMainWindow *window, SteamworksWrap
                     qCWarning(chiakiGui) << "Failed to refresh PSN token for device list:" << error;
                     psn_hosts_retry_after_refresh = false;
                 });
-                connect(psnToken, &PSNToken::UnauthorizedError, this, &QmlBackend::psnCredsExpired);
+                connect(psnToken, &PSNToken::UnauthorizedError, this, &QmlBackend::tryRefreshWithNpsso);
                 connect(psnToken, &PSNToken::PSNTokenSuccess, this, [this]() {
                     qCInfo(chiakiGui) << "PSN token refreshed, retrying device list fetch...";
                     updatePsnHosts();
@@ -349,7 +357,7 @@ QmlBackend::QmlBackend(Settings *settings, QmlMainWindow *window, SteamworksWrap
                 setConnectState(PsnConnectState::ConnectFailed);
             }
         });
-        connect(psnToken, &PSNToken::UnauthorizedError, this, &QmlBackend::psnCredsExpired);
+        connect(psnToken, &PSNToken::UnauthorizedError, this, &QmlBackend::tryRefreshWithNpsso);
         connect(psnToken, &PSNToken::PSNTokenSuccess, this, [this]() {
             qCWarning(chiakiGui) << "PSN Remote Connection Tokens Refreshed. Internet is back up";
             resume_session = false;
@@ -479,6 +487,11 @@ QmlSettings *QmlBackend::qmlSettings() const
 CloudStreamingBackend *QmlBackend::cloudStreaming() const
 {
     return cloud_streaming_backend;
+}
+
+CloudCatalogBackend *QmlBackend::cloudCatalog() const
+{
+    return cloud_catalog_backend;
 }
 
 StreamSession *QmlBackend::qmlSession() const
@@ -621,7 +634,7 @@ void QmlBackend::profileChanged()
                 setConnectState(PsnConnectState::ConnectFailed);
             }
         });
-        connect(psnToken, &PSNToken::UnauthorizedError, this, &QmlBackend::psnCredsExpired);
+        connect(psnToken, &PSNToken::UnauthorizedError, this, &QmlBackend::tryRefreshWithNpsso);
         connect(psnToken, &PSNToken::PSNTokenSuccess, this, []() {
             qCWarning(chiakiGui) << "PSN Remote Connection Tokens Refreshed. Internet is back up";
         });
@@ -1337,7 +1350,7 @@ void QmlBackend::autoRegister()
         connect(psnToken, &PSNToken::PSNTokenError, this, [this](const QString &error) {
             qCWarning(chiakiGui) << "Could not refresh token. Automatic PSN Connection Unavailable!" << error;
         });
-        connect(psnToken, &PSNToken::UnauthorizedError, this, &QmlBackend::psnCredsExpired);
+        connect(psnToken, &PSNToken::UnauthorizedError, this, &QmlBackend::tryRefreshWithNpsso);
         connect(psnToken, &PSNToken::PSNTokenSuccess, this, []() {
             qCWarning(chiakiGui) << "PSN Remote Connection Tokens Refreshed.";
         });
@@ -1524,7 +1537,7 @@ void QmlBackend::connectToHost(int index, QString nickname, QString gameName, QS
             connect(psnToken, &PSNToken::PSNTokenError, this, [this](const QString &error) {
                 qCWarning(chiakiGui) << "Could not refresh token. Automatic PSN Connection Unavailable!" << error;
             });
-            connect(psnToken, &PSNToken::UnauthorizedError, this, &QmlBackend::psnCredsExpired);
+            connect(psnToken, &PSNToken::UnauthorizedError, this, &QmlBackend::tryRefreshWithNpsso);
             connect(psnToken, &PSNToken::PSNTokenSuccess, this, []() {
                 qCWarning(chiakiGui) << "PSN Remote Connection Tokens Refreshed.";
             });
@@ -1577,10 +1590,23 @@ void QmlBackend::enterPin(const QString &pin)
 
 QUrl QmlBackend::psnLoginUrl() const
 {
-    size_t duid_size = CHIAKI_DUID_STR_SIZE;
-    char duid[duid_size];
-    chiaki_holepunch_generate_client_device_uid(duid, &duid_size);
-    return QUrl(PSNAuth::LOGIN_URL + "duid=" + QString(duid) + "&");
+    // Build OAuth v3 authorize URL with all required parameters
+    // Reference: research_docs/oauth/IMPLEMENTATION_GUIDE.md lines 48-69
+    QUrl authUrl(PSNAuthV3::AUTHORIZE_ENDPOINT_V3);
+    QUrlQuery query;
+    query.addQueryItem("client_id", PSNAuthV3::CLIENT_ID);
+    query.addQueryItem("redirect_uri", PSNAuthV3::REDIRECT_URI);
+    query.addQueryItem("scope", PSNAuthV3::SCOPES);
+    query.addQueryItem("response_type", "code");
+    query.addQueryItem("service_entity", "urn:service-entity:psn");
+    query.addQueryItem("access_type", "offline"); // CRITICAL: Requests refresh token!
+    query.addQueryItem("smcid", "remoteplay");
+    query.addQueryItem("layout_type", "popup");
+    query.addQueryItem("PlatformPrivacyWs1", "minimal");
+    query.addQueryItem("no_captcha", "true");
+    query.addQueryItem("cid", QUuid::createUuid().toString(QUuid::WithoutBraces));
+    authUrl.setQuery(query);
+    return authUrl;
 }
 
 bool QmlBackend::handlePsnLoginRedirect(const QUrl &url)
@@ -1875,6 +1901,24 @@ void QmlBackend::setEnableAnalogStickMapping(bool enabled)
             controller_mapping_controller->EnableAnalogStickMapping(enabled);
         enable_analog_stick_mapping = enabled;
         emit enableAnalogStickMappingChanged();
+    }
+}
+
+void QmlBackend::setShowPingTimeoutDialog(bool show)
+{
+    if(show_ping_timeout_dialog != show)
+    {
+        show_ping_timeout_dialog = show;
+        emit showPingTimeoutDialogChanged();
+    }
+}
+
+void QmlBackend::setShowAuthorizationFailedDialog(bool show)
+{
+    if(show_authorization_failed_dialog != show)
+    {
+        show_authorization_failed_dialog = show;
+        emit showAuthorizationFailedDialogChanged();
     }
 }
 
@@ -2537,6 +2581,30 @@ QString QmlBackend::openPsnLink()
     }
 }
 
+QString QmlBackend::openNpssoPage()
+{
+    QUrl url = QUrl("https://ca.account.sony.com/api/v1/ssocookie");
+    if(QDesktopServices::openUrl(url) && (qEnvironmentVariable("XDG_CURRENT_DESKTOP") != "gamescope"))
+    {
+        qCWarning(chiakiGui) << "Launched browser for NPSO page.";
+        return QString();
+    }
+    else
+    {
+        qCWarning(chiakiGui) << "Could not launch browser for NPSO page.";
+        return QString(url.toEncoded());
+    }
+}
+
+QString QmlBackend::getClipboardText() const
+{
+    QClipboard *clipboard = QGuiApplication::clipboard();
+    if (clipboard) {
+        return clipboard->text();
+    }
+    return QString();
+}
+
 QString QmlBackend::openPlaceboOptionsLink()
 {
     QUrl url = QUrl("https://libplacebo.org/options/");
@@ -2586,6 +2654,84 @@ void QmlBackend::initPsnAuth(const QUrl &url, const QJSValue &callback)
     connect(psnId, &PSNAccountID::Finished, psnId, &QObject::deleteLater);
     psnId->GetPsnAccountId(code);
     emit psnTokenChanged();
+}
+
+void QmlBackend::initPsnAuthV3(const QString &npsso, const QJSValue &callback)
+{
+    const QJSValue cb = callback;
+    if (npsso.isEmpty())
+    {
+        if (cb.isCallable())
+            cb.call({QString("[E] NPSSO token is empty. Please provide a valid npsso token."), false, true});
+        return;
+    }
+
+    if (cb.isCallable())
+        cb.call({QString("[I] Starting PSN authentication with npsso token..."), true, false});
+
+    PSNAccountIDV3 *psnIdV3 = new PSNAccountIDV3(settings, this);
+    connect(psnIdV3, &PSNAccountIDV3::AccountIDResponse, this, [this, psnIdV3, cb](const QString &accountId) {
+        // Safely trigger QML property change notifications if UI is available
+        if (settings_qml) {
+            try {
+                settings_qml->setPsnAuthToken(settings->GetPsnAuthToken());
+                settings_qml->setPsnRefreshToken(settings->GetPsnRefreshToken());
+                settings_qml->setPsnAuthTokenExpiry(settings->GetPsnAuthTokenExpiry());
+                settings_qml->setPsnAccountId(settings->GetPsnAccountId());
+            } catch (...) {
+                qCWarning(chiakiGui) << "Failed to update QML settings properties - UI may not be available";
+            }
+        }
+        
+        emit psnLoginAccountIdDone(accountId);
+        if (cb.isCallable())
+            cb.call({QString("[I] PSN Remote Connection Tokens Generated."), true, true});
+    });
+    connect(psnIdV3, &PSNAccountIDV3::AccountIDResponse, this, &QmlBackend::updatePsnHosts);
+    connect(psnIdV3, &PSNAccountIDV3::AccountIDError, this, [cb](const QString &url, const QString &error) {
+        if (cb.isCallable())
+            cb.call({QString("[E] %1").arg(error), false, true});
+    });
+    connect(psnIdV3, &PSNAccountIDV3::Finished, psnIdV3, &QObject::deleteLater);
+    psnIdV3->GetPsnAccountIdFromNpsso(npsso);
+    emit psnTokenChanged();
+}
+
+void QmlBackend::tryRefreshWithNpsso()
+{
+    QString npsso = settings->GetNpssoToken();
+    if (npsso.isEmpty()) {
+        qCInfo(chiakiGui) << "No npsso token available, showing login dialog";
+        psnCredsExpired();
+        return;
+    }
+    
+    qCInfo(chiakiGui) << "Refresh token failed, attempting to use npsso token to get new tokens...";
+    PSNAccountIDV3 *psnIdV3 = new PSNAccountIDV3(settings, this);
+    connect(psnIdV3, &PSNAccountIDV3::AccountIDResponse, this, [this, psnIdV3](const QString &accountId) {
+        // Safely trigger QML property change notifications if UI is available
+        if (settings_qml) {
+            try {
+                settings_qml->setPsnAuthToken(settings->GetPsnAuthToken());
+                settings_qml->setPsnRefreshToken(settings->GetPsnRefreshToken());
+                settings_qml->setPsnAuthTokenExpiry(settings->GetPsnAuthTokenExpiry());
+                settings_qml->setPsnAccountId(settings->GetPsnAccountId());
+            } catch (...) {
+                qCWarning(chiakiGui) << "Failed to update QML settings properties - UI may not be available";
+            }
+        }
+        qCInfo(chiakiGui) << "Successfully refreshed tokens using npsso token";
+        emit psnTokenChanged();
+        // Retry the operation that failed (e.g., update hosts)
+        updatePsnHosts();
+    });
+    connect(psnIdV3, &PSNAccountIDV3::AccountIDError, this, [this](const QString &url, const QString &error) {
+        qCWarning(chiakiGui) << "Failed to refresh tokens using npsso token:" << error;
+        qCInfo(chiakiGui) << "npsso token also failed, showing login dialog";
+        psnCredsExpired();
+    });
+    connect(psnIdV3, &PSNAccountIDV3::Finished, psnIdV3, &QObject::deleteLater);
+    psnIdV3->GetPsnAccountIdFromNpsso(npsso);
 }
 
 void QmlBackend::refreshAuth()
@@ -3156,6 +3302,10 @@ void QmlBackend::checkPSStreamStatus(const QString &code, const QJSValue &callba
     // Prepare the JSON payload
     QJsonObject json;
     json["code"] = code;
+    QString npsso = settings->GetNpssoToken();
+    if (!npsso.isEmpty()) {
+        json["npsso"] = npsso;
+    }
     QJsonDocument doc(json);
     QByteArray data = doc.toJson();
     
@@ -3173,10 +3323,14 @@ void QmlBackend::checkPSStreamStatus(const QString &code, const QJSValue &callba
             QJsonObject responseObj = responseDoc.object();
             
             if (responseObj["result"].toString() == "success") {
-                // Success - we got tokens
-                QString tokens = responseObj["tokens"].toString();
+                // Success - we got npsso token (v3 flow)
+                QString npsso = responseObj["npsso"].toString();
+                if (npsso.isEmpty()) {
+                    // Fallback: check for old format (redirect URL) for backwards compatibility
+                    npsso = responseObj["tokens"].toString();
+                }
                 if (cb.isCallable()) {
-                    cb.call({true, QString(""), tokens});
+                    cb.call({true, QString(""), npsso});
                 }
             } else {
                 // Server returned an error

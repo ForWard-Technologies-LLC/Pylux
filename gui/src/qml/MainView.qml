@@ -45,8 +45,12 @@ Pane {
                 } else if (enableLocalDiscoveryButton.visible) {
                     enableLocalDiscoveryButton.forceActiveFocus(Qt.TabFocusReason);
                 } else {
-                    // Fallback to discovery button in header
-                    discoveryButton.forceActiveFocus(Qt.TabFocusReason);
+                    // Fallback to floating discovery button or tab bar
+                    if (floatingDiscoveryButton.visible) {
+                        floatingDiscoveryButton.forceActiveFocus(Qt.TabFocusReason);
+                    } else if (mainTabBar) {
+                        mainTabBar.itemAt(0).forceActiveFocus(Qt.TabFocusReason);
+                    }
                 }
             }
         })
@@ -101,20 +105,27 @@ Pane {
             return;
         switch (event.key) {
         case Qt.Key_PageUp:
-            // X key is now handled by the GridView directly
-            // PageUp still handled here for global shortcuts
-            if (hostsView.activeFocus && hostsView.currentItem) {
+            // L1 button - switch tabs or handle console pin
+            if (mainTabBar.currentIndex > 0) {
+                mainTabBar.currentIndex = 0;
+                event.accepted = true;
+            } else if (hostsView.activeFocus && hostsView.currentItem) {
                 hostsView.currentItem.setConsolePin();
-            event.accepted = true;
+                event.accepted = true;
             }
             break;
         case Qt.Key_PageDown:
-            if (Chiaki.settings.psnAuthToken) {
+            // R1 button - switch tabs or refresh PSN
+            if (mainTabBar.currentIndex < mainTabBar.count - 1) {
+                mainTabBar.currentIndex = mainTabBar.count - 1;
+                event.accepted = true;
+            } else if (Chiaki.settings.psnAuthToken) {
                 Chiaki.refreshPsnToken();
+                event.accepted = true;
             } else {
                 root.showPSNTokenDialog("", false);
+                event.accepted = true;
             }
-            event.accepted = true;
             break;
         case Qt.Key_F1:
             if (typeof Chiaki.createSteamShortcut === "function") root.showSteamShortcutDialog(false);
@@ -171,262 +182,316 @@ Pane {
             }
         }
 
+        // Logo and title section (left side)
         RowLayout {
             anchors {
-                fill: parent
+                left: parent.left
+                top: parent.top
+                bottom: parent.bottom
                 leftMargin: 25
+                topMargin: 15
+                bottomMargin: 15
+            }
+            spacing: 15
+            
+            Image {
+                Layout.preferredWidth: 60
+                Layout.preferredHeight: 60
+                source: "qrc:icons/chiaking.png"
+                fillMode: Image.PreserveAspectFit
+                smooth: true
+                antialiasing: true
+                mipmap: true
+                sourceSize.width: 120
+                sourceSize.height: 120
+            }
+            
+            Column {
+                Layout.alignment: Qt.AlignVCenter
+                
+                Label {
+                    text: "PSSTREAM"
+                    font.pixelSize: 24
+                    font.weight: Font.Bold
+                    font.letterSpacing: 2
+                    color: "#00d4ff"
+                }
+                Label {
+                    text: "Remote Play"
+                    font.pixelSize: 12
+                    font.weight: Font.Light
+                    color: Qt.rgba(255, 255, 255, 0.7)
+                    font.letterSpacing: 1
+                }
+            }
+        }
+
+        // Tab bar - centered relative to viewport to align with console cards
+        // Account for ScrollView margins (30px each side) that affect visual centering
+        TabBar {
+            id: mainTabBar
+            anchors {
+                verticalCenter: parent.verticalCenter
+            }
+            // Center relative to the content area (viewport minus ScrollView margins)
+            // ScrollView has margins: 30, so content area is narrower
+            x: (consolePane.width - width) / 2 - 15
+            background: Rectangle { color: "transparent" }
+            
+            // Load saved tab on startup
+            Component.onCompleted: {
+                let savedTab = Chiaki.settings.lastSelectedMainTab;
+                if (savedTab >= 0 && savedTab < count) {
+                    currentIndex = savedTab;
+                }
+            }
+            
+            // Save tab when it changes
+            onCurrentIndexChanged: {
+                Chiaki.settings.lastSelectedMainTab = currentIndex;
+            }
+
+            TabButton {
+                text: qsTr("Remote Play")
+                width: implicitWidth + 24
+                font.pixelSize: 15
+                font.weight: Font.Medium
+                focusPolicy: Qt.StrongFocus
+                
+                // Keyboard navigation
+                KeyNavigation.left: closeButton
+                KeyNavigation.right: mainTabBar.itemAt(1) // Cloud Play tab
+                Keys.onDownPressed: (event) => {
+                    console.log("[Remote Play Tab] Down pressed, currentIndex:", mainTabBar.currentIndex, "cloudPlayLoader.active:", cloudPlayLoader.active);
+                    event.accepted = true;
+                    if (mainTabBar.currentIndex === 1 && cloudPlayLoader.active) {
+                        let cloudPlayView = cloudPlayLoader.item;
+                        let catalogBtn = cloudPlayView ? cloudPlayView.catalogButtonItem : null;
+                        console.log("[Remote Play Tab] Cloud Play view exists:", !!cloudPlayView, "catalogButtonItem exists:", !!catalogBtn);
+                        if (catalogBtn) {
+                            console.log("[Remote Play Tab] Focusing catalogButton");
+                            Qt.callLater(() => {
+                                catalogBtn.forceActiveFocus(Qt.TabFocusReason);
+                                console.log("[Remote Play Tab] After focus, catalogButton.activeFocus:", catalogBtn.activeFocus);
+                            });
+                            return;
+                        }
+                    }
+                    console.log("[Remote Play Tab] Navigating to Remote Play content");
+                    if (hostsView.count > 0) {
+                        hostsView.currentIndex = 0;
+                        hostsView.forceActiveFocus();
+                        console.log("[Remote Play Tab] Focused hostsView");
+                    } else {
+                        if (addManuallyButton.visible) {
+                            addManuallyButton.forceActiveFocus();
+                            console.log("[Remote Play Tab] Focused addManuallyButton");
+                        } else if (enableLocalDiscoveryButton.visible) {
+                            enableLocalDiscoveryButton.forceActiveFocus();
+                            console.log("[Remote Play Tab] Focused enableLocalDiscoveryButton");
+                        } else {
+                            setupGuideButton.forceActiveFocus();
+                            console.log("[Remote Play Tab] Focused setupGuideButton");
+                        }
+                    }
+                }
+                
+                Keys.onReturnPressed: {
+                    mainTabBar.currentIndex = 0;
+                    event.accepted = true;
+                }
+                
+                background: Rectangle {
+                    color: parent.activeFocus ? Qt.rgba(0, 212/255, 255/255, 0.15) : "transparent"
+                    border.color: parent.activeFocus ? "#00d4ff" : "transparent"
+                    border.width: parent.activeFocus ? 1 : 0
+                    radius: 4
+                    
+                    // Underline when selected
+                    Rectangle {
+                        anchors {
+                            left: parent.left
+                            right: parent.right
+                            bottom: parent.bottom
+                        }
+                        height: 3
+                        color: parent.parent.checked ? "#00d4ff" : "transparent"
+                        radius: 1.5
+                        
+                        Behavior on color { ColorAnimation { duration: 200 } }
+                    }
+                    
+                    Behavior on color { ColorAnimation { duration: 200 } }
+                    Behavior on border.color { ColorAnimation { duration: 200 } }
+                }
+                
+                contentItem: Text {
+                    text: parent.text
+                    font: parent.font
+                    color: parent.checked ? "#00d4ff" : (parent.activeFocus ? "#00d4ff" : Qt.rgba(255, 255, 255, 0.7))
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+            }
+
+            TabButton {
+                text: qsTr("Cloud Play")
+                width: implicitWidth + 24
+                font.pixelSize: 15
+                font.weight: Font.Medium
+                focusPolicy: Qt.StrongFocus
+                
+                // Keyboard navigation
+                KeyNavigation.left: mainTabBar.itemAt(0) // Remote Play tab
+                KeyNavigation.right: psnLoginHeaderButton
+                Keys.onDownPressed: (event) => {
+                    console.log("[Cloud Play Tab] Down pressed, currentIndex:", mainTabBar.currentIndex, "cloudPlayLoader.active:", cloudPlayLoader.active);
+                    event.accepted = true;
+                    if (mainTabBar.currentIndex === 1 && cloudPlayLoader.active) {
+                        let cloudPlayView = cloudPlayLoader.item;
+                        let catalogBtn = cloudPlayView ? cloudPlayView.catalogButtonItem : null;
+                        console.log("[Cloud Play Tab] Cloud Play view exists:", !!cloudPlayView, "catalogButtonItem exists:", !!catalogBtn);
+                        if (catalogBtn) {
+                            console.log("[Cloud Play Tab] Focusing catalogButton, visible:", catalogBtn.visible, "enabled:", catalogBtn.enabled, "focusPolicy:", catalogBtn.focusPolicy);
+                            Qt.callLater(() => {
+                                catalogBtn.forceActiveFocus(Qt.TabFocusReason);
+                                console.log("[Cloud Play Tab] After focus, catalogButton.activeFocus:", catalogBtn.activeFocus, "parent visible:", catalogBtn.parent ? catalogBtn.parent.visible : "no parent");
+                            });
+                            return;
+                        }
+                    }
+                    console.log("[Cloud Play Tab] Navigating to Remote Play content");
+                    if (hostsView.count > 0) {
+                        hostsView.currentIndex = 0;
+                        hostsView.forceActiveFocus();
+                        console.log("[Cloud Play Tab] Focused hostsView");
+                    } else {
+                        if (addManuallyButton.visible) {
+                            addManuallyButton.forceActiveFocus();
+                            console.log("[Cloud Play Tab] Focused addManuallyButton");
+                        } else if (enableLocalDiscoveryButton.visible) {
+                            enableLocalDiscoveryButton.forceActiveFocus();
+                            console.log("[Cloud Play Tab] Focused enableLocalDiscoveryButton");
+                        } else {
+                            setupGuideButton.forceActiveFocus();
+                            console.log("[Cloud Play Tab] Focused setupGuideButton");
+                        }
+                    }
+                }
+                
+                Keys.onReturnPressed: (event) => {
+                    mainTabBar.currentIndex = 1;
+                    event.accepted = true;
+                }
+                
+                background: Rectangle {
+                    color: parent.activeFocus ? Qt.rgba(0, 212/255, 255/255, 0.15) : "transparent"
+                    border.color: parent.activeFocus ? "#00d4ff" : "transparent"
+                    border.width: parent.activeFocus ? 1 : 0
+                    radius: 4
+                    
+                    // Underline when selected
+                    Rectangle {
+                        anchors {
+                            left: parent.left
+                            right: parent.right
+                            bottom: parent.bottom
+                        }
+                        height: 3
+                        color: parent.parent.checked ? "#00d4ff" : "transparent"
+                        radius: 1.5
+                        
+                        Behavior on color { ColorAnimation { duration: 200 } }
+                    }
+                    
+                    Behavior on color { ColorAnimation { duration: 200 } }
+                    Behavior on border.color { ColorAnimation { duration: 200 } }
+                }
+                
+                contentItem: Text {
+                    text: parent.text
+                    font: parent.font
+                    color: parent.checked ? "#00d4ff" : (parent.activeFocus ? "#00d4ff" : Qt.rgba(255, 255, 255, 0.7))
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+            }
+        }
+
+        // Action buttons with futuristic styling (right side)
+        RowLayout {
+            anchors {
+                right: parent.right
+                top: parent.top
+                bottom: parent.bottom
                 rightMargin: 25
                 topMargin: 15
                 bottomMargin: 15
             }
-            spacing: 20
-
-            // Logo and title section
-            RowLayout {
-                Layout.fillHeight: true
-                spacing: 15
-                
-                Image {
-                    Layout.preferredWidth: 60
-                    Layout.preferredHeight: 60
-                    source: "qrc:icons/chiaking.png"
-                    fillMode: Image.PreserveAspectFit
-                    smooth: true
-                    antialiasing: true
-                    mipmap: true
-                    sourceSize.width: 120
-                    sourceSize.height: 120
-                }
-                
-                Column {
-                    Layout.alignment: Qt.AlignVCenter
-                    
-                    Label {
-                        text: "PSSTREAM"
-                        font.pixelSize: 24
-                        font.weight: Font.Bold
-                        font.letterSpacing: 2
-                        color: "#00d4ff"
-                    }
-                    Label {
-                        text: "Remote Play"
-                        font.pixelSize: 12
-                        font.weight: Font.Light
-                        color: Qt.rgba(255, 255, 255, 0.7)
-                        font.letterSpacing: 1
-                    }
-                }
-            }
-
-            Item { Layout.fillWidth: true }
-
-            // Action buttons with futuristic styling
-            RowLayout {
-                Layout.fillHeight: true
-                spacing: 15
-
-                Button {
-                    id: discoveryButton
-                    Layout.preferredHeight: 48
-                    Layout.preferredWidth: 48
-                flat: true
-                    icon.source: "qrc:/icons/discover-" + (checked ? "" : "off-") + "24px.svg"
-                    icon.width: 24
-                    icon.height: 24
-                    focusPolicy: Qt.StrongFocus
-                    checkable: true
-                    checked: Chiaki.discoveryEnabled
-                    onToggled: Chiaki.discoveryEnabled = !Chiaki.discoveryEnabled
-                    hoverEnabled: true
-                    
-                    // Keyboard navigation
-                    KeyNavigation.right: manuallyAddHeaderButton
-                    KeyNavigation.down: hostsView.count === 0 ? (addManuallyButton.visible ? addManuallyButton : enableLocalDiscoveryButton.visible ? enableLocalDiscoveryButton : setupGuideButton) : hostsView
-                    
-                    // A button (Key_Return) support
-                    Keys.onReturnPressed: (event) => {
-                        toggle();
-                        event.accepted = true;
-                    }
-                    
-                    // When navigating down to GridView, ensure it has focus and a current item
-                    Keys.onDownPressed: (event) => {
-                        if (hostsView.count > 0) {
-                            hostsView.currentIndex = 0;  // Always go to first card
-                            hostsView.selectedIndex = 0;  // Set custom selection
-                            hostsView.forceActiveFocus();
-                            event.accepted = true;
-                        } else {
-                            if (addManuallyButton.visible) {
-                            addManuallyButton.forceActiveFocus();
-                        } else if (enableLocalDiscoveryButton.visible) {
-                            enableLocalDiscoveryButton.forceActiveFocus();
-                        } else {
-                            setupGuideButton.forceActiveFocus();
-                        }
-                            event.accepted = true;
-                        }
-                    }
-                    
-                    background: Rectangle {
-                        radius: 8
-                        color: {
-                            if (parent.activeFocus) return Qt.rgba(80/255, 212/255, 255/255, 0.4)
-                            else if (parent.checked) return Qt.rgba(80/255, 212/255, 255/255, 0.3)
-                            else return Qt.rgba(255, 255, 255, 0.1)
-                        }
-                        border.color: parent.activeFocus ? "#ffffff" : "#50d4ff"
-                        border.width: parent.activeFocus ? 2 : 1
-                        
-                        Behavior on color { ColorAnimation { duration: 200 } }
-                        Behavior on border.color { ColorAnimation { duration: 200 } }
-                        Behavior on border.width { NumberAnimation { duration: 200 } }
-                        
-                        // Focus glow effect
-                        Rectangle {
-                            anchors.fill: parent
-                            radius: parent.radius
-                            color: "transparent"
-                            border.color: "#50d4ff"
-                            border.width: 2
-                            opacity: parent.parent.activeFocus ? 0.6 : 0
-                            Behavior on opacity { NumberAnimation { duration: 200 } }
-                        }
-                    }
-                    
-                    ToolTip.visible: hovered || activeFocus
-                    ToolTip.text: qsTr("Console Discovery")
-            }
-
-            Button {
-                    id: manuallyAddHeaderButton
-                    Layout.preferredHeight: 48
-                    Layout.preferredWidth: 48
-                    flat: true
-                    icon.source: "qrc:/icons/add-24px.svg"
-                    icon.width: 24
-                    icon.height: 24
-                    focusPolicy: Qt.StrongFocus
-                    hoverEnabled: true
-                    onClicked: root.showManualHostDialog()
-                    
-                    ToolTip.visible: hovered || activeFocus
-                    ToolTip.text: qsTr("Add Console Manually")
-                    
-                    // Keyboard navigation
-                    KeyNavigation.left: discoveryButton
-                    KeyNavigation.right: psnLoginHeaderButton
-                    KeyNavigation.down: hostsView.count === 0 ? (addManuallyButton.visible ? addManuallyButton : enableLocalDiscoveryButton.visible ? enableLocalDiscoveryButton : setupGuideButton) : hostsView
-                    
-                    // A button (Key_Return) support
-                    Keys.onReturnPressed: (event) => {
-                        clicked();
-                        event.accepted = true;
-                    }
-                    
-                    // When navigating down to GridView, ensure it has focus and a current item
-                    Keys.onDownPressed: {
-                        if (hostsView.count > 0) {
-                            hostsView.currentIndex = 0;  // Always go to first card
-                            hostsView.selectedIndex = 0;  // Set custom selection
-                            hostsView.forceActiveFocus();
-                            event.accepted = true;
-                        } else {
-                            if (addManuallyButton.visible) {
-                            addManuallyButton.forceActiveFocus();
-                        } else if (enableLocalDiscoveryButton.visible) {
-                            enableLocalDiscoveryButton.forceActiveFocus();
-                        } else {
-                            setupGuideButton.forceActiveFocus();
-                        }
-                            event.accepted = true;
-                        }
-                    }
-                    
-                    background: Rectangle {
-                        radius: 8
-                        color: parent.activeFocus ? Qt.rgba(0, 212/255, 255/255, 0.2) : Qt.rgba(255, 255, 255, 0.1)
-                        border.color: parent.activeFocus ? "#ffffff" : "#00d4ff"
-                        border.width: parent.activeFocus ? 2 : 1
-                        
-                        Rectangle {
-                            anchors.fill: parent
-                            radius: parent.radius
-                            color: "#00d4ff"
-                            opacity: parent.parent.hovered ? 0.3 : 0
-                            Behavior on opacity { NumberAnimation { duration: 200 } }
-                        }
-                        
-                        // Focus glow effect
-                        Rectangle {
-                            anchors.fill: parent
-                            radius: parent.radius
-                            color: "transparent"
-                            border.color: "#00d4ff"
-                            border.width: 2
-                            opacity: parent.parent.activeFocus ? 0.6 : 0
-                            Behavior on opacity { NumberAnimation { duration: 200 } }
-                        }
-                        
-                        Behavior on color { ColorAnimation { duration: 200 } }
-                        Behavior on border.color { ColorAnimation { duration: 200 } }
-                        Behavior on border.width { NumberAnimation { duration: 200 } }
-                    }
-            }
+            spacing: 15
 
             Button {
                 id: psnLoginHeaderButton
                     Layout.preferredHeight: 48
                     Layout.preferredWidth: 48
                     flat: true
-                    icon.source: Chiaki.settings.psnAuthToken ? "qrc:/icons/refresh-24px.svg" : "qrc:/icons/login-24px.svg"
+                    icon.source: {
+                        // On cloud play tab, always show login icon
+                        if (mainTabBar.currentIndex === 1) {
+                            return "qrc:/icons/login-24px.svg";
+                        }
+                        // On remote play tab, show refresh if logged in, login if not
+                        return Chiaki.settings.psnAuthToken ? "qrc:/icons/refresh-24px.svg" : "qrc:/icons/login-24px.svg";
+                    }
                     icon.width: 24
                     icon.height: 24
                 focusPolicy: Qt.StrongFocus
                 hoverEnabled: true
                 
                 ToolTip.visible: hovered || activeFocus
-                ToolTip.text: Chiaki.settings.psnAuthToken ? qsTr("Refresh PSN Games") : qsTr("Login to PSN")
+                ToolTip.text: {
+                    // On cloud play tab, always show "Update login tokens"
+                    if (mainTabBar.currentIndex === 1) {
+                        return qsTr("Update login tokens");
+                    }
+                    // On remote play tab, show current behavior
+                    return Chiaki.settings.psnAuthToken ? qsTr("Refresh PSN Games") : qsTr("Login to PSN");
+                }
                 
                 // Keyboard navigation
-                KeyNavigation.left: manuallyAddHeaderButton
-                KeyNavigation.right: cloudAuthButton
-                KeyNavigation.down: hostsView.count === 0 ? addManuallyButton : hostsView
+                KeyNavigation.left: mainTabBar.itemAt(1)  // Cloud Play tab
+                KeyNavigation.right: settingsButton
+                KeyNavigation.down: {
+                    if (mainTabBar.currentIndex === 1 && cloudPlayLoader.active) {
+                        let cloudPlayView = cloudPlayLoader.item;
+                        return cloudPlayView ? cloudPlayView.catalogButtonItem : null;
+                    }
+                    // For remote play tab, navigate directly to hostsView or first button
+                    return hostsView.count > 0 ? hostsView : (addManuallyButton.visible ? addManuallyButton : (enableLocalDiscoveryButton.visible ? enableLocalDiscoveryButton : setupGuideButton));
+                }
                 
                 // A button (Key_Return) support
                 Keys.onReturnPressed: {
                     clicked();
                     event.accepted = true;
                 }
-                
-                // When navigating down to GridView, ensure it has focus and a current item
-                Keys.onDownPressed: {
-                    if (hostsView.count > 0) {
-                        hostsView.currentIndex = 0;  // Always go to first card
-                        hostsView.forceActiveFocus();
-                        event.accepted = true;
-                    } else {
-                        if (enableRemotePlayButton.visible) {
-                            enableRemotePlayButton.forceActiveFocus();
-                        } else if (addManuallyButton.visible) {
-                            addManuallyButton.forceActiveFocus();
-                        } else {
-                            manualAddButton.forceActiveFocus();
-                        }
-                        event.accepted = true;
-                    }
-                }
                     onClicked: {
-                        if (Chiaki.settings.psnAuthToken) {
-                            // Show immediate feedback toast
-                            errorTitleLabel.text = qsTr("Refreshing");
-                            errorTextLabel.text = qsTr("Updating PSN games...");
-                            errorToast.color = "#2196F3";
-                            errorHideTimer.start();
-                            
-                            Chiaki.refreshPsnToken()
+                        // On cloud play tab, always open login dialog
+                        if (mainTabBar.currentIndex === 1) {
+                            root.showPSNTokenDialog("", false);
                         } else {
-                            root.showPSNTokenDialog("", false)
+                            // On remote play tab, use current behavior
+                            if (Chiaki.settings.psnAuthToken) {
+                                // Show immediate feedback toast
+                                errorTitleLabel.text = qsTr("Refreshing");
+                                errorTextLabel.text = qsTr("Updating PSN games...");
+                                errorToast.color = "#2196F3";
+                                errorHideTimer.start();
+                                
+                                Chiaki.refreshPsnToken()
+                            } else {
+                                root.showPSNTokenDialog("", false)
+                            }
                         }
                     }
                     // Always visible now
@@ -463,113 +528,6 @@ Pane {
             }
 
             Button {
-                id: cloudAuthButton
-                Layout.preferredHeight: 48
-                Layout.preferredWidth: 48
-                flat: true
-                text: "☁"
-                font.pixelSize: 24
-                font.weight: Font.Bold
-                focusPolicy: Qt.StrongFocus
-                hoverEnabled: true
-                
-                ToolTip.visible: hovered || activeFocus
-                ToolTip.text: qsTr("Test Cloud Streaming Auth")
-                
-                // Keyboard navigation
-                KeyNavigation.left: psnLoginHeaderButton
-                KeyNavigation.right: settingsButton
-                KeyNavigation.down: hostsView.count === 0 ? addManuallyButton : hostsView
-                
-                // A button (Key_Return) support
-                Keys.onReturnPressed: {
-                    clicked();
-                    event.accepted = true;
-                }
-                
-                // When navigating down to GridView, ensure it has focus and a current item
-                Keys.onDownPressed: {
-                    if (hostsView.count > 0) {
-                        hostsView.currentIndex = 0;
-                        hostsView.forceActiveFocus();
-                        event.accepted = true;
-                    } else {
-                        if (addManuallyButton.visible) {
-                            addManuallyButton.forceActiveFocus();
-                        } else {
-                            setupGuideButton.forceActiveFocus();
-                        }
-                        event.accepted = true;
-                    }
-                }
-                
-                onClicked: {
-                    console.log("=== Cloud Streaming Button Clicked ===");
-                    
-                    // Show immediate feedback
-                    errorTitleLabel.text = qsTr("Cloud Streaming");
-                    errorTextLabel.text = qsTr("Initializing cloud streaming session...");
-                    errorToast.color = "#2196F3";
-                    errorHideTimer.start();
-                    
-                    // Single call - does ALL steps automatically
-                    // Parameters: serviceType, platform, gameIdentifier, callback
-                    // For now, using hardcoded test values - eventually will come from UI selection
-                    Chiaki.cloudStreaming.startCompleteCloudSession(
-                        "psnow",           // serviceType: "psnow" or "pscloud"
-                        "ps4",             // platform: "ps3", "ps4", or "ps5"
-                        "UP4139-CUSA13583_00-AOWPLANETFALL000",  // gameIdentifier: Product ID (PSNOW) or Entitlement ID (PSCLOUD)
-                        function(success, message, serverIp) {
-                        console.log("=== Cloud Streaming:", success ? "SUCCESS" : "FAILED", "===");
-                        console.log("Result:", message);
-                        
-                        if (success) {
-                            console.log("Allocated Server IP:", serverIp);
-                            errorTitleLabel.text = qsTr("Ready to Stream!");
-                            errorTextLabel.text = message;
-                            errorToast.color = "#4CAF50";
-                            errorHideTimer.start();
-                        } else {
-                            errorTitleLabel.text = qsTr("Cloud Streaming Failed");
-                            errorTextLabel.text = message;
-                            errorToast.color = "#F44336";
-                            errorHideTimer.start();
-                        }
-                    });
-                }
-                
-                background: Rectangle {
-                    radius: 8
-                    color: parent.activeFocus ? Qt.rgba(0, 212/255, 255/255, 0.2) : Qt.rgba(255, 255, 255, 0.1)
-                    border.color: parent.activeFocus ? "#ffffff" : "#FFD700"
-                    border.width: parent.activeFocus ? 2 : 1
-                    
-                    Rectangle {
-                        anchors.fill: parent
-                        radius: parent.radius
-                        color: "#FFD700"
-                        opacity: parent.parent.hovered ? 0.3 : 0
-                        Behavior on opacity { NumberAnimation { duration: 200 } }
-                    }
-                    
-                    // Focus glow effect
-                    Rectangle {
-                        anchors.fill: parent
-                        radius: parent.radius
-                        color: "transparent"
-                        border.color: "#FFD700"
-                        border.width: 2
-                        opacity: parent.parent.activeFocus ? 0.6 : 0
-                        Behavior on opacity { NumberAnimation { duration: 200 } }
-                    }
-                    
-                    Behavior on color { ColorAnimation { duration: 200 } }
-                    Behavior on border.color { ColorAnimation { duration: 200 } }
-                    Behavior on border.width { NumberAnimation { duration: 200 } }
-                }
-            }
-
-            Button {
                 id: settingsButton
                     Layout.preferredHeight: 48
                     Layout.preferredWidth: 48
@@ -582,32 +540,21 @@ Pane {
                 onClicked: root.showSettingsDialog()
                 
                 // Keyboard navigation
-                KeyNavigation.left: cloudAuthButton
+                KeyNavigation.left: psnLoginHeaderButton
                 KeyNavigation.right: closeButton
-                KeyNavigation.down: hostsView.count === 0 ? addManuallyButton : hostsView
+                KeyNavigation.down: {
+                    if (mainTabBar.currentIndex === 1 && cloudPlayLoader.active) {
+                        let cloudPlayView = cloudPlayLoader.item;
+                        return cloudPlayView ? cloudPlayView.catalogButtonItem : null;
+                    }
+                    // For remote play tab, navigate directly to hostsView or first button
+                    return hostsView.count > 0 ? hostsView : (addManuallyButton.visible ? addManuallyButton : (enableLocalDiscoveryButton.visible ? enableLocalDiscoveryButton : setupGuideButton));
+                }
                 
                 // A button (Key_Return) support
                 Keys.onReturnPressed: {
                     clicked();
                     event.accepted = true;
-                }
-                
-                // When navigating down to GridView, ensure it has focus and a current item
-                Keys.onDownPressed: {
-                    if (hostsView.count > 0) {
-                        hostsView.currentIndex = 0;  // Always go to first card
-                        hostsView.forceActiveFocus();
-                        event.accepted = true;
-                    } else {
-                        if (enableRemotePlayButton.visible) {
-                            enableRemotePlayButton.forceActiveFocus();
-                        } else if (addManuallyButton.visible) {
-                            addManuallyButton.forceActiveFocus();
-                        } else {
-                            manualAddButton.forceActiveFocus();
-                        }
-                        event.accepted = true;
-                    }
                 }
                     
                     background: Rectangle {
@@ -661,31 +608,19 @@ Pane {
                     
                     // Keyboard navigation
                     KeyNavigation.left: settingsButton
-                    KeyNavigation.down: hostsView.count === 0 ? (addManuallyButton.visible ? addManuallyButton : enableLocalDiscoveryButton.visible ? enableLocalDiscoveryButton : setupGuideButton) : hostsView
+                    KeyNavigation.down: {
+                        if (mainTabBar.currentIndex === 1 && cloudPlayLoader.active) {
+                            let cloudPlayView = cloudPlayLoader.item;
+                            return cloudPlayView ? cloudPlayView.catalogButtonItem : null;
+                        }
+                        // For remote play tab, navigate directly to hostsView or first button
+                        return hostsView.count > 0 ? hostsView : (addManuallyButton.visible ? addManuallyButton : (enableLocalDiscoveryButton.visible ? enableLocalDiscoveryButton : setupGuideButton));
+                    }
                     
                     // A button (Key_Return) support
                     Keys.onReturnPressed: (event) => {
                         clicked();
                         event.accepted = true;
-                    }
-                    
-                    // When navigating down to GridView, ensure it has focus and a current item
-                    Keys.onDownPressed: {
-                        if (hostsView.count > 0) {
-                            hostsView.currentIndex = 0;  // Always go to first card
-                            hostsView.selectedIndex = 0;  // Set custom selection
-                            hostsView.forceActiveFocus();
-                            event.accepted = true;
-                        } else {
-                            if (addManuallyButton.visible) {
-                            addManuallyButton.forceActiveFocus();
-                        } else if (enableLocalDiscoveryButton.visible) {
-                            enableLocalDiscoveryButton.forceActiveFocus();
-                        } else {
-                            setupGuideButton.forceActiveFocus();
-                        }
-                            event.accepted = true;
-                        }
                     }
                     
                     background: Rectangle {
@@ -724,24 +659,34 @@ Pane {
                         color: parent.activeFocus ? "#ffffff" : Qt.rgba(255, 150/255, 150/255, 1)
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
+                        anchors.fill: parent
                         Behavior on color { ColorAnimation { duration: 200 } }
                     }
                 }
             }
-        }
     }
 
-    // Console Cards Grid
-    ScrollView {
-        id: scrollView
+    // Tab View Content
+    StackLayout {
+        id: mainTabView
         anchors {
             top: headerBar.bottom
             left: parent.left
             right: parent.right
             bottom: buttonHintsFooter.top
-            margins: 30
-            topMargin: 20
         }
+        currentIndex: mainTabBar.currentIndex
+        
+        // Remote Play Tab
+        Item {
+            // Console Cards Grid
+            ScrollView {
+                id: scrollView
+                anchors {
+                    fill: parent
+                    margins: 30
+                    topMargin: 20
+                }
         
         clip: true
         ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
@@ -800,8 +745,10 @@ Pane {
                 let itemsPerRow = Math.floor(width / cellWidth);
                 let newIndex = Math.max(0, selectedIndex - itemsPerRow);
                 if (newIndex === selectedIndex) {
-                    // We're in top row, go to header
-                    discoveryButton.forceActiveFocus();
+                    // We're in top row, go to header (tab bar)
+                    if (mainTabBar) {
+                        mainTabBar.itemAt(0).forceActiveFocus();
+                    }
                     selectedIndex = -1;
                 } else {
                     selectedIndex = newIndex;
@@ -812,8 +759,26 @@ Pane {
             Keys.onDownPressed: {
                 let itemsPerRow = Math.floor(width / cellWidth);
                 let newIndex = Math.min(count - 1, selectedIndex + itemsPerRow);
-                selectedIndex = newIndex;
-                currentIndex = selectedIndex;
+                if (newIndex === selectedIndex) {
+                    // We're in bottom row, check if we're on the last console
+                    let currentRow = Math.floor(selectedIndex / itemsPerRow);
+                    let totalRows = Math.ceil(count / itemsPerRow);
+                    let isLastRow = currentRow === totalRows - 1;
+                    let isLastItem = selectedIndex === count - 1;
+                    
+                    if (isLastRow && isLastItem && floatingDiscoveryButton.visible) {
+                        // On the last console, go to discovery button
+                        floatingDiscoveryButton.forceActiveFocus();
+                        selectedIndex = -1;
+                    } else {
+                        // Can't move down further, stay where we are
+                        selectedIndex = newIndex;
+                        currentIndex = selectedIndex;
+                    }
+                } else {
+                    selectedIndex = newIndex;
+                    currentIndex = selectedIndex;
+                }
             }
             
             Keys.onReturnPressed: {
@@ -1257,7 +1222,38 @@ Pane {
             }
         } 
         }
-    }     
+            }
+        }
+        
+        // Cloud Play Tab
+        Loader {
+            id: cloudPlayLoader
+            source: "CloudPlayView.qml"
+            active: mainTabBar.currentIndex === 1
+            onItemChanged: {
+                if (item) {
+                    item.mainTabBar = mainTabBar
+                    item.settingsButton = settingsButton
+                }
+            }
+            onLoaded: {
+                if (item) {
+                    item.mainTabBar = mainTabBar
+                    item.settingsButton = settingsButton
+                    // Ensure games are loaded when the loader becomes active
+                    if (mainTabBar.currentIndex === 1) {
+                        Qt.callLater(() => {
+                            if (item.currentSection === "catalog") {
+                                item.loadPsnowCatalog();
+                            } else {
+                                item.loadPs5CloudLibrary();
+                            }
+                        });
+                    }
+                }
+            }
+        }
+    }
 
     // Old footer removed - merged into buttonHintsFooter below
 
@@ -1271,7 +1267,7 @@ Pane {
         color: Qt.rgba(10/255, 15/255, 26/255, 0.9)
         border.color: Qt.rgba(0, 212/255, 255/255, 0.3)
         border.width: 1
-        visible: hostsView.count === 0
+        visible: hostsView.count === 0 && mainTabBar.currentIndex === 0  // Only show on Remote Play tab
         
         // Focus management for keyboard/gamepad navigation
         onVisibleChanged: {
@@ -1390,6 +1386,7 @@ Pane {
                     onClicked: root.showManualHostDialog()
                     
                     // Keyboard navigation
+                    KeyNavigation.up: mainTabBar.itemAt(0)
                     KeyNavigation.down: enableLocalDiscoveryButton.visible ? enableLocalDiscoveryButton : setupGuideButton
                     
                     background: Rectangle {
@@ -1521,6 +1518,7 @@ Pane {
                     
                     // Keyboard navigation
                     KeyNavigation.up: enableLocalDiscoveryButton.visible ? enableLocalDiscoveryButton : addManuallyButton
+                    KeyNavigation.down: hostsView.count > 0 ? hostsView : (floatingDiscoveryButton.visible ? floatingDiscoveryButton : null)
                     
                     background: Rectangle {
                         radius: 6
@@ -1578,16 +1576,18 @@ Pane {
         Item {
             anchors.fill: parent
             
-            // Left side buttons
+            // Left side buttons - Different hints for Remote Play vs Cloud Play
             RowLayout {
                 anchors.left: parent.left
                 anchors.leftMargin: 15
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 15
                 
+                // Remote Play hints (shown when mainTabBar.currentIndex === 0)
                 // Connect hint
                 RowLayout {
                     spacing: 6
+                    visible: mainTabBar.currentIndex === 0
                     Image {
                         Layout.preferredWidth: 18
                         Layout.preferredHeight: 18
@@ -1608,7 +1608,7 @@ Pane {
                 // Games hint (Y button - shown only if console has games)
                 RowLayout {
                     spacing: 6
-                    visible: hostsView.currentItem !== null && hostsView.currentItem.hasGames
+                    visible: mainTabBar.currentIndex === 0 && hostsView.currentItem !== null && hostsView.currentItem.hasGames
                     Image {
                         Layout.preferredWidth: 18
                         Layout.preferredHeight: 18
@@ -1629,7 +1629,7 @@ Pane {
                 // Dynamic action hint (X button - Delete/Hide/Wake/Pin based on selected console)
                 RowLayout {
                     spacing: 6
-                    visible: hostsView.currentItem && hostsView.currentItem.hostData && (hostsView.currentItem.canHide || hostsView.currentItem.canWake || hostsView.currentItem.canPin)
+                    visible: mainTabBar.currentIndex === 0 && hostsView.currentItem && hostsView.currentItem.hostData && (hostsView.currentItem.canHide || hostsView.currentItem.canWake || hostsView.currentItem.canPin)
                     Image {
                         Layout.preferredWidth: 18
                         Layout.preferredHeight: 18
@@ -1656,6 +1656,49 @@ Pane {
                             }
                             return ""
                         }
+                        font.pixelSize: 13
+                        font.weight: Font.Medium
+                        color: "white"
+                    }
+                }
+                
+                // Cloud Play hints (shown when mainTabBar.currentIndex === 1)
+                // Stream Game hint (A/Cross button)
+                RowLayout {
+                    spacing: 6
+                    visible: mainTabBar.currentIndex === 1
+                    Image {
+                        Layout.preferredWidth: 18
+                        Layout.preferredHeight: 18
+                        sourceSize: Qt.size(36, 36)
+                        source: root.controllerButton("cross")
+                        opacity: 0.9
+                        smooth: true
+                        antialiasing: true
+                    }
+                    Label {
+                        text: qsTr("Stream")
+                        font.pixelSize: 13
+                        font.weight: Font.Medium
+                        color: "white"
+                    }
+                }
+                
+                // Shortcut hint (X/Square button)
+                RowLayout {
+                    spacing: 6
+                    visible: mainTabBar.currentIndex === 1
+                    Image {
+                        Layout.preferredWidth: 18
+                        Layout.preferredHeight: 18
+                        sourceSize: Qt.size(36, 36)
+                        source: root.controllerButton("box")
+                        opacity: 0.9
+                        smooth: true
+                        antialiasing: true
+                    }
+                    Label {
+                        text: qsTr("Shortcut")
                         font.pixelSize: 13
                         font.weight: Font.Medium
                         color: "white"
@@ -1695,5 +1738,157 @@ Pane {
                 }
             }
         }
+    }
+    
+    // Floating "Console Discovery" button - bottom left corner (Remote Play only)
+    Button {
+        id: floatingDiscoveryButton
+        anchors {
+            left: parent.left
+            bottom: buttonHintsFooter.top
+            leftMargin: 25
+            bottomMargin: 25
+        }
+        width: 56
+        height: 56
+        visible: mainTabBar.currentIndex === 0  // Only visible on Remote Play tab
+        focusPolicy: Qt.StrongFocus
+        checkable: true
+        checked: Chiaki.discoveryEnabled
+        onToggled: Chiaki.discoveryEnabled = !Chiaki.discoveryEnabled
+        hoverEnabled: true
+        
+        ToolTip.visible: hovered || activeFocus
+        ToolTip.text: qsTr("Console Discovery")
+        
+        // Keyboard navigation
+        KeyNavigation.right: floatingAddButton
+        KeyNavigation.up: hostsView.count === 0 ? (setupGuideButton.visible ? setupGuideButton : (addManuallyButton.visible ? addManuallyButton : enableLocalDiscoveryButton)) : (hostsView.count > 0 ? hostsView : null)
+        
+        Keys.onReturnPressed: {
+            toggle();
+            event.accepted = true;
+        }
+        
+        background: Rectangle {
+            radius: width / 2  // Perfect circle
+            color: {
+                if (parent.activeFocus) return Qt.rgba(255, 255, 255, 0.15)
+                else if (parent.checked) return Qt.rgba(0, 212/255, 255/255, 0.2)
+                else return Qt.rgba(255, 255, 255, 0.1)
+            }
+            border.color: parent.activeFocus ? "#00d4ff" : (parent.checked ? "#00d4ff" : Qt.rgba(255, 255, 255, 0.3))
+            border.width: parent.activeFocus ? 2 : 1
+            
+            // Shadow effect
+            Rectangle {
+                anchors.fill: parent
+                anchors.margins: -2
+                radius: parent.radius + 2
+                color: Qt.rgba(0, 0, 0, 0.25)
+                z: -1
+            }
+            
+            // Hover effect
+            Rectangle {
+                anchors.fill: parent
+                radius: parent.radius
+                color: "#00d4ff"
+                opacity: parent.parent.hovered ? 0.15 : 0
+                Behavior on opacity { NumberAnimation { duration: 200 } }
+            }
+            
+            // Focus glow effect
+            Rectangle {
+                anchors.fill: parent
+                radius: parent.radius
+                color: "transparent"
+                border.color: "#00d4ff"
+                border.width: 2
+                opacity: parent.parent.activeFocus ? 0.6 : 0
+                Behavior on opacity { NumberAnimation { duration: 200 } }
+            }
+            
+            Behavior on color { ColorAnimation { duration: 200 } }
+            Behavior on border.color { ColorAnimation { duration: 200 } }
+        }
+        
+        icon.source: "qrc:/icons/discover-" + (checked ? "" : "off-") + "24px.svg"
+        icon.width: 24
+        icon.height: 24
+        icon.color: checked ? "#00d4ff" : Qt.rgba(255, 255, 255, 0.8)
+    }
+    
+    // Floating "Add Console Manually" button - bottom right corner (Remote Play only)
+    Button {
+        id: floatingAddButton
+        anchors {
+            right: parent.right
+            bottom: buttonHintsFooter.top
+            rightMargin: 25
+            bottomMargin: 25
+        }
+        width: 56
+        height: 56
+        visible: mainTabBar.currentIndex === 0  // Only visible on Remote Play tab
+        focusPolicy: Qt.StrongFocus
+        hoverEnabled: true
+        onClicked: root.showManualHostDialog()
+        
+        ToolTip.visible: hovered || activeFocus
+        ToolTip.text: qsTr("Add Console Manually")
+        
+        // Keyboard navigation
+        KeyNavigation.left: floatingDiscoveryButton
+        KeyNavigation.up: hostsView.count > 0 ? hostsView : (addManuallyButton.visible ? addManuallyButton : enableLocalDiscoveryButton.visible ? enableLocalDiscoveryButton : setupGuideButton)
+        
+        Keys.onReturnPressed: {
+            clicked();
+            event.accepted = true;
+        }
+        
+        background: Rectangle {
+            radius: width / 2  // Perfect circle
+            color: parent.activeFocus ? Qt.rgba(255, 255, 255, 0.15) : Qt.rgba(255, 255, 255, 0.1)
+            border.color: parent.activeFocus ? "#00d4ff" : Qt.rgba(255, 255, 255, 0.3)
+            border.width: parent.activeFocus ? 2 : 1
+            
+            // Shadow effect
+            Rectangle {
+                anchors.fill: parent
+                anchors.margins: -2
+                radius: parent.radius + 2
+                color: Qt.rgba(0, 0, 0, 0.25)
+                z: -1
+            }
+            
+            // Hover effect
+            Rectangle {
+                anchors.fill: parent
+                radius: parent.radius
+                color: "#00d4ff"
+                opacity: parent.parent.hovered ? 0.15 : 0
+                Behavior on opacity { NumberAnimation { duration: 200 } }
+            }
+            
+            // Focus glow effect
+            Rectangle {
+                anchors.fill: parent
+                radius: parent.radius
+                color: "transparent"
+                border.color: "#00d4ff"
+                border.width: 2
+                opacity: parent.parent.activeFocus ? 0.6 : 0
+                Behavior on opacity { NumberAnimation { duration: 200 } }
+            }
+            
+            Behavior on color { ColorAnimation { duration: 200 } }
+            Behavior on border.color { ColorAnimation { duration: 200 } }
+        }
+        
+        icon.source: "qrc:/icons/add-24px.svg"
+        icon.width: 24
+        icon.height: 24
+        icon.color: Qt.rgba(255, 255, 255, 0.9)
     }
 }

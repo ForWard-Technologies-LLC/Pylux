@@ -12,6 +12,7 @@
 #include <QJSValue>
 #include <QJsonObject>
 #include <QLoggingCategory>
+#include <QElapsedTimer>
 
 Q_DECLARE_LOGGING_CATEGORY(chiakiGui)
 
@@ -22,8 +23,7 @@ class PSGaikaiStreaming : public QObject {
 public:
     explicit PSGaikaiStreaming(Settings *settings, QString npsso, QString duid, 
                               QString serviceType, QString platform,
-                              QNetworkCookieJar *cookieJar, 
-                              QString accountBase, QString redirectUri, QString userAgent, QString oauthApiPath,
+                              QNetworkCookieJar *cookieJar,
                               QObject *parent = nullptr);
     
     // Complete allocation flow - calls all steps in sequence
@@ -32,6 +32,7 @@ public:
 signals:
     void AllocationComplete(QString serverIp, int serverPort, QString handshakeKey, QString launchSpec, QString sessionId);
     void AllocationError(QString error);
+    void AllocationProgress(QString message, int queuePosition = -1);
     void Finished();
 
 public:
@@ -42,6 +43,7 @@ public:
     QString getLaunchSpec() const { return allocatedLaunchSpec; }
     uint8_t getPsnWrapperType() const { return allocatedPsnWrapperType; }
     QString getGaikaiSessionId() const { return allocatedSessionId; }
+    QJsonObject getSelectedDatacenterPingResult() const { return selectedDatacenterPingResult; }
 
 private:
     Settings *settings;
@@ -70,6 +72,7 @@ private:
     
     // State management
     QString configKey;        // x-gaikai-session key (updates with each response)
+    QString lockSessionKey;   // x-gaikai-session key from Step 10 (LOCK) - used for ping
     QString gaikaiSessionId;
     QString gkClientId;
     QString ps3GkClientId;
@@ -79,12 +82,17 @@ private:
     QString streamServerAuthCode;
     QString selectedDatacenter;
     int selectedDatacenterPort;  // Port from step12 response (dynamic)
+    QJsonObject selectedDatacenterPingResult;  // Store full ping result for selected datacenter (includes MTU values)
     QString duid;
     QJsonObject requestGameSpec;
     QJSValue finalCallback;
     
     // Helper to build request game specification (service/platform-specific)
     QJsonObject buildRequestGameSpec(QString entitlementId);
+    
+    // Helper to merge new ping results with existing datacenters in settings
+    // Updates existing datacenters with new ping data, adds new ones, and keeps old ones that aren't in new results
+    QJsonArray mergeDatacentersWithExisting(const QJsonArray &newPingResults);
     
     // Step 0: Get client IDs (MUST happen FIRST before step7)
     void step0_GetClientIds();
@@ -116,10 +124,22 @@ private:
     // Step 13: Allocate slot
     void step13_AllocateSlot();
     
+    // Allocation polling state
+    QElapsedTimer allocationWaitTimer;
+    int allocationMaxWaitSeconds; // Max wait time for current allocation attempt
+    static const int MAX_ALLOCATION_WAIT_SECONDS = 900; // 15 minutes (max)
+    static const int DEFAULT_ALLOCATION_WAIT_SECONDS = 300; // 5 minutes (fallback)
+    
+    // Retry counters
+    int lockSessionRetryCount;
+    int allocationRetryCount;
+    static const int MAX_LOCK_SESSION_RETRIES = 12; // Max retries for lock session
+    
     // Helper to extract and update session key from response
     void updateSessionKey(QNetworkReply *reply);
     
-    // Debug logging helper
+    // Debug logging helpers
+    void logDebugRequest(const QString &stepName, const QNetworkRequest &request, const QByteArray &body = QByteArray());
     void logDebugResponse(const QString &stepName, QNetworkReply *reply);
 };
 

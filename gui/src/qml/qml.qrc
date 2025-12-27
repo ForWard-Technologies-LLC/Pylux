@@ -28,6 +28,8 @@
     <file>PsnView.qml</file>
     <file>GamesView.qml</file>
     <file>GameCard.qml</file>
+    <file>CloudPlayView.qml</file>
+    <file>CloudGameCard.qml</file>
     <file>TrophyListDialog.qml</file>
     <file>GameShortcutDialog.qml</file>
     <file>controls/Button.qml</file>

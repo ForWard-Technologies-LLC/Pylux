@@ -9,6 +9,8 @@ int main(int argc, char *argv[]) { return real_main(argc, argv); }
 #include <controllermanager.h>
 #include <discoverymanager.h>
 #include <qmlmainwindow.h>
+#include <qmlbackend.h>
+#include <cloudstreamingbackend.h>
 #include <QApplication>
 #include <QMessageBox>
 #ifdef CHIAKI_ENABLE_STEAMWORKS
@@ -58,8 +60,12 @@ static const QMap<QString, CLICommand> cli_commands = {
 };
 #endif
 
+#ifdef CHIAKI_ENABLE_STEAMWORKS
+static SteamworksWrapper *InitializeSteamworks(Settings *settings);
+#endif
 int RunStream(QGuiApplication &app, const StreamSessionConnectInfo &connect_info);
 int RunMain(QGuiApplication &app, Settings *settings, bool exit_app_on_stream_exit);
+int RunCloudStream(QGuiApplication &app, Settings *settings, const QString &serviceType, const QString &gameIdentifier);
 
 int real_main(int argc, char *argv[])
 {
@@ -142,6 +148,8 @@ int real_main(int argc, char *argv[])
 	cmds.append("stream");
 	cmds.append("launchTitle");
 	cmds.append("list");
+	cmds.append("cloudGameCatalog");
+	cmds.append("cloudGameLibrary");
 #ifdef CHIAKI_ENABLE_CLI
 	cmds.append(cli_commands.keys());
 #endif
@@ -183,6 +191,12 @@ int real_main(int argc, char *argv[])
 
 	QCommandLineOption nickname_option("nickname", "Console nickname (for use with launchTitle command).", "nickname");
 	parser.addOption(nickname_option);
+
+	QCommandLineOption product_id_option("product-id", "Product ID of game to stream (for use with cloudGameCatalog command).", "product-id");
+	parser.addOption(product_id_option);
+
+	QCommandLineOption entitlement_id_option("entitlement-id", "Entitlement ID of game to stream (for use with cloudGameLibrary command).", "entitlement-id");
+	parser.addOption(entitlement_id_option);
 
 	parser.process(app);
 	QStringList args = parser.positionalArguments();
@@ -437,6 +451,34 @@ int real_main(int argc, char *argv[])
 
 		return RunStream(app, connect_info);
 	}
+	if(args[0] == "cloudGameCatalog")
+	{
+		QString product_id = parser.value(product_id_option);
+
+		if(product_id.isEmpty())
+		{
+			fprintf(stderr, "ERROR: --product-id is required for cloudGameCatalog command\n");
+			return 1;
+		}
+
+		fprintf(stdout, "=== cloudGameCatalog command ===\n");
+		fprintf(stdout, "Product ID: %s\n", product_id.toLocal8Bit().constData());
+		fprintf(stdout, "Service Type: psnow\n");
+		
+		return RunCloudStream(app, use_alt_settings ? &alt_settings : &settings, "psnow", product_id);
+	}
+	if(args[0] == "cloudGameLibrary")
+	{
+		QString entitlement_id = parser.value(entitlement_id_option);
+		
+		if(entitlement_id.isEmpty())
+		{
+			fprintf(stderr, "ERROR: --entitlement-id is required for cloudGameLibrary command\n");
+			return 1;
+		}
+		
+		return RunCloudStream(app, use_alt_settings ? &alt_settings : &settings, "pscloud", entitlement_id);
+	}
 #ifdef CHIAKI_ENABLE_CLI
 	else if(cli_commands.contains(args[0]))
 	{
@@ -500,16 +542,16 @@ int RunMain(QGuiApplication &app, Settings *settings, bool exit_app_on_stream_ex
 	return app.exec();
 }
 
-int RunStream(QGuiApplication &app, const StreamSessionConnectInfo &connect_info)
-{
 #ifdef CHIAKI_ENABLE_STEAMWORKS
+static SteamworksWrapper *InitializeSteamworks(Settings *settings)
+{
 	// Create and initialize single Steamworks instance
 	SteamworksWrapper *steamworks = new SteamworksWrapper();
-	if (!steamworks->initialize(3946320, connect_info.settings)) {
+	if (!steamworks->initialize(3946320, settings)) {
 		QMessageBox::critical(nullptr, "Steam Not Running", 
 			"Steam must be running to use PSStream.\n\nClick OK to exit.");
 		delete steamworks;
-		return 1;
+		return nullptr;
 	}
 	
 	auto ownership = steamworks->checkOwnership();
@@ -517,22 +559,51 @@ int RunStream(QGuiApplication &app, const StreamSessionConnectInfo &connect_info
 		QMessageBox::critical(nullptr, "License Verification Failed", 
 			"You do not own PSStream.\n\nPlease purchase PSStream on Steam to continue.\n\nClick OK to exit.");
 		delete steamworks;
-		return 1;
+		return nullptr;
 	} else if (ownership == SteamworksWrapper::NotAuthenticated) {
 		QMessageBox::critical(nullptr, "Authentication Required", 
 			"Steam user not yet authenticated for PSStream.\n\nPlease restart Steam and try again.\n\nClick OK to exit.");
 		delete steamworks;
-		return 1;
+		return nullptr;
 	} else if (ownership == SteamworksWrapper::NotRunning) {
 		QMessageBox::critical(nullptr, "Steam Not Running", 
 			"Steam must be running to use PSStream.\n\nClick OK to exit.");
 		delete steamworks;
+		return nullptr;
+	}
+	return steamworks;
+}
+#endif
+
+int RunStream(QGuiApplication &app, const StreamSessionConnectInfo &connect_info)
+{
+#ifdef CHIAKI_ENABLE_STEAMWORKS
+	SteamworksWrapper *steamworks = InitializeSteamworks(connect_info.settings);
+	if (!steamworks) {
 		return 1;
 	}
-	// Pass the initialized instance to QmlMainWindow, which will pass it to QmlBackend
 	QmlMainWindow main_window(connect_info, steamworks);
 #else
 	QmlMainWindow main_window(connect_info);
+#endif
+	main_window.show();
+	return app.exec();
+}
+
+int RunCloudStream(QGuiApplication &app, Settings *settings, const QString &serviceType, const QString &gameIdentifier)
+{
+	fprintf(stdout, "=== RunCloudStream ===\n");
+	fprintf(stdout, "Service Type: %s\n", serviceType.toLocal8Bit().constData());
+	fprintf(stdout, "Game Identifier: %s\n", gameIdentifier.toLocal8Bit().constData());
+	
+#ifdef CHIAKI_ENABLE_STEAMWORKS
+	SteamworksWrapper *steamworks = InitializeSteamworks(settings);
+	if (!steamworks) {
+		return 1;
+	}
+	QmlMainWindow main_window(settings, serviceType, gameIdentifier, steamworks);
+#else
+	QmlMainWindow main_window(settings, serviceType, gameIdentifier);
 #endif
 	main_window.show();
 	return app.exec();

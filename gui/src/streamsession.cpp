@@ -144,7 +144,7 @@ StreamSessionConnectInfo::StreamSessionConnectInfo(
 	this->dpad_touch_shortcut4 = settings->GetDpadTouchShortcut4();
 	if(this->dpad_touch_shortcut4 > 0)
 		this->dpad_touch_shortcut4 = 1 << (this->dpad_touch_shortcut4 - 1);
-	this->cloud_mode = false;
+	this->service_type = CHIAKI_SERVICE_TYPE_REMOTE_PLAY;
 	this->cloud_launch_spec = QString();
 	this->cloud_handshake_key = QString();
 	this->cloud_session_id = QString();
@@ -197,6 +197,7 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 {
 	mic_buf.buf = nullptr;
 	connected = false;
+	loading_message = "";
 	muted = true;
 	mic_connected = false;
 #ifdef Q_OS_MACOS
@@ -276,6 +277,7 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 	keyboard_controller_enabled = connect_info.keyboard_controller_enabled;
 	host = connect_info.host;
 	title_id = connect_info.title_id;
+	service_type = connect_info.service_type;
 	QByteArray host_str = connect_info.host.toUtf8();
 
 	ChiakiConnectInfo chiaki_connect_info = {};
@@ -302,8 +304,8 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 		chiaki_connect_info.video_profile.codec = CHIAKI_CODEC_H264;
 	}
 #endif
-	// Cloud mode: skip regist_key/morning validation (not used for cloud streaming)
-	if(connect_info.cloud_mode)
+	// Cloud streaming: skip regist_key/morning validation (not used for cloud streaming)
+	if(chiaki_service_type_is_cloud(connect_info.service_type))
 	{
 		CHIAKI_LOGI(GetChiakiLog(), "Cloud mode: skipping regist_key/morning validation");
 	}
@@ -364,12 +366,12 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 			SendFeedbackState();
 		}
 	});
-	// Cloud mode: skip holepunch/PSN setup, use direct connection
+	// Cloud streaming: skip holepunch/PSN setup, use direct connection
 	chiaki_connect_info.holepunch_session = NULL;
-	if(connect_info.cloud_mode)
+	if(chiaki_service_type_is_cloud(connect_info.service_type))
 	{
 		// Cloud streaming mode - set cloud parameters
-		chiaki_connect_info.cloud_mode = true;
+		chiaki_connect_info.service_type = connect_info.service_type;
 		QByteArray cloud_launch_spec_bytes = connect_info.cloud_launch_spec.toUtf8();
 		QByteArray cloud_handshake_key_bytes = connect_info.cloud_handshake_key.toUtf8();
 		QByteArray cloud_session_id_bytes = connect_info.cloud_session_id.toUtf8();
@@ -383,6 +385,9 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 		chiaki_connect_info.cloud_handshake_key = cloud_handshake_key_storage.constData();
 		chiaki_connect_info.cloud_session_id = cloud_session_id_storage.constData();
 		chiaki_connect_info.cloud_psn_wrapper_type = connect_info.cloud_psn_wrapper_type;
+		chiaki_connect_info.cloud_mtu_in = connect_info.cloud_mtu_in;
+		chiaki_connect_info.cloud_mtu_out = connect_info.cloud_mtu_out;
+		chiaki_connect_info.cloud_rtt_us = connect_info.cloud_rtt_us;
 		
 		// Extract port from host string if it contains "IP:PORT" format
 		// getaddrinfo needs just the IP, not IP:PORT
@@ -434,11 +439,14 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 	}
 	else
 	{
-		chiaki_connect_info.cloud_mode = false;
+		chiaki_connect_info.service_type = CHIAKI_SERVICE_TYPE_REMOTE_PLAY;
 		chiaki_connect_info.cloud_launch_spec = NULL;
 		chiaki_connect_info.cloud_handshake_key = NULL;
 		chiaki_connect_info.cloud_session_id = NULL;
 		chiaki_connect_info.cloud_psn_wrapper_type = 0;
+		chiaki_connect_info.cloud_mtu_in = 0;
+		chiaki_connect_info.cloud_mtu_out = 0;
+		chiaki_connect_info.cloud_rtt_us = 0;
 	}
 	err = chiaki_session_init(&session, &chiaki_connect_info, GetChiakiLog());
 	if(err != CHIAKI_ERR_SUCCESS)

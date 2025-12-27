@@ -24,6 +24,8 @@ QmlSettings::QmlSettings(Settings *settings, QObject *parent)
 
     connect(settings, &Settings::RegisteredHostsUpdated, this, &QmlSettings::registeredHostsChanged);
     connect(settings, &Settings::ProfilesUpdated, this, &QmlSettings::profilesChanged);
+    connect(settings, &Settings::CloudDatacentersJsonPSCloudChanged, this, &QmlSettings::cloudDatacentersJsonPSCloudChanged);
+    connect(settings, &Settings::CloudDatacentersJsonPSNOWChanged, this, &QmlSettings::cloudDatacentersJsonPSNOWChanged);
 }
 
 bool QmlSettings::remotePlayAsk() const
@@ -178,6 +180,84 @@ void QmlSettings::setResolutionRemotePS5(int resolution)
 {
     settings->SetResolutionRemotePS5(static_cast<ChiakiVideoResolutionPreset>(resolution));
     emit resolutionRemotePS5Changed();
+}
+
+// PSCloud settings
+int QmlSettings::cloudResolutionPSCloud() const
+{
+    return settings->GetCloudResolutionPSCloud();
+}
+
+void QmlSettings::setCloudResolutionPSCloud(int resolution)
+{
+    settings->SetCloudResolutionPSCloud(resolution);
+    emit cloudResolutionPSCloudChanged();
+}
+
+QString QmlSettings::cloudLanguagePSCloud() const
+{
+    return settings->GetCloudLanguagePSCloud();
+}
+
+void QmlSettings::setCloudLanguagePSCloud(const QString &language)
+{
+    settings->SetCloudLanguagePSCloud(language);
+    emit cloudLanguagePSCloudChanged();
+}
+
+QString QmlSettings::cloudDatacenterPSCloud() const
+{
+    return settings->GetCloudDatacenterPSCloud();
+}
+
+void QmlSettings::setCloudDatacenterPSCloud(const QString &datacenter)
+{
+    settings->SetCloudDatacenterPSCloud(datacenter);
+    emit cloudDatacenterPSCloudChanged();
+}
+
+QString QmlSettings::cloudDatacentersJsonPSCloud() const
+{
+    return settings->GetCloudDatacentersJsonPSCloud();
+}
+
+// PSNOW settings
+int QmlSettings::cloudResolutionPSNOW() const
+{
+    return settings->GetCloudResolutionPSNOW();
+}
+
+void QmlSettings::setCloudResolutionPSNOW(int resolution)
+{
+    settings->SetCloudResolutionPSNOW(resolution);
+    emit cloudResolutionPSNOWChanged();
+}
+
+QString QmlSettings::cloudLanguagePSNOW() const
+{
+    return settings->GetCloudLanguagePSNOW();
+}
+
+void QmlSettings::setCloudLanguagePSNOW(const QString &language)
+{
+    settings->SetCloudLanguagePSNOW(language);
+    emit cloudLanguagePSNOWChanged();
+}
+
+QString QmlSettings::cloudDatacenterPSNOW() const
+{
+    return settings->GetCloudDatacenterPSNOW();
+}
+
+void QmlSettings::setCloudDatacenterPSNOW(const QString &datacenter)
+{
+    settings->SetCloudDatacenterPSNOW(datacenter);
+    emit cloudDatacenterPSNOWChanged();
+}
+
+QString QmlSettings::cloudDatacentersJsonPSNOW() const
+{
+    return settings->GetCloudDatacentersJsonPSNOW();
 }
 
 int QmlSettings::disconnectAction() const
@@ -667,6 +747,39 @@ void QmlSettings::setPsnAuthTokenExpiry(const QString &expiry)
 {
     settings->SetPsnAuthTokenExpiry(expiry);
     emit psnAuthTokenExpiryChanged();
+}
+
+QString QmlSettings::psnNpssoToken() const
+{
+	return settings->GetNpssoToken();
+}
+
+void QmlSettings::setPsnNpssoToken(const QString &npsso_token)
+{
+	settings->SetNpssoToken(npsso_token);
+	emit psnNpssoTokenChanged();
+}
+
+int QmlSettings::lastSelectedMainTab() const
+{
+	return settings->GetLastSelectedMainTab();
+}
+
+void QmlSettings::setLastSelectedMainTab(int tabIndex)
+{
+	settings->SetLastSelectedMainTab(tabIndex);
+	emit lastSelectedMainTabChanged();
+}
+
+QString QmlSettings::lastSelectedCloudSection() const
+{
+	return settings->GetLastSelectedCloudSection();
+}
+
+void QmlSettings::setLastSelectedCloudSection(const QString &section)
+{
+	settings->SetLastSelectedCloudSection(section);
+	emit lastSelectedCloudSectionChanged();
 }
 
 QString QmlSettings::psnAccountId() const

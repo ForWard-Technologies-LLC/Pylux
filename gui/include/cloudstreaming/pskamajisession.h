@@ -34,7 +34,6 @@ public:
         Settings *settings,
         QString npsso,
         QString duid,
-        QString platform,  // "ps3", "ps4", or "ps5"
         QString productId, // Product ID (will be converted to Entitlement ID)
         QString accountBaseUrl,
         QString redirectUri,
@@ -59,12 +58,12 @@ public:
     QString getOnlineId() const { return onlineId; }
     QString getSessionUrl() const { return sessionUrl; }
     QString getEntitlementId() const { return entitlementId; }
+    QString getPlatform() const { return platform; }
 
 signals:
     void sessionComplete(bool success, QString message, QString entitlementId);
 
 private slots:
-    void handleAuthorizeCheckResponse(QNetworkReply *reply);
     void handleAnonAuthCodeResponse(QNetworkReply *reply);
     void handleAnonSessionResponse(QNetworkReply *reply);
     void handleProductIdConversionResponse(QNetworkReply *reply);
@@ -106,7 +105,7 @@ private:
     QString sessionUrl;
     
     // Step functions (simplified PSNOW flow)
-    void step0_5a_AuthorizeCheck();     // POST /authorizeCheck (FIRST step)
+    // Note: step0_5a_AuthorizeCheck is now handled centrally by CloudStreamingBackend
     void step0_5b_GetAnonymousAuthCode(); // GET /oauth/authorize (for anonymous session code)
     void step0_5c_CreateAnonymousSession(); // POST /user/session (anonymous, with OAuth code)
     void step0_5d_ConvertProductId();   // GET /store/api/pcnow/.../container/.../{PRODUCT_ID}

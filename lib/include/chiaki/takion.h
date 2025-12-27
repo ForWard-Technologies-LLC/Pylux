@@ -24,10 +24,7 @@
 extern "C" {
 #endif
 
-typedef enum {
-	CHIAKI_TAKION_PROTOCOL_REMOTE_PLAY = 0,  // Standard Remote Play (local console)
-	CHIAKI_TAKION_PROTOCOL_CLOUD_PLAY = 1    // Cloud Play (PS Plus cloud streaming)
-} ChiakiTakionProtocol;
+// NOTE: Takion protocol selection is derived from ChiakiServiceType; there is no separate protocol enum.
 
 typedef enum chiaki_takion_message_data_type_t {
 	CHIAKI_TAKION_MESSAGE_DATA_TYPE_PROTOBUF = 0,
@@ -122,8 +119,9 @@ typedef struct chiaki_takion_connect_info_t
 	bool enable_dualsense;
 	uint8_t protocol_version;
 	bool close_socket; // close socket when finishing takion
-	ChiakiTakionProtocol protocol; // Remote Play or Cloud Play protocol variant
+	ChiakiServiceType service_type; // REMOTE_PLAY / PSNOW / PSCLOUD (single source of truth)
 	uint8_t psn_wrapper_type; // PSN wrapper type for Cloud Play (last octet of private IP)
+	bool is_ping_handshake; // true if this takion connection is for ping handshake (senkusha), false for normal streaming
 } ChiakiTakionConnectInfo;
 
 
@@ -131,8 +129,9 @@ typedef struct chiaki_takion_t
 {
 	ChiakiLog *log;
 	uint8_t version;
-	ChiakiTakionProtocol protocol; // Remote Play or Cloud Play protocol variant
+	ChiakiServiceType service_type; // REMOTE_PLAY / PSNOW / PSCLOUD (single source of truth)
 	uint8_t psn_wrapper_type; // PSN wrapper type for Cloud Play (last octet of private IP)
+	bool is_ping_handshake; // true if this takion connection is for ping handshake (senkusha), false for normal streaming
 
 	// Whether or not audio or video is disabled from further processing beyond basic ack
 	ChiakiDisableAudioVideo disable_audio_video;

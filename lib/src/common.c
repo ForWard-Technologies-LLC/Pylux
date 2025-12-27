@@ -120,3 +120,17 @@ CHIAKI_EXPORT const char *chiaki_codec_name(ChiakiCodec codec)
 			return "unknown";
 	}
 }
+
+CHIAKI_EXPORT const char *chiaki_service_type_string(ChiakiServiceType service_type)
+{
+	switch(service_type)
+	{
+		case CHIAKI_SERVICE_TYPE_PSNOW:
+			return "psnow";
+		case CHIAKI_SERVICE_TYPE_PSCLOUD:
+			return "pscloud";
+		case CHIAKI_SERVICE_TYPE_REMOTE_PLAY:
+		default:
+			return "remote_play";
+	}
+}

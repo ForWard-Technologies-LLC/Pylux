@@ -980,8 +980,26 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_session_create(Session* session)
     while (!(session->state & SESSION_STATE_WS_OPEN))
     {
         CHIAKI_LOGV(session->log, "chiaki_holepunch_session_create: Waiting for websocket to open...");
-        err = chiaki_cond_wait(&session->state_cond, &session->state_mutex);
+        err = chiaki_cond_timedwait(&session->state_cond, &session->state_mutex, 30000); // 30 second timeout
+        if (err == CHIAKI_ERR_TIMEOUT)
+        {
+            chiaki_mutex_unlock(&session->state_mutex);
+            CHIAKI_LOGE(session->log, "chiaki_holepunch_session_create: Timed out waiting for websocket to open after 30 seconds");
+            return CHIAKI_ERR_TIMEOUT;
+        }
         assert(err == CHIAKI_ERR_SUCCESS);
+        
+        // Check if we should stop
+        chiaki_mutex_lock(&session->stop_mutex);
+        if(session->main_should_stop)
+        {
+            session->main_should_stop = false;
+            chiaki_mutex_unlock(&session->stop_mutex);
+            chiaki_mutex_unlock(&session->state_mutex);
+            CHIAKI_LOGI(session->log, "chiaki_holepunch_session_create: canceled");
+            return CHIAKI_ERR_CANCELED;
+        }
+        chiaki_mutex_unlock(&session->stop_mutex);
     }
     chiaki_mutex_unlock(&session->state_mutex);
 

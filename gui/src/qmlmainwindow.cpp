@@ -1,5 +1,7 @@
 #include "qmlmainwindow.h"
 #include "qmlbackend.h"
+#include "cloudstreamingbackend.h"
+#include <QJSValue>
 #include "qmlsvgprovider.h"
 #include "chiaki/log.h"
 #include "streamsession.h"
@@ -23,6 +25,7 @@
 #include <QQuickRenderTarget>
 #include <QQuickRenderControl>
 #include <QQuickGraphicsDevice>
+#include <QTimer>
 #if defined(Q_OS_MACOS)
 #include <objc/message.h>
 #endif
@@ -107,6 +110,28 @@ QmlMainWindow::QmlMainWindow(const StreamSessionConnectInfo &connect_info, Steam
         fullscreenTime();
 
     connect(session, &StreamSession::SessionQuit, qGuiApp, &QGuiApplication::quit);
+}
+
+QmlMainWindow::QmlMainWindow(Settings *settings, const QString &serviceType, const QString &gameIdentifier, SteamworksWrapper *steamworks)
+    : QWindow()
+    , settings(settings)
+{
+    qInfo() << "=== QmlMainWindow: Cloud Streaming Constructor ===";
+    qInfo() << "Service Type:" << serviceType;
+    qInfo() << "Game Identifier:" << gameIdentifier;
+    qInfo() << "Steamworks:" << (steamworks ? "provided" : "null");
+    
+    direct_stream = true;
+    emit directStreamChanged();
+    init(settings, false, steamworks);
+    startCloudStreaming(serviceType, gameIdentifier);
+
+    // Connect session quit when session is created (cloud streaming is async, so we connect via sessionChanged)
+    connect(backend, &QmlBackend::sessionChanged, this, [this](StreamSession *s) {
+        if (s) {
+            connect(s, &StreamSession::SessionQuit, qGuiApp, &QGuiApplication::quit);
+        }
+    });
 }
 
 QmlMainWindow::~QmlMainWindow()
@@ -1209,4 +1234,31 @@ bool QmlMainWindow::event(QEvent *event)
 QObject *QmlMainWindow::focusObject() const
 {
     return quick_window->focusObject();
+}
+
+void QmlMainWindow::startCloudStreaming(const QString &serviceType, const QString &gameIdentifier)
+{
+    qInfo() << "=== QmlMainWindow::startCloudStreaming ===";
+    qInfo() << "Service Type:" << serviceType;
+    qInfo() << "Game Identifier:" << gameIdentifier;
+    
+    if (!backend) {
+        qWarning() << "QmlBackend not available";
+        return;
+    }
+    
+    CloudStreamingBackend *cloudBackend = backend->cloudStreaming();
+    if (!cloudBackend) {
+        qWarning() << "CloudStreamingBackend not available";
+        return;
+    }
+    
+    // StreamView will be shown automatically by Component.onCompleted in Main.qml
+    // which checks for Chiaki.window.directStream (set to true in constructor)
+    
+    qInfo() << "Calling cloudBackend->startCompleteCloudSession...";
+    // Start the cloud streaming session
+    // Use empty callback since we're handling via signals
+    QJSValue emptyCallback;
+    cloudBackend->startCompleteCloudSession(serviceType, gameIdentifier, emptyCallback);
 }

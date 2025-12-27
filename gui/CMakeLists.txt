@@ -33,16 +33,22 @@ set(SOURCE_FILES
 	src/controllermanager.cpp
 	include/psnaccountid.h
 	src/psnaccountid.cpp
+	include/psnaccountid_v3.h
+	src/psnaccountid_v3.cpp
 	include/psntoken.h
 	src/psntoken.cpp
 	include/cloudstreamingbackend.h
 	src/cloudstreamingbackend.cpp
+	include/cloudcatalogbackend.h
+	src/cloudcatalogbackend.cpp
 	include/cloudstreaming/pscloudauth.h
 	src/cloudstreaming/pscloudauth.cpp
 	include/cloudstreaming/pskamajisession.h
 	src/cloudstreaming/pskamajisession.cpp
 	include/cloudstreaming/psgaikaistreaming.h
 	src/cloudstreaming/psgaikaistreaming.cpp
+	include/cloudstreaming/datacenterping.h
+	src/cloudstreaming/datacenterping.cpp
 	include/jsonrequester.h
 	src/jsonrequester.cpp
 	src/qml/qml.qrc

@@ -6,6 +6,7 @@
 #include "qmlcontroller.h"
 #include "qmlsettings.h"
 #include "cloudstreamingbackend.h"
+#include "cloudcatalogbackend.h"
 
 #include <QObject>
 #include <QThread>
@@ -100,7 +101,10 @@ class QmlBackend : public QObject
     Q_PROPERTY(bool controllerMappingInProgress READ controllerMappingInProgress NOTIFY controllerMappingInProgressChanged)
     Q_PROPERTY(bool controllerMappingAltered READ controllerMappingAltered NOTIFY controllerMappingAlteredChanged)
     Q_PROPERTY(bool enableAnalogStickMapping READ enableAnalogStickMapping WRITE setEnableAnalogStickMapping NOTIFY enableAnalogStickMappingChanged)
+    Q_PROPERTY(bool showPingTimeoutDialog READ showPingTimeoutDialog WRITE setShowPingTimeoutDialog NOTIFY showPingTimeoutDialogChanged)
+    Q_PROPERTY(bool showAuthorizationFailedDialog READ showAuthorizationFailedDialog WRITE setShowAuthorizationFailedDialog NOTIFY showAuthorizationFailedDialogChanged)
     Q_PROPERTY(CloudStreamingBackend* cloudStreaming READ cloudStreaming CONSTANT)
+    Q_PROPERTY(CloudCatalogBackend* cloudCatalog READ cloudCatalog CONSTANT)
 
 public:
 
@@ -127,6 +131,7 @@ public:
     StreamSession *qmlSession() const;
     QList<QmlController*> qmlControllers() const;
     CloudStreamingBackend *cloudStreaming() const;
+    CloudCatalogBackend *cloudCatalog() const;
 
     bool discoveryEnabled() const;
     void setDiscoveryEnabled(bool enabled);
@@ -157,6 +162,12 @@ public:
 
     bool enableAnalogStickMapping() const { return enable_analog_stick_mapping; }
     void setEnableAnalogStickMapping(bool enabled);
+
+    bool showPingTimeoutDialog() const { return show_ping_timeout_dialog; }
+    void setShowPingTimeoutDialog(bool show);
+    
+    bool showAuthorizationFailedDialog() const { return show_authorization_failed_dialog; }
+    void setShowAuthorizationFailedDialog(bool show);
 
     void finishAutoRegister(const ChiakiRegisteredHost &host);
 
@@ -201,9 +212,12 @@ public:
     Q_INVOKABLE void stopAutoConnect();
     Q_INVOKABLE void setConsolePin(int index, QString console_pin);
     Q_INVOKABLE QString openPsnLink();
+    Q_INVOKABLE QString openNpssoPage();
     Q_INVOKABLE QString openPlaceboOptionsLink();
+    Q_INVOKABLE QString getClipboardText() const;
 
     Q_INVOKABLE void initPsnAuth(const QUrl &url, const QJSValue &callback);
+    Q_INVOKABLE void initPsnAuthV3(const QString &npsso, const QJSValue &callback);
     Q_INVOKABLE void psnCancel(bool stop_thread);
     Q_INVOKABLE void refreshPsnToken();
     Q_INVOKABLE QString getPsnInstalledGames();
@@ -221,7 +235,7 @@ public:
     Q_INVOKABLE void createPSStreamCode(const QString &code, const QJSValue &callback);
     Q_INVOKABLE void checkPSStreamStatus(const QString &code, const QJSValue &callback);
 #if CHIAKI_GUI_ENABLE_STEAM_SHORTCUT
-    QString getSteamBaseDir();
+    Q_INVOKABLE QString getSteamBaseDir();
     QString getSteamUserId();
 	Q_INVOKABLE void configureSteamControllerLayout();
 	Q_INVOKABLE void createSteamShortcut(QString shortcutName, QString launchOptions, const QJSValue &callback, QString steamDir);
@@ -254,6 +268,8 @@ signals:
     void controllerMappingAlteredChanged();
     void controllerMappingSteamControllerSelected();
     void enableAnalogStickMappingChanged();
+    void showPingTimeoutDialogChanged();
+    void showAuthorizationFailedDialogChanged();
     void discoveryEnabledChanged();
     void hostsChanged();
     void hiddenHostsChanged();
@@ -302,6 +318,7 @@ private:
     void updateDiscoveryHosts();
     void updatePsnHosts();
     void updatePsnHostsThread();
+    void tryRefreshWithNpsso(); // Try to refresh tokens using npsso before showing login dialog
     void savePsnGamesFromDevices(ChiakiHolepunchDeviceInfo *devices, size_t device_count);
     void updateAudioVolume();
     void resumeFromSleep();
@@ -313,6 +330,7 @@ private:
     QmlSettings *settings_qml = {};
     QmlGamesBackend *games_backend = {};
     CloudStreamingBackend *cloud_streaming_backend = {};
+    CloudCatalogBackend *cloud_catalog_backend = {};
     QmlMainWindow *window = {};
     StreamSession *session = {};
     QThread *frame_thread = {};
@@ -353,6 +371,8 @@ private:
     QMap<QString, QString> controller_mapping_original_controller_mappings = {};
     bool controller_mapping_in_progress = false;
     bool enable_analog_stick_mapping = false;
+    bool show_ping_timeout_dialog = false;
+    bool show_authorization_failed_dialog = false;
     bool resume_session = false;
     bool settings_allocd = false;
     HostMAC auto_connect_mac = {};

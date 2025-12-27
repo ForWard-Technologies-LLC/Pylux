@@ -296,6 +296,29 @@ class Settings : public QObject
 		void SetResolutionLocalPS5(ChiakiVideoResolutionPreset resolution);
 		void SetResolutionRemotePS5(ChiakiVideoResolutionPreset resolution);
 
+		QString GetCloudDatacentersJson() const;  // JSON array of datacenters with ping results
+		void SetCloudDatacentersJson(const QString &json);
+
+		// PSCloud settings
+		int GetCloudResolutionPSCloud() const;
+		void SetCloudResolutionPSCloud(int resolution);
+		QString GetCloudLanguagePSCloud() const;
+		void SetCloudLanguagePSCloud(const QString &language);
+		QString GetCloudDatacenterPSCloud() const;
+		void SetCloudDatacenterPSCloud(const QString &datacenter);
+		QString GetCloudDatacentersJsonPSCloud() const;  // JSON array of datacenters with ping results
+		void SetCloudDatacentersJsonPSCloud(const QString &json);
+
+		// PSNOW settings
+		int GetCloudResolutionPSNOW() const;
+		void SetCloudResolutionPSNOW(int resolution);
+		QString GetCloudLanguagePSNOW() const;
+		void SetCloudLanguagePSNOW(const QString &language);
+		QString GetCloudDatacenterPSNOW() const;
+		void SetCloudDatacenterPSNOW(const QString &datacenter);
+		QString GetCloudDatacentersJsonPSNOW() const;  // JSON array of datacenters with ping results
+		void SetCloudDatacentersJsonPSNOW(const QString &json);
+
 		/**
 		 * @return 0 if set to "automatic"
 		 */
@@ -396,6 +419,15 @@ class Settings : public QObject
 
 		QString GetPsnAuthTokenExpiry() const;
 		void SetPsnAuthTokenExpiry(QString expiry_date);
+
+		QString GetNpssoToken() const;
+		void SetNpssoToken(QString npsso_token);
+
+		int GetLastSelectedMainTab() const;
+		void SetLastSelectedMainTab(int tabIndex);
+		
+		QString GetLastSelectedCloudSection() const;
+		void SetLastSelectedCloudSection(QString section);
 
 		QString GetCurrentProfile() const;
 		void SetCurrentProfile(QString profile);
@@ -705,6 +737,8 @@ class Settings : public QObject
 		void CurrentProfileChanged();
 		void ProfilesUpdated();
 		void PlaceboSettingsUpdated();
-};
+		void CloudDatacentersJsonPSCloudChanged();
+		void CloudDatacentersJsonPSNOWChanged();
+	};
 
 #endif // CHIAKI_SETTINGS_H

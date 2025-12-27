@@ -408,6 +408,98 @@ void Settings::SetResolutionRemotePS5(ChiakiVideoResolutionPreset resolution)
 	settings.setValue("settings/resolution_remote_ps5", resolutions[resolution]);
 }
 
+// PSCloud settings
+int Settings::GetCloudResolutionPSCloud() const
+{
+	// Fallback to legacy cloud_resolution if not set (for migration)
+	return settings.value("settings/cloud_resolution_pscloud", settings.value("settings/cloud_resolution", 1080).toInt()).toInt();
+}
+
+void Settings::SetCloudResolutionPSCloud(int resolution)
+{
+	settings.setValue("settings/cloud_resolution_pscloud", resolution);
+}
+
+QString Settings::GetCloudLanguagePSCloud() const
+{
+	// Fallback to legacy cloud_language if not set (for migration)
+	return settings.value("settings/cloud_language_pscloud", settings.value("settings/cloud_language", "en-US").toString()).toString();
+}
+
+void Settings::SetCloudLanguagePSCloud(const QString &language)
+{
+	settings.setValue("settings/cloud_language_pscloud", language);
+}
+
+QString Settings::GetCloudDatacenterPSCloud() const
+{
+	// Fallback to legacy cloud_datacenter if not set (for migration)
+	return settings.value("settings/cloud_datacenter_pscloud", settings.value("settings/cloud_datacenter", "Auto").toString()).toString();
+}
+
+void Settings::SetCloudDatacenterPSCloud(const QString &datacenter)
+{
+	settings.setValue("settings/cloud_datacenter_pscloud", datacenter);
+}
+
+QString Settings::GetCloudDatacentersJsonPSCloud() const
+{
+	// Fallback to legacy cloud_datacenters_json if not set (for migration)
+	return settings.value("settings/cloud_datacenters_json_pscloud", settings.value("settings/cloud_datacenters_json", "[]").toString()).toString();
+}
+
+void Settings::SetCloudDatacentersJsonPSCloud(const QString &json)
+{
+	settings.setValue("settings/cloud_datacenters_json_pscloud", json);
+	emit CloudDatacentersJsonPSCloudChanged();
+}
+
+// PSNOW settings
+int Settings::GetCloudResolutionPSNOW() const
+{
+	// Fallback to legacy cloud_resolution if not set (for migration)
+	return settings.value("settings/cloud_resolution_psnow", settings.value("settings/cloud_resolution", 1080).toInt()).toInt();
+}
+
+void Settings::SetCloudResolutionPSNOW(int resolution)
+{
+	settings.setValue("settings/cloud_resolution_psnow", resolution);
+}
+
+QString Settings::GetCloudLanguagePSNOW() const
+{
+	// Fallback to legacy cloud_language if not set (for migration)
+	return settings.value("settings/cloud_language_psnow", settings.value("settings/cloud_language", "en-US").toString()).toString();
+}
+
+void Settings::SetCloudLanguagePSNOW(const QString &language)
+{
+	settings.setValue("settings/cloud_language_psnow", language);
+}
+
+QString Settings::GetCloudDatacenterPSNOW() const
+{
+	// Fallback to legacy cloud_datacenter if not set (for migration)
+	return settings.value("settings/cloud_datacenter_psnow", settings.value("settings/cloud_datacenter", "Auto").toString()).toString();
+}
+
+void Settings::SetCloudDatacenterPSNOW(const QString &datacenter)
+{
+	settings.setValue("settings/cloud_datacenter_psnow", datacenter);
+}
+
+QString Settings::GetCloudDatacentersJsonPSNOW() const
+{
+	// Fallback to legacy cloud_datacenters_json if not set (for migration)
+	return settings.value("settings/cloud_datacenters_json_psnow", settings.value("settings/cloud_datacenters_json", "[]").toString()).toString();
+}
+
+void Settings::SetCloudDatacentersJsonPSNOW(const QString &json)
+{
+	settings.setValue("settings/cloud_datacenters_json_psnow", json);
+	emit CloudDatacentersJsonPSNOWChanged();
+}
+
 static const QMap<ChiakiVideoFPSPreset, int> fps_values = {
 	{ CHIAKI_VIDEO_FPS_PRESET_30, 30 },
 	{ CHIAKI_VIDEO_FPS_PRESET_60, 60 }
@@ -789,6 +881,36 @@ QString Settings::GetPsnAuthTokenExpiry() const
 void Settings::SetPsnAuthTokenExpiry(QString expiry_date)
 {
 	settings.setValue("settings/psn_auth_token_expiry", expiry_date);
+}
+
+QString Settings::GetNpssoToken() const
+{
+	return settings.value("settings/psn_npsso_token").toString();
+}
+
+void Settings::SetNpssoToken(QString npsso_token)
+{
+	settings.setValue("settings/psn_npsso_token", npsso_token);
+}
+
+int Settings::GetLastSelectedMainTab() const
+{
+	return settings.value("settings/last_selected_main_tab", 0).toInt();
+}
+
+void Settings::SetLastSelectedMainTab(int tabIndex)
+{
+	settings.setValue("settings/last_selected_main_tab", tabIndex);
+}
+
+QString Settings::GetLastSelectedCloudSection() const
+{
+	return settings.value("settings/last_selected_cloud_section", "catalog").toString();
+}
+
+void Settings::SetLastSelectedCloudSection(QString section)
+{
+	settings.setValue("settings/last_selected_cloud_section", section);
 }
 
 QString Settings::GetCurrentProfile() const

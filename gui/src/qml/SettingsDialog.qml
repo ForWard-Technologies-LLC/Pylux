@@ -14,7 +14,12 @@ DialogView {
         PS4,
         PS5
     }
+    enum CloudService {
+        PSCloud,
+        PSNOW
+    }
     property int selectedConsole: SettingsDialog.Console.PS5
+    property int selectedCloudService: SettingsDialog.CloudService.PSCloud
     property bool quitControllerMapping: true
     id: dialog
     title: qsTr("Settings")
@@ -150,6 +155,12 @@ DialogView {
                     TabButton {
                         text: qsTr("Config")
                         id: config
+                        focusPolicy: Qt.NoFocus
+                    }
+
+                    TabButton {
+                        text: qsTr("Cloud")
+                        id: cloud
                         focusPolicy: Qt.NoFocus
                     }
                 }
@@ -2541,6 +2552,7 @@ DialogView {
                             Chiaki.settings.psnAuthToken = ""
                             Chiaki.settings.psnAuthTokenExpiry = ""
                             Chiaki.settings.psnAccountId = ""
+                            Chiaki.settings.psnNpssoToken = ""
                             openPsnLogin.forceActiveFocus(Qt.TabFocusReason);
                         }
                         Material.roundedScale: Material.SmallScale
@@ -2615,6 +2627,368 @@ DialogView {
                         checked: Chiaki.settings.logVerbose
                         lastInFocusChain: true
                         onToggled: Chiaki.settings.logVerbose = checked
+                    }
+                }
+                }
+            }
+
+            Item {
+                // Cloud
+                C.SmartFlickable {
+                    id: cloudFlick
+                    implicitWidth: parent.width ? parent.width : 0
+                    implicitHeight: parent.height ? parent.height : 0
+                    anchors {
+                        fill: parent
+                        topMargin: 20
+                        bottomMargin: 20
+                        leftMargin: parent.width ? (parent.width / 2 - cloudGrid.width / 2) : 0
+                    }
+                    contentWidth: cloudGrid.width
+                    contentHeight: cloudGrid.height
+                    tabIndex: 8
+                    currentTabIndex: bar.currentIndex
+                    contentLayout: cloudGrid
+                
+                GridLayout {
+                    id: cloudGrid
+                    anchors {
+                        top: parent.top
+                        horizontalCenter: parent.horizontalCenter
+                    }
+                    columns: 3
+                    rowSpacing: 10
+                    columnSpacing: 20
+
+                    Label {
+                        Layout.alignment: Qt.AlignRight
+                        text: qsTr("Settings for:")
+                    }
+
+                    C.ComboBox {
+                        id: cloudServiceSelection
+                        Layout.preferredWidth: 400
+                        Layout.alignment: Qt.AlignLeft
+                        model: [qsTr("PS5 Library"), qsTr("Cloud Catalog")]
+                        currentIndex: selectedCloudService
+                        onActivated: (index) => selectedCloudService = index
+                        firstInFocusChain: true
+                        KeyNavigation.priority: {
+                            if(!popup.visible)
+                                KeyNavigation.BeforeItem
+                            else
+                                KeyNavigation.AfterItem
+                        }
+                        KeyNavigation.down: {
+                            if(selectedCloudService == SettingsDialog.CloudService.PSCloud)
+                                resolutionPSCloud
+                            else
+                                resolutionPSNOW
+                        }
+                    }
+
+                    Label {
+                        Layout.alignment: Qt.AlignRight
+                        text: qsTr("")
+                    }
+
+                    Label {
+                        Layout.alignment: Qt.AlignRight
+                        text: qsTr("Resolution:")
+                    }
+
+                    C.ComboBox {
+                        id: resolutionPSCloud
+                        Layout.preferredWidth: 400
+                        model: ["720p", "1080p", "1440p", "2160p"]
+                        currentIndex: {
+                            let res = Chiaki.settings.cloudResolutionPSCloud;
+                            if (res === 720) return 0;
+                            if (res === 1440) return 2;
+                            if (res === 2160) return 3;
+                            return 1; // Default to 1080
+                        }
+                        onActivated: index => {
+                            if (index === 0) {
+                                Chiaki.settings.cloudResolutionPSCloud = 720;
+                            } else if (index === 2) {
+                                Chiaki.settings.cloudResolutionPSCloud = 1440;
+                            } else if (index === 3) {
+                                Chiaki.settings.cloudResolutionPSCloud = 2160;
+                            } else {
+                                Chiaki.settings.cloudResolutionPSCloud = 1080;
+                            }
+                        }
+                        visible: selectedCloudService == SettingsDialog.CloudService.PSCloud
+                        KeyNavigation.right: languagePSCloud
+                        KeyNavigation.up: cloudServiceSelection
+                        KeyNavigation.down: languagePSCloud
+                        KeyNavigation.priority: {
+                            if(!popup.visible)
+                                KeyNavigation.BeforeItem
+                            else
+                                KeyNavigation.AfterItem
+                        }
+                    }
+
+                    Label {
+                        Layout.alignment: Qt.AlignRight
+                        text: qsTr("(1080p)")
+                        visible: selectedCloudService == SettingsDialog.CloudService.PSCloud
+                    }
+
+                    C.ComboBox {
+                        id: resolutionPSNOW
+                        Layout.preferredWidth: 400
+                        model: ["720p", "1080p", "1440p", "2160p"]
+                        currentIndex: {
+                            let res = Chiaki.settings.cloudResolutionPSNOW;
+                            if (res === 720) return 0;
+                            if (res === 1440) return 2;
+                            if (res === 2160) return 3;
+                            return 1; // Default to 1080
+                        }
+                        onActivated: index => {
+                            if (index === 0) {
+                                Chiaki.settings.cloudResolutionPSNOW = 720;
+                            } else if (index === 2) {
+                                Chiaki.settings.cloudResolutionPSNOW = 1440;
+                            } else if (index === 3) {
+                                Chiaki.settings.cloudResolutionPSNOW = 2160;
+                            } else {
+                                Chiaki.settings.cloudResolutionPSNOW = 1080;
+                            }
+                        }
+                        visible: selectedCloudService == SettingsDialog.CloudService.PSNOW
+                        KeyNavigation.right: languagePSNOW
+                        KeyNavigation.up: cloudServiceSelection
+                        KeyNavigation.down: languagePSNOW
+                        KeyNavigation.priority: {
+                            if(!popup.visible)
+                                KeyNavigation.BeforeItem
+                            else
+                                KeyNavigation.AfterItem
+                        }
+                    }
+
+                    Label {
+                        Layout.alignment: Qt.AlignRight
+                        text: qsTr("(1080p)")
+                        visible: selectedCloudService == SettingsDialog.CloudService.PSNOW
+                    }
+
+                        Label {
+                            Layout.alignment: Qt.AlignRight
+                            text: qsTr("Language:")
+                        }
+
+                        C.ComboBox {
+                            id: languagePSCloud
+                            Layout.preferredWidth: 400
+                            model: [
+                            "en-US", "en-GB", "ja-JP", "fr-FR", "de-DE", 
+                            "es-ES", "it-IT", "pt-BR", "ru-RU", "ko-KR",
+                            "zh-CN", "zh-TW", "nl-NL", "sv-SE", "no-NO",
+                            "da-DK", "fi-FI", "pl-PL", "cs-CZ", "hu-HU",
+                            "tr-TR", "ar-SA", "he-IL", "th-TH", "vi-VN"
+                        ]
+                        currentIndex: {
+                            let lang = Chiaki.settings.cloudLanguagePSCloud;
+                            let index = model.indexOf(lang);
+                            return index >= 0 ? index : 0;
+                        }
+                        onActivated: index => {
+                            Chiaki.settings.cloudLanguagePSCloud = model[index];
+                        }
+                        visible: selectedCloudService == SettingsDialog.CloudService.PSCloud
+                        KeyNavigation.left: resolutionPSCloud
+                        KeyNavigation.up: resolutionPSCloud
+                        KeyNavigation.down: datacenterPSCloud
+                        KeyNavigation.priority: {
+                            if(!popup.visible)
+                                KeyNavigation.BeforeItem
+                            else
+                                KeyNavigation.AfterItem
+                        }
+                    }
+
+                    Label {
+                        Layout.alignment: Qt.AlignRight
+                        text: qsTr("(en-US)")
+                        visible: selectedCloudService == SettingsDialog.CloudService.PSCloud
+                    }
+
+                    C.ComboBox {
+                        id: languagePSNOW
+                        Layout.preferredWidth: 400
+                        model: [
+                            "en-US", "en-GB", "ja-JP", "fr-FR", "de-DE", 
+                            "es-ES", "it-IT", "pt-BR", "ru-RU", "ko-KR",
+                            "zh-CN", "zh-TW", "nl-NL", "sv-SE", "no-NO",
+                            "da-DK", "fi-FI", "pl-PL", "cs-CZ", "hu-HU",
+                            "tr-TR", "ar-SA", "he-IL", "th-TH", "vi-VN"
+                        ]
+                        currentIndex: {
+                            let lang = Chiaki.settings.cloudLanguagePSNOW;
+                            let index = model.indexOf(lang);
+                            return index >= 0 ? index : 0;
+                        }
+                        onActivated: index => {
+                            Chiaki.settings.cloudLanguagePSNOW = model[index];
+                        }
+                        visible: selectedCloudService == SettingsDialog.CloudService.PSNOW
+                        KeyNavigation.left: resolutionPSNOW
+                        KeyNavigation.up: resolutionPSNOW
+                        KeyNavigation.down: datacenterPSNOW
+                        KeyNavigation.priority: {
+                            if(!popup.visible)
+                                KeyNavigation.BeforeItem
+                            else
+                                KeyNavigation.AfterItem
+                        }
+                    }
+
+                    Label {
+                        Layout.alignment: Qt.AlignRight
+                        text: qsTr("(en-US)")
+                        visible: selectedCloudService == SettingsDialog.CloudService.PSNOW
+                    }
+
+                    Label {
+                        Layout.alignment: Qt.AlignRight
+                        text: qsTr("Datacenter:")
+                    }
+
+                    C.ComboBox {
+                        id: datacenterPSCloud
+                        Layout.preferredWidth: 400
+                        model: {
+                            let m = ["Auto"];
+                            try {
+                                let datacentersJson = Chiaki.settings.cloudDatacentersJsonPSCloud || "[]";
+                                let datacenters = JSON.parse(datacentersJson);
+                                if (Array.isArray(datacenters)) {
+                                    for (let i = 0; i < datacenters.length; i++) {
+                                        let dc = datacenters[i];
+                                        let name = dc.dataCenter || "";
+                                        let rtt = dc.rtt || -1;
+                                        if (name) {
+                                            if (rtt >= 0) {
+                                                m.push(name + " (" + rtt + "ms)");
+                                            } else {
+                                                m.push(name);
+                                            }
+                                        }
+                                    }
+                                }
+                            } catch (e) {
+                                console.warn("Failed to parse datacenters:", e);
+                            }
+                            return m;
+                        }
+                        currentIndex: {
+                            let selected = Chiaki.settings.cloudDatacenterPSCloud || "Auto";
+                            if (selected === "Auto") return 0;
+                            for (let i = 1; i < model.length; i++) {
+                                if (model[i].startsWith(selected)) return i;
+                            }
+                            return 0;
+                        }
+                        onActivated: index => {
+                            if (index === 0) {
+                                Chiaki.settings.cloudDatacenterPSCloud = "Auto";
+                            } else {
+                                let name = model[index];
+                                let match = name.match(/^([^(]+)/);
+                                if (match) {
+                                    Chiaki.settings.cloudDatacenterPSCloud = match[1].trim();
+                                } else {
+                                    Chiaki.settings.cloudDatacenterPSCloud = name;
+                                }
+                            }
+                        }
+                        visible: selectedCloudService == SettingsDialog.CloudService.PSCloud
+                        KeyNavigation.left: languagePSCloud
+                        KeyNavigation.up: languagePSCloud
+                        KeyNavigation.priority: {
+                            if(!popup.visible)
+                                KeyNavigation.BeforeItem
+                            else
+                                KeyNavigation.AfterItem
+                        }
+                        lastInFocusChain: selectedCloudService == SettingsDialog.CloudService.PSCloud
+                    }
+
+                    Label {
+                        Layout.alignment: Qt.AlignRight
+                        text: qsTr("(Auto)")
+                        visible: selectedCloudService == SettingsDialog.CloudService.PSCloud
+                    }
+
+                    C.ComboBox {
+                        id: datacenterPSNOW
+                        Layout.preferredWidth: 400
+                        model: {
+                            let m = ["Auto"];
+                            try {
+                                let datacentersJson = Chiaki.settings.cloudDatacentersJsonPSNOW || "[]";
+                                let datacenters = JSON.parse(datacentersJson);
+                                if (Array.isArray(datacenters)) {
+                                    for (let i = 0; i < datacenters.length; i++) {
+                                        let dc = datacenters[i];
+                                        let name = dc.dataCenter || "";
+                                        let rtt = dc.rtt || -1;
+                                        if (name) {
+                                            if (rtt >= 0) {
+                                                m.push(name + " (" + rtt + "ms)");
+                                            } else {
+                                                m.push(name);
+                                            }
+                                        }
+                                    }
+                                }
+                            } catch (e) {
+                                console.warn("Failed to parse datacenters:", e);
+                            }
+                            return m;
+                        }
+                        currentIndex: {
+                            let selected = Chiaki.settings.cloudDatacenterPSNOW || "Auto";
+                            if (selected === "Auto") return 0;
+                            for (let i = 1; i < model.length; i++) {
+                                if (model[i].startsWith(selected)) return i;
+                            }
+                            return 0;
+                        }
+                        onActivated: index => {
+                            if (index === 0) {
+                                Chiaki.settings.cloudDatacenterPSNOW = "Auto";
+                            } else {
+                                let name = model[index];
+                                let match = name.match(/^([^(]+)/);
+                                if (match) {
+                                    Chiaki.settings.cloudDatacenterPSNOW = match[1].trim();
+                                } else {
+                                    Chiaki.settings.cloudDatacenterPSNOW = name;
+                                }
+                            }
+                        }
+                        visible: selectedCloudService == SettingsDialog.CloudService.PSNOW
+                        KeyNavigation.left: languagePSNOW
+                        KeyNavigation.up: languagePSNOW
+                        KeyNavigation.priority: {
+                            if(!popup.visible)
+                                KeyNavigation.BeforeItem
+                            else
+                                KeyNavigation.AfterItem
+                        }
+                        lastInFocusChain: selectedCloudService == SettingsDialog.CloudService.PSNOW
+                    }
+
+                    Label {
+                        Layout.alignment: Qt.AlignRight
+                        text: qsTr("(Auto)")
+                        visible: selectedCloudService == SettingsDialog.CloudService.PSNOW
                     }
                 }
                 }

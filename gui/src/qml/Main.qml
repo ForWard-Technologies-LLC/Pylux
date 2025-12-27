@@ -119,6 +119,38 @@ Item {
             stack.pop(stack.get(0));
         else
             stack.replace(stack.get(0), mainViewComponent);
+        
+        // Check if ping timeout dialog should be shown
+        if (Chiaki.showPingTimeoutDialog) {
+            Qt.callLater(() => {
+                root.showMessageDialog(
+                    qsTr("Ping Too High"),
+                    qsTr("Ping must be less than 80ms to start a cloud session.\n\nTo continue anyway, go to Settings → Cloud and manually select a datacenter for your service (PS5 Library or Cloud Catalog)."),
+                    () => {
+                        Chiaki.showPingTimeoutDialog = false;
+                    }
+                );
+            });
+        }
+        
+        // Check if authorization failed dialog should be shown
+        if (Chiaki.showAuthorizationFailedDialog) {
+            Qt.callLater(() => {
+                root.showConfirmDialog(
+                    qsTr("Authentication Required"),
+                    qsTr("Your NPSSO token is likely expired. Please re-login to continue using cloud streaming."),
+                    () => {
+                        // A button: Open QR login screen
+                        Chiaki.showAuthorizationFailedDialog = false;
+                        root.showPSNTokenDialog("", true);
+                    },
+                    () => {
+                        // B button: Just close the dialog
+                        Chiaki.showAuthorizationFailedDialog = false;
+                    }
+                );
+            });
+        }
     }
 
     function showStreamView() {
@@ -247,6 +279,8 @@ Item {
 
     Component.onCompleted: {
         if (Chiaki.session)
+            stack.replace(stack.get(0), streamViewComponent, {}, StackView.Immediate);
+        else if (Chiaki.window.directStream)
             stack.replace(stack.get(0), streamViewComponent, {}, StackView.Immediate);
         else if (Chiaki.autoConnect)
             stack.replace(stack.get(0), autoConnectViewComponent, {}, StackView.Immediate);
@@ -402,8 +436,8 @@ Item {
         function onError(title, text, durationMs) {
             errorTitleLabel.text = title;
             errorTextLabel.text = text;
-            // Reset to default color for regular errors
-            errorToast.color = Material.accent;
+            // Use red color for errors (instead of blue Material.accent)
+            errorToast.color = "#F44336";
             // Use provided duration or default to 2 seconds
             errorHideTimer.interval = durationMs !== undefined ? durationMs : 2000;
             errorHideTimer.start();

@@ -8,6 +8,8 @@
 #include <QObject>
 #include <QString>
 #include <QJSValue>
+#include <QNetworkAccessManager>
+#include <QNetworkCookie>
 
 class QNetworkCookieJar;  // Forward declaration
 
@@ -30,6 +32,8 @@ class StreamSession; // Forward declaration
 class CloudStreamingBackend : public QObject
 {
     Q_OBJECT
+    Q_PROPERTY(QString allocationProgress READ getAllocationProgress NOTIFY allocationProgressChanged)
+    Q_PROPERTY(int queuePosition READ getQueuePosition NOTIFY queuePositionChanged)
 
 public:
     explicit CloudStreamingBackend(Settings *settings, QObject *parent = nullptr);
@@ -37,16 +41,37 @@ public:
     // MAIN ENTRY POINT - Complete cloud streaming session (Steps 1-13)
     // Parameters:
     //   serviceType: "psnow" or "pscloud"
-    //   platform: "ps3", "ps4", or "ps5"
     //   gameIdentifier: Product ID (PSNOW) or Entitlement ID (PSCLOUD)
-    Q_INVOKABLE void startCompleteCloudSession(QString serviceType, QString platform, QString gameIdentifier, const QJSValue &callback);
+    // Platform is automatically detected from API response for PSNOW, or hardcoded to "ps5" for PSCLOUD
+    Q_INVOKABLE void startCompleteCloudSession(QString serviceType, QString gameIdentifier, const QJSValue &callback);
+    
+    QString getAllocationProgress() const { return allocation_progress; }
+    int getQueuePosition() const { return queue_position; }
 
 signals:
     // Emitted when a cloud streaming session is created and ready to be registered
     void sessionCreated(StreamSession *session);
+    // Emitted when allocation progress updates
+    void allocationProgressChanged();
+    // Emitted when queue position changes
+    void queuePositionChanged();
+
+private slots:
+    void onAllocationProgress(QString message, int queuePosition = -1);
 
 private:
+    void setAllocationProgress(const QString &message);
+    
+    // Centralized authorization check (used by both PSNOW and PSCLOUD)
+    void checkAuthorization(QString serviceType, QString npssoToken, QString duid, std::function<void(bool)> callback);
+    
+    // Continue cloud session after successful authorization
+    void continueCloudSessionAfterAuth(QString serviceType, QString gameIdentifier, const QJSValue &callback, QString npssoToken, QString sharedDuid);
+
     Settings *settings;
+    QString allocation_progress;
+    int queue_position = -1;  // -1 means not queued or no position available
+    QNetworkAccessManager *authManager; // For authorization check
     
     // Helper method to start Gaikai allocation (shared between PSNOW and PSCLOUD flows)
     void startGaikaiAllocation(QString serviceType, QString platform, QString entitlementId,

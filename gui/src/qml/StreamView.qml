@@ -160,7 +160,14 @@ Item {
                     horizontalCenter: spinner.horizontalCenter
                     topMargin: 30
                 }
+                horizontalAlignment: Text.AlignHCenter
+                font.pixelSize: 20
                 text: {
+                    // Show allocation progress if available
+                    if (Chiaki.cloudStreaming && Chiaki.cloudStreaming.allocationProgress) {
+                        return Chiaki.cloudStreaming.allocationProgress
+                    }
+                    // Otherwise show instructions when launching game
                     if(Chiaki.settings.dpadTouchEnabled)
                     {
                         if(Chiaki.settings.audioVideoDisabled == 0x01)
@@ -176,7 +183,7 @@ Item {
                             qsTr("Press %1 to open stream menu").arg(Chiaki.controllers.length ? Chiaki.settings.stringForStreamMenuShortcut() : "Ctrl+O")
                     }
                 }
-                visible: sessionLoading && launchingGame
+                visible: sessionLoading && (text !== "" || launchingGame)
             }
 
             Label {
@@ -205,6 +212,7 @@ Item {
 
             Label {
                 id: errorTitleLabel
+                objectName: "errorTitleLabel"
                 anchors {
                     bottom: spinner.top
                     horizontalCenter: spinner.horizontalCenter
@@ -218,6 +226,7 @@ Item {
 
             Label {
                 id: errorTextLabel
+                objectName: "errorTextLabel"
                 anchors {
                     top: errorTitleLabel.bottom
                     horizontalCenter: errorTitleLabel.horizontalCenter
@@ -777,6 +786,7 @@ Item {
     Popup {
         id: sessionStopDialog
         property int closeAction: 0
+        property bool isCloudSession: Chiaki.session && Chiaki.session.isCloudStreaming
         parent: Overlay.overlay
         x: Math.round((root.width - width) / 2)
         y: Math.round((root.height - height) / 2)
@@ -787,8 +797,18 @@ Item {
         }
         onClosed: {
             view.releaseInput();
-            if (closeAction)
-                Chiaki.stopSession(closeAction == 1);
+            if (isCloudSession) {
+                // For cloud sessions, only close if "Yes" was clicked (closeAction == 1)
+                // "No" means don't close (closeAction == 2), so do nothing
+                if (closeAction == 1) {
+                    Chiaki.stopSession(false);
+                }
+            } else {
+                // For remote play, both buttons close the session, but with different sleep settings
+                if (closeAction) {
+                    Chiaki.stopSession(closeAction == 1);
+                }
+            }
         }
 
         ColumnLayout {
@@ -802,7 +822,9 @@ Item {
             Label {
                 Layout.topMargin: 10
                 Layout.alignment: Qt.AlignCenter
-                text: qsTr("Do you want the Console to go into sleep mode?")
+                text: sessionStopDialog.isCloudSession 
+                    ? qsTr("Are you sure you want to close the session?")
+                    : qsTr("Do you want the Console to go into sleep mode?")
                 font.pixelSize: 20
             }
 
@@ -812,18 +834,18 @@ Item {
                 spacing: 30
 
                 Button {
-                    id: sleepButton
+                    id: confirmButton
                     Layout.preferredWidth: 200
                     Layout.minimumHeight: 80
                     Layout.maximumHeight: 80
-                    text: qsTr("Sleep")
+                    text: sessionStopDialog.isCloudSession ? qsTr("Yes") : qsTr("Sleep")
                     font.pixelSize: 24
                     Material.roundedScale: Material.SmallScale
                     Material.background: activeFocus ? parent.Material.accent : undefined
-                    KeyNavigation.right: noButton
+                    KeyNavigation.right: cancelButton
                     Keys.onReturnPressed: clicked()
                     Keys.onEscapePressed: sessionStopDialog.close()
-                    onVisibleChanged: if (visible) view.grabInput(sleepButton)
+                    onVisibleChanged: if (visible) view.grabInput(confirmButton)
                     onClicked: {
                         sessionStopDialog.closeAction = 1;
                         sessionStopDialog.close();
@@ -831,7 +853,7 @@ Item {
                 }
 
                 Button {
-                    id: noButton
+                    id: cancelButton
                     Layout.preferredWidth: 200
                     Layout.minimumHeight: 80
                     Layout.maximumHeight: 80
@@ -839,7 +861,7 @@ Item {
                     font.pixelSize: 24
                     Material.roundedScale: Material.SmallScale
                     Material.background: activeFocus ? parent.Material.accent : undefined
-                    KeyNavigation.left: sleepButton
+                    KeyNavigation.left: confirmButton
                     Keys.onReturnPressed: clicked()
                     Keys.onEscapePressed: sessionStopDialog.close()
                     onClicked: {
@@ -912,6 +934,7 @@ Item {
 
     Timer {
         id: closeTimer
+        objectName: "closeTimer"
         interval: 2000
         onTriggered: root.showMainView()
     }
@@ -933,7 +956,30 @@ Item {
             sessionLoading = false;
             errorTitleLabel.text = title;
             errorTextLabel.text = text;
-            closeTimer.start();
+            
+            // Check if it's an OAuth error for longer toast duration
+            let isOAuthError = text && (text.includes("OAuth") || text.includes("authorization"));
+            
+            // Show toast for OAuth errors (10 seconds) or regular errors (2 seconds)
+            let mainComp = root;
+            while (mainComp && !mainComp.showToast) {
+                mainComp = mainComp.parent;
+            }
+            if (mainComp && mainComp.showToast) {
+                if (isOAuthError) {
+                    // Show toast for 10 seconds for OAuth errors
+                    mainComp.showToast(title, text, "#F44336");
+                    // Use a custom timer for 10 seconds instead of closeTimer
+                    Qt.callLater(() => {
+                        errorHideTimerOAuth.interval = 10000;
+                        errorHideTimerOAuth.restart();
+                    });
+                } else {
+                    closeTimer.start();
+                }
+            } else {
+                closeTimer.start();
+            }
         }
 
         function onSessionPinDialogRequested() {

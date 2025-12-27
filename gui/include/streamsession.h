@@ -116,12 +116,15 @@ struct StreamSessionConnectInfo
 	uint dpad_touch_shortcut4;
 	QString game_name;
 	QString title_id;
-	// Cloud streaming mode fields
-	bool cloud_mode;
+	// Streaming service type (REMOTE_PLAY/PSNOW/PSCLOUD)
+	ChiakiServiceType service_type;
 	QString cloud_launch_spec;
 	QString cloud_handshake_key;
 	QString cloud_session_id;
 	uint8_t cloud_psn_wrapper_type;
+	uint32_t cloud_mtu_in; // MTU in from ping results (0 if not set)
+	uint32_t cloud_mtu_out; // MTU out from ping results (0 if not set)
+	uint64_t cloud_rtt_us; // RTT in microseconds from ping results (0 if not set)
 
 	StreamSessionConnectInfo() {}
 	StreamSessionConnectInfo(
@@ -159,6 +162,8 @@ class StreamSession : public QObject
 	Q_PROPERTY(double averagePacketLoss READ GetAveragePacketLoss NOTIFY AveragePacketLossChanged)
 	Q_PROPERTY(bool muted READ GetMuted WRITE SetMuted NOTIFY MutedChanged)
 	Q_PROPERTY(bool cantDisplay READ GetCantDisplay NOTIFY CantDisplayChanged)
+	Q_PROPERTY(QString loadingMessage READ GetLoadingMessage WRITE SetLoadingMessage NOTIFY LoadingMessageChanged)
+	Q_PROPERTY(bool isCloudStreaming READ IsCloudStreaming CONSTANT)
 
 	private:
 		SessionLog log;
@@ -175,11 +180,13 @@ class StreamSession : public QObject
 		int input_block;
 		QString host;
 		QString title_id;
+		ChiakiServiceType service_type; // Store service type from connect_info
 		int audio_volume;
 		double measured_bitrate = 0;
 		double average_packet_loss = 0;
 		QList<double> packet_loss_history;
 		bool cant_display = false;
+		QString loading_message;
 		int haptics_handheld;
 		float rumble_multiplier;
 		int ps5_rumble_intensity;
@@ -328,6 +335,14 @@ class StreamSession : public QObject
 		Q_INVOKABLE int GetAudioVolume() { return audio_volume; }
 		Q_INVOKABLE void SetAudioVolume(int volume) { audio_volume = volume; }
 		bool GetCantDisplay()	{ return cant_display; }
+		QString GetLoadingMessage() { return loading_message; }
+		void SetLoadingMessage(const QString &message) { 
+			if (loading_message != message) {
+				loading_message = message;
+				emit LoadingMessageChanged();
+			}
+		}
+		bool IsCloudStreaming() { return chiaki_service_type_is_cloud(service_type); }
 		ChiakiErrorCode ConnectPsnConnection(QString duid, bool ps5);
 		void CancelPsnConnection(bool stop_thread);
 
@@ -365,6 +380,7 @@ class StreamSession : public QObject
 		void AveragePacketLossChanged();
 		void MutedChanged();
 		void CantDisplayChanged(bool cant_display);
+		void LoadingMessageChanged();
 		void GameLaunchCompleted();
 
 	private slots:

@@ -158,10 +158,11 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_run(ChiakiStreamConnectio
 		if(!takion_info.sa)
 			return CHIAKI_ERR_MEMORY;
 		memcpy(takion_info.sa, session->connect_info.host_addrinfo_selected->ai_addr, takion_info.sa_len);
-		// Cloud mode: use API-provided port, Remote play: use default port
-		uint16_t port = (session->cloud_mode && session->cloud_port > 0) ? session->cloud_port : STREAM_CONNECTION_PORT;
-		CHIAKI_LOGI(session->log, "Setting Takion connection port=%u (cloud_mode=%d, cloud_port=%u)", 
-			port, session->cloud_mode, session->cloud_port);
+		// Cloud streaming: use API-provided port, Remote play: use default port
+		const bool is_cloud = chiaki_service_type_is_cloud(session->service_type);
+		uint16_t port = (is_cloud && session->cloud_port > 0) ? session->cloud_port : STREAM_CONNECTION_PORT;
+		CHIAKI_LOGI(session->log, "Setting Takion connection port=%u (service_type=%s, cloud_port=%u)", 
+			port, chiaki_service_type_string(session->service_type), session->cloud_port);
 		err = set_port(takion_info.sa, htons(port));
 		assert(err == CHIAKI_ERR_SUCCESS);
 	}
@@ -170,16 +171,21 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_run(ChiakiStreamConnectio
 	// Cloud Play and Remote Play should behave identically (except PSN wrapper)
 	takion_info.enable_crypt = true; // Both use encryption
 	takion_info.enable_dualsense = session->connect_info.enable_dualsense;
-	takion_info.protocol_version = 9; // Use version 9 for this entitlement - TODO this should be 12 eentually for ps5 cloud streaming!
-	takion_info.protocol = session->cloud_mode ? CHIAKI_TAKION_PROTOCOL_CLOUD_PLAY : CHIAKI_TAKION_PROTOCOL_REMOTE_PLAY;
-	takion_info.psn_wrapper_type = session->cloud_mode ? session->cloud_psn_wrapper_type : 0;
+	// Cloud streaming: PSNOW uses v9, PSCLOUD uses v12. Remote Play behavior unchanged.
+	if(chiaki_service_type_is_cloud(session->service_type))
+		takion_info.protocol_version = (session->service_type == CHIAKI_SERVICE_TYPE_PSCLOUD) ? 12 : 9;
+	else
+		takion_info.protocol_version = 9;
+	takion_info.service_type = session->service_type;
+	takion_info.psn_wrapper_type = chiaki_service_type_is_cloud(session->service_type) ? session->cloud_psn_wrapper_type : 0;
+	takion_info.is_ping_handshake = false; // This is normal streaming, not a ping handshake
 	
-	if(session->cloud_mode)
+	if(chiaki_service_type_is_cloud(session->service_type))
 		CHIAKI_LOGI(session->log, "Cloud Play PSN wrapper type: 0x%02x (from private IP last octet)", session->cloud_psn_wrapper_type);
 	
 	CHIAKI_LOGI(session->log, "Takion config: enable_crypt=%d, protocol_version=%u, protocol=%s",
 		takion_info.enable_crypt, takion_info.protocol_version,
-		session->cloud_mode ? "Cloud Play" : "Remote Play");
+		chiaki_service_type_is_cloud(session->service_type) ? "Cloud Play" : "Remote Play");
 
 	takion_info.cb = stream_connection_takion_cb;
 	takion_info.cb_user = stream_connection;
@@ -915,7 +921,7 @@ static bool pb_decode_resolution(pb_istream_t *stream, const pb_field_t *field, 
 	profile->header = header_buf_padded;
 	
 	// Log the full profile header for Cloud Play debugging
-	if(ctx->stream_connection->session->cloud_mode)
+	if(chiaki_service_type_is_cloud(ctx->stream_connection->session->service_type))
 	{
 		CHIAKI_LOGI(ctx->stream_connection->session->log, "Cloud Play profile %zu (%ux%u) header (%zu bytes):", 
 			ctx->video_profiles_count - 1, profile->width, profile->height, profile->header_sz);
@@ -1023,8 +1029,8 @@ static ChiakiErrorCode stream_connection_send_big(ChiakiStreamConnection *stream
 	ChiakiErrorCode err;
 	const char *launch_spec_b64_ptr;
 
-	// Cloud Play: use API-provided launch spec directly
-	if(session->cloud_mode)
+	// Cloud streaming: use API-provided launch spec directly
+	if(chiaki_service_type_is_cloud(session->service_type))
 	{
 		if(!session->cloud_launch_spec)
 			return CHIAKI_ERR_INVALID_DATA;
@@ -1122,8 +1128,19 @@ static ChiakiErrorCode stream_connection_send_big(ChiakiStreamConnection *stream
 	msg.big_payload.ecdh_sig.funcs.encode = chiaki_pb_encode_buf;
 
 	// Cloud play needs larger buffer for API-provided launch spec (~5000+ bytes)
-	uint8_t buf[8192];
+	// Increased to 32768 to handle very large launch specs with protobuf overhead
+	uint8_t buf[32768];
 	size_t buf_size;
+
+	// Validate cloud launch spec is not empty
+	if(chiaki_service_type_is_cloud(session->service_type))
+	{
+		if(strlen(launch_spec_b64_ptr) == 0)
+		{
+			CHIAKI_LOGE(stream_connection->log, "StreamConnection cloud launch spec is empty");
+			return CHIAKI_ERR_INVALID_DATA;
+		}
+	}
 
 	pb_ostream_t stream = pb_ostream_from_buffer(buf, sizeof(buf));
 	bool pbr = pb_encode(&stream, tkproto_TakionMessage_fields, &msg);
@@ -1137,9 +1154,9 @@ static ChiakiErrorCode stream_connection_send_big(ChiakiStreamConnection *stream
 	uint32_t mtu = (session->mtu_in < session->mtu_out) ? session->mtu_in : session->mtu_out;
 	// Cloud play: 28 bytes overhead, 30/29 chunk overhead (PSN wrapper adds 4 bytes)
 	// Remote play: 50 bytes overhead, 26/25 chunk overhead
-	uint32_t net_overhead = session->cloud_mode ? 28 : 50;
-	uint32_t first_chunk_overhead = session->cloud_mode ? 30 : 26;
-	uint32_t cont_chunk_overhead = session->cloud_mode ? 29 : 25;
+	uint32_t net_overhead = chiaki_service_type_is_cloud(session->service_type) ? 28 : 50;
+	uint32_t first_chunk_overhead = chiaki_service_type_is_cloud(session->service_type) ? 30 : 26;
+	uint32_t cont_chunk_overhead = chiaki_service_type_is_cloud(session->service_type) ? 29 : 25;
 	mtu -= net_overhead;
 	uint32_t buf_pos = 0;
 	bool first = true;

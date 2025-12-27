@@ -45,21 +45,27 @@ CHIAKI_EXPORT void chiaki_log_cb_print(ChiakiLogLevel level, const char *msg, vo
 	const char *color = NULL;
 	switch(level)
 	{
+		case CHIAKI_LOG_VERBOSE:
+			color = "36";  // Cyan
+			break;
 		case CHIAKI_LOG_DEBUG:
-			color = "34";
+			color = "34";  // Blue
+			break;
+		case CHIAKI_LOG_INFO:
+			color = "32";  // Green
 			break;
 		case CHIAKI_LOG_WARNING:
-			color = "33";
+			color = "33";  // Yellow
 			break;
 		case CHIAKI_LOG_ERROR:
-			color = "31";
+			color = "31";  // Red
 			break;
 		default:
 			break;
 	}
 
 	if(color)
-		printf("\033[38;5;%sm", color);
+		printf("\033[0;%sm", color);
 	printf("[%c] ", c);
 	if(color)
 		printf("\033[0m");

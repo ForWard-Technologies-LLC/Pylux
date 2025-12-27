@@ -68,6 +68,7 @@ set(SOURCE_FILES
 		src/audiosender.c
 		src/videoreceiver.c
 		src/frameprocessor.c
+		src/pscloud_audio_reassembler.c
 		src/packetstats.c
 		src/discovery.c
 		src/congestioncontrol.c
@@ -113,6 +114,8 @@ endif()
 add_library(chiaki-lib ${HEADER_FILES} ${SOURCE_FILES} ${CHIAKI_LIB_PROTO_SOURCE_FILES} ${CHIAKI_LIB_PROTO_HEADER_FILES})
 configure_file(config.h.in include/chiaki/config.h)
 target_include_directories(chiaki-lib PUBLIC "${CMAKE_CURRENT_BINARY_DIR}/include")
+# Expose protobuf include directory so targets linking to chiaki-lib can use takion.pb.h
+target_include_directories(chiaki-lib PUBLIC "${CHIAKI_LIB_PROTO_INCLUDE_DIR}")
 
 if(CMAKE_C_COMPILER_ID STREQUAL GNU OR CMAKE_C_COMPILER_ID STREQUAL Clang)
 	target_compile_options(chiaki-lib PRIVATE -Wall)

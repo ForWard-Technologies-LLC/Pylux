@@ -40,3 +40,7 @@ chiaki.conf
 *.vscode
 site/
 /gui/src/qml/qtwebengine_import.qml
+psstream_research/
+.cursor/
+chiaki-ng-Win/
+chiaki_fastbuild_logs.txt
