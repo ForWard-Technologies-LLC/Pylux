@@ -57,7 +57,6 @@ jobs:
             qt6-base:p
             qt6-declarative:p
             qt6-svg:p
-            qt6-webengine:p
             SDL2:p
             shaderc:p
             speexdsp:p

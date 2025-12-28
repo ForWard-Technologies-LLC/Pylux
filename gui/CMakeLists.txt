@@ -178,6 +178,10 @@ set_target_properties(chiaki PROPERTIES
 		MACOSX_BUNDLE_ICON_FILE chiaking.icns
 		RESOURCE "${RESOURCE_FILES}")
 
+if(WIN32)
+	set_target_properties(chiaki PROPERTIES WIN32_EXECUTABLE TRUE)
+endif()
+
 install(TARGETS chiaki
 		RUNTIME DESTINATION bin
 		BUNDLE DESTINATION bin)
