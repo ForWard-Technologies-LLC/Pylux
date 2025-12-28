@@ -67,7 +67,7 @@ jobs:
       - name: Install python protobuf and zip
         run: |
           pip install protobuf
-          pacman -S git make unzip zip --noconfirm
+          pacman -S git make unzip zip jq --noconfirm
 
       - name: Build libbplacebo
         run: |
@@ -87,24 +87,12 @@ jobs:
 
       - name: Build chiaki-ng
         run: |
-          cmake --build build --config Release --clean-first --target cpp-steam-tools
-          cmake --build build --config Release --target chiaki
+          cmake --build build --config Release --clean-first --target chiaki
           
       - name: Deploy chiaki-ng
         run: |
           mkdir chiaki-ng-Win
           cp build/gui/chiaki.exe chiaki-ng-Win/
-          if [ -f "build/gui/libcpp-steam-tools.dll" ]; then
-            cp build/gui/libcpp-steam-tools.dll chiaki-ng-Win/cpp-steam-tools.dll
-          elif [ -f "build/third-party/cpp-steam-tools/libcpp-steam-tools.dll" ]; then
-            cp build/third-party/cpp-steam-tools/libcpp-steam-tools.dll chiaki-ng-Win/cpp-steam-tools.dll
-          else
-            echo "ERROR: libcpp-steam-tools.dll not found"
-            echo "Checked: build/gui/libcpp-steam-tools.dll"
-            echo "Checked: build/third-party/cpp-steam-tools/libcpp-steam-tools.dll"
-            find build -name "libcpp-steam-tools.dll" 2>/dev/null || echo "DLL not found anywhere in build/"
-            exit 1
-          fi
           cp third-party/steamworks/steamworks_sdk/redistributable_bin/win64/steam_api64.dll chiaki-ng-Win/
           export PATH="${{ github.workspace }}/build/third-party/cpp-steam-tools:/mingw64/share/qt6/bin/:${PATH}"
           export QT_PLUGIN_PATH="/mingw64/share/qt6/plugins"
@@ -128,26 +116,40 @@ jobs:
           zip -r $RELEASE_PACKAGE_FILE chiaki-ng-Win
           echo "RELEASE_PACKAGE_PATH=${RELEASE_PACKAGE_FILE}" >> $GITHUB_ENV
 
-      - name: Upload chiaki-ng Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: chiaki-ng-win_x64-MSYS2-Release-portable.zip
-          path: ${{ env.RELEASE_PACKAGE_PATH }}
-          if-no-files-found: error
-          retention-days: 7
+      - name: Upload to Dropbox
+        continue-on-error: true
+        env:
+          DROPBOX_REFRESH_TOKEN: ${{ secrets.DROPBOX_REFRESH_TOKEN }}
+          DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
+          DROPBOX_APP_SECRET: ${{ secrets.DROPBOX_APP_SECRET }}
+        run: |
+          # Get short-lived access token from refresh token
+          ACCESS_TOKEN=$(curl -s https://api.dropbox.com/oauth2/token \
+            -d refresh_token=$DROPBOX_REFRESH_TOKEN \
+            -d grant_type=refresh_token \
+            -d client_id=$DROPBOX_APP_KEY \
+            -d client_secret=$DROPBOX_APP_SECRET \
+            | jq -r '.access_token')
+          
+          # Upload portable zip file
+          curl -X POST https://content.dropboxapi.com/2/files/upload \
+            --header "Authorization: Bearer $ACCESS_TOKEN" \
+            --header "Dropbox-API-Arg: {\"path\": \"/PSStream/${{ env.RELEASE_PACKAGE_PATH }}\",\"mode\": \"overwrite\",\"autorename\": false}" \
+            --header "Content-Type: application/octet-stream" \
+            --data-binary @${{ env.RELEASE_PACKAGE_PATH }}
 
-      - name: Compile .ISS to .EXE Installer
-        uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
-        with:
-          path: "scripts/chiaki-ng.iss"
-          options: /O+
+      # - name: Compile .ISS to .EXE Installer
+      #   uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
+      #   with:
+      #     path: "scripts/chiaki-ng.iss"
+      #     options: /O+
 
-      - name: Upload chiaki-ng Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: chiaki-ng-win_x64-MSYS2-Release-installer.exe
-          path: chiaki-ng-windows-installer.exe
-          if-no-files-found: error
-          retention-days: 7
+      # - name: Upload chiaki-ng Artifact
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: chiaki-ng-win_x64-MSYS2-Release-installer.exe
+      #     path: chiaki-ng-windows-installer.exe
+      #     if-no-files-found: error
+      #     retention-days: 7
           
 
