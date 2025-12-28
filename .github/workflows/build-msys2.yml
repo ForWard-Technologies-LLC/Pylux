@@ -87,22 +87,22 @@ jobs:
 
       - name: Build chiaki-ng
         run: |
-          cmake --build build --clean-first --target cpp-steam-tools
-          cmake --build build --target chiaki
+          cmake --build build --config Release --clean-first --target cpp-steam-tools
+          cmake --build build --config Release --target chiaki
           
       - name: Deploy chiaki-ng
         run: |
           mkdir chiaki-ng-Win
           cp build/gui/chiaki.exe chiaki-ng-Win/
-          if [ -f "build/gui/cpp-steam-tools.dll" ]; then
-            cp build/gui/cpp-steam-tools.dll chiaki-ng-Win/
-          elif [ -f "build/third-party/cpp-steam-tools/cpp-steam-tools.dll" ]; then
-            cp build/third-party/cpp-steam-tools/cpp-steam-tools.dll chiaki-ng-Win/
+          if [ -f "build/gui/libcpp-steam-tools.dll" ]; then
+            cp build/gui/libcpp-steam-tools.dll chiaki-ng-Win/cpp-steam-tools.dll
+          elif [ -f "build/third-party/cpp-steam-tools/libcpp-steam-tools.dll" ]; then
+            cp build/third-party/cpp-steam-tools/libcpp-steam-tools.dll chiaki-ng-Win/cpp-steam-tools.dll
           else
-            echo "ERROR: cpp-steam-tools.dll not found"
-            echo "Checked: build/gui/cpp-steam-tools.dll"
-            echo "Checked: build/third-party/cpp-steam-tools/cpp-steam-tools.dll"
-            find build -name "cpp-steam-tools.dll" 2>/dev/null || echo "DLL not found anywhere in build/"
+            echo "ERROR: libcpp-steam-tools.dll not found"
+            echo "Checked: build/gui/libcpp-steam-tools.dll"
+            echo "Checked: build/third-party/cpp-steam-tools/libcpp-steam-tools.dll"
+            find build -name "libcpp-steam-tools.dll" 2>/dev/null || echo "DLL not found anywhere in build/"
             exit 1
           fi
           cp third-party/steamworks/steamworks_sdk/redistributable_bin/win64/steam_api64.dll chiaki-ng-Win/
