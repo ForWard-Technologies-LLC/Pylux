@@ -83,17 +83,22 @@ jobs:
 
       - name: Configure chiaki-ng
         run: |
-          cmake -S . -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DCHIAKI_ENABLE_CLI=OFF -DCHIAKI_ENABLE_STEAMWORKS=ON
+          cmake -S . -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DCHIAKI_ENABLE_CLI=OFF -DCHIAKI_ENABLE_STEAMWORKS=ON -DCHIAKI_ENABLE_STEAM_SHORTCUT=ON
 
       - name: Build chiaki-ng
         run: |
-          cmake --build build --config Release --clean-first --target chiaki
+          cmake --build build --clean-first --target chiaki
           
       - name: Deploy chiaki-ng
         run: |
           mkdir chiaki-ng-Win
           cp build/gui/chiaki.exe chiaki-ng-Win/
-          cp build/third-party/cpp-steam-tools/cpp-steam-tools.dll chiaki-ng-Win/
+          CPP_STEAM_TOOLS_DLL=$(find build -name "cpp-steam-tools.dll" | head -n 1)
+          if [ -z "$CPP_STEAM_TOOLS_DLL" ]; then
+            echo "ERROR: cpp-steam-tools.dll not found in build directory"
+            exit 1
+          fi
+          cp "$CPP_STEAM_TOOLS_DLL" chiaki-ng-Win/
           cp third-party/steamworks/steamworks_sdk/redistributable_bin/win64/steam_api64.dll chiaki-ng-Win/
           export PATH="${{ github.workspace }}/build/third-party/cpp-steam-tools:/mingw64/share/qt6/bin/:${PATH}"
           export QT_PLUGIN_PATH="/mingw64/share/qt6/plugins"
