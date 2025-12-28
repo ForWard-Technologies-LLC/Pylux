@@ -87,7 +87,8 @@ jobs:
 
       - name: Build chiaki-ng
         run: |
-          cmake --build build --clean-first --target chiaki
+          cmake --build build --clean-first --target cpp-steam-tools
+          cmake --build build --target chiaki
           
       - name: Deploy chiaki-ng
         run: |
