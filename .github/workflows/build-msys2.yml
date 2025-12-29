@@ -102,6 +102,7 @@ jobs:
           export PATH="${{ github.workspace }}/build/third-party/cpp-steam-tools:/mingw64/share/qt6/bin/:/mingw64/bin/:${PATH}"
           export QT_PLUGIN_PATH="/mingw64/share/qt6/plugins"
           export QML2_IMPORT_PATH="/mingw64/share/qt6/qml"
+          # Recursively find and copy DLL dependencies of chiaki.exe
           echo chiaki-ng-Win/chiaki.exe > tmp0.txt
           while [ -e tmp0.txt ]
           do
@@ -110,8 +111,23 @@ jobs:
             sort -u tmp.txt -o tmp.txt
             ldd $(<tmp.txt) | grep -v ":" | cut -d " " -f3 | grep -iv "system32" | grep -iv "not" | xargs -d $'\n' sh -c 'for arg do if [ -n "$arg" ] && [ ! -e "chiaki-ng-Win/${arg##*/}" ]; then echo "Copied $arg"; cp "$arg" chiaki-ng-Win/ ; echo "$arg" >> tmp0.txt; fi; done'
           done
-          # windeployqt6 needs /mingw64/bin in PATH to find plugin dependencies like libjpeg-8.dll
+          # Copy Qt plugins and QML modules
           windeployqt6.exe --no-translations --qmldir=gui/src/qml chiaki-ng-Win/chiaki.exe
+          # Copy dependencies of Qt plugins (windeployqt6 doesn't copy plugin dependencies like libjpeg-8.dll)
+          echo "Finding Qt plugin DLLs..."
+          find chiaki-ng-Win -type d \( -name plugins -o -name imageformats -o -name platforms -o -name sqldrivers \) -exec find {} -name "*.dll" \; | while read plugin; do
+            echo "Found plugin: $plugin"
+            echo "$plugin" >> tmp0.txt
+          done
+          echo "Copying plugin dependencies..."
+          while [ -e tmp0.txt ] && [ -s tmp0.txt ]
+          do
+            cp tmp0.txt tmp.txt
+            rm tmp0.txt
+            sort -u tmp.txt -o tmp.txt
+            ldd $(<tmp.txt) 2>/dev/null | grep -v ":" | cut -d " " -f3 | grep -iv "system32" | grep -iv "not" | xargs -d $'\n' sh -c 'for arg do if [ -n "$arg" ] && [ ! -e "chiaki-ng-Win/${arg##*/}" ]; then echo "  Copying plugin dependency: ${arg##*/}"; cp "$arg" chiaki-ng-Win/ ; echo "$arg" >> tmp0.txt; fi; done'
+          done
+          rm -f tmp0.txt tmp.txt
 
       - name: Package chiaki-ng
         run: |
