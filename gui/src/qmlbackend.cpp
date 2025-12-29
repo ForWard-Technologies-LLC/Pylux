@@ -223,6 +223,22 @@ QmlBackend::QmlBackend(Settings *settings, QmlMainWindow *window, SteamworksWrap
         // Notify QML that session is available
         emit sessionChanged(session);
         
+        // Apply window type settings (fullscreen/zoom/stretch) for cloud streaming
+        // Read flags from session (already set in connect_info)
+        bool fullscreen = session->GetFullscreen();
+        bool zoom = session->GetZoom();
+        bool stretch = session->GetStretch();
+        
+        if (zoom) {
+            window->setVideoMode(QmlMainWindow::VideoMode::Zoom);
+        } else if (stretch) {
+            window->setVideoMode(QmlMainWindow::VideoMode::Stretch);
+        }
+        
+        if (fullscreen || zoom || stretch) {
+            window->fullscreenTime();
+        }
+        
         // Inhibit sleep
         sleep_inhibit->inhibit();
         

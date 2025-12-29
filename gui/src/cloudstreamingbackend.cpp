@@ -265,6 +265,28 @@ void CloudStreamingBackend::startGaikaiAllocation(QString serviceType, QString p
         qInfo() << "  Handshake key length:" << handshakeKey.length();
         qInfo() << "  Launch spec length:" << launchSpec.length();
         
+        // Read window type from settings (same as remote play)
+        bool fullscreen = false, zoom = false, stretch = false;
+        switch (settings->GetWindowType()) {
+        case WindowType::SelectedResolution:
+            break;
+        case WindowType::CustomResolution:
+            break;
+        case WindowType::AdjustableResolution:
+            break;
+        case WindowType::Fullscreen:
+            fullscreen = true;
+            break;
+        case WindowType::Zoom:
+            zoom = true;
+            break;
+        case WindowType::Stretch:
+            stretch = true;
+            break;
+        default:
+            break;
+        }
+        
         // Create StreamSessionConnectInfo with cloud parameters
         // Pass host as "IP:PORT" format - StreamSession will extract port for cloud mode
         StreamSessionConnectInfo connect_info(
@@ -277,9 +299,9 @@ void CloudStreamingBackend::startGaikaiAllocation(QString serviceType, QString p
             QString(), // initial_login_pin
             QString(), // duid (not used for cloud, direct connection)
             false, // auto_regist
-            false, // fullscreen
-            false, // zoom
-            false  // stretch
+            fullscreen, // fullscreen (from settings)
+            zoom, // zoom (from settings)
+            stretch  // stretch (from settings)
         );
         
         // Set service type for cloud streaming BEFORE any validation

@@ -164,6 +164,9 @@ class StreamSession : public QObject
 	Q_PROPERTY(bool cantDisplay READ GetCantDisplay NOTIFY CantDisplayChanged)
 	Q_PROPERTY(QString loadingMessage READ GetLoadingMessage WRITE SetLoadingMessage NOTIFY LoadingMessageChanged)
 	Q_PROPERTY(bool isCloudStreaming READ IsCloudStreaming CONSTANT)
+	Q_PROPERTY(bool fullscreen READ GetFullscreen CONSTANT)
+	Q_PROPERTY(bool zoom READ GetZoom CONSTANT)
+	Q_PROPERTY(bool stretch READ GetStretch CONSTANT)
 
 	private:
 		SessionLog log;
@@ -181,6 +184,9 @@ class StreamSession : public QObject
 		QString host;
 		QString title_id;
 		ChiakiServiceType service_type; // Store service type from connect_info
+		bool fullscreen;
+		bool zoom;
+		bool stretch;
 		int audio_volume;
 		double measured_bitrate = 0;
 		double average_packet_loss = 0;
@@ -343,6 +349,9 @@ class StreamSession : public QObject
 			}
 		}
 		bool IsCloudStreaming() { return chiaki_service_type_is_cloud(service_type); }
+		bool GetFullscreen() { return fullscreen; }
+		bool GetZoom() { return zoom; }
+		bool GetStretch() { return stretch; }
 		ChiakiErrorCode ConnectPsnConnection(QString duid, bool ps5);
 		void CancelPsnConnection(bool stop_thread);
 
