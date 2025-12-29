@@ -46,6 +46,7 @@ if errorlevel 1 (
     copy /Y "build\gui\chiaki.exe" "chiaki-ng-Win\chiaki.exe" >nul
 )
 copy /Y "third-party\steamworks\steamworks_sdk\redistributable_bin\win64\steam_api64.dll" "chiaki-ng-Win\" >nul
+copy /Y "steam_appid.txt" "chiaki-ng-Win\" >nul
 
 REM Launch application with console output
 echo [5/5] Launching application with console...

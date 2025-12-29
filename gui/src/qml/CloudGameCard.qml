@@ -46,20 +46,6 @@ Rectangle {
         return "";
     }
     
-    // ============================================================================
-    // DEBUG: Temporary logging helper - REMOVE AFTER DEBUGGING
-    // ============================================================================
-    // Get a short identifier for logging (game name or product ID)
-    function getLogId() {
-        let name = getGameName();
-        let id = getProductId();
-        if (name && name !== "Unknown Game") {
-            return name.substring(0, 20) + (id ? " [" + id.substring(0, 10) + "]" : "");
-        }
-        return id ? id.substring(0, 20) : "unknown";
-    }
-    // ============================================================================
-    
     // Get the identifier to use for streaming (entitlement ID for PSCloud, product ID for PSNOW)
     function getStreamingIdentifier() {
         if (!gameData) return "";
@@ -113,95 +99,50 @@ Rectangle {
         return isPsnow ? "psnow" : "pscloud";
     }
     
-    // Helper to ensure URL is always a string (Qt may convert QJsonObject strings to QUrl)
-    function urlToString(url) {
-        if (!url) return "";
-        // QML/Qt may convert string URLs to QUrl objects when passed from C++ QJsonObject
-        // Always convert to string to ensure consistency
-        return typeof url === 'string' ? url : String(url);
-    }
-    
     function getImageUrl() {
         if (!gameData) return "";
         
         // Check if we already have extracted images from previous fetch
         // Prefer cover over landscape
         if (gameData.extracted_images) {
-            if (gameData.extracted_images.cover) return urlToString(gameData.extracted_images.cover);
-            if (gameData.extracted_images.landscape) return urlToString(gameData.extracted_images.landscape);
+            if (gameData.extracted_images.cover) return gameData.extracted_images.cover;
+            if (gameData.extracted_images.landscape) return gameData.extracted_images.landscape;
         }
         
         // For PS5 Cloud games from gameslist API - they have imageUrl directly
         if (!isPsnow) {
-            // ============================================================================
-            // DEBUG: Extensive logging - REMOVE AFTER DEBUGGING
-            // ============================================================================
-            let logId = getLogId();
-            console.log("[CloudGameCard:" + logId + "] PSCloud: Checking gameData for images...");
-            let imageUrlStr = gameData.imageUrl ? urlToString(gameData.imageUrl) : "";
-            console.log("[CloudGameCard:" + logId + "] PSCloud: gameData.imageUrl =", imageUrlStr ? (imageUrlStr.length > 50 ? imageUrlStr.substring(0, 50) + "..." : imageUrlStr) : "undefined");
-            console.log("[CloudGameCard:" + logId + "] PSCloud: gameData.images =", gameData.images ? (Array.isArray(gameData.images) ? "array[" + gameData.images.length + "]" : typeof gameData.images) : "undefined");
-            // ============================================================================
-            
-            if (gameData.imageUrl) {
-                let url = urlToString(gameData.imageUrl);
-                // DEBUG: Remove this log
-                console.log("[CloudGameCard:" + logId + "] PSCloud: Returning imageUrl:", url.length > 50 ? url.substring(0, 50) + "..." : url);
-                return url;
-            }
+            if (gameData.imageUrl) return gameData.imageUrl;
             if (gameData.images && Array.isArray(gameData.images) && gameData.images.length > 0) {
-                // DEBUG: Remove this log
-                console.log("[CloudGameCard:" + logId + "] PSCloud: Checking images array, length:", gameData.images.length);
                 // Prefer cover (type 10) over landscape (type 12/13)
                 for (let i = 0; i < gameData.images.length; i++) {
                     let img = gameData.images[i];
-                    if (img && img.url && img.type === 10) {
-                        let url = urlToString(img.url);
-                        // DEBUG: Remove this log
-                        console.log("[CloudGameCard:" + logId + "] PSCloud: Found type 10 (cover):", url.length > 50 ? url.substring(0, 50) + "..." : url);
-                        return url;
-                    }
+                    if (img && img.url && img.type === 10) return img.url;
                 }
                 // Fallback to landscape if no cover
                 for (let i = 0; i < gameData.images.length; i++) {
                     let img = gameData.images[i];
-                    if (img && img.url && (img.type === 12 || img.type === 13)) {
-                        let url = urlToString(img.url);
-                        // DEBUG: Remove this log
-                        console.log("[CloudGameCard:" + logId + "] PSCloud: Found type", img.type, "(landscape):", url.length > 50 ? url.substring(0, 50) + "..." : url);
-                        return url;
-                    }
+                    if (img && img.url && (img.type === 12 || img.type === 13)) return img.url;
                 }
                 // Last resort: any image
                 for (let i = 0; i < gameData.images.length; i++) {
                     let img = gameData.images[i];
-                    if (img && img.url) {
-                        let url = urlToString(img.url);
-                        // DEBUG: Remove this log
-                        console.log("[CloudGameCard:" + logId + "] PSCloud: Found any image:", url.length > 50 ? url.substring(0, 50) + "..." : url);
-                        return url;
-                    }
+                    if (img && img.url) return img.url;
                 }
-                // DEBUG: Remove this log
-                console.log("[CloudGameCard:" + logId + "] PSCloud: No valid image URL found in images array");
-            } else {
-                // DEBUG: Remove this log
-                console.log("[CloudGameCard:" + logId + "] PSCloud: No images array or array is empty");
             }
         } else {
             // For PSNOW games - catalog doesn't include images, need to fetch from details
             // But try any available fields first
-            if (gameData.imageUrl) return urlToString(gameData.imageUrl);
+            if (gameData.imageUrl) return gameData.imageUrl;
             if (gameData.images && Array.isArray(gameData.images)) {
                 // Prefer cover (type 10) over landscape (type 12/13)
                 for (let i = 0; i < gameData.images.length; i++) {
                     let img = gameData.images[i];
-                    if (img && img.url && img.type === 10) return urlToString(img.url);
+                    if (img && img.url && img.type === 10) return img.url;
                 }
                 // Fallback to landscape if no cover
                 for (let i = 0; i < gameData.images.length; i++) {
                     let img = gameData.images[i];
-                    if (img && img.url && (img.type === 12 || img.type === 13)) return urlToString(img.url);
+                    if (img && img.url && (img.type === 12 || img.type === 13)) return img.url;
                 }
             }
         }
@@ -218,59 +159,17 @@ Rectangle {
     
     // Note: cachedImageUrl is bound to gameImage.source below, so it will update automatically
     
-    // ============================================================================
-    // TEMPORARY: Flag to prevent infinite loops - EVALUATE IF STILL NEEDED
-    // ============================================================================
-    property bool updatingImage: false
-    
-    // ============================================================================
-    // DEBUG: Watch for gameData changes with extensive logging - REMOVE LOGS AFTER DEBUGGING
-    // NOTE: The handler itself might be needed, but remove all console.log calls
-    // ============================================================================
-    // Watch for gameData changes - images might be added after component creation
-    onGameDataChanged: {
-        // Prevent infinite loops
-        if (updatingImage) {
-            return;
-        }
-        
-        // DEBUG: Remove this log
-        let logId = getLogId();
-        console.log("[CloudGameCard:" + logId + "] gameData changed, checking for images...");
-        // Delay to ensure gameData is fully populated
-        // Use arrow function to preserve 'this' context, or call getImageUrl directly
-        Qt.callLater(function() {
-            // Call getImageUrl directly - we're still in component scope
-            let url = getImageUrl();
-            if (url) {
-                let urlStr = typeof url === 'string' ? url : url.toString();
-                // Only update if URL actually changed
-                if (urlStr !== cachedImageUrl && urlStr !== "") {
-                    // DEBUG: Remove this log
-                    console.log("[CloudGameCard:" + logId + "] gameData changed: Found new image URL:", urlStr.length > 50 ? urlStr.substring(0, 50) + "..." : urlStr);
-                    updatingImage = true;
-                    cachedImageUrl = urlStr;
-                    updatingImage = false;
-                }
-            }
-        });
-    }
-    // ============================================================================
-    
     // Load image URL on component creation - ONLY from catalog/entitlement data, no API calls
-    // Set directly like GameCard.qml does - no delays, no timers
     Component.onCompleted: {
-        if (gameData) {
-            let url = getImageUrl();
-            if (url) {
-                cachedImageUrl = url;
-            }
+        // Get initial image URL from catalog/entitlement data only
+        let initialUrl = getImageUrl();
+        if (initialUrl) {
+            cachedImageUrl = initialUrl;
         }
         // For PSNOW games without images in catalog, show placeholder until shortcut is clicked
         // Game details will be fetched only when shortcut button is pressed
         // For PS5 Cloud games, images should come from the entitlements API response
     }
-    
     
     color: isHovered || isCurrentItem ? Qt.lighter(Material.dialogColor, 1.1) : Material.dialogColor
     radius: 8
@@ -311,32 +210,15 @@ Rectangle {
                 cache: true
                 smooth: true
                 
-                // Bind directly to cachedImageUrl - same as GameCard.qml
-                source: cachedImageUrl
+                // Always bind to cachedImageUrl - will update when URL is set
+                source: cachedImageUrl || ""
                 
-                // ============================================================================
-                // DEBUG: Image loading status logging - REMOVE AFTER DEBUGGING
-                // ============================================================================
-                // Log image loading status for debugging
+                // Suppress error warnings - image loading failures are non-fatal
+                // QML Image component may not support all HTTPS image formats
                 onStatusChanged: {
-                    let logId = getLogId();
-                    let sourceStr = source ? (typeof source === 'string' ? source : source.toString()) : "";
-                    if (status === Image.Loading) {
-                        console.log("[CloudGameCard:" + logId + "] Image loading:", sourceStr ? (sourceStr.length > 50 ? sourceStr.substring(0, 50) + "..." : sourceStr) : "empty source");
-                    } else if (status === Image.Ready) {
-                        console.log("[CloudGameCard:" + logId + "] Image ready:", sourceStr ? (sourceStr.length > 50 ? sourceStr.substring(0, 50) + "..." : sourceStr) : "empty source");
-                    } else if (status === Image.Error) {
-                        console.warn("[CloudGameCard:" + logId + "] Image error:", sourceStr ? (sourceStr.length > 50 ? sourceStr.substring(0, 50) + "..." : sourceStr) : "empty source", "error:", sourceSize);
-                    }
+                    // Silently handle errors - don't retry as it just spams warnings
+                    // Images will show placeholder if they fail to load
                 }
-                
-                // Also log when source changes
-                onSourceChanged: {
-                    let logId = getLogId();
-                    let sourceStr = source ? (typeof source === 'string' ? source : source.toString()) : "";
-                    console.log("[CloudGameCard:" + logId + "] Image source changed to:", sourceStr ? (sourceStr.length > 50 ? sourceStr.substring(0, 50) + "..." : sourceStr) : "empty");
-                }
-                // ============================================================================
                 
                 BusyIndicator {
                     anchors.centerIn: parent
@@ -461,10 +343,6 @@ Rectangle {
                                                 }
                                                 if (details.extracted_images.landscape) {
                                                     gameData.extracted_images.landscape = details.extracted_images.landscape;
-                                                    // DEBUG: Remove this log
-                                                    let logId = getLogId();
-                                                    let landscapeUrl = typeof details.extracted_images.landscape === 'string' ? details.extracted_images.landscape : details.extracted_images.landscape.toString();
-                                                    console.log("[CloudGameCard:" + logId + "] Shortcut button: Setting landscape image:", landscapeUrl.length > 50 ? landscapeUrl.substring(0, 50) + "..." : landscapeUrl);
                                                     cachedImageUrl = details.extracted_images.landscape;
                                                 }
                                                 if (details.extracted_images.cover) {
@@ -538,5 +416,4 @@ Rectangle {
         }
     }
 }
-
 
