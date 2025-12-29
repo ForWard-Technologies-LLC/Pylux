@@ -111,17 +111,6 @@ jobs:
             ldd $(<tmp.txt) | grep -v ":" | cut -d " " -f3 | grep -iv "system32" | grep -iv "not" | xargs -d $'\n' sh -c 'for arg do if [ -n "$arg" ] && [ ! -e "chiaki-ng-Win/${arg##*/}" ]; then echo "Copied $arg"; cp "$arg" chiaki-ng-Win/ ; echo "$arg" >> tmp0.txt; fi; done'
           done
           windeployqt6.exe --no-translations --qmldir=gui/src/qml chiaki-ng-Win/chiaki.exe
-          # Ensure image format plugins are copied (windeployqt sometimes misses them)
-          mkdir -p chiaki-ng-Win/imageformats
-          cp -r /mingw64/share/qt6/plugins/imageformats/*.dll chiaki-ng-Win/imageformats/ 2>/dev/null || echo "Warning: imageformat plugins not found at /mingw64/share/qt6/plugins/imageformats/"
-          # Ensure network/TLS plugins are copied (required for QML Image HTTPS loading)
-          mkdir -p chiaki-ng-Win/networkinformation
-          cp -r /mingw64/share/qt6/plugins/networkinformation/*.dll chiaki-ng-Win/networkinformation/ 2>/dev/null || echo "Warning: networkinformation plugins not found"
-          mkdir -p chiaki-ng-Win/tls
-          cp -r /mingw64/share/qt6/plugins/tls/*.dll chiaki-ng-Win/tls/ 2>/dev/null || echo "Warning: tls plugins not found"
-          # Copy OpenSSL DLLs for HTTPS support (Qt Network needs them for HTTPS image loading)
-          cp /mingw64/bin/libssl-*.dll chiaki-ng-Win/ 2>/dev/null || echo "Warning: libssl DLL not found"
-          cp /mingw64/bin/libcrypto-*.dll chiaki-ng-Win/ 2>/dev/null || echo "Warning: libcrypto DLL not found"
 
       - name: Package chiaki-ng
         run: |
