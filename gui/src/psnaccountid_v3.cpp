@@ -6,6 +6,7 @@
 #include <QDebug>
 #include <QUrlQuery>
 #include <QRegularExpression>
+#include <QRandomGenerator>
 
 PSNAccountIDV3::PSNAccountIDV3(Settings *settings, QObject *parent)
     : QObject(parent)
@@ -19,8 +20,21 @@ void PSNAccountIDV3::GetPsnAccountIdFromNpsso(QString npsso) {
     // Store the npsso token so we can save it after successful authentication
     currentNpsso = npsso;
     
+    // Generate DUID (Device Unique ID) - REQUIRED for push notification WebSocket
+    // Format: "0000000700410080" (16 hex chars) + 16 random bytes (32 hex chars) = 48 hex chars total
+    // Reference: lib/include/chiaki/remote/holepunch.h and lib/src/remote/holepunch.c
+    // CRITICAL: The duid parameter must be included in the authorization request for the token
+    // to be accepted by the push notification WebSocket service (see holepunch.h lines 175-176)
+    size_t duid_size = CHIAKI_DUID_STR_SIZE;
+    char duid_arr[duid_size];
+    chiaki_holepunch_generate_client_device_uid(duid_arr, &duid_size);
+    QString duid = QString(duid_arr);
+    qCInfo(chiakiGui) << "PSNAccountIDV3: Generated DUID:" << duid;
+    
     // Step 1: Build authorization URL with access_type=offline (CRITICAL for refresh token)
     // Reference: research_docs/oauth/IMPLEMENTATION_GUIDE.md lines 48-69
+    // CRITICAL: Include duid parameter - required for push notification WebSocket to accept the token
+    // Reference: lib/include/chiaki/remote/holepunch.h lines 175-176
     QUrl authUrl(PSNAuthV3::AUTHORIZE_ENDPOINT_V3);
     QUrlQuery query;
     query.addQueryItem("client_id", PSNAuthV3::CLIENT_ID);
@@ -29,6 +43,7 @@ void PSNAccountIDV3::GetPsnAccountIdFromNpsso(QString npsso) {
     query.addQueryItem("response_type", "code");
     query.addQueryItem("service_entity", "urn:service-entity:psn");
     query.addQueryItem("access_type", "offline"); // CRITICAL: Requests refresh token!
+    query.addQueryItem("duid", duid); // CRITICAL: Required for push notification WebSocket
     query.addQueryItem("smcid", "remoteplay");
     query.addQueryItem("layout_type", "popup");
     query.addQueryItem("PlatformPrivacyWs1", "minimal");

@@ -14,6 +14,7 @@
 #include <QUuid>
 
 #include "chiaki/log.h"
+#include "chiaki/remote/holepunch.h"
 
 namespace PSNAuthV3 {
     static QString CLIENT_ID = "ba495a24-818c-472b-b12d-ff231c1b5745";
