@@ -99,7 +99,7 @@ jobs:
           cp build/gui/chiaki.exe chiaki-ng-Win/
           cp third-party/steamworks/steamworks_sdk/redistributable_bin/win64/steam_api64.dll chiaki-ng-Win/
           cp steam_appid.txt chiaki-ng-Win/ 2>/dev/null || echo "Warning: steam_appid.txt not found"
-          export PATH="${{ github.workspace }}/build/third-party/cpp-steam-tools:/mingw64/share/qt6/bin/:${PATH}"
+          export PATH="${{ github.workspace }}/build/third-party/cpp-steam-tools:/mingw64/share/qt6/bin/:/mingw64/bin/:${PATH}"
           export QT_PLUGIN_PATH="/mingw64/share/qt6/plugins"
           export QML2_IMPORT_PATH="/mingw64/share/qt6/qml"
           echo chiaki-ng-Win/chiaki.exe > tmp0.txt
@@ -110,6 +110,7 @@ jobs:
             sort -u tmp.txt -o tmp.txt
             ldd $(<tmp.txt) | grep -v ":" | cut -d " " -f3 | grep -iv "system32" | grep -iv "not" | xargs -d $'\n' sh -c 'for arg do if [ -n "$arg" ] && [ ! -e "chiaki-ng-Win/${arg##*/}" ]; then echo "Copied $arg"; cp "$arg" chiaki-ng-Win/ ; echo "$arg" >> tmp0.txt; fi; done'
           done
+          # windeployqt6 needs /mingw64/bin in PATH to find plugin dependencies like libjpeg-8.dll
           windeployqt6.exe --no-translations --qmldir=gui/src/qml chiaki-ng-Win/chiaki.exe
 
       - name: Package chiaki-ng
