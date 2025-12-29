@@ -16,7 +16,7 @@ set PATH=C:\msys64\mingw64\bin;C:\msys64\usr\bin;%PATH%
 
 REM Configure with Steamworks enabled (only reconfigures if needed)
 echo [1/5] Configuring with Steamworks...
-C:\msys64\usr\bin\bash.exe -lc "cd /c/Users/User/repos/chiaki-ng && cmake -B build -DCHIAKI_ENABLE_STEAMWORKS=ON -DCHIAKI_ENABLE_CLI=OFF"
+C:\msys64\usr\bin\bash.exe -lc "cd /c/Users/User/repos/chiaki-ng && cmake -B build -DCHIAKI_ENABLE_STEAMWORKS=ON -DCHIAKI_ENABLE_CLI=OFF -CHIAKI_ENABLE_CONSOLE=ON"
 
 REM Fast incremental build
 echo [2/5] Building (incremental - only changed files)...

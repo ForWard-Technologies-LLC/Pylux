@@ -179,7 +179,10 @@ set_target_properties(chiaki PROPERTIES
 		RESOURCE "${RESOURCE_FILES}")
 
 if(WIN32)
-	set_target_properties(chiaki PROPERTIES WIN32_EXECUTABLE TRUE)
+	# Allow disabling WIN32_EXECUTABLE for debugging (e.g., fastbuild.bat sets CHIAKI_ENABLE_CONSOLE=ON)
+	if(NOT CHIAKI_ENABLE_CONSOLE)
+		set_target_properties(chiaki PROPERTIES WIN32_EXECUTABLE TRUE)
+	endif()
 endif()
 
 install(TARGETS chiaki
