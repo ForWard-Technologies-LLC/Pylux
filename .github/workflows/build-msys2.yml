@@ -87,7 +87,7 @@ jobs:
 
       - name: Configure chiaki-ng
         run: |
-          cmake -S . -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DCHIAKI_ENABLE_CLI=OFF -DCHIAKI_ENABLE_STEAMWORKS=ON -DCHIAKI_ENABLE_STEAM_SHORTCUT=ON -DCHIAKI_ENABLE_CONSOLE=ON
+          cmake -S . -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DCHIAKI_ENABLE_CLI=OFF -DCHIAKI_ENABLE_STEAMWORKS=ON -DCHIAKI_ENABLE_STEAM_SHORTCUT=ON
 
       - name: Build chiaki-ng
         run: |
