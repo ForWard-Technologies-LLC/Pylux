@@ -962,6 +962,23 @@ void PSGaikaiStreaming::step9_AuthorizeSession()
         if (statusCode != 200) {
             QString errorMsg = QString("Authorize failed with status %1").arg(statusCode);
             
+            // Check for PS Plus subscription error via event header
+            QByteArray eventHeader = reply->rawHeader("x-gaikai-event");
+            bool isPSPlusError = false;
+            if (!eventHeader.isEmpty()) {
+                qWarning() << "Gaikai event:" << QString::fromUtf8(eventHeader);
+                // Parse event header JSON to check event code
+                QJsonParseError parseError;
+                QJsonDocument eventDoc = QJsonDocument::fromJson(eventHeader, &parseError);
+                if (parseError.error == QJsonParseError::NoError && eventDoc.isObject()) {
+                    QJsonObject eventObj = eventDoc.object();
+                    QString eventCode = eventObj["eventCode"].toString();
+                    if (eventCode == "002.2001") {
+                        isPSPlusError = true;
+                    }
+                }
+            }
+            
             // Parse JSON error response for detailed error messages
             if (!responseBody.isEmpty()) {
                 QJsonParseError parseError;
@@ -979,7 +996,11 @@ void PSGaikaiStreaming::step9_AuthorizeSession()
                                 if (error.contains("description")) {
                                     errorDescriptions << error["description"].toString();
                                 } else if (error.contains("eventCode")) {
-                                    errorDescriptions << QString("Event: %1").arg(error["eventCode"].toString());
+                                    QString eventCode = error["eventCode"].toString();
+                                    if (eventCode == "002.2001") {
+                                        isPSPlusError = true;
+                                    }
+                                    errorDescriptions << QString("Event: %1").arg(eventCode);
                                 }
                             }
                         }
@@ -998,13 +1019,12 @@ void PSGaikaiStreaming::step9_AuthorizeSession()
                 }
             }
             
-            // Check for x-gaikai-event header for additional context
-            QByteArray eventHeader = reply->rawHeader("x-gaikai-event");
-            if (!eventHeader.isEmpty()) {
-                qWarning() << "Gaikai event:" << QString::fromUtf8(eventHeader);
-            }
-            
             qWarning() << "Gaikai Step 9 failed:" << errorMsg;
+            
+            // Emit PS Plus subscription error if detected
+            if (isPSPlusError) {
+                emit psPlusSubscriptionError();
+            }
             emit AllocationError(errorMsg);
             emit Finished();
             return;
@@ -1395,8 +1415,8 @@ void PSGaikaiStreaming::step12_SelectDatacenter(QJsonArray pingResults)
         int rtt_ms = selectedDatacenterPingResult["rtt"].toInt(0);
         if (rtt_ms > 80) {
             qWarning() << "Selected datacenter ping too high:" << selectedDatacenter << "RTT:" << rtt_ms << "ms (max: 80ms)";
-            // Use a special error message format to identify ping timeout errors
-            emit AllocationError("PING_TIMEOUT: Ping must be < 80ms to start a cloud session");
+            emit pingTimeoutError();
+            emit AllocationError("Ping must be < 80ms to start a cloud session");
             emit Finished();
             return;
         }

@@ -62,6 +62,7 @@ public:
 
 signals:
     void sessionComplete(bool success, QString message, QString entitlementId);
+    void psPlusSubscriptionError();
 
 private slots:
     void handleAnonAuthCodeResponse(QNetworkReply *reply);

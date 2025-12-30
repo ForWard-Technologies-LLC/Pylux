@@ -1938,6 +1938,15 @@ void QmlBackend::setShowAuthorizationFailedDialog(bool show)
     }
 }
 
+void QmlBackend::setShowPSPlusSubscriptionDialog(bool show)
+{
+    if(show_ps_plus_subscription_dialog != show)
+    {
+        show_ps_plus_subscription_dialog = show;
+        emit showPSPlusSubscriptionDialogChanged();
+    }
+}
+
 QVariantList QmlBackend::currentControllerMapping() const
 {
     QVariantList out;

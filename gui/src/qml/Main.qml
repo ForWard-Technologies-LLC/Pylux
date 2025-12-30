@@ -151,6 +151,19 @@ Item {
                 );
             });
         }
+        
+        // Check if PS Plus subscription dialog should be shown
+        if (Chiaki.showPSPlusSubscriptionDialog) {
+            Qt.callLater(() => {
+                root.showMessageDialog(
+                    qsTr("PS Plus Subscription Required"),
+                    qsTr("You may not have an active PS Plus subscription. Please check your subscription status and try again."),
+                    () => {
+                        Chiaki.showPSPlusSubscriptionDialog = false;
+                    }
+                );
+            });
+        }
     }
 
     function showStreamView() {

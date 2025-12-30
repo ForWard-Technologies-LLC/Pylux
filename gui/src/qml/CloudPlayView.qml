@@ -1014,46 +1014,29 @@ Pane {
                             );
                         }
                         
-                        onCreateShortcut: (productId, platform, serviceType, gameName) => {
-                            console.log("Create shortcut for cloud game:", gameName, productId, platform, serviceType);
+                        onCreateShortcut: (productId, entitlementId, platform, serviceType, gameName) => {
+                            console.log("Create shortcut for cloud game:", gameName, "productId:", productId, "entitlementId:", entitlementId, platform, serviceType);
                             
                             // Determine the command and identifier to use
                             let command;
-                            let gameIdentifier = productId;
+                            let gameIdentifier = entitlementId; // Use entitlement ID for launch command
                             
                             if (serviceType === "psnow") {
                                 command = "cloudGameCatalog";
-                                // For PSNOW, use productId (will be converted to entitlementId by Kamaji)
-                                gameIdentifier = productId;
+                                // For PSNOW, entitlementId is the same as productId
+                                gameIdentifier = entitlementId;
                             } else if (serviceType === "pscloud") {
                                 command = "cloudGameLibrary";
-                                // For PSCloud, we need entitlement ID (the 'id' field from the entitlement object)
-                                if (gameData && gameData.id) {
-                                    gameIdentifier = gameData.id; // Use entitlement ID
-                                } else {
-                                    // Fallback to productId if id doesn't exist (shouldn't happen for library games)
-                                    console.warn("PSCloud game missing entitlement ID, using productId as fallback");
-                                    gameIdentifier = productId;
-                                }
+                                // For PSCloud, use entitlement ID for the launch command
+                                gameIdentifier = entitlementId;
                             } else {
                                 showErrorToast(qsTr("Error"), qsTr("Unknown service type: %1").arg(serviceType));
                                 return;
                             }
                             
-                            // Get image URL from gameData
-                            let imageUrl = "";
-                            if (gameData) {
-                                if (gameData.extracted_images && gameData.extracted_images.cover) {
-                                    imageUrl = gameData.extracted_images.cover;
-                                } else if (gameData.extracted_images && gameData.extracted_images.landscape) {
-                                    imageUrl = gameData.extracted_images.landscape;
-                                } else if (gameData.imageUrl) {
-                                    imageUrl = gameData.imageUrl;
-                                }
-                            }
-                            
-                            // Show the dialog (using showCloudDialog method)
-                            cloudShortcutDialog.showCloudDialog(gameName, gameIdentifier, serviceType, command, imageUrl);
+                            // Show the dialog - it will fetch game details itself using productId
+                            // gameIdentifier (entitlementId) is used for the launch command
+                            cloudShortcutDialog.showCloudDialog(gameName, gameIdentifier, serviceType, command, productId);
                         }
                     }
                     
@@ -1131,13 +1114,15 @@ Pane {
                         // Square/X button - Create shortcut
                         if (event.key === Qt.Key_X || event.key === Qt.Key_Backslash || event.key === Qt.Key_No) {
                             if (currentItem && currentItem.createShortcut) {
-                                let game = currentItem.modelData;
-                                let productId = currentItem.getProductId();
+                                // Use getProductIdForApi() to get the correct product ID for API calls
+                                let productId = currentItem.getProductIdForApi ? currentItem.getProductIdForApi() : currentItem.getProductId();
+                                // Use getStreamingIdentifier() to get the entitlement ID for launch command
+                                let entitlementId = currentItem.getStreamingIdentifier ? currentItem.getStreamingIdentifier() : currentItem.getProductId();
                                 let platform = currentItem.getPlatform();
                                 let serviceType = currentItem.getServiceType();
                                 let gameName = currentItem.getGameName();
                                 if (productId !== "") {
-                                    currentItem.createShortcut(productId, platform, serviceType, gameName);
+                                    currentItem.createShortcut(productId, entitlementId, platform, serviceType, gameName);
                                     event.accepted = true;
                                 }
                             }

@@ -103,6 +103,7 @@ class QmlBackend : public QObject
     Q_PROPERTY(bool enableAnalogStickMapping READ enableAnalogStickMapping WRITE setEnableAnalogStickMapping NOTIFY enableAnalogStickMappingChanged)
     Q_PROPERTY(bool showPingTimeoutDialog READ showPingTimeoutDialog WRITE setShowPingTimeoutDialog NOTIFY showPingTimeoutDialogChanged)
     Q_PROPERTY(bool showAuthorizationFailedDialog READ showAuthorizationFailedDialog WRITE setShowAuthorizationFailedDialog NOTIFY showAuthorizationFailedDialogChanged)
+    Q_PROPERTY(bool showPSPlusSubscriptionDialog READ showPSPlusSubscriptionDialog WRITE setShowPSPlusSubscriptionDialog NOTIFY showPSPlusSubscriptionDialogChanged)
     Q_PROPERTY(CloudStreamingBackend* cloudStreaming READ cloudStreaming CONSTANT)
     Q_PROPERTY(CloudCatalogBackend* cloudCatalog READ cloudCatalog CONSTANT)
 
@@ -168,6 +169,9 @@ public:
     
     bool showAuthorizationFailedDialog() const { return show_authorization_failed_dialog; }
     void setShowAuthorizationFailedDialog(bool show);
+    
+    bool showPSPlusSubscriptionDialog() const { return show_ps_plus_subscription_dialog; }
+    void setShowPSPlusSubscriptionDialog(bool show);
 
     void finishAutoRegister(const ChiakiRegisteredHost &host);
 
@@ -270,6 +274,7 @@ signals:
     void enableAnalogStickMappingChanged();
     void showPingTimeoutDialogChanged();
     void showAuthorizationFailedDialogChanged();
+    void showPSPlusSubscriptionDialogChanged();
     void discoveryEnabledChanged();
     void hostsChanged();
     void hiddenHostsChanged();
@@ -373,6 +378,7 @@ private:
     bool enable_analog_stick_mapping = false;
     bool show_ping_timeout_dialog = false;
     bool show_authorization_failed_dialog = false;
+    bool show_ps_plus_subscription_dialog = false;
     bool resume_session = false;
     bool settings_allocd = false;
     HostMAC auto_connect_mac = {};

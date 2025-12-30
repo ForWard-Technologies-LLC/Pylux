@@ -155,7 +155,7 @@ Item {
                     }
                     Label {
                         width: parent.width
-                        text: "Remote Play"
+                        text: "Pretty Sweet Stream"
                         font.pixelSize: 10
                         font.weight: Font.Light
                         color: Qt.rgba(255, 255, 255, 0.7)
@@ -169,7 +169,7 @@ Item {
                 Image {
                     Layout.preferredWidth: 50
                     Layout.preferredHeight: 50
-                    source: "qrc:icons/chiaking.png"
+                    source: "qrc:icons/logo_square_1024.png"
                     fillMode: Image.PreserveAspectFit
                     smooth: true
                     antialiasing: true

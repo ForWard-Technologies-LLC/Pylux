@@ -33,6 +33,8 @@ signals:
     void AllocationComplete(QString serverIp, int serverPort, QString handshakeKey, QString launchSpec, QString sessionId);
     void AllocationError(QString error);
     void AllocationProgress(QString message, int queuePosition = -1);
+    void psPlusSubscriptionError();
+    void pingTimeoutError();
     void Finished();
 
 public:

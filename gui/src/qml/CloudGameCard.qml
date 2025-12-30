@@ -16,7 +16,7 @@ Rectangle {
     property string cachedImageUrl: ""
     
     signal streamGame(string productId, string platform, string serviceType)
-    signal createShortcut(string productId, string platform, string serviceType, string gameName)
+    signal createShortcut(string productId, string entitlementId, string platform, string serviceType, string gameName)
     
     // Generate controller button icon path
     function getControllerIcon(buttonName) {
@@ -38,12 +38,33 @@ Rectangle {
         return qsTr("Unknown Game");
     }
     
+    // Get product ID (general purpose - may return entitlement ID for PSCloud if product_id not available)
     function getProductId() {
         if (!gameData) return "";
-        if (gameData.id) return gameData.id; // PSNOW
+        // Prioritize product_id/productId over id
+        if (gameData.product_id) return gameData.product_id; // Owned games (PSCloud library)
         if (gameData.productId) return gameData.productId; // PS5 Cloud catalog
-        if (gameData.product_id) return gameData.product_id; // Owned games
+        if (gameData.id) return gameData.id; // Fallback: PSNOW or if product_id/productId not available
         return "";
+    }
+    
+    // Get product ID specifically for API calls (fetchGameDetails)
+    // For PSCloud: returns product_id (not entitlement id)
+    // For PSNOW: returns id (which is the product ID)
+    function getProductIdForApi() {
+        if (!gameData) return "";
+        if (isPsnow) {
+            // PSNOW: use id as productId
+            return gameData.id || "";
+        } else {
+            // PSCloud: use product_id for API calls (not the entitlement id)
+            if (gameData.product_id) {
+                return gameData.product_id;
+            } else if (gameData.productId) {
+                return gameData.productId;
+            }
+            return "";
+        }
     }
     
     // Get the identifier to use for streaming (entitlement ID for PSCloud, product ID for PSNOW)
@@ -325,43 +346,19 @@ Rectangle {
                     cursorShape: Qt.PointingHandCursor
                     
                         onClicked: {
-                            let productId = getProductId();
+                            let productIdForApi = getProductIdForApi();
+                            let entitlementId = getStreamingIdentifier(); // For PSCloud: entitlement ID, for PSNOW: product ID
                             let platform = getPlatform();
                             let serviceType = getServiceType();
                             let gameName = getGameName();
-                            if (productId !== "") {
-                                // Fetch game details (including landscape image) when shortcut is pressed
-                                Chiaki.cloudCatalog.fetchGameDetails(productId, function(success, message, jsonData) {
-                                    if (success && jsonData) {
-                                        try {
-                                            let details = JSON.parse(jsonData);
-                                            // Update gameData with fetched details (especially landscape image)
-                                            if (details.extracted_images) {
-                                                // Merge extracted images into gameData
-                                                if (!gameData.extracted_images) {
-                                                    gameData.extracted_images = {};
-                                                }
-                                                if (details.extracted_images.landscape) {
-                                                    gameData.extracted_images.landscape = details.extracted_images.landscape;
-                                                    cachedImageUrl = details.extracted_images.landscape;
-                                                }
-                                                if (details.extracted_images.cover) {
-                                                    gameData.extracted_images.cover = details.extracted_images.cover;
-                                                }
-                                            }
-                                            // Now create shortcut with full details
-                                            createShortcut(productId, platform, serviceType, gameName);
-                                        } catch (e) {
-                                            console.error("Failed to parse game details:", e);
-                                            // Still create shortcut even if details parsing fails
-                                            createShortcut(productId, platform, serviceType, gameName);
-                                        }
-                                    } else {
-                                        console.error("Failed to fetch game details:", message);
-                                        // Still create shortcut even if details fetch fails
-                                        createShortcut(productId, platform, serviceType, gameName);
-                                    }
-                                });
+                            
+                            if (productIdForApi !== "") {
+                                // Open dialog - it will fetch game details itself using productIdForApi
+                                // entitlementId is used for the launch command
+                                console.log("[CloudGameCard] Opening shortcut dialog, productId for API:", productIdForApi, "entitlementId:", entitlementId, "isPsnow:", isPsnow);
+                                createShortcut(productIdForApi, entitlementId, platform, serviceType, gameName);
+                            } else {
+                                console.warn("[CloudGameCard] Cannot create shortcut - missing product ID for API");
                             }
                         }
                 }
@@ -405,13 +402,20 @@ Rectangle {
         }
         // Square/X button (X key) - Create shortcut
         else if (event.key === Qt.Key_X) {
-            let productId = getProductId();
+            let productIdForApi = getProductIdForApi();
+            let entitlementId = getStreamingIdentifier(); // For PSCloud: entitlement ID, for PSNOW: product ID
             let platform = getPlatform();
             let serviceType = getServiceType();
             let gameName = getGameName();
-            if (productId !== "") {
-                createShortcut(productId, platform, serviceType, gameName);
+            
+            if (productIdForApi !== "") {
+                // Open dialog - it will fetch game details itself using productIdForApi
+                // entitlementId is used for the launch command
+                console.log("[CloudGameCard] Opening shortcut dialog (keyboard), productId for API:", productIdForApi, "entitlementId:", entitlementId, "isPsnow:", isPsnow);
+                createShortcut(productIdForApi, entitlementId, platform, serviceType, gameName);
                 event.accepted = true;
+            } else {
+                console.warn("[CloudGameCard] Cannot create shortcut (keyboard) - missing product ID for API");
             }
         }
     }

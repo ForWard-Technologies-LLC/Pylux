@@ -33,23 +33,40 @@ Pane {
             if (StackView.view && StackView.view.depth > 1)
                 return;
             
-            if (hostsView.count > 0) {
-                // Has consoles - focus first console
-                hostsView.currentIndex = 0;
-                hostsView.selectedIndex = 0;
-                hostsView.forceActiveFocus(Qt.TabFocusReason);
+            // Check which tab is active
+            if (mainTabBar.currentIndex === 1) {
+                // Cloud Play tab - focus cloud play view
+                if (cloudPlayLoader.active) {
+                    let cloudPlayView = cloudPlayLoader.item;
+                    if (cloudPlayView && cloudPlayView.catalogButtonItem) {
+                        cloudPlayView.catalogButtonItem.forceActiveFocus(Qt.TabFocusReason);
+                        return;
+                    }
+                }
+                // Fallback to cloud play tab button
+                if (mainTabBar) {
+                    mainTabBar.itemAt(1).forceActiveFocus(Qt.TabFocusReason);
+                }
             } else {
-                // No consoles - focus most relevant dialog button
-                if (addManuallyButton.visible) {
-                    addManuallyButton.forceActiveFocus(Qt.TabFocusReason);
-                } else if (enableLocalDiscoveryButton.visible) {
-                    enableLocalDiscoveryButton.forceActiveFocus(Qt.TabFocusReason);
+                // Remote Play tab - focus hostsView or buttons
+                if (hostsView.count > 0) {
+                    // Has consoles - focus first console
+                    hostsView.currentIndex = 0;
+                    hostsView.selectedIndex = 0;
+                    hostsView.forceActiveFocus(Qt.TabFocusReason);
                 } else {
-                    // Fallback to floating discovery button or tab bar
-                    if (floatingDiscoveryButton.visible) {
-                        floatingDiscoveryButton.forceActiveFocus(Qt.TabFocusReason);
-                    } else if (mainTabBar) {
-                        mainTabBar.itemAt(0).forceActiveFocus(Qt.TabFocusReason);
+                    // No consoles - focus most relevant dialog button
+                    if (addManuallyButton.visible) {
+                        addManuallyButton.forceActiveFocus(Qt.TabFocusReason);
+                    } else if (enableLocalDiscoveryButton.visible) {
+                        enableLocalDiscoveryButton.forceActiveFocus(Qt.TabFocusReason);
+                    } else {
+                        // Fallback to floating discovery button or tab bar
+                        if (floatingDiscoveryButton.visible) {
+                            floatingDiscoveryButton.forceActiveFocus(Qt.TabFocusReason);
+                        } else if (mainTabBar) {
+                            mainTabBar.itemAt(0).forceActiveFocus(Qt.TabFocusReason);
+                        }
                     }
                 }
             }
@@ -197,7 +214,7 @@ Pane {
             Image {
                 Layout.preferredWidth: 60
                 Layout.preferredHeight: 60
-                source: "qrc:icons/chiaking.png"
+                source: "qrc:icons/logo_square_1024.png"
                 fillMode: Image.PreserveAspectFit
                 smooth: true
                 antialiasing: true
@@ -217,7 +234,7 @@ Pane {
                     color: "#00d4ff"
                 }
                 Label {
-                    text: "Remote Play"
+                    text: "Pretty Sweet Stream"
                     font.pixelSize: 12
                     font.weight: Font.Light
                     color: Qt.rgba(255, 255, 255, 0.7)

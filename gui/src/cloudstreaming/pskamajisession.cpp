@@ -818,13 +818,51 @@ void PSKamajiSession::handleCheckoutPreviewResponse(QNetworkReply *reply)
     int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     QByteArray data = reply->readAll();
     
-    // Note: Qt's QNetworkReply may automatically decompress gzip responses
-    // If we get invalid JSON, may need to add explicit gzip decompression later
-    
+    // Verbose log errors
     if (settings && settings->GetLogVerbose()) {
-        qInfo() << "=== Checkout Preview Response ===";
-        qInfo() << "  Status:" << statusCode;
-        qInfo() << "  Body:" << QString::fromUtf8(data);
+        if (statusCode != 200 || reply->error() != QNetworkReply::NoError) {
+            qInfo() << "=== Checkout Preview Error Response ===";
+            qInfo() << "  HTTP Status Code:" << statusCode;
+            qInfo() << "  Network Error:" << reply->error();
+            qInfo() << "  Error String:" << reply->errorString();
+            qInfo() << "  Response Body:" << QString::fromUtf8(data);
+        }
+    }
+    
+    // Immediately check for errors and fail
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    if (!doc.isNull() && doc.isObject()) {
+        QJsonObject obj = doc.object();
+        QJsonObject header = obj["header"].toObject();
+        QString statusCodeHex = header["status_code"].toString();
+        
+        // Fail immediately if API error detected
+        if (statusCodeHex != "0x0000") {
+            QString message = header["message_key"].toString();
+            if (settings && settings->GetLogVerbose()) {
+                qInfo() << "  API Status Code:" << statusCodeHex;
+                qInfo() << "  Message:" << message;
+            }
+            // Checkout preview errors indicate PS Plus subscription issue
+            emit psPlusSubscriptionError();
+            emit sessionComplete(false, "Checkout preview failed", entitlementId);
+            return;
+        }
+    }
+    
+    // Check for HTTP errors
+    if (statusCode != 200) {
+        // Checkout preview HTTP errors indicate PS Plus subscription issue
+        emit psPlusSubscriptionError();
+        emit sessionComplete(false, QString("Checkout preview failed with HTTP status %1").arg(statusCode), entitlementId);
+        return;
+    }
+    
+    // Check for network errors
+    if (reply->error() != QNetworkReply::NoError) {
+        emit psPlusSubscriptionError();
+        emit sessionComplete(false, QString("Checkout preview failed: %1").arg(reply->errorString()), entitlementId);
+        return;
     }
     
     // Update JSESSIONID from Set-Cookie if present
@@ -848,32 +886,13 @@ void PSKamajiSession::handleCheckoutPreviewResponse(QNetworkReply *reply)
         }
     }
     
-    if (statusCode != 200) {
-        QString errorMsg = QString("Checkout preview failed with status %1").arg(statusCode);
-        if (!data.isEmpty()) {
-            errorMsg += ": " + QString::fromUtf8(data);
-        }
-        qWarning() << errorMsg;
-        emit sessionComplete(false, errorMsg, entitlementId);
-        return;
-    }
-    
-    QJsonDocument doc = QJsonDocument::fromJson(data);
+    // Parse JSON for successful response
     if (doc.isNull() || !doc.isObject()) {
         emit sessionComplete(false, "Invalid JSON in checkout preview response", entitlementId);
         return;
     }
     
     QJsonObject obj = doc.object();
-    QJsonObject header = obj["header"].toObject();
-    QString statusCodeHex = header["status_code"].toString();
-    
-    if (statusCodeHex != "0x0000") {
-        QString message = header["message_key"].toString();
-        qWarning() << "Checkout preview failed - Status:" << statusCodeHex << "Message:" << message;
-        emit sessionComplete(false, QString("Checkout preview failed: %1").arg(message), entitlementId);
-        return;
-    }
     
     QJsonObject dataObj = obj["data"].toObject();
     QJsonObject cart = dataObj["cart"].toObject();

@@ -187,6 +187,14 @@ void CloudStreamingBackend::continueCloudSessionAfterAuth(QString serviceType, Q
         );
         
         // When Kamaji completes, continue to Gaikai allocation
+        // Connect PS Plus subscription error signal
+        connect(kamajiSession, &PSKamajiSession::psPlusSubscriptionError, this, [this]() {
+            QmlBackend *qmlBackend = qobject_cast<QmlBackend*>(parent());
+            if (qmlBackend) {
+                qmlBackend->setShowPSPlusSubscriptionDialog(true);
+            }
+        });
+        
         connect(kamajiSession, &PSKamajiSession::sessionComplete, this, 
                 [this, kamajiSession, callback, sharedDuid, serviceType, gameIdentifier, target, redirectUri, userAgent, oauthApiPath](bool success, QString message, QString entitlementId) {
             if (!success) {
@@ -195,8 +203,7 @@ void CloudStreamingBackend::continueCloudSessionAfterAuth(QString serviceType, Q
                 // Clear game image on error
                 setGameImageUrl(QString());
                 
-                // Emit sessionError signal to trigger StreamView error handling
-                // (Authorization failures are now caught in checkAuthorization before PSKamajiSession is created)
+                // Emit sessionError to dismiss loading screen
                 QmlBackend *qmlBackend = qobject_cast<QmlBackend*>(parent());
                 if (qmlBackend) {
                     emit qmlBackend->sessionError(tr("Cloud Streaming Failed"), 
@@ -477,6 +484,21 @@ void CloudStreamingBackend::startGaikaiAllocation(QString serviceType, QString p
         }
     });
     
+    // Connect dialog error signals
+    connect(gaikaiStreaming, &PSGaikaiStreaming::psPlusSubscriptionError, this, [this]() {
+        QmlBackend *qmlBackend = qobject_cast<QmlBackend*>(parent());
+        if (qmlBackend) {
+            qmlBackend->setShowPSPlusSubscriptionDialog(true);
+        }
+    });
+    
+    connect(gaikaiStreaming, &PSGaikaiStreaming::pingTimeoutError, this, [this]() {
+        QmlBackend *qmlBackend = qobject_cast<QmlBackend*>(parent());
+        if (qmlBackend) {
+            qmlBackend->setShowPingTimeoutDialog(true);
+        }
+    });
+    
     // When Gaikai allocation fails
     connect(gaikaiStreaming, &PSGaikaiStreaming::AllocationError, this,
             [this, gaikaiStreaming, kamajiSession, callback](QString error) {
@@ -485,15 +507,9 @@ void CloudStreamingBackend::startGaikaiAllocation(QString serviceType, QString p
         // Clear game image on error
         setGameImageUrl(QString());
         
-        // Emit sessionError signal to trigger StreamView error handling
-        // Find QmlBackend parent to emit the signal
+        // Emit sessionError to dismiss loading screen
         QmlBackend *qmlBackend = qobject_cast<QmlBackend*>(parent());
         if (qmlBackend) {
-            // Check if this is a ping timeout error
-            if (error.startsWith("PING_TIMEOUT:")) {
-                // Set flag to show ping timeout dialog on main menu
-                qmlBackend->setShowPingTimeoutDialog(true);
-            }
             emit qmlBackend->sessionError(tr("Cloud Streaming Failed"), 
                                          QString("Allocation failed: %1").arg(error));
         }

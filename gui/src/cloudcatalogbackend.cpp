@@ -954,9 +954,10 @@ void CloudCatalogBackend::fetchGameDetails(const QString &productId, const QJSVa
 {
     // Check cache first
     QString cacheKey = QString("game_details_%1").arg(productId);
+    qInfo() << "[fetchGameDetails] Checking cache for:" << productId << "cache key:" << cacheKey;
     QString cached = getCachedData(cacheKey, CACHE_DURATION_DETAILS);
     if (!cached.isEmpty()) {
-        qInfo() << "[CACHE] Using cached game details for:" << productId;
+        qInfo() << "[CACHE] Using cached game details for:" << productId << "(cache key:" << cacheKey << ")";
         QJsonDocument doc = QJsonDocument::fromJson(cached.toUtf8());
         if (callback.isCallable()) {
             callback.call({true, "Cached", QJSValue(QString::fromUtf8(doc.toJson(QJsonDocument::Compact)))});
@@ -964,7 +965,7 @@ void CloudCatalogBackend::fetchGameDetails(const QString &productId, const QJSVa
         return;
     }
     
-    qInfo() << "[API CALL] Fetching game details from API for:" << productId;
+    qInfo() << "[API CALL] Fetching game details from API for:" << productId << "(cache key:" << cacheKey << ", cache miss)";
     
     gameDetailsState.callback = callback;
     gameDetailsState.productId = productId;
@@ -1078,11 +1079,14 @@ void CloudCatalogBackend::handleGameDetailsResponse()
     
     // Cache the result
     QString cacheKey = QString("game_details_%1").arg(gameDetailsState.productId);
+    qInfo() << "[API CALL] Saving game details to cache for:" << gameDetailsState.productId << "(cache key:" << cacheKey << ")";
     setCachedData(cacheKey, resultDoc);
+    qInfo() << "[API CALL] Game details saved to cache successfully";
     
     // Call callback
     if (gameDetailsState.callback.isCallable()) {
         QString jsonStr = QString::fromUtf8(resultDoc.toJson(QJsonDocument::Compact));
+        qInfo() << "[API CALL] Calling callback with fetched game details for:" << gameDetailsState.productId;
         gameDetailsState.callback.call({true, "Success", QJSValue(jsonStr)});
     }
 }
@@ -1199,11 +1203,23 @@ QString CloudCatalogBackend::getGameLandscapeImageFromCache(const QString &servi
                         QJsonObject game = gameValue.toObject();
                         // Match by entitlement ID (id field)
                         if (game.contains("id") && game["id"].toString() == gameIdentifier) {
-                            // Found in library, get productId
+                            // Found in library, get productId - prioritize product_id, fallback to id
                             if (game.contains("product_id")) {
-                                productIdForCatalog = game["product_id"].toString();
-                                qInfo() << "getGameLandscapeImage: Found productId" << productIdForCatalog << "for entitlement ID" << gameIdentifier;
-                                break;
+                                QString productId = game["product_id"].toString();
+                                if (!productId.isEmpty()) {
+                                    productIdForCatalog = productId;
+                                    qInfo() << "getGameLandscapeImage: Found productId" << productIdForCatalog << "for entitlement ID" << gameIdentifier;
+                                    break;
+                                }
+                            }
+                            // Fallback to id if product_id is missing or empty
+                            if (productIdForCatalog.isEmpty() && game.contains("id")) {
+                                QString id = game["id"].toString();
+                                if (!id.isEmpty()) {
+                                    productIdForCatalog = id;
+                                    qInfo() << "getGameLandscapeImage: Using id as productId fallback" << productIdForCatalog << "for entitlement ID" << gameIdentifier;
+                                    break;
+                                }
                             }
                         }
                     }
@@ -1640,12 +1656,54 @@ void CloudCatalogBackend::createCloudSteamShortcut(const QString &gameIdentifier
         return;
     }
     
-    // Get cached game details
-    QString cacheKey = QString("game_details_%1").arg(gameIdentifier);
+    // For PSCloud (cloudGameLibrary), gameIdentifier is entitlement ID, need to look up product_id
+    // For PSNOW (cloudGameCatalog), gameIdentifier is already the product ID
+    QString productIdForCache = gameIdentifier;
+    if (command == "cloudGameLibrary") {
+        // Look up product_id from library using entitlement ID
+        QString libraryCached = getCachedData("ps5_cloud_library", INT_MAX);
+        if (!libraryCached.isEmpty()) {
+            QJsonDocument libraryDoc = QJsonDocument::fromJson(libraryCached.toUtf8());
+            if (libraryDoc.isObject()) {
+                QJsonObject libraryRoot = libraryDoc.object();
+                if (libraryRoot.contains("games") && libraryRoot["games"].isArray()) {
+                    QJsonArray libraryGames = libraryRoot["games"].toArray();
+                    for (const QJsonValue &gameValue : libraryGames) {
+                        if (!gameValue.isObject()) continue;
+                        QJsonObject game = gameValue.toObject();
+                        // Match by entitlement ID (id field)
+                        if (game.contains("id") && game["id"].toString() == gameIdentifier) {
+                            // Found in library, get productId - prioritize product_id, fallback to id
+                            if (game.contains("product_id")) {
+                                QString productId = game["product_id"].toString();
+                                if (!productId.isEmpty()) {
+                                    productIdForCache = productId;
+                                    qInfo() << "createCloudSteamShortcut: Found productId" << productIdForCache << "for entitlement ID" << gameIdentifier;
+                                    break;
+                                }
+                            }
+                            // Fallback to id if product_id is missing or empty
+                            if (productIdForCache == gameIdentifier && game.contains("id")) {
+                                QString id = game["id"].toString();
+                                if (!id.isEmpty()) {
+                                    productIdForCache = id;
+                                    qInfo() << "createCloudSteamShortcut: Using id as productId fallback" << productIdForCache << "for entitlement ID" << gameIdentifier;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Get cached game details using product ID
+    QString cacheKey = QString("game_details_%1").arg(productIdForCache);
     QString cachedDetails = getCachedData(cacheKey, 7 * 24 * 60 * 60 * 1000); // 7 days cache
     
     if (cachedDetails.isEmpty()) {
-        qWarning() << "No cached game details for" << gameIdentifier;
+        qWarning() << "No cached game details for" << productIdForCache << "(looked up from gameIdentifier:" << gameIdentifier << ")";
         if (cb.isCallable())
             cb.call({QString("[E] No cached game details for %1. Please wait for game details to load first.").arg(gameName), false, true});
         return;

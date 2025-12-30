@@ -20,7 +20,11 @@ Dialog {
     property string serviceType: ""
     property string command: ""
     property string imageUrl: ""
+    property string productId: ""  // Product ID used for cache lookup (may differ from gameIdentifier for PSCloud)
+    property string cachedGameDetails: ""  // Fetched game details JSON
     property bool isCloudShortcut: false
+    property bool isLoadingGameDetails: false  // True while waiting for game details to be fetched
+    property bool fetchFailed: false  // True if API fetch failed (show error placeholder instead of fallback image)
     
     signal showToast(string message, string color)
     signal allDialogsClosed()
@@ -61,7 +65,7 @@ Dialog {
         open()
     }
     
-    function showCloudDialog(gameTitle, gameIdentifierValue, serviceTypeValue, commandValue, imageUrlValue) {
+    function showCloudDialog(gameTitle, gameIdentifierValue, serviceTypeValue, commandValue, productIdValue) {
         // Validate parameters
         if (!gameTitle || !gameIdentifierValue || !commandValue) {
             dialog.showToast(qsTr("⚠ Error: Missing required information"), "#F44336")
@@ -75,7 +79,11 @@ Dialog {
         gameName = gameTitle
         serviceType = serviceTypeValue
         command = commandValue
-        imageUrl = imageUrlValue || ""
+        productId = productIdValue || ""  // Product ID for API fetch
+        imageUrl = ""
+        cachedGameDetails = ""
+        fetchFailed = false
+        isLoadingGameDetails = true  // Start loading - will fetch game details
         
         // Populate fields
         gameNameField.text = gameTitle
@@ -85,12 +93,48 @@ Dialog {
         } else if (command === "cloudGameLibrary") {
             launchOptionsField.text = `--entitlement-id "${escaped_identifier}" cloudGameLibrary`
         }
-        if (imageUrl) {
-            coverImage.source = imageUrl
-        }
+        
+        // Clear image while loading
+        coverImage.source = ""
         
         open()
+        
+        // Fetch game details after dialog opens
+        if (productId) {
+            console.log("[GameShortcutDialog] Fetching game details for productId:", productId);
+            Chiaki.cloudCatalog.fetchGameDetails(productId, function(success, message, jsonData) {
+                if (success && jsonData) {
+                    try {
+                        let details = JSON.parse(jsonData);
+                        cachedGameDetails = jsonData;
+                        fetchFailed = false;
+                        isLoadingGameDetails = false;
+                        
+                        // Extract image URL
+                        if (details.extracted_images) {
+                            imageUrl = details.extracted_images.cover || details.extracted_images.landscape || "";
+                            if (imageUrl) {
+                                coverImage.source = imageUrl;
+                            }
+                        }
+                    } catch (e) {
+                        console.error("[GameShortcutDialog] Failed to parse game details:", e);
+                        fetchFailed = true;
+                        isLoadingGameDetails = false;
+                    }
+                } else {
+                    console.error("[GameShortcutDialog] Failed to fetch game details:", message);
+                    fetchFailed = true;
+                    isLoadingGameDetails = false;
+                }
+            });
+        } else {
+            console.warn("[GameShortcutDialog] No productId provided, cannot fetch game details");
+            fetchFailed = true;
+            isLoadingGameDetails = false;
+        }
     }
+    
     
     onOpened: {
         // Focus the appropriate element based on state
@@ -160,9 +204,9 @@ Dialog {
             onClicked: {
                 if (isCloudShortcut) {
                     // Cloud shortcut creation
-                    // Validate cached game details
-                    let cachedDetails = Chiaki.cloudCatalog.getCachedData("game_details_" + gameIdentifier, 7 * 24 * 60 * 60 * 1000)
-                    if (!cachedDetails || cachedDetails.length === 0) {
+                    // Check if we have pre-fetched details from the API call
+                    // Note: createCloudSteamShortcut will handle product ID lookup internally for PSCloud
+                    if (!cachedGameDetails || cachedGameDetails.length === 0) {
                         dialog.close()
                         dialog.showToast(qsTr("⚠ Game details are still loading. Please wait and try again."), "#FF9800")
                         return
@@ -319,7 +363,7 @@ Dialog {
                     Layout.preferredHeight: 200
                     color: "#1a1a1a"
                     radius: 8
-                    visible: coverImage.status === Image.Ready
+                    visible: coverImage.status === Image.Ready || (isCloudShortcut && isLoadingGameDetails) || (isCloudShortcut && fetchFailed)
                     
                     Image {
                         id: coverImage
@@ -328,6 +372,36 @@ Dialog {
                         fillMode: Image.PreserveAspectFit
                         asynchronous: true
                         cache: true
+                        visible: status === Image.Ready && !(isCloudShortcut && isLoadingGameDetails) && !(isCloudShortcut && fetchFailed)
+                    }
+                    
+                    // Loading spinner for cloud shortcuts while waiting for game details
+                    BusyIndicator {
+                        anchors.centerIn: parent
+                        running: isCloudShortcut && isLoadingGameDetails
+                        visible: isCloudShortcut && isLoadingGameDetails
+                    }
+                    
+                    // Error placeholder when API fetch fails
+                    ColumnLayout {
+                        anchors.centerIn: parent
+                        spacing: 8
+                        visible: isCloudShortcut && fetchFailed && !isLoadingGameDetails
+                        
+                        Text {
+                            Layout.alignment: Qt.AlignHCenter
+                            text: "⚠"
+                            font.pixelSize: 48
+                            color: "#F44336"
+                        }
+                        
+                        Label {
+                            Layout.alignment: Qt.AlignHCenter
+                            text: qsTr("Image unavailable")
+                            font.pixelSize: 12
+                            color: "#888888"
+                            horizontalAlignment: Text.AlignHCenter
+                        }
                     }
                 }
                 
