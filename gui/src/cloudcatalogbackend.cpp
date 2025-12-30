@@ -21,6 +21,7 @@
 #include <QImageReader>
 #include <QPainter>
 #include <QPixmap>
+#include <climits>
 
 Q_DECLARE_LOGGING_CATEGORY(chiakiGui)
 
@@ -1167,6 +1168,212 @@ QJsonObject CloudCatalogBackend::extractGameImages(const QJsonObject &gameData)
     images["landscape"] = landscapeUrl;
     
     return images;
+}
+
+QString CloudCatalogBackend::getGameLandscapeImageFromCache(const QString &serviceType, const QString &gameIdentifier)
+{
+    if (gameIdentifier.isEmpty()) {
+        return QString();
+    }
+    
+    // Determine cache file based on service type
+    QString cacheKey;
+    bool isPsCloudLibrary = false;
+    QString productIdForCatalog; // For PSCloud: productId to use in catalog lookup
+    
+    if (serviceType.toLower() == "psnow") {
+        cacheKey = "psnow_catalog";
+    } else if (serviceType.toLower() == "pscloud") {
+        // For PSCloud, check game details cache first (has landscape images from API)
+        // If gameIdentifier is an entitlement ID, we need to find the productId from library first
+        // Use very large maxAge to never invalidate cache (read-only operation)
+        QString libraryCached = getCachedData("ps5_cloud_library", INT_MAX);
+        if (!libraryCached.isEmpty()) {
+            QJsonDocument libraryDoc = QJsonDocument::fromJson(libraryCached.toUtf8());
+            if (libraryDoc.isObject()) {
+                QJsonObject libraryRoot = libraryDoc.object();
+                if (libraryRoot.contains("games") && libraryRoot["games"].isArray()) {
+                    QJsonArray libraryGames = libraryRoot["games"].toArray();
+                    for (const QJsonValue &gameValue : libraryGames) {
+                        if (!gameValue.isObject()) continue;
+                        QJsonObject game = gameValue.toObject();
+                        // Match by entitlement ID (id field)
+                        if (game.contains("id") && game["id"].toString() == gameIdentifier) {
+                            // Found in library, get productId
+                            if (game.contains("product_id")) {
+                                productIdForCatalog = game["product_id"].toString();
+                                qInfo() << "getGameLandscapeImage: Found productId" << productIdForCatalog << "for entitlement ID" << gameIdentifier;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Try game details cache first (has landscape images from API)
+        // Use very large maxAge to never invalidate cache (read-only operation)
+        QString lookupId = productIdForCatalog.isEmpty() ? gameIdentifier : productIdForCatalog;
+        QString gameDetailsCacheKey = QString("game_details_%1").arg(lookupId);
+        QString gameDetailsCached = getCachedData(gameDetailsCacheKey, INT_MAX);
+        if (!gameDetailsCached.isEmpty()) {
+            qInfo() << "getGameLandscapeImage: Found game details cache for" << lookupId;
+            QJsonDocument gameDetailsDoc = QJsonDocument::fromJson(gameDetailsCached.toUtf8());
+            if (gameDetailsDoc.isObject()) {
+                QJsonObject gameDetailsObj = gameDetailsDoc.object();
+                if (gameDetailsObj.contains("extracted_images")) {
+                    QJsonObject extracted = gameDetailsObj["extracted_images"].toObject();
+                    QString landscape = extracted["landscape"].toString();
+                    if (!landscape.isEmpty()) {
+                        qInfo() << "getGameLandscapeImage: Using landscape image from game details cache:" << landscape;
+                        return landscape;
+                    }
+                    // Fallback to cover if landscape not available
+                    QString cover = extracted["cover"].toString();
+                    if (!cover.isEmpty()) {
+                        qInfo() << "getGameLandscapeImage: Using cover image from game details cache (landscape not available):" << cover;
+                        return cover;
+                    }
+                }
+            }
+            qInfo() << "getGameLandscapeImage: Game details cache found but no images, falling back to catalog";
+        } else {
+            qInfo() << "getGameLandscapeImage: Game details cache not found for" << lookupId << ", falling back to catalog";
+        }
+        
+        // Fallback to catalog (may not have landscape images)
+        cacheKey = "ps5_cloud_catalog";
+        isPsCloudLibrary = false;
+    } else {
+        qWarning() << "getGameLandscapeImage: Unknown service type:" << serviceType;
+        return QString();
+    }
+    
+    // Load cache - use very large maxAge to never invalidate cache (read-only operation)
+    QString cached = getCachedData(cacheKey, INT_MAX);
+    if (cached.isEmpty()) {
+        qInfo() << "getGameLandscapeImage: Cache not available for" << cacheKey;
+        return QString();
+    }
+    
+    // Parse JSON
+    QJsonDocument doc = QJsonDocument::fromJson(cached.toUtf8());
+    if (!doc.isObject()) {
+        qWarning() << "getGameLandscapeImage: Invalid cache format for" << cacheKey;
+        return QString();
+    }
+    
+    QJsonObject root = doc.object();
+    if (!root.contains("games") || !root["games"].isArray()) {
+        qWarning() << "getGameLandscapeImage: No games array in cache";
+        return QString();
+    }
+    
+    QJsonArray games = root["games"].toArray();
+    
+    // Find game by identifier
+    QJsonObject gameObj;
+    bool found = false;
+    
+    for (const QJsonValue &gameValue : games) {
+        if (!gameValue.isObject()) continue;
+        
+        QJsonObject game = gameValue.toObject();
+        
+        // Match based on service type
+        if (serviceType.toLower() == "psnow") {
+            // PSNOW: Match by "id" field (product ID)
+            if (game.contains("id") && game["id"].toString() == gameIdentifier) {
+                gameObj = game;
+                found = true;
+                break;
+            }
+        } else if (serviceType.toLower() == "pscloud") {
+            // PSCloud catalog: Match by "productId" field
+            // Use productIdForCatalog if we found it from library, otherwise try gameIdentifier directly
+            QString lookupId = productIdForCatalog.isEmpty() ? gameIdentifier : productIdForCatalog;
+            if (game.contains("productId") && game["productId"].toString() == lookupId) {
+                gameObj = game;
+                found = true;
+                break;
+            }
+        }
+    }
+    
+    if (!found) {
+        qInfo() << "getGameLandscapeImage: Game not found in cache:" << cacheKey << "with identifier:" << gameIdentifier;
+        if (!productIdForCatalog.isEmpty()) {
+            qInfo() << "getGameLandscapeImage: Tried productId:" << productIdForCatalog << "from library lookup";
+        }
+        return QString();
+    }
+    
+    qInfo() << "getGameLandscapeImage: Found game in" << cacheKey << "for identifier:" << gameIdentifier;
+    
+    // Extract landscape image using priority order
+    // Priority 1: images array (type 12 → 13 → 10 → any)
+    if (gameObj.contains("images") && gameObj["images"].isArray()) {
+        QJsonArray images = gameObj["images"].toArray();
+        qInfo() << "getGameLandscapeImage: Found images array with" << images.size() << "images for" << gameIdentifier;
+        
+        QString type12, type13, type10, anyType;
+        QList<int> foundTypes;
+        
+        for (const QJsonValue &img : images) {
+            if (!img.isObject()) continue;
+            
+            QJsonObject imgObj = img.toObject();
+            int type = imgObj["type"].toInt();
+            QString url = imgObj["url"].toString();
+            foundTypes.append(type);
+            
+            qInfo() << "getGameLandscapeImage: Image type" << type << "URL:" << url;
+            
+            if (type == 12 && type12.isEmpty()) {
+                type12 = url;
+            } else if (type == 13 && type13.isEmpty()) {
+                type13 = url;
+            } else if (type == 10 && type10.isEmpty()) {
+                type10 = url;
+            } else if (anyType.isEmpty()) {
+                anyType = url;
+            }
+        }
+        
+        qInfo() << "getGameLandscapeImage: Available image types:" << foundTypes;
+        
+        if (!type12.isEmpty()) {
+            qInfo() << "getGameLandscapeImage: Using type 12 (landscape 1080p) for" << gameIdentifier << "URL:" << type12;
+            return type12;
+        }
+        if (!type13.isEmpty()) {
+            qInfo() << "getGameLandscapeImage: Using type 13 (landscape 720p) for" << gameIdentifier << "URL:" << type13;
+            return type13;
+        }
+        if (!type10.isEmpty()) {
+            qInfo() << "getGameLandscapeImage: Using type 10 (cover) for" << gameIdentifier << "URL:" << type10;
+            return type10;
+        }
+        if (!anyType.isEmpty()) {
+            qInfo() << "getGameLandscapeImage: Using any image type for" << gameIdentifier << "URL:" << anyType;
+            return anyType;
+        }
+        qInfo() << "getGameLandscapeImage: No valid images found in images array for" << gameIdentifier;
+    } else {
+        qInfo() << "getGameLandscapeImage: No images array found in game object for" << gameIdentifier;
+    }
+    
+    // Priority 2: imageUrl (cover image)
+    if (gameObj.contains("imageUrl")) {
+        QString imageUrl = gameObj["imageUrl"].toString();
+        if (!imageUrl.isEmpty()) {
+            qInfo() << "getGameLandscapeImage: Using imageUrl (fallback) for" << gameIdentifier << "URL:" << imageUrl;
+            return imageUrl;
+        }
+    }
+    
+    qInfo() << "getGameLandscapeImage: No image found for" << gameIdentifier << "in catalog:" << cacheKey;
+    return QString();
 }
 
 void CloudCatalogBackend::clearCache()

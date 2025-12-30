@@ -8,6 +8,7 @@
 #include "chiaki/remote/holepunch.h"
 #include "chiaki/session.h"
 #include "qmlbackend.h"
+#include "cloudcatalogbackend.h"
 
 #include <QObject>
 #include <QDateTime>
@@ -87,6 +88,22 @@ void CloudStreamingBackend::startCompleteCloudSession(QString serviceType, QStri
         return;
     }
     
+    // Lookup game image from cache before starting session
+    QmlBackend *qmlBackend = qobject_cast<QmlBackend*>(parent());
+    if (qmlBackend && qmlBackend->cloudCatalog()) {
+        QString imageUrl = qmlBackend->cloudCatalog()->getGameLandscapeImageFromCache(serviceType, gameIdentifier);
+        if (!imageUrl.isEmpty()) {
+            qInfo() << "Found game landscape image for" << gameIdentifier << ":" << imageUrl;
+            setGameImageUrl(imageUrl);
+        } else {
+            qInfo() << "No game image found in cache for" << gameIdentifier;
+            setGameImageUrl(QString()); // Clear any previous image
+        }
+    } else {
+        qWarning() << "Could not access CloudCatalogBackend for image lookup";
+        setGameImageUrl(QString()); // Clear any previous image
+    }
+    
     // Generate DUID once - shared between authorization check and session creation
     size_t duid_size = CHIAKI_DUID_STR_SIZE;
     char duid_arr[duid_size];
@@ -104,6 +121,9 @@ void CloudStreamingBackend::startCompleteCloudSession(QString serviceType, QStri
                 emit qmlBackend->sessionError(tr("Authentication Required"), 
                                              tr("Your NPSSO token is likely expired. Please re-login to continue using cloud streaming."));
             }
+            
+            // Clear game image on authorization failure
+            setGameImageUrl(QString());
             
             if (callback.isCallable()) {
                 callback.call({false, "Authorization check failed"});
@@ -171,6 +191,9 @@ void CloudStreamingBackend::continueCloudSessionAfterAuth(QString serviceType, Q
                 [this, kamajiSession, callback, sharedDuid, serviceType, gameIdentifier, target, redirectUri, userAgent, oauthApiPath](bool success, QString message, QString entitlementId) {
             if (!success) {
                 qWarning() << "Kamaji session creation failed:" << message;
+                
+                // Clear game image on error
+                setGameImageUrl(QString());
                 
                 // Emit sessionError signal to trigger StreamView error handling
                 // (Authorization failures are now caught in checkAuthorization before PSKamajiSession is created)
@@ -438,6 +461,7 @@ void CloudStreamingBackend::startGaikaiAllocation(QString serviceType, QString p
             }
         } catch (const Exception &e) {
             qWarning() << "Failed to start cloud streaming session:" << e.what();
+            setGameImageUrl(QString()); // Clear image on error
             if (callback.isCallable()) {
                 callback.call({
                     false, 
@@ -457,6 +481,9 @@ void CloudStreamingBackend::startGaikaiAllocation(QString serviceType, QString p
     connect(gaikaiStreaming, &PSGaikaiStreaming::AllocationError, this,
             [this, gaikaiStreaming, kamajiSession, callback](QString error) {
         qWarning() << "Gaikai allocation failed:" << error;
+        
+        // Clear game image on error
+        setGameImageUrl(QString());
         
         // Emit sessionError signal to trigger StreamView error handling
         // Find QmlBackend parent to emit the signal
@@ -506,6 +533,14 @@ void CloudStreamingBackend::setAllocationProgress(const QString &message)
     if (allocation_progress != message) {
         allocation_progress = message;
         emit allocationProgressChanged();
+    }
+}
+
+void CloudStreamingBackend::setGameImageUrl(const QString &url)
+{
+    if (game_image_url != url) {
+        game_image_url = url;
+        emit gameImageUrlChanged();
     }
 }
 

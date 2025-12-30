@@ -95,27 +95,27 @@ jobs:
           
       - name: Deploy chiaki-ng
         run: |
-          mkdir chiaki-ng-Win
-          cp build/gui/chiaki.exe chiaki-ng-Win/
-          cp third-party/steamworks/steamworks_sdk/redistributable_bin/win64/steam_api64.dll chiaki-ng-Win/
-          cp steam_appid.txt chiaki-ng-Win/ 2>/dev/null || echo "Warning: steam_appid.txt not found"
+          mkdir PSStream
+          cp build/gui/chiaki.exe PSStream/psstream.exe
+          cp third-party/steamworks/steamworks_sdk/redistributable_bin/win64/steam_api64.dll PSStream/
+          cp steam_appid.txt PSStream/ 2>/dev/null || echo "Warning: steam_appid.txt not found"
           export PATH="${{ github.workspace }}/build/third-party/cpp-steam-tools:/mingw64/share/qt6/bin/:/mingw64/bin/:${PATH}"
           export QT_PLUGIN_PATH="/mingw64/share/qt6/plugins"
           export QML2_IMPORT_PATH="/mingw64/share/qt6/qml"
-          # Recursively find and copy DLL dependencies of chiaki.exe
-          echo chiaki-ng-Win/chiaki.exe > tmp0.txt
+          # Recursively find and copy DLL dependencies of psstream.exe
+          echo PSStream/psstream.exe > tmp0.txt
           while [ -e tmp0.txt ]
           do
             cp tmp0.txt tmp.txt
             rm tmp0.txt
             sort -u tmp.txt -o tmp.txt
-            ldd $(<tmp.txt) | grep -v ":" | cut -d " " -f3 | grep -iv "system32" | grep -iv "not" | xargs -d $'\n' sh -c 'for arg do if [ -n "$arg" ] && [ ! -e "chiaki-ng-Win/${arg##*/}" ]; then echo "Copied $arg"; cp "$arg" chiaki-ng-Win/ ; echo "$arg" >> tmp0.txt; fi; done'
+            ldd $(<tmp.txt) | grep -v ":" | cut -d " " -f3 | grep -iv "system32" | grep -iv "not" | xargs -d $'\n' sh -c 'for arg do if [ -n "$arg" ] && [ ! -e "PSStream/${arg##*/}" ]; then echo "Copied $arg"; cp "$arg" PSStream/ ; echo "$arg" >> tmp0.txt; fi; done'
           done
           # Copy Qt plugins and QML modules
-          windeployqt6.exe --no-translations --qmldir=gui/src/qml chiaki-ng-Win/chiaki.exe
+          windeployqt6.exe --no-translations --qmldir=gui/src/qml PSStream/psstream.exe
           # Copy dependencies of Qt plugins (windeployqt6 doesn't copy plugin dependencies like libjpeg-8.dll)
           echo "Finding Qt plugin DLLs..."
-          find chiaki-ng-Win -type d \( -name plugins -o -name imageformats -o -name platforms -o -name sqldrivers \) -exec find {} -name "*.dll" \; | while read plugin; do
+          find PSStream -type d \( -name plugins -o -name imageformats -o -name platforms -o -name sqldrivers \) -exec find {} -name "*.dll" \; | while read plugin; do
             echo "Found plugin: $plugin"
             echo "$plugin" >> tmp0.txt
           done
@@ -125,18 +125,14 @@ jobs:
             cp tmp0.txt tmp.txt
             rm tmp0.txt
             sort -u tmp.txt -o tmp.txt
-            ldd $(<tmp.txt) 2>/dev/null | grep -v ":" | cut -d " " -f3 | grep -iv "system32" | grep -iv "not" | xargs -d $'\n' sh -c 'for arg do if [ -n "$arg" ] && [ ! -e "chiaki-ng-Win/${arg##*/}" ]; then echo "  Copying plugin dependency: ${arg##*/}"; cp "$arg" chiaki-ng-Win/ ; echo "$arg" >> tmp0.txt; fi; done'
+            ldd $(<tmp.txt) 2>/dev/null | grep -v ":" | cut -d " " -f3 | grep -iv "system32" | grep -iv "not" | xargs -d $'\n' sh -c 'for arg do if [ -n "$arg" ] && [ ! -e "PSStream/${arg##*/}" ]; then echo "  Copying plugin dependency: ${arg##*/}"; cp "$arg" PSStream/ ; echo "$arg" >> tmp0.txt; fi; done'
           done
           rm -f tmp0.txt tmp.txt
 
       - name: Package chiaki-ng
         run: |
-          CHIAKI_VERSION_MAJOR="$(grep 'CHIAKI_VERSION_MAJOR' CMakeLists.txt | grep -Eo '[0-9]')"
-          CHIAKI_VERSION_MINOR="$(grep 'CHIAKI_VERSION_MINOR' CMakeLists.txt | grep -Eo '[0-9]')"
-          CHIAKI_VERSION_PATCH="$(grep 'CHIAKI_VERSION_PATCH' CMakeLists.txt | grep -Eo '[0-9]')"
-          RELEASE_PACKAGE_FILE="chiaki-ng-win_x64-MSYS2-portable-$CHIAKI_VERSION_MAJOR.$CHIAKI_VERSION_MINOR.$CHIAKI_VERSION_PATCH-test-build-${{ github.sha }}.zip"
-          zip -r $RELEASE_PACKAGE_FILE chiaki-ng-Win
-          echo "RELEASE_PACKAGE_PATH=${RELEASE_PACKAGE_FILE}" >> $GITHUB_ENV
+          zip -r PSStream.zip PSStream
+          echo "RELEASE_PACKAGE_PATH=PSStream.zip" >> $GITHUB_ENV
 
       - name: Upload to Dropbox
         continue-on-error: true

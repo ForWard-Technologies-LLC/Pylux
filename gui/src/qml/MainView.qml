@@ -659,7 +659,11 @@ Pane {
                         color: parent.activeFocus ? "#ffffff" : Qt.rgba(255, 150/255, 150/255, 1)
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
-                        anchors.fill: parent
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.verticalCenterOffset: -2  // Offset to visually center the × character
+                        width: parent.width
+                        height: parent.height
                         Behavior on color { ColorAnimation { duration: 200 } }
                     }
                 }

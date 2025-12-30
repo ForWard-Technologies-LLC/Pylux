@@ -16,11 +16,29 @@ Item {
     property bool controllerOverlayShown: false // Track if overlay has been shown this session
     
     // Computed property: are we launching a game directly?
-    property bool launchingGame: Chiaki.session !== null 
-        && Chiaki.session.titleId !== undefined 
-        && Chiaki.session.titleId !== null
-        && Chiaki.session.titleId !== ""
-        && Chiaki.settings.showGameImageDuringLaunch
+    // For remote play: check titleId
+    // For cloud play: check cloudStreaming.gameImageUrl and sessionLoading
+    property bool launchingGame: {
+        if (!Chiaki.settings.showGameImageDuringLaunch) {
+            return false;
+        }
+        // Remote play: check for titleId
+        if (Chiaki.session !== null 
+            && Chiaki.session.titleId !== undefined 
+            && Chiaki.session.titleId !== null
+            && Chiaki.session.titleId !== "") {
+            return true;
+        }
+        // Cloud play: check for gameImageUrl and sessionLoading
+        if (sessionLoading
+            && Chiaki.cloudStreaming !== null
+            && Chiaki.cloudStreaming.gameImageUrl !== undefined
+            && Chiaki.cloudStreaming.gameImageUrl !== null
+            && Chiaki.cloudStreaming.gameImageUrl !== "") {
+            return true;
+        }
+        return false;
+    }
     
     // Watch for game launch to mute audio temporarily
     onLaunchingGameChanged: {
@@ -95,10 +113,11 @@ Item {
     }
 
     // Game background image - independent overlay, stays until GameLauncher completes
+    // z: 0 to be above black background but behind menu (menuView will be z: 1)
     Loader {
         id: gameBackgroundLoader
         anchors.fill: parent
-        z: 1
+        z: 0
         active: launchingGame
         
         sourceComponent: Component {
@@ -110,9 +129,20 @@ Item {
                     anchors.centerIn: parent
                     width: parent.width
                     height: parent.height
-                    source: (Chiaki.session && Chiaki.session.titleId) 
-                            ? ChiakiGames.getGameImage(Chiaki.session.titleId, "landscape") 
-                            : ""
+                    source: {
+                        // For cloud play: use cloudStreaming.gameImageUrl
+                        if (Chiaki.cloudStreaming !== null
+                            && Chiaki.cloudStreaming.gameImageUrl !== undefined
+                            && Chiaki.cloudStreaming.gameImageUrl !== null
+                            && Chiaki.cloudStreaming.gameImageUrl !== "") {
+                            return Chiaki.cloudStreaming.gameImageUrl;
+                        }
+                        // For remote play: use titleId
+                        if (Chiaki.session && Chiaki.session.titleId) {
+                            return ChiakiGames.getGameImage(Chiaki.session.titleId, "landscape");
+                        }
+                        return "";
+                    }
                     fillMode: Image.PreserveAspectFit
                     cache: false
                     
@@ -404,6 +434,7 @@ Item {
         opacity: 0.0
         visible: opacity
         enabled: visible
+        z: 1  // Ensure menu is above game background image
         onVisibleChanged: {
             if (visible)
                 view.grabInput(closeButton);
@@ -954,6 +985,13 @@ Item {
         function onSessionError(title, text) {
             sessionError = true;
             sessionLoading = false;
+            
+            // Clear game background image on error (same as remote play)
+            gameBackgroundLoader.active = false;
+            if (Chiaki.cloudStreaming && Chiaki.cloudStreaming.gameImageUrl) {
+                Chiaki.cloudStreaming.gameImageUrl = "";
+            }
+            
             errorTitleLabel.text = title;
             errorTextLabel.text = text;
             
@@ -1002,6 +1040,23 @@ Item {
 
         function onHasVideoChanged() {
             if (Chiaki.window.hasVideo) {
+                // For cloud play: clear image and hide game background when video appears
+                // (same as GameLaunchCompleted for remote play)
+                if (Chiaki.cloudStreaming && Chiaki.cloudStreaming.gameImageUrl) {
+                    // Hide game background and stop loading indicator (same as remote play)
+                    gameBackgroundLoader.active = false;
+                    sessionLoading = false;
+                    
+                    // Clear the image URL to release resources
+                    Chiaki.cloudStreaming.gameImageUrl = "";
+                    
+                    // Show controller overlay after a brief delay (only first time)
+                    if (!controllerOverlayShown && !Chiaki.settings.controllerOverlayShown) {
+                        controllerOverlayTimer.start();
+                    }
+                    return;
+                }
+                
                 // If not launching a game directly, stop loading when video appears
                 // If launching a game, keep loading until GameLaunchCompleted
                 if (!launchingGame) {

@@ -34,6 +34,7 @@ class CloudStreamingBackend : public QObject
     Q_OBJECT
     Q_PROPERTY(QString allocationProgress READ getAllocationProgress NOTIFY allocationProgressChanged)
     Q_PROPERTY(int queuePosition READ getQueuePosition NOTIFY queuePositionChanged)
+    Q_PROPERTY(QString gameImageUrl READ getGameImageUrl WRITE setGameImageUrl NOTIFY gameImageUrlChanged)
 
 public:
     explicit CloudStreamingBackend(Settings *settings, QObject *parent = nullptr);
@@ -47,6 +48,8 @@ public:
     
     QString getAllocationProgress() const { return allocation_progress; }
     int getQueuePosition() const { return queue_position; }
+    QString getGameImageUrl() const { return game_image_url; }
+    void setGameImageUrl(const QString &url);
 
 signals:
     // Emitted when a cloud streaming session is created and ready to be registered
@@ -55,6 +58,8 @@ signals:
     void allocationProgressChanged();
     // Emitted when queue position changes
     void queuePositionChanged();
+    // Emitted when game image URL changes
+    void gameImageUrlChanged();
 
 private slots:
     void onAllocationProgress(QString message, int queuePosition = -1);
@@ -71,6 +76,7 @@ private:
     Settings *settings;
     QString allocation_progress;
     int queue_position = -1;  // -1 means not queued or no position available
+    QString game_image_url;  // Landscape image URL for current cloud game
     QNetworkAccessManager *authManager; // For authorization check
     
     // Helper method to start Gaikai allocation (shared between PSNOW and PSCLOUD flows)

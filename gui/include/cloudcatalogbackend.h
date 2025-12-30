@@ -55,6 +55,7 @@ public:
     Q_INVOKABLE void clearCache();
     Q_INVOKABLE void invalidateCache();
     Q_INVOKABLE QString getCachedData(const QString &key, int maxAge);
+    Q_INVOKABLE QString getGameLandscapeImageFromCache(const QString &serviceType, const QString &gameIdentifier);
 
 signals:
     void catalogUpdated();

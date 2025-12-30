@@ -181,7 +181,7 @@ Rectangle {
             switch(Chiaki.connectState)
             {
                 case Chiaki.PsnConnectState.LinkingConsole:
-                    infoLabel.text = registOnly ? qsTr("Registering PlayStation console with chiaki-ng ...") : qsTr("Linking chiaki-ng with PlayStation console ...")
+                    infoLabel.text = registOnly ? qsTr("Registering PlayStation console with PSStream ...") : qsTr("Linking PSStream with PlayStation console ...")
                     view.allowClose = false
                     break
                 case Chiaki.PsnConnectState.RegisteringConsole:
