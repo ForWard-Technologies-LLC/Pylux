@@ -183,7 +183,7 @@ static MunitResult test_takion_format_congestion(const MunitParameter params[], 
 	static const uint8_t buf_expected[] = { 0x05, 0x00, 0x42, 0x00, 0x1a, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0xe5 };
 	munit_assert_memory_equal(sizeof(buf), buf, buf_expected);
 
-	err = chiaki_takion_packet_mac(&gkcrypt, buf, sizeof(buf), key_pos, NULL, NULL);
+	err = chiaki_takion_packet_mac(&gkcrypt, buf, sizeof(buf), key_pos, NULL, NULL, false);
 	if(err != CHIAKI_ERR_SUCCESS)
 		return MUNIT_ERROR;
 
