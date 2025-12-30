@@ -192,7 +192,7 @@ Pane {
             }
             
             Label {
-                text: deviceName ? qsTr("Games - %1").arg(deviceName) : qsTr("My Games")
+                text: deviceName ? qsTr("Installed - %1").arg(deviceName) : qsTr("Installed")
                 font.pixelSize: 20
                 font.bold: true
                 color: "white"
@@ -237,9 +237,14 @@ Pane {
                 
                 GridView {
                     id: gamesGrid
+                    
+                    // Property to force binding recalculation when needed
+                    property int _layoutVersion: 0
+                    
                     width: {
-                        // Calculate how many columns fit in the available content width
-                        // availableWidth accounts for scrollbar space
+                        // Include count to ensure recalculation when model changes
+                        let modelCount = count;
+                        let version = _layoutVersion;
                         let availableWidth = scrollView.availableWidth
                         let cols = Math.floor(availableWidth / cellWidth)
                         if (cols === 0) cols = 1
@@ -248,7 +253,25 @@ Pane {
                     }
                     // Height needs to be implicit to enable scrolling
                     height: implicitHeight
-                    x: Math.max(0, (scrollView.availableWidth - width) / 2)
+                    // Center the grid horizontally using x positioning
+                    // Include count to ensure recalculation when model changes
+                    x: {
+                        let modelCount = count;
+                        let version = _layoutVersion;
+                        let availableWidth = scrollView.availableWidth
+                        let gridWidth = width
+                        return Math.max(0, (availableWidth - gridWidth) / 2)
+                    }
+                    
+                    // Force recalculation when availableWidth changes (e.g., window maximize/resize)
+                    Connections {
+                        target: scrollView
+                        function onAvailableWidthChanged() {
+                            Qt.callLater(() => {
+                                gamesGrid._layoutVersion++;
+                            });
+                        }
+                    }
                     cellWidth: 240  // Fit 5 columns on 1280px wide screens
                     cellHeight: 340  // Fit 2 rows on 800px tall screens
                     focus: true
@@ -418,6 +441,25 @@ Pane {
                     if (count > 0) {
                         currentIndex = 0
                         forceActiveFocus()
+                    }
+                }
+                
+                onModelChanged: {
+                    // Force layout recalculation after model changes
+                    Qt.callLater(() => {
+                        _layoutVersion++;
+                    });
+                }
+                
+                onCountChanged: {
+                    // Force layout recalculation after count changes (including when going to 0)
+                    Qt.callLater(() => {
+                        _layoutVersion++;
+                    });
+                    if (count > 0) {
+                        if (currentIndex < 0) {
+                            currentIndex = 0;
+                        }
                     }
                 }
             }

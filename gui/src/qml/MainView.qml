@@ -1136,7 +1136,7 @@ Pane {
                                         anchors.right: gamesImage.left
                                         anchors.rightMargin: 6
                                         anchors.verticalCenter: parent.verticalCenter
-                                        text: "Games"
+                                        text: "Installed"
                                         font.pixelSize: 14
                                         font.weight: Font.Medium
                                         color: Qt.rgba(255, 255, 255, 0.8)
@@ -1619,7 +1619,7 @@ Pane {
                         antialiasing: true
                     }
                     Label {
-                        text: qsTr("Games")
+                        text: qsTr("Installed")
                         font.pixelSize: 13
                         font.weight: Font.Medium
                         color: "white"
