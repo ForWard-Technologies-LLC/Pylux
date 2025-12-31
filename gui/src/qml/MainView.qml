@@ -613,9 +613,9 @@ Pane {
                     Layout.preferredHeight: 48
                     Layout.preferredWidth: 48
                     flat: true
-                    text: "×"
-                    font.pixelSize: 24
-                    font.weight: Font.Bold
+                    icon.source: "qrc:/icons/close-24px.svg"
+                    icon.width: 24
+                    icon.height: 24
                     focusPolicy: Qt.StrongFocus
                     hoverEnabled: true
                     onClicked: Qt.quit()
@@ -668,20 +668,6 @@ Pane {
                         Behavior on color { ColorAnimation { duration: 200 } }
                         Behavior on border.color { ColorAnimation { duration: 200 } }
                         Behavior on border.width { NumberAnimation { duration: 200 } }
-                    }
-                    
-                    contentItem: Text {
-                        text: parent.text
-                        font: parent.font
-                        color: parent.activeFocus ? "#ffffff" : Qt.rgba(255, 150/255, 150/255, 1)
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        anchors.verticalCenter: parent.verticalCenter
-                        anchors.verticalCenterOffset: -2  // Offset to visually center the × character
-                        width: parent.width
-                        height: parent.height
-                        Behavior on color { ColorAnimation { duration: 200 } }
                     }
                 }
             }
