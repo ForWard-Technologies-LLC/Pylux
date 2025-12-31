@@ -6,9 +6,7 @@
 #include "chiaki/log.h"
 #include "streamsession.h"
 
-#ifndef Q_OS_WIN
 #include <qpa/qplatformnativeinterface.h>
-#endif
 
 #define PL_LIBAV_IMPLEMENTATION 0
 #include <libplacebo/utils/libav.h>
