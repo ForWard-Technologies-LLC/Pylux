@@ -63,7 +63,7 @@ jobs:
               'BreakBeforeBraces: Attach' > .clang-format
           fi
           
-          # Find and format all C/C++ files and headers
+          # Find all C/C++ files and headers, remove comments, then format
           find . -type f \( -name "*.c" -o -name "*.cpp" -o -name "*.h" -o -name "*.hpp" \) \
             ! -path "./.git/*" \
             ! -path "./build*/*" \
@@ -72,7 +72,10 @@ jobs:
             ! -path "./switch/borealis/library/lib/extern/*" \
             ! -path "./switch/borealis/library/include/borealis/extern/*" \
             | while read cpp_file; do
-              echo "Formatting: $cpp_file"
+              echo "Processing: $cpp_file"
+              # Remove comments (both // and /* */ style) using Python
+              python3 -c "import re; import sys; filename = sys.argv[1]; content = open(filename, 'r', encoding='utf-8').read(); content = re.sub(r'//.*?$', '', content, flags=re.MULTILINE); content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL); content = re.sub(r'\n{3,}', '\n\n', content); content = re.sub(r'[ \t]+$', '', content, flags=re.MULTILINE); open(filename, 'w', encoding='utf-8').write(content.strip() + '\n')" "$cpp_file"
+              # Then format with clang-format
               clang-format -i -style=file "$cpp_file" || echo "Warning: Failed to format $cpp_file"
             done
           
