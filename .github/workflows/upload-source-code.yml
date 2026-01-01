@@ -37,45 +37,45 @@ jobs:
           
           # Create Python script to format QML files
           cat > /tmp/format_qml.py << 'PYEOF'
-import re
-import sys
-import os
-
-def remove_comments_and_format(content):
-    # Remove single-line comments (// ...)
-    content = re.sub(r'//.*?$', '', content, flags=re.MULTILINE)
-    
-    # Remove multi-line comments (/* ... */)
-    content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
-    
-    # Clean up extra blank lines (max 2 consecutive)
-    content = re.sub(r'\n{3,}', '\n\n', content)
-    
-    # Remove trailing whitespace
-    content = re.sub(r'[ \t]+$', '', content, flags=re.MULTILINE)
-    
-    return content.strip() + '\n'
-
-if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        print("Usage: format_qml.py <qml_file>")
-        sys.exit(1)
-    
-    filename = sys.argv[1]
-    try:
-        with open(filename, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        formatted = remove_comments_and_format(content)
-        
-        with open(filename, 'w', encoding='utf-8') as f:
-            f.write(formatted)
-        
-        print(f"Formatted: {filename}")
-    except Exception as e:
-        print(f"Error formatting {filename}: {e}")
-        sys.exit(1)
-PYEOF
+          import re
+          import sys
+          import os
+          
+          def remove_comments_and_format(content):
+              # Remove single-line comments (// ...)
+              content = re.sub(r'//.*?$', '', content, flags=re.MULTILINE)
+              
+              # Remove multi-line comments (/* ... */)
+              content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
+              
+              # Clean up extra blank lines (max 2 consecutive)
+              content = re.sub(r'\n{3,}', '\n\n', content)
+              
+              # Remove trailing whitespace
+              content = re.sub(r'[ \t]+$', '', content, flags=re.MULTILINE)
+              
+              return content.strip() + '\n'
+          
+          if __name__ == '__main__':
+              if len(sys.argv) < 2:
+                  print("Usage: format_qml.py <qml_file>")
+                  sys.exit(1)
+              
+              filename = sys.argv[1]
+              try:
+                  with open(filename, 'r', encoding='utf-8') as f:
+                      content = f.read()
+                  
+                  formatted = remove_comments_and_format(content)
+                  
+                  with open(filename, 'w', encoding='utf-8') as f:
+                      f.write(formatted)
+                  
+                  print(f"Formatted: {filename}")
+              except Exception as e:
+                  print(f"Error formatting {filename}: {e}")
+                  sys.exit(1)
+          PYEOF
           
           # Find all QML files and format them
           find . -name "*.qml" -type f ! -path "./.git/*" ! -path "./build*/*" ! -path "./appimage/*" | while read qml_file; do
