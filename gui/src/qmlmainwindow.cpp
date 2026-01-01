@@ -110,23 +110,25 @@ QmlMainWindow::QmlMainWindow(const StreamSessionConnectInfo &connect_info, Steam
     connect(session, &StreamSession::SessionQuit, qGuiApp, &QGuiApplication::quit);
 }
 
-QmlMainWindow::QmlMainWindow(Settings *settings, const QString &serviceType, const QString &gameIdentifier, SteamworksWrapper *steamworks)
+QmlMainWindow::QmlMainWindow(Settings *settings, const QString &serviceType, const QString &gameIdentifier, bool exit_app_on_stream_exit, SteamworksWrapper *steamworks)
     : QWindow()
     , settings(settings)
 {
     qInfo() << "=== QmlMainWindow: Cloud Streaming Constructor ===";
     qInfo() << "Service Type:" << serviceType;
     qInfo() << "Game Identifier:" << gameIdentifier;
+    qInfo() << "Exit on stream exit:" << exit_app_on_stream_exit;
     qInfo() << "Steamworks:" << (steamworks ? "provided" : "null");
     
     direct_stream = true;
     emit directStreamChanged();
-    init(settings, false, steamworks);
+    init(settings, exit_app_on_stream_exit, steamworks);
     startCloudStreaming(serviceType, gameIdentifier);
 
     // Connect session quit when session is created (cloud streaming is async, so we connect via sessionChanged)
-    connect(backend, &QmlBackend::sessionChanged, this, [this](StreamSession *s) {
-        if (s) {
+    // Only quit app if exit_app_on_stream_exit is true (command line launch)
+    connect(backend, &QmlBackend::sessionChanged, this, [this, exit_app_on_stream_exit](StreamSession *s) {
+        if (s && exit_app_on_stream_exit) {
             connect(s, &StreamSession::SessionQuit, qGuiApp, &QGuiApplication::quit);
         }
     });

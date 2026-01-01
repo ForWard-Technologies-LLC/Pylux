@@ -321,44 +321,8 @@ DialogView {
                     rightMargin: 10
                 }
                 Component.onCompleted: {
-                    try {
-                        web = Qt.createQmlObject("
-                        import QtWebEngine
-                        import org.streetpea.chiaking
-                        WebEngineView {
-                            profile {
-                                offTheRecord: false
-                                storageName: 'psn-token'
-                                onClearHttpCacheCompleted: {
-                                    if(dialog.closing)
-                                        root.closeDialog();
-                                    else
-                                        webView.web.reload();
-                                }
-                            }
-                            settings {
-                                // Load larger touch icons
-                                touchIconsEnabled: true
-                            }
-
-                            onContextMenuRequested: (request) => request.accepted = true;
-                            onNavigationRequested: (request) => {
-                                if (Chiaki.checkPsnRedirectURL(request.url)) {
-                                    Chiaki.handlePsnLoginRedirect(request.url)
-                                    request.reject();
-                                }
-                                else
-                                    request.accept();
-                            }
-                            onCertificateError: console.error(error.description);
-                        }", webView, "webView");
-                        Chiaki.setWebEngineHints(web.profile);
-                        webView.web.url = Chiaki.psnLoginUrl();
-                        web.anchors.fill = webView;
-                    } catch (error) {
-                        console.error('Create webengine view failed with error:' + error);
-                        extBrowserButton.clicked();
-                    }
+                    // Always use external browser - don't create WebEngine view
+                    extBrowserButton.clicked();
                 }
             }
         }

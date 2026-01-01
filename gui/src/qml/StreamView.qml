@@ -40,11 +40,22 @@ Item {
         return false;
     }
     
-    // Watch for game launch to mute audio temporarily
+    // Watch for game launch to mute audio temporarily (REMOTE PLAY ONLY, not cloud play)
     onLaunchingGameChanged: {
         if (launchingGame && Chiaki.session) {
-            // Mute session audio (doesn't persist to settings)
-            Chiaki.session.SetAudioVolume(0);
+            // Only mute for remote play (when titleId is set), NOT for cloud play
+            // Check if this is remote play by checking for titleId
+            var isRemotePlay = Chiaki.session.titleId !== undefined 
+                               && Chiaki.session.titleId !== null 
+                               && Chiaki.session.titleId !== "";
+            if (isRemotePlay) {
+                // Mute session audio for remote play game launch (doesn't persist to settings)
+                console.log("Remote play game launch detected: Muting audio (volume set to 0)");
+                Chiaki.session.SetAudioVolume(0);
+            } else {
+                // Cloud play: do NOT mute audio
+                console.log("Cloud play game launch detected: NOT muting audio (volume stays at", Chiaki.settings.audioVolume + ")");
+            }
         }
     }
 
@@ -73,6 +84,7 @@ Item {
                 sessionLoading = false;
                 
                 // Restore audio volume from settings (doesn't modify persisted settings)
+                console.log("Remote play: Restoring audio volume to", Chiaki.settings.audioVolume);
                 Chiaki.session.SetAudioVolume(Chiaki.settings.audioVolume);
                 
                 // Show controller overlay after a brief delay (only first time)
@@ -1049,6 +1061,9 @@ Item {
                     
                     // Clear the image URL to release resources
                     Chiaki.cloudStreaming.gameImageUrl = "";
+                    
+                    // Note: Cloud play audio is never muted, so no volume restoration needed here
+                    // (Volume restoration only happens in GameLaunchCompleted for remote play)
                     
                     // Show controller overlay after a brief delay (only first time)
                     if (!controllerOverlayShown && !Chiaki.settings.controllerOverlayShown) {

@@ -601,9 +601,11 @@ int RunCloudStream(QGuiApplication &app, Settings *settings, const QString &serv
 	if (!steamworks) {
 		return 1;
 	}
-	QmlMainWindow main_window(settings, serviceType, gameIdentifier, steamworks);
+	// When started from command line, exit app on stream exit (true)
+	QmlMainWindow main_window(settings, serviceType, gameIdentifier, true, steamworks);
 #else
-	QmlMainWindow main_window(settings, serviceType, gameIdentifier);
+	// When started from command line, exit app on stream exit (true)
+	QmlMainWindow main_window(settings, serviceType, gameIdentifier, true);
 #endif
 	main_window.show();
 	return app.exec();

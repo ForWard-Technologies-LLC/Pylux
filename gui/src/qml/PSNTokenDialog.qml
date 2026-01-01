@@ -388,80 +388,13 @@ DialogView {
                 }
                 property bool started: false
                 Component.onCompleted: {
-                    try {
-                        web = Qt.createQmlObject("
-                        import QtWebEngine
-                        import QtQuick.Controls
-                        import org.streetpea.chiaking
-                        WebEngineView {
-                            profile {
-                                offTheRecord: false
-                                storageName: 'psn-token'
-                                onClearHttpCacheCompleted: {
-                                    if(dialog.closing)
-                                        root.closeDialog();
-                                    else
-                                        webView.web.reload();
-                                }
-                            }
-                            settings {
-                                touchIconsEnabled: true
-                                localContentCanAccessRemoteUrls: true
-                            }
-                            onContextMenuRequested: (request) => request.accepted = true;
-                            onUrlChanged: function(url) {
-                                var urlStr = url.toString();
-                                var caIdx = urlStr.indexOf('ca.account.sony.com');
-                                var accIdx = urlStr.indexOf('account.sony.com');
-                                var isRedirect = Chiaki.checkPsnRedirectURL(url);
-                                if (caIdx >= 0 || accIdx >= 0 || isRedirect) {
-                                    web.runJavaScript(
-                                        \"(function(){const m=document.cookie.match(/npsso=([^;]+)/);return m?m[1]:'';})()\",
-                                        function(result) {
-                                            if (result && result.length > 0) {
-                                                try {
-                                                    npssoToken.text = result;
-                                                    console.log('NPSSO extracted');
-                                                } catch(e) {
-                                                    console.log('NPSSO error:', e);
-                                                }
-                                            }
-                                        }
-                                    );
-                                }
-                            }
-                            onNavigationRequested: (request) => {
-                                if (Chiaki.checkPsnRedirectURL(request.url)) {
-                                    web.runJavaScript(
-                                        \"(function(){const m=document.cookie.match(/npsso=([^;]+)/);return m?m[1]:'';})()\",
-                                        function(result) {
-                                            if (result && result.length > 0) {
-                                                try {
-                                                    npssoToken.text = result;
-                                                } catch(e) {}
-                                            }
-                                        }
-                                    );
-                                    request.reject();
-                                } else {
-                                    request.accept();
-                                }
-                            }
-                            onCertificateError: console.error(error.description);
-                        }", webView, "webView");
-                        Chiaki.setWebEngineHints(web.profile);
-                        // Don't auto-load - only load when user clicks the button
-                        web.anchors.fill = webView;
-                    } catch (error) {
-                        console.error('Create webengine view failed with error:' + error);
-                        // If webview creation fails, show the external browser UI but don't auto-open URL
-                        nativeTokenForm.visible = false;
-                        psnTokenToolbar.visible = false;
-                        nativeErrorGrid.visible = false;
-                        webView.visible = false;
-                        linkgridScroll.visible = true;
-                        dialog.buttonVisible = true;
-                    }
+                    // Always use external browser - don't create WebEngine view
+                    nativeTokenForm.visible = false;
+                    psnTokenToolbar.visible = false;
+                    nativeErrorGrid.visible = false;
+                    webView.visible = false;
+                    linkgridScroll.visible = true;
+                    dialog.buttonVisible = true;
                 }
             }
         }

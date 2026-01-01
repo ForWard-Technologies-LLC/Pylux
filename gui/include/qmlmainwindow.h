@@ -65,7 +65,7 @@ public:
 
     QmlMainWindow(Settings *settings,  bool exit_app_on_stream_exit = false, SteamworksWrapper *steamworks = nullptr);
     QmlMainWindow(const StreamSessionConnectInfo &connect_info, SteamworksWrapper *steamworks = nullptr);
-    QmlMainWindow(Settings *settings, const QString &serviceType, const QString &gameIdentifier, SteamworksWrapper *steamworks = nullptr);
+    QmlMainWindow(Settings *settings, const QString &serviceType, const QString &gameIdentifier, bool exit_app_on_stream_exit = true, SteamworksWrapper *steamworks = nullptr);
     ~QmlMainWindow();
     void updateWindowType(WindowType type);
     void setSettings(Settings *new_settings);
