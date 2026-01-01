@@ -17,6 +17,109 @@ jobs:
           submodules: 'recursive'
           fetch-depth: 0  # Full history for proper git info
 
+      - name: Install formatting tools
+        run: |
+          # Install clang-format for C/C++ formatting
+          sudo apt-get update
+          sudo apt-get install -y clang-format
+          
+          # Install qmlformat from Qt6 (if available) or use Python-based formatter
+          # Try to install qmlformat via pip or use Qt6 tools
+          pip install qmllint || echo "qmllint not available via pip, will use alternative method"
+          
+          # Verify installations
+          clang-format --version || echo "clang-format check failed"
+          python3 -c "import qmllint" 2>/dev/null && echo "qmllint available" || echo "qmllint not available"
+
+      - name: Format QML files
+        run: |
+          echo "Formatting QML files and removing comments..."
+          
+          # Create Python script to format QML files
+          cat > /tmp/format_qml.py << 'PYEOF'
+import re
+import sys
+import os
+
+def remove_comments_and_format(content):
+    # Remove single-line comments (// ...)
+    content = re.sub(r'//.*?$', '', content, flags=re.MULTILINE)
+    
+    # Remove multi-line comments (/* ... */)
+    content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
+    
+    # Clean up extra blank lines (max 2 consecutive)
+    content = re.sub(r'\n{3,}', '\n\n', content)
+    
+    # Remove trailing whitespace
+    content = re.sub(r'[ \t]+$', '', content, flags=re.MULTILINE)
+    
+    return content.strip() + '\n'
+
+if __name__ == '__main__':
+    if len(sys.argv) < 2:
+        print("Usage: format_qml.py <qml_file>")
+        sys.exit(1)
+    
+    filename = sys.argv[1]
+    try:
+        with open(filename, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        formatted = remove_comments_and_format(content)
+        
+        with open(filename, 'w', encoding='utf-8') as f:
+            f.write(formatted)
+        
+        print(f"Formatted: {filename}")
+    except Exception as e:
+        print(f"Error formatting {filename}: {e}")
+        sys.exit(1)
+PYEOF
+          
+          # Find all QML files and format them
+          find . -name "*.qml" -type f ! -path "./.git/*" ! -path "./build*/*" ! -path "./appimage/*" | while read qml_file; do
+            echo "Processing: $qml_file"
+            python3 /tmp/format_qml.py "$qml_file"
+          done
+          
+          echo "QML formatting complete"
+
+      - name: Format C/C++ files
+        run: |
+          echo "Formatting C/C++ files and headers..."
+          
+          # Create a basic .clang-format config if it doesn't exist
+          if [ ! -f .clang-format ]; then
+            cat > .clang-format << 'EOF'
+Language: Cpp
+BasedOnStyle: LLVM
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 120
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: None
+BreakBeforeBraces: Attach
+EOF
+          fi
+          
+          # Find and format all C/C++ files and headers
+          find . -type f \( -name "*.c" -o -name "*.cpp" -o -name "*.h" -o -name "*.hpp" \) \
+            ! -path "./.git/*" \
+            ! -path "./build*/*" \
+            ! -path "./appimage/*" \
+            ! -path "./third-party/*" \
+            ! -path "./switch/borealis/library/lib/extern/*" \
+            ! -path "./switch/borealis/library/include/borealis/extern/*" \
+            | while read cpp_file; do
+              echo "Formatting: $cpp_file"
+              clang-format -i -style=file "$cpp_file" || echo "Warning: Failed to format $cpp_file"
+            done
+          
+          echo "C/C++ formatting complete"
+
       - name: Create source code archive
         run: |
           # Get build information for metadata
@@ -31,22 +134,28 @@ jobs:
           echo "Git commit: ${GIT_HASH}"
           echo "Build date: ${BUILD_DATE}"
           
-          # Create comprehensive source archive (output to /tmp to avoid including itself)
-          tar -czf "/tmp/${ARCHIVE_NAME}" \
-            --exclude='.git' \
-            --exclude='build*' \
-            --exclude='appimage' \
-            --exclude='build-output' \
-            --exclude='*.AppImage' \
-            --exclude='*.zip' \
-            --exclude='*.tar.gz' \
-            --exclude='node_modules' \
-            --exclude='*.pyc' \
-            --exclude='__pycache__' \
-            --exclude='.gradle' \
-            --exclude='chiaki-build-env' \
-            --transform "s,^,psstream-source/," \
-            .
+          # Use git ls-files to respect .gitignore (gets tracked files, excluding ignored ones)
+          # Then filter out additional patterns and fastbuild.bat
+          # This combines .gitignore exclusions with our explicit exclusions
+          # Use git ls-files to respect .gitignore (already excludes ignored files)
+          # Then filter out additional explicit exclusions and fastbuild.bat
+          # This combines .gitignore exclusions with our explicit exclusions
+          git ls-files | \
+            grep -v "^fastbuild\.bat$" | \
+            grep -v "^build" | \
+            grep -v "^appimage" | \
+            grep -v "^build-output" | \
+            grep -v "\.AppImage$" | \
+            grep -v "\.zip$" | \
+            grep -v "\.tar\.gz$" | \
+            grep -v "^node_modules" | \
+            grep -v "\.pyc$" | \
+            grep -v "^__pycache__" | \
+            grep -v "^\.gradle" | \
+            grep -v "^chiaki-build-env" | \
+            tar -czf "/tmp/${ARCHIVE_NAME}" \
+              --files-from=- \
+              --transform "s,^,psstream-source/,"
           
           # Move archive to current directory for upload
           mv "/tmp/${ARCHIVE_NAME}" .
