@@ -1275,7 +1275,6 @@ void PSGaikaiStreaming::step11_GetDatacenters()
                 // The session key may have been updated during the ping, so we use the latest value
                 qInfo() << "Gaikai Step 11: Using current session key for step 12:" << configKey.left(30) << "...";
 
-                // Merge ping results with all datacenters (for testing, we only pinged the first one)
                 // Create a map of ping results by datacenter name
                 QHash<QString, QJsonObject> pingResultsMap;
                 for (const QJsonValue &val : pingResults) {

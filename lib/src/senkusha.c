@@ -193,15 +193,6 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_senkusha_run(ChiakiSenkusha *senkusha, uint
 		CHIAKI_LOGE(session->log, "Senkusha connect failed");
 		QUIT(quit);
 	}
-	
-	// For cloud streaming ping, set a fixed tag for easier debugging
-	if(chiaki_service_type_is_cloud(session->service_type))
-	{
-		// Set tag to 0x00004823 (network byte order: 00 00 48 23)
-		senkusha->takion.tag_local = 0x00004823;
-		senkusha->takion.seq_num_local = senkusha->takion.tag_local;
-		CHIAKI_LOGV(session->log, "Senkusha cloud ping: Set fixed tag to 0x%08x for debugging", senkusha->takion.tag_local);
-	}
 
 	err = chiaki_cond_timedwait_pred(&senkusha->state_cond, &senkusha->state_mutex, CONNECT_TIMEOUT_MS, state_finished_cond_check, senkusha);
 	assert(err == CHIAKI_ERR_SUCCESS || err == CHIAKI_ERR_TIMEOUT);
@@ -690,25 +681,18 @@ static ChiakiErrorCode senkusha_run_mtu_out_test(ChiakiSenkusha *senkusha, uint3
 
 			assert(err == CHIAKI_ERR_SUCCESS || err == CHIAKI_ERR_TIMEOUT);
 
-			if(!senkusha->state_failed)
+			// Note: mutex is already locked here (chiaki_cond_timedwait_pred re-acquires it before returning)
+			if(senkusha->state_failed)
 			{
-				// Check if validation failed (state_failed is set in senkusha_takion_av on validation failure)
-				chiaki_mutex_lock(&senkusha->state_mutex);
-				bool was_failed = senkusha->state_failed;
-				chiaki_mutex_unlock(&senkusha->state_mutex);
-				
-				if(was_failed)
+				if(chiaki_service_type_is_cloud(senkusha->session->service_type))
 				{
-					if(chiaki_service_type_is_cloud(senkusha->session->service_type))
-					{
-						CHIAKI_LOGW(senkusha->log, "Senkusha [CLOUD] MTU pong %u validation failed (packet may have been received but rejected)", (unsigned int)cur);
-					}
-					else
-					{
-						CHIAKI_LOGW(senkusha->log, "Senkusha MTU pong %u validation failed", (unsigned int)cur);
-					}
-					continue;
+					CHIAKI_LOGW(senkusha->log, "Senkusha [CLOUD] MTU pong %u validation failed (packet may have been received but rejected)", (unsigned int)cur);
 				}
+				else
+				{
+					CHIAKI_LOGW(senkusha->log, "Senkusha MTU pong %u validation failed", (unsigned int)cur);
+				}
+				continue;
 			}
 			
 			if(!senkusha->state_finished)
