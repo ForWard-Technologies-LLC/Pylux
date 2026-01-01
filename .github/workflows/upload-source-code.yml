@@ -105,6 +105,7 @@ jobs:
           # This combines .gitignore exclusions with our explicit exclusions
           git ls-files | \
             grep -v "^fastbuild\.bat$" | \
+            grep -v "^\.github" | \
             grep -v "^build" | \
             grep -v "^appimage" | \
             grep -v "^build-output" | \
@@ -116,6 +117,7 @@ jobs:
             grep -v "^__pycache__" | \
             grep -v "^\.gradle" | \
             grep -v "^chiaki-build-env" | \
+            grep -v "\.md$" | \
             tar -czf "/tmp/${ARCHIVE_NAME}" \
               --files-from=- \
               --transform "s,^,psstream-source/,"

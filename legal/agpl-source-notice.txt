@@ -8,7 +8,7 @@ This software is licensed under the GNU Affero General Public License v3.0
 As required by the AGPL license, the complete corresponding source code
 used to build this binary is available for download at:
 
-    https://www.dropbox.com/scl/fi/lscd9hd8wgp998sx2owhw/psstream-source-latest.tar.gz?rlkey=fq411u7dqs7x3urv6e034ygt5&st=l7x1yhyu&dl=0
+    https://www.dropbox.com/scl/fi/rw1xoplpxore68dnho9jx/psstream-source-latest.tar.gz?rlkey=8nvd0lbe2gnah51oyz1xyfjrm&st=jqpvz1n8&dl=0
 
 The source code archive includes all source files, build scripts, and
 dependencies needed to compile and build this software from source.
