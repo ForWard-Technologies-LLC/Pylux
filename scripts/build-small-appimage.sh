@@ -82,4 +82,5 @@ else
     # OpenSSL (3.x on modern distros like Steam Deck), avoiding Qt TLS backend version mismatch.
 fi
 
+# likely need to change this to PSStream-x86_64.AppImage
 mv chiaki-ng-${ARCH}.AppImage chiaki-ng.AppImage

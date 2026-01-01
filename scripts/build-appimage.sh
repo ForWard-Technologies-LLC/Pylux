@@ -76,7 +76,8 @@ chmod +x linuxdeploy-plugin-qt-${ARCH}.AppImage
     --exclude-library='libvulkan*' \
     --output appimage
 
-mv chiaki-ng-${ARCH}.AppImage chiaki-ng.AppImage
+mv PSStream-${ARCH}.AppImage PSStream.AppImage
+
 
 # ============================================================================
 # END OF UPSTREAM CODE
@@ -102,8 +103,8 @@ echo "Creating Steam-compatible portable Linux build from extracted AppImage..."
 PORTABLE_DIR="PSStream"
 
 # Extract the AppImage to get all bundled libraries
-chmod +x chiaki-ng.AppImage
-./chiaki-ng.AppImage --appimage-extract
+chmod +x PSStream.AppImage
+./PSStream.AppImage --appimage-extract
 
 # Rename extracted directory to PSStream
 mv squashfs-root "${PORTABLE_DIR}"

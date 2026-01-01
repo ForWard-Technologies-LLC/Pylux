@@ -76,8 +76,8 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: chiaki-ng.AppImage_x86_64
-          path: chiaki-ng/appimage/chiaki-ng.AppImage
+          name: PSStream.AppImage_x86_64
+          path: chiaki-ng/appimage/PSStream.AppImage
           if-no-files-found: error
           retention-days: 7
 
@@ -98,7 +98,7 @@ jobs:
           echo "## Build Artifacts Created" > build-summary.md
           echo "" >> build-summary.md
           echo "### Traditional Distribution" >> build-summary.md
-          echo "- **AppImage**: \`chiaki-ng.AppImage\`" >> build-summary.md
+          echo "- **AppImage**: \`PSStream.AppImage\`" >> build-summary.md
           echo "  - Single file, works on most Linux distributions" >> build-summary.md
           echo "  - Use \`APPIMAGE_EXTRACT_AND_RUN=1\` if Steam has issues" >> build-summary.md
           echo "" >> build-summary.md
@@ -109,7 +109,7 @@ jobs:
           echo "  - No launch options needed" >> build-summary.md
           echo "" >> build-summary.md
           echo "### File Sizes" >> build-summary.md
-          ls -lh appimage/chiaki-ng.AppImage >> build-summary.md || true
+          ls -lh appimage/PSStream.AppImage >> build-summary.md || true
           du -sh appimage/PSStream >> build-summary.md || true
           
       - name: Upload build summary
