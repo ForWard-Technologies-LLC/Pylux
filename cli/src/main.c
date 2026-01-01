@@ -9,7 +9,7 @@
 #include <string.h>
 
 static const char doc[] =
-	"CLI for Chiaki (PlayStation Remote Play Client)"
+	"CLI for PSStream"
 	"\v"
 	"Supported commands are:\n"
 	"  discover    Discover Consoles.\n"

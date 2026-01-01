@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
-Name=chiaki-ng
-Comment=PlayStation Remote Play Client
+Name=PSStream
+Comment=Pretty Sweet Stream
 Exec=chiaki
 Icon=chiaking
 Categories=Game;Network;RemoteAccess;
