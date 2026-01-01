@@ -17,7 +17,6 @@
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>
 #include <QNetworkReply>
-#include <QNetworkCookieJar>
 #include <QJsonObject>
 #include <QJsonDocument>
 #include <QUrlQuery>
@@ -177,7 +176,6 @@ void CloudStreamingBackend::continueCloudSessionAfterAuth(QString serviceType, Q
         // Platform will be automatically detected from the API response
         kamajiSession = new PSKamajiSession(
             settings,
-            npssoToken,
             sharedDuid,
             gameIdentifier, // productId for PSNOW
             CloudConfig::ACCOUNT_BASE,
@@ -233,7 +231,7 @@ void CloudStreamingBackend::continueCloudSessionAfterAuth(QString serviceType, Q
             }
             
             // Continue to Gaikai allocation with converted entitlementId
-            startGaikaiAllocation(serviceType, detectedPlatform, entitlementId, sharedDuid, kamajiSession->getCookieJar(), 
+            startGaikaiAllocation(serviceType, detectedPlatform, entitlementId, sharedDuid,
                                   redirectUri, userAgent, oauthApiPath, platformTarget, callback, kamajiSession);
         });
         
@@ -245,33 +243,22 @@ void CloudStreamingBackend::continueCloudSessionAfterAuth(QString serviceType, Q
         QString ps5Platform = "ps5";
         qInfo() << "=== PSCLOUD Flow: Skipping Kamaji, Starting Gaikai Directly ===";
         qInfo() << "Using PS5 platform for PSCLOUD";
-        startGaikaiAllocation(serviceType, ps5Platform, finalEntitlementId, sharedDuid, nullptr,
+        startGaikaiAllocation(serviceType, ps5Platform, finalEntitlementId, sharedDuid,
                               redirectUri, userAgent, oauthApiPath, target, callback, nullptr);
     }
 }
 
 void CloudStreamingBackend::startGaikaiAllocation(QString serviceType, QString platform, QString entitlementId, 
-                                                   QString duid, QNetworkCookieJar *cookieJar,
+                                                   QString duid,
                                                    QString redirectUri, QString userAgent, QString oauthApiPath,
                                                    ChiakiTarget target, const QJSValue &callback, QObject *kamajiSession)
 {
-    // Create cookie jar if not provided (for PSCLOUD)
-    QNetworkCookieJar *gaikaiCookieJar = cookieJar;
-    if (!gaikaiCookieJar) {
-        gaikaiCookieJar = new QNetworkCookieJar(this);
-    }
-    
     // Step 7-13: Complete Gaikai allocation
-    // Constructor now reads settings directly based on service type
-    // Get NPSSO token from settings
-    QString npssoToken = settings->GetNpssoToken();
     PSGaikaiStreaming *gaikaiStreaming = new PSGaikaiStreaming(
         settings,
-        npssoToken,
         duid,
         serviceType,
         platform,
-        gaikaiCookieJar,
         this
     );
     
@@ -591,22 +578,8 @@ void CloudStreamingBackend::checkAuthorization(QString serviceType, QString npss
         userAgent = CloudConfig::PSCLOUD_USER_AGENT;
     }
     
-    // Create cookie jar and add NPSSO cookie (matching PSKamajiSession setup)
-    QNetworkCookieJar *cookieJar = new QNetworkCookieJar(this);
-    QNetworkCookie npssoCookie("npsso", npssoToken.toUtf8());
-    npssoCookie.setDomain(".account.sony.com");  // Leading dot allows subdomain matching
-    npssoCookie.setPath("/");
-    cookieJar->insertCookie(npssoCookie);
-    
-    // Also add cookie for ca.account.sony.com specifically (Qt cookie jar can be picky)
-    QNetworkCookie npssoCookieCa("npsso", npssoToken.toUtf8());
-    npssoCookieCa.setDomain("ca.account.sony.com");
-    npssoCookieCa.setPath("/");
-    cookieJar->insertCookie(npssoCookieCa);
-    
-    // Set cookie jar on auth manager
-    authManager->setCookieJar(cookieJar);
-    cookieJar->setParent(nullptr); // Transfer ownership to authManager
+    // Disable cookie jar on auth manager - we use manual Cookie headers only
+    authManager->setCookieJar(nullptr);
     
     // Create authorization check request (matching PSKamajiSession::step0_5a_AuthorizeCheck)
     QString url = CloudConfig::ACCOUNT_BASE + "/authz/v3/oauth/authorizeCheck";
@@ -622,6 +595,10 @@ void CloudStreamingBackend::checkAuthorization(QString serviceType, QString npss
     QNetworkRequest req{QUrl(url)};
     req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json; charset=UTF-8");
     req.setRawHeader("User-Agent", userAgent.toUtf8());
+    // Set npsso cookie manually
+    if (!npssoToken.isEmpty()) {
+        req.setRawHeader("Cookie", QString("npsso=%1").arg(npssoToken).toUtf8());
+    }
     
     qInfo() << "=== Centralized Authorization Check ===";
     qInfo() << "Service Type:" << serviceType;

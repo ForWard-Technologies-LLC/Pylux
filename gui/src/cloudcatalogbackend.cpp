@@ -43,6 +43,9 @@ CloudCatalogBackend::CloudCatalogBackend(Settings *settings, QObject *parent)
     , settings(settings)
     , networkManager(new QNetworkAccessManager(this))
 {
+    // Disable cookie jar - we use manual Cookie headers only
+    networkManager->setCookieJar(nullptr);
+    
     // Initialize cache directory
     cacheDirectory = QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + "/cloud_catalog";
     ensureCacheDirectory();
@@ -512,6 +515,9 @@ void CloudCatalogBackend::fetchOwnedPs5Games(const QJSValue &callback)
     qInfo() << "[API CALL] Fetching PS5 cloud library from API (cache miss or expired)";
     ownedGamesState.callback = callback;
     
+    // Clear any existing OAuth token to ensure we fetch a fresh one
+    ownedGamesState.oauthToken.clear();
+    
     // First, get OAuth token for entitlements API
     fetchOwnedGamesOAuthToken();
 }
@@ -583,6 +589,8 @@ void CloudCatalogBackend::handleOwnedGamesOAuthResponse()
     if (statusCode != 302) {
         QString errorMsg = QString("OAuth request failed: Expected 302, got %1").arg(statusCode);
         qWarning() << "CloudCatalogBackend:" << errorMsg;
+        // Clear OAuth token on failure to prevent reuse of invalid token
+        ownedGamesState.oauthToken.clear();
         if (ownedGamesState.callback.isCallable()) {
             ownedGamesState.callback.call({false, errorMsg, QJSValue()});
         } else if (crossReferenceState.callback.isCallable()) {
@@ -602,6 +610,8 @@ void CloudCatalogBackend::handleOwnedGamesOAuthResponse()
     
     if (redirectUrl.isEmpty()) {
         qWarning() << "CloudCatalogBackend: No redirect URL in OAuth response";
+        // Clear OAuth token on failure to prevent reuse of invalid token
+        ownedGamesState.oauthToken.clear();
         if (ownedGamesState.callback.isCallable()) {
             ownedGamesState.callback.call({false, "OAuth redirect not received", QJSValue()});
         } else if (crossReferenceState.callback.isCallable()) {
@@ -638,6 +648,8 @@ void CloudCatalogBackend::handleOwnedGamesOAuthResponse()
             errorMsg = QString("OAuth authentication failed: %1").arg(errorDescription.isEmpty() ? errorParam : errorDescription);
         }
         qWarning() << "CloudCatalogBackend: OAuth error:" << errorParam << errorDescription;
+        // Clear OAuth token on failure to prevent reuse of invalid token
+        ownedGamesState.oauthToken.clear();
         if (ownedGamesState.callback.isCallable()) {
             ownedGamesState.callback.call({false, errorMsg, QJSValue()});
         } else if (crossReferenceState.callback.isCallable()) {
@@ -696,6 +708,8 @@ void CloudCatalogBackend::handleOwnedGamesOAuthResponse()
         } else {
             qWarning() << "CloudCatalogBackend: Could not extract access token from fragment:" << fragment;
             QString errorMsg = "Could not extract access token from OAuth response. Please ensure you have logged in to PSN and entered a valid NPSSO token, and that you have a valid PS Plus subscription.";
+            // Clear OAuth token on failure to prevent reuse of invalid token
+            ownedGamesState.oauthToken.clear();
             if (ownedGamesState.callback.isCallable()) {
                 ownedGamesState.callback.call({false, errorMsg, QJSValue()});
             } else if (crossReferenceState.callback.isCallable()) {
@@ -723,6 +737,8 @@ void CloudCatalogBackend::handleOwnedGamesResponse()
     if (statusCode == 401 || statusCode == 403) {
         QString errorMsg = "Authentication failed. Please login to PSN and enter a valid NPSSO token. You also need a valid PS Plus subscription to access cloud play.";
         qWarning() << "CloudCatalogBackend: Authentication error (HTTP" << statusCode << ")";
+        // Clear OAuth token on authentication failure - token is invalid/expired
+        ownedGamesState.oauthToken.clear();
         if (ownedGamesState.callback.isCallable()) {
             ownedGamesState.callback.call({false, errorMsg, QJSValue()});
         } else if (crossReferenceState.callback.isCallable()) {

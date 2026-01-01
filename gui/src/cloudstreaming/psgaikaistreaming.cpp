@@ -11,7 +11,6 @@
 #include <QJsonArray>
 #include <QNetworkRequest>
 #include <QNetworkReply>
-#include <QNetworkCookie>
 #include <QUrlQuery>
 #include <QTimer>
 #include <QElapsedTimer>
@@ -33,17 +32,14 @@ namespace GaikaiConsts {
     static const QString GAIKAI_BASE = "https://cc.prod.gaikai.com/v1";
 }
 
-PSGaikaiStreaming::PSGaikaiStreaming(Settings *settings, QString npsso, QString deviceUid,
+PSGaikaiStreaming::PSGaikaiStreaming(Settings *settings, QString deviceUid,
                                    QString serviceTypeParam, QString platformParam,
-                                   QNetworkCookieJar *cookieJar,
                                    QObject *parent)
     : QObject(parent)
     , settings(settings)
-    , npsso(npsso)
     , duid(deviceUid)
     , serviceType(serviceTypeParam.toLower())
     , platform(platformParam.toLower())
-    , cookieJar(cookieJar)
 {
     // Determine virtType from platform
     if (platform == "ps3") {
@@ -68,34 +64,7 @@ PSGaikaiStreaming::PSGaikaiStreaming(Settings *settings, QString npsso, QString 
     }
     
     manager = new QNetworkAccessManager(this);
-    manager->setCookieJar(cookieJar);
-    
-    // Ensure NPSSO cookie is in the cookie jar for OAuth requests (needed for PSCLOUD)
-    // For PSNOW, this should already be set by Kamaji session, but adding here ensures it's there
-    QList<QNetworkCookie> existingCookies = cookieJar->cookiesForUrl(QUrl("https://ca.account.sony.com"));
-    bool hasNpsso = false;
-    for (const QNetworkCookie &cookie : existingCookies) {
-        if (cookie.name() == "npsso") {
-            hasNpsso = true;
-            break;
-        }
-    }
-    
-    if (!hasNpsso && !npsso.isEmpty()) {
-        // Add NPSSO cookie for account.sony.com domains
-        QNetworkCookie npssoCookie("npsso", npsso.toUtf8());
-        npssoCookie.setDomain(".account.sony.com");
-        npssoCookie.setPath("/");
-        cookieJar->insertCookie(npssoCookie);
-        
-        // Also add for ca.account.sony.com specifically
-        QNetworkCookie npssoCookieCa("npsso", npsso.toUtf8());
-        npssoCookieCa.setDomain("ca.account.sony.com");
-        npssoCookieCa.setPath("/");
-        cookieJar->insertCookie(npssoCookieCa);
-        
-        qInfo() << "Added NPSSO cookie to cookie jar for Gaikai OAuth requests";
-    }
+    manager->setCookieJar(nullptr);  // Disable cookie jar - we use manual Cookie headers only
     
     // Initialize port to 0 (will be set from step12 response)
     selectedDatacenterPort = 0;
@@ -484,11 +453,22 @@ void PSGaikaiStreaming::logDebugResponse(const QString &stepName, QNetworkReply 
 
 void PSGaikaiStreaming::StartAllocationFlow(QString entitlementId, const QJSValue &callback)
 {
+    // Get npsso fresh from settings at the start of each allocation attempt
+    npsso = settings->GetNpssoToken();
+    
     qInfo() << "Gaikai Allocation: Starting complete flow";
     qInfo() << "  Service Type:" << serviceType;
     qInfo() << "  Platform:" << platform;
     qInfo() << "  virtType:" << virtType;
     qInfo() << "  Entitlement ID:" << entitlementId;
+    
+    if (npsso.isEmpty()) {
+        QString error = "NPSSO token is empty";
+        qWarning() << "Gaikai Allocation:" << error;
+        emit AllocationError(error);
+        return;
+    }
+    
     finalCallback = callback;
     
     // Reset session keys for new allocation
@@ -713,6 +693,11 @@ void PSGaikaiStreaming::step8a_GetGkAuthCode()
     req.setRawHeader("User-Agent", userAgentString.toUtf8());
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::ManualRedirectPolicy);
     
+    // Add npsso cookie for OAuth authorization
+    if (!npsso.isEmpty()) {
+        req.setRawHeader("Cookie", QString("npsso=%1").arg(npsso).toUtf8());
+    }
+    
     logDebugRequest("Step 8a: GetGkAuthCode", req);
     
     QNetworkReply *reply = manager->get(req);
@@ -834,6 +819,11 @@ void PSGaikaiStreaming::step8b_GetPs3AuthCode()
     QNetworkRequest req(url);
     req.setRawHeader("User-Agent", userAgentString.toUtf8());
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::ManualRedirectPolicy);
+    
+    // Add npsso cookie for OAuth authorization
+    if (!npsso.isEmpty()) {
+        req.setRawHeader("Cookie", QString("npsso=%1").arg(npsso).toUtf8());
+    }
     
     logDebugRequest("Step 8b: GetPs3AuthCode", req);
     

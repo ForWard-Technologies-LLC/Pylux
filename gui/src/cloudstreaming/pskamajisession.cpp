@@ -7,8 +7,6 @@
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>
 #include <QNetworkReply>
-#include <QNetworkCookie>
-#include <QNetworkCookieJar>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -88,7 +86,6 @@ namespace KamajiConsts {
 
 PSKamajiSession::PSKamajiSession(
     Settings *settings,
-    QString npsso,
     QString deviceUid,
     QString productIdParam,
     QString accountBaseUrl,
@@ -98,7 +95,6 @@ PSKamajiSession::PSKamajiSession(
 )
     : QObject(parent)
     , settings(settings)
-    , npssoToken(npsso)
     , duid(deviceUid)
     , platform("ps4")  // Default, will be detected from API response
     , productId(productIdParam)
@@ -109,29 +105,18 @@ PSKamajiSession::PSKamajiSession(
     , userAgentString(userAgent)
     , scopesStr(KamajiConsts::PS4_SCOPES)  // Default to PS4 scopes, will be updated when platform is detected
 {
-    
     manager = new QNetworkAccessManager(this);
-    cookieJar = new QNetworkCookieJar(this);
-    manager->setCookieJar(cookieJar);
-    
-    // Add NPSSO cookie to account session early (needed for authorizeCheck)
-    // Use leading dot for subdomain matching (works for ca.account.sony.com)
-    QNetworkCookie npssoCookie("npsso", npssoToken.toUtf8());
-    npssoCookie.setDomain(".account.sony.com");  // Leading dot allows subdomain matching
-    npssoCookie.setPath("/");
-    cookieJar->insertCookie(npssoCookie);
-    
-    // Also add cookie for ca.account.sony.com specifically (Qt cookie jar can be picky)
-    QNetworkCookie npssoCookieCa("npsso", npssoToken.toUtf8());
-    npssoCookieCa.setDomain("ca.account.sony.com");
-    npssoCookieCa.setPath("/");
-    cookieJar->insertCookie(npssoCookieCa);
-    
-    qInfo() << "NPSSO cookie added to cookie jar for authorizeCheck";
+    manager->setCookieJar(nullptr);  // Disable cookie jar - we use manual Cookie headers only
 }
 
 void PSKamajiSession::startSessionCreation()
 {
+    // Get npsso fresh from settings at the start of each session attempt
+    npssoToken = settings->GetNpssoToken();
+    
+    // Clear jsessionId to ensure we start fresh
+    jsessionId.clear();
+    
     qInfo() << "Kamaji Session: Starting authentication flow (Steps 0.5b-0.5d, 5-6)...";
     qInfo() << "Platform:" << platform;
     qInfo() << "Product ID:" << productId;
@@ -186,6 +171,11 @@ void PSKamajiSession::step0_5b_GetAnonymousAuthCode()
     QNetworkRequest req(url);
     req.setRawHeader("User-Agent", userAgentString.toUtf8());
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::ManualRedirectPolicy);
+    
+    // Add npsso cookie for OAuth authorization (required even for anonymous session)
+    if (!npssoToken.isEmpty()) {
+        req.setRawHeader("Cookie", QString("npsso=%1").arg(npssoToken).toUtf8());
+    }
     
     logKamajiRequest("Step 0.5b: GetAnonymousAuthCode", req);
     
@@ -265,10 +255,9 @@ void PSKamajiSession::step0_5c_CreateAnonymousSession()
         qInfo() << "  Note: Using empty cookie session";
     }
     
-    // Create a new empty cookie jar for this request (no cookies)
-    QNetworkCookieJar *emptyCookieJar = new QNetworkCookieJar(this);
+    // Use a temporary network manager with no cookie jar (no cookies needed for anonymous session)
     QNetworkAccessManager *tempManager = new QNetworkAccessManager(this);
-    tempManager->setCookieJar(emptyCookieJar);
+    tempManager->setCookieJar(nullptr);
     
     QNetworkRequest req{QUrl(url)};
     req.setRawHeader("Content-Type", "text/plain;charset=UTF-8");
@@ -286,10 +275,9 @@ void PSKamajiSession::step0_5c_CreateAnonymousSession()
     
     QNetworkReply *reply = tempManager->post(req, requestBody);
     
-    connect(reply, &QNetworkReply::finished, this, [this, reply, tempManager, emptyCookieJar]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, tempManager]() {
         handleAnonSessionResponse(reply);
         tempManager->deleteLater();
-        emptyCookieJar->deleteLater();
     });
 }
 
@@ -326,12 +314,6 @@ void PSKamajiSession::handleAnonSessionResponse(QNetworkReply *reply)
             if (match.hasMatch()) {
                 jsessionId = match.captured(1);
                 qInfo() << "Kamaji Step 0.5c complete - Got JSESSIONID:" << jsessionId.left(20) << "...";
-                
-                // Add JSESSIONID to main cookie jar
-                QNetworkCookie jsessionCookie("JSESSIONID", jsessionId.toUtf8());
-                jsessionCookie.setDomain("psnow.playstation.com");
-                jsessionCookie.setPath("/");
-                cookieJar->insertCookie(jsessionCookie);
                 
                 // Continue to Step 0.5d: Convert Product ID to Entitlement ID
                 step0_5d_ConvertProductId();
@@ -610,16 +592,8 @@ void PSKamajiSession::step0_5e_GetCommerceOAuthToken()
     logKamajiRequest("Step 0.5e.1: GetCommerceOAuthToken", req);
     
     // Only use npsso cookie, NOT JSESSIONID
-    QList<QNetworkCookie> cookies = cookieJar->cookiesForUrl(QUrl("https://ca.account.sony.com"));
-    QByteArray cookieHeader;
-    for (const QNetworkCookie &cookie : cookies) {
-        if (cookie.name() == "npsso") {
-            if (!cookieHeader.isEmpty()) cookieHeader += "; ";
-            cookieHeader += cookie.name() + "=" + cookie.value();
-        }
-    }
-    if (!cookieHeader.isEmpty()) {
-        req.setRawHeader("Cookie", cookieHeader);
+    if (!npssoToken.isEmpty()) {
+        req.setRawHeader("Cookie", QString("npsso=%1").arg(npssoToken).toUtf8());
     }
     
     QNetworkReply *reply = manager->get(req);
@@ -793,16 +767,8 @@ void PSKamajiSession::step0_5e_CheckoutPreview()
     logKamajiRequest("Step 0.5e.3: CheckoutPreview", req, postData);
     
     // Add JSESSIONID cookie
-    QList<QNetworkCookie> cookies = cookieJar->cookiesForUrl(QUrl("https://psnow.playstation.com"));
-    QByteArray cookieHeader;
-    for (const QNetworkCookie &cookie : cookies) {
-        if (cookie.name() == "JSESSIONID") {
-            cookieHeader = cookie.name() + "=" + cookie.value();
-            break;
-        }
-    }
-    if (!cookieHeader.isEmpty()) {
-        req.setRawHeader("Cookie", cookieHeader);
+    if (!jsessionId.isEmpty()) {
+        req.setRawHeader("Cookie", QString("JSESSIONID=%1").arg(jsessionId).toUtf8());
     }
     
     QNetworkReply *reply = manager->post(req, postData);
@@ -876,10 +842,6 @@ void PSKamajiSession::handleCheckoutPreviewResponse(QNetworkReply *reply)
                 QString newJsessionId = match.captured(1);
                 if (newJsessionId != jsessionId) {
                     jsessionId = newJsessionId;
-                    QNetworkCookie jsessionCookie("JSESSIONID", newJsessionId.toUtf8());
-                    jsessionCookie.setDomain("psnow.playstation.com");
-                    jsessionCookie.setPath("/");
-                    cookieJar->insertCookie(jsessionCookie);
                     qInfo() << "Updated JSESSIONID from checkout preview response";
                 }
             }
@@ -945,16 +907,8 @@ void PSKamajiSession::step0_5e_CheckoutBuynow()
     logKamajiRequest("Step 0.5e.4: CheckoutBuynow", req, postData);
     
     // Add JSESSIONID cookie
-    QList<QNetworkCookie> cookies = cookieJar->cookiesForUrl(QUrl("https://psnow.playstation.com"));
-    QByteArray cookieHeader;
-    for (const QNetworkCookie &cookie : cookies) {
-        if (cookie.name() == "JSESSIONID") {
-            cookieHeader = cookie.name() + "=" + cookie.value();
-            break;
-        }
-    }
-    if (!cookieHeader.isEmpty()) {
-        req.setRawHeader("Cookie", cookieHeader);
+    if (!jsessionId.isEmpty()) {
+        req.setRawHeader("Cookie", QString("JSESSIONID=%1").arg(jsessionId).toUtf8());
     }
     
     QNetworkReply *reply = manager->post(req, postData);
@@ -990,10 +944,6 @@ void PSKamajiSession::handleCheckoutBuynowResponse(QNetworkReply *reply)
                 QString newJsessionId = match.captured(1);
                 if (newJsessionId != jsessionId) {
                     jsessionId = newJsessionId;
-                    QNetworkCookie jsessionCookie("JSESSIONID", newJsessionId.toUtf8());
-                    jsessionCookie.setDomain("psnow.playstation.com");
-                    jsessionCookie.setPath("/");
-                    cookieJar->insertCookie(jsessionCookie);
                     qInfo() << "Updated JSESSIONID from checkout buynow response";
                 }
             }
@@ -1070,6 +1020,11 @@ void PSKamajiSession::step5_GetAuthCode()
     QNetworkRequest req(url);
     req.setRawHeader("User-Agent", userAgentString.toUtf8());
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::ManualRedirectPolicy);
+    
+    // Add npsso cookie for OAuth authorization
+    if (!npssoToken.isEmpty()) {
+        req.setRawHeader("Cookie", QString("npsso=%1").arg(npssoToken).toUtf8());
+    }
     
     logKamajiRequest("Step 5: GetAuthCode", req);
     

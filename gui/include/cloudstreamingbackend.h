@@ -9,9 +9,6 @@
 #include <QString>
 #include <QJSValue>
 #include <QNetworkAccessManager>
-#include <QNetworkCookie>
-
-class QNetworkCookieJar;  // Forward declaration
 
 /**
  * CloudStreamingBackend - Orchestrates PlayStation Plus Cloud Gaming flow
@@ -81,7 +78,7 @@ private:
     
     // Helper method to start Gaikai allocation (shared between PSNOW and PSCLOUD flows)
     void startGaikaiAllocation(QString serviceType, QString platform, QString entitlementId,
-                                QString duid, QNetworkCookieJar *cookieJar,
+                                QString duid,
                                 QString redirectUri, QString userAgent, QString oauthApiPath,
                                 ChiakiTarget target, const QJSValue &callback, QObject *kamajiSession);
 };

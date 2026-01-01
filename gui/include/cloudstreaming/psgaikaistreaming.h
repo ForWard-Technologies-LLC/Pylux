@@ -8,7 +8,6 @@
 #include <QObject>
 #include <QString>
 #include <QNetworkAccessManager>
-#include <QNetworkCookieJar>
 #include <QJSValue>
 #include <QJsonObject>
 #include <QLoggingCategory>
@@ -21,9 +20,8 @@ class PSGaikaiStreaming : public QObject {
     Q_OBJECT
 
 public:
-    explicit PSGaikaiStreaming(Settings *settings, QString npsso, QString duid, 
+    explicit PSGaikaiStreaming(Settings *settings, QString duid, 
                               QString serviceType, QString platform,
-                              QNetworkCookieJar *cookieJar,
                               QObject *parent = nullptr);
     
     // Complete allocation flow - calls all steps in sequence
@@ -51,7 +49,6 @@ private:
     Settings *settings;
     QString npsso;
     QNetworkAccessManager *manager;
-    QNetworkCookieJar *cookieJar;
     
     // Service/platform configuration
     QString serviceType;      // "psnow" or "pscloud"

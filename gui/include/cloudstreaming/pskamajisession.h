@@ -8,7 +8,6 @@
 #include <QObject>
 #include <QString>
 #include <QNetworkAccessManager>
-#include <QNetworkCookieJar>
 #include <QNetworkReply>
 #include <QJSValue>
 
@@ -32,7 +31,6 @@ class PSKamajiSession : public QObject
 public:
     explicit PSKamajiSession(
         Settings *settings,
-        QString npsso,
         QString duid,
         QString productId, // Product ID (will be converted to Entitlement ID)
         QString accountBaseUrl,
@@ -45,11 +43,6 @@ public:
      * Start the complete Kamaji session creation flow (Steps 0.5a-0.5d, 5-6)
      */
     void startSessionCreation();
-
-    /**
-     * Get the cookie jar with authenticated session cookies
-     */
-    QNetworkCookieJar* getCookieJar() const { return cookieJar; }
     
     /**
      * Get session data (only available after successful authentication)
@@ -78,7 +71,6 @@ private slots:
 private:
     Settings *settings;
     QNetworkAccessManager *manager;
-    QNetworkCookieJar *cookieJar;
     
     // Configuration passed from orchestrator
     QString npssoToken;
