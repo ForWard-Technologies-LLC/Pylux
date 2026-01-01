@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - release/dev
+      - release/add-windows
 jobs:
   upload-source:
     name: Upload Source Code to Dropbox
