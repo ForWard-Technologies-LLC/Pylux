@@ -88,6 +88,8 @@ jobs:
           # Use static filename so Dropbox link never changes
           ARCHIVE_NAME="psstream-source-latest.tar.gz"
           
+          # Note: Archive contents will have prefix "psstream-source/" from --transform
+          
           echo "Creating source archive: ${ARCHIVE_NAME}"
           echo "Git commit: ${GIT_HASH}"
           echo "Build date: ${BUILD_DATE}"
@@ -152,7 +154,7 @@ jobs:
           echo "Uploading ${ARCHIVE_NAME} to Dropbox..."
           UPLOAD_RESPONSE=$(curl -s -X POST https://content.dropboxapi.com/2/files/upload \
             --header "Authorization: Bearer $ACCESS_TOKEN" \
-            --header "Dropbox-API-Arg: {\"path\": \"/psstream-sources/${ARCHIVE_NAME}\",\"mode\": \"overwrite\",\"autorename\": false}" \
+            --header "Dropbox-API-Arg: {\"path\": \"/PSStream/sources/${ARCHIVE_NAME}\",\"mode\": \"overwrite\",\"autorename\": false}" \
             --header "Content-Type: application/octet-stream" \
             --data-binary @"${ARCHIVE_NAME}")
           
@@ -172,7 +174,7 @@ jobs:
           SHARE_RESPONSE=$(curl -s -X POST https://api.dropboxapi.com/2/sharing/create_shared_link_with_settings \
             --header "Authorization: Bearer $ACCESS_TOKEN" \
             --header "Content-Type: application/json" \
-            --data "{\"path\": \"/psstream-sources/${ARCHIVE_NAME}\",\"settings\":{\"requested_visibility\":\"public\"}}")
+            --data "{\"path\": \"/PSStream/sources/${ARCHIVE_NAME}\",\"settings\":{\"requested_visibility\":\"public\"}}")
           
           # Extract share URL (may fail if link already exists, which is fine)
           SHARE_URL=$(echo "${SHARE_RESPONSE}" | jq -r '.url // empty' 2>/dev/null || echo "")
@@ -199,7 +201,7 @@ jobs:
           Branch/Tag: ${GITHUB_REF_NAME}
           
           The source code has been uploaded to Dropbox at:
-            /psstream-sources/${ARCHIVE_NAME}
+            /PSStream/sources/${ARCHIVE_NAME}
           
           This archive will be referenced in binary distributions to comply with
           the GNU Affero General Public License v3.0 (AGPL-3.0) requirements.
