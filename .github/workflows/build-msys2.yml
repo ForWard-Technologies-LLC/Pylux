@@ -4,9 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - release/add-windows
-    paths:
-      - '.github/workflows/build-msys2.yml'
+      - release/dev
 jobs:
   build-windows_x64-msys2:
     name: Build windows msys2 version

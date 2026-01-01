@@ -2,8 +2,9 @@ name: Build chiaki-ng Appimage x86_64
 
 on:
   workflow_dispatch:
-  pull_request:
-    types: [opened, synchronize, reopened]
+  push:
+    branches:
+      - release/dev
 
 jobs:
   build-appimage_x64:
