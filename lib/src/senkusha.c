@@ -275,13 +275,13 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_senkusha_run(ChiakiSenkusha *senkusha, uint
 
 	if(chiaki_service_type_is_cloud(session->service_type))
 	{
-		// For cloud streaming: wait 200ms after sending BIG to allow echoed BIG to be received and ACKed
+		// For cloud streaming: wait 600ms after sending BIG to allow echoed BIG to be received and ACKed
 		// Then proceed to send echo commands
 		// TODO: Better implementation would be to read the actual response and compare it to the launch spec.
-		// When the response matches the launch spec, then we know BANG is done. For now, just waiting 200ms.
+		// When the response matches the launch spec, then we know BANG is done. For now, just waiting 600ms.
 		// Use a dummy condition that's always false to just wait for the timeout
-		chiaki_cond_timedwait_pred(&senkusha->state_cond, &senkusha->state_mutex, 200, always_false_cond_check, NULL);
-		CHIAKI_LOGI(session->log, "Senkusha waited 200ms after sending BIG, proceeding to send echo commands");
+		chiaki_cond_timedwait_pred(&senkusha->state_cond, &senkusha->state_mutex, 600, always_false_cond_check, NULL);
+		CHIAKI_LOGI(session->log, "Senkusha waited 600ms after sending BIG, proceeding to send echo commands");
 		err = senkusha_run_rtt_test(senkusha, 0, SENKUSHA_PING_COUNT_DEFAULT, rtt_us);
 		if(err != CHIAKI_ERR_SUCCESS)
 		{

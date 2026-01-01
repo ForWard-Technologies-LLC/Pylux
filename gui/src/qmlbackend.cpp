@@ -2773,7 +2773,8 @@ void QmlBackend::refreshAuth()
     });
     connect(psnToken, &PSNToken::UnauthorizedError, this, [this]() {
         qCWarning(chiakiGui) << "PSN token refresh failed: Unauthorized (tokens expired)";
-        psnCredsExpired();
+        // Try to exchange npsso for new tokens before showing login dialog
+        tryRefreshWithNpsso();
     });
     connect(psnToken, &PSNToken::PSNTokenSuccess, this, &QmlBackend::updatePsnHosts);
     connect(psnToken, &PSNToken::Finished, psnToken, &QObject::deleteLater);
