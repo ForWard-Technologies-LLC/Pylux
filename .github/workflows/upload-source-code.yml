@@ -38,24 +38,7 @@ jobs:
           # Find all QML files and format them (remove comments and clean up)
           find . -name "*.qml" -type f ! -path "./.git/*" ! -path "./build*/*" ! -path "./appimage/*" | while read qml_file; do
             echo "Processing: $qml_file"
-            python3 -c "
-          import re
-          import sys
-          filename = sys.argv[1]
-          try:
-              with open(filename, 'r', encoding='utf-8') as f:
-                  content = f.read()
-              content = re.sub(r'//.*?$', '', content, flags=re.MULTILINE)
-              content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
-              content = re.sub(r'\n{3,}', '\n\n', content)
-              content = re.sub(r'[ \t]+$', '', content, flags=re.MULTILINE)
-              with open(filename, 'w', encoding='utf-8') as f:
-                  f.write(content.strip() + '\n')
-              print(f'Formatted: {filename}')
-          except Exception as e:
-              print(f'Error formatting {filename}: {e}')
-              sys.exit(1)
-          " "$qml_file"
+            python3 -c "import re; import sys; filename = sys.argv[1]; content = open(filename, 'r', encoding='utf-8').read(); content = re.sub(r'//.*?$', '', content, flags=re.MULTILINE); content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL); content = re.sub(r'\n{3,}', '\n\n', content); content = re.sub(r'[ \t]+$', '', content, flags=re.MULTILINE); open(filename, 'w', encoding='utf-8').write(content.strip() + '\n'); print(f'Formatted: {filename}')" "$qml_file"
           done
           
           echo "QML formatting complete"
