@@ -1241,12 +1241,14 @@ Pane {
                 if (item) {
                     item.mainTabBar = mainTabBar
                     item.settingsButton = settingsButton
+                    item.showConfirmDialogFunc = root.showConfirmDialog
                 }
             }
             onLoaded: {
                 if (item) {
                     item.mainTabBar = mainTabBar
                     item.settingsButton = settingsButton
+                    item.showConfirmDialogFunc = root.showConfirmDialog
                     // Ensure games are loaded when the loader becomes active
                     if (mainTabBar.currentIndex === 1) {
                         Qt.callLater(() => {

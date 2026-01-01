@@ -12,6 +12,7 @@ Pane {
     
     property var mainTabBar: null
     property var settingsButton: null
+    property var showConfirmDialogFunc: null
     
     // Expose child components for navigation
     readonly property Item catalogButtonItem: catalogButton
@@ -84,10 +85,26 @@ Pane {
         });
     }
     
+    // Handle Escape/B button for quit confirmation dialog
+    Keys.onEscapePressed: {
+        if (showConfirmDialogFunc) {
+            showConfirmDialogFunc(qsTr("Quit"), qsTr("Are you sure you want to quit?"), () => Qt.quit(), null, true);
+        }
+    }
+    
     // Handle RB/LB navigation for section switching
     Keys.onPressed: (event) => {
         if (event.modifiers)
             return;
+        
+        // Handle B button (Back key) for quit confirmation dialog
+        if (event.key === Qt.Key_Back) {
+            if (showConfirmDialogFunc) {
+                showConfirmDialogFunc(qsTr("Quit"), qsTr("Are you sure you want to quit?"), () => Qt.quit(), null, true);
+            }
+            event.accepted = true;
+            return;
+        }
         
         switch (event.key) {
         case Qt.Key_PageUp:
@@ -1130,10 +1147,6 @@ Pane {
                         }
                         
                         switch (event.key) {
-                        case Qt.Key_Escape:
-                        case Qt.Key_Back:
-                            event.accepted = true;
-                            break;
                         case Qt.Key_PageDown:
                             let visibleRows = Math.floor(scrollView.availableHeight / cellHeight);
                             let jumpIndex = Math.min(currentIndex + (visibleRows * cols), model.length - 1);
