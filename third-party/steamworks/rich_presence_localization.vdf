@@ -1,0 +1,10 @@
+"lang"
+{
+	"Language"	"english"
+	"Tokens"
+	{
+		"#StatusCloudGame"	"Playing: %GAME% on PSStream"
+		"#StatusRemotePlayGame"	"Remote Play on PSStream"
+	}
+}
+

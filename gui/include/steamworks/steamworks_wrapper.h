@@ -53,12 +53,17 @@ public:
     OwnershipResult checkOwnership();
 
     /**
-     * Set Steam Rich Presence status
-     * @param status The status text to display
-     * @param gameName Optional game name for context
+     * Set Steam Enhanced Rich Presence status
+     * Uses Enhanced Rich Presence with localization tokens:
+     * - If gameName is provided: Shows "Playing: [gameName]" via #StatusCloudGame token
+     * - If gameName is empty: Shows "Remote Play" via #StatusRemotePlayGame token
+     * @param gameName Optional game name - if provided, displays it in rich presence
      * @return true if rich presence was set successfully
+     * 
+     * Note: Requires localization file to be uploaded to Steamworks Partner portal
+     * See: third-party/steamworks/rich_presence_localization.vdf
      */
-    bool setRichPresence(const QString &status, const QString &gameName = QString());
+    bool setRichPresence(const QString &gameName = QString());
 
     /**
      * Call SteamAPI_RunCallbacks to process Steam events

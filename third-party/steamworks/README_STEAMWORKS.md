@@ -36,5 +36,30 @@ cmake -DCHIAKI_ENABLE_STEAMWORKS=ON ...
 
 When enabled, this creates a `steamworks` CMake target that can be linked like any other library.
 
+## Enhanced Rich Presence
+
+The Steamworks integration uses Enhanced Rich Presence for displaying status information in Steam friends lists.
+
+### Localization File
+
+A rich presence localization file template is provided at:
+```
+third-party/steamworks/rich_presence_localization.vdf
+```
+
+**Important**: This file must be uploaded to the Steamworks Partner portal for rich presence to work properly.
+
+1. Log in to your Steamworks Partner account
+2. Navigate to your app's configuration
+3. Go to **Features** → **Enhanced Rich Presence**
+4. Upload the localization file or configure the tokens in the web interface
+
+The localization file defines tokens that control how rich presence is displayed:
+- `#StatusCloudGame` - Used when playing a specific game (displays "Playing: %GAME%")
+- `#StatusRemotePlayGame` - Used when in remote play mode without a specific game (displays "Remote Play")
+
+For more information, see:
+- [Enhanced Rich Presence Documentation](https://partner.steamgames.com/doc/features/enhancedrichpresence)
+- [Rich Presence Localization](https://partner.steamgames.com/doc/api/ISteamFriends#richpresencelocalization)
 
 

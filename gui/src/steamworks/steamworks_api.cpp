@@ -158,7 +158,7 @@ SteamworksWrapper::OwnershipResult SteamworksWrapper::checkOwnership()
 #endif
 }
 
-bool SteamworksWrapper::setRichPresence(const QString &status, const QString &gameName)
+bool SteamworksWrapper::setRichPresence(const QString &gameName)
 {
 #ifdef CHIAKI_ENABLE_STEAMWORKS
     if (!m_initialized || !m_steamAvailable) {
@@ -172,14 +172,29 @@ bool SteamworksWrapper::setRichPresence(const QString &status, const QString &ga
         return false;
     }
 
-    qInfo() << "SteamworksWrapper: Setting rich presence:" << status;
-
-    // Set the status text
-    bool success = steamFriends->SetRichPresence("status", status.toUtf8().constData());
+    // Enhanced Rich Presence: Set data keys first
+    bool success = true;
     
-    // Set game name if provided
     if (!gameName.isEmpty()) {
-        steamFriends->SetRichPresence("game", gameName.toUtf8().constData());
+        // Set the game name (uppercase GAME as per Steam convention)
+        qInfo() << "SteamworksWrapper: Setting rich presence - Playing game:" << gameName;
+        success = steamFriends->SetRichPresence("GAME", gameName.toUtf8().constData());
+        qInfo() << "SteamworksWrapper: SetRichPresence(GAME," << gameName << ") ->" << (success ? "success" : "failed");
+        
+        // Set display token for when a game is being played
+        bool displaySuccess = steamFriends->SetRichPresence("steam_display", "#StatusCloudGame");
+        qInfo() << "SteamworksWrapper: SetRichPresence(steam_display, #StatusCloudGame) ->" << (displaySuccess ? "success" : "failed");
+        success = success && displaySuccess;
+    } else {
+        // Clear game name if empty
+        bool clearSuccess = steamFriends->SetRichPresence("GAME", nullptr);
+        qInfo() << "SteamworksWrapper: SetRichPresence(GAME, nullptr) ->" << (clearSuccess ? "success" : "failed");
+        
+        // Set display token for remote play without specific game
+        qInfo() << "SteamworksWrapper: Setting rich presence - Remote Play";
+        success = steamFriends->SetRichPresence("steam_display", "#StatusRemotePlayGame");
+        qInfo() << "SteamworksWrapper: SetRichPresence(steam_display, #StatusRemotePlayGame) ->" << (success ? "success" : "failed");
+        success = success && clearSuccess;
     }
     
     runCallbacks();
@@ -190,7 +205,6 @@ bool SteamworksWrapper::setRichPresence(const QString &status, const QString &ga
 
     return success;
 #else
-    Q_UNUSED(status)
     Q_UNUSED(gameName)
     qWarning() << "SteamworksWrapper: Steamworks support not compiled in";
     return false;

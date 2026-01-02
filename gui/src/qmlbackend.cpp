@@ -433,8 +433,8 @@ QmlBackend::QmlBackend(Settings *settings, QmlMainWindow *window, SteamworksWrap
             qCWarning(chiakiGui) << "QmlBackend: Cloud sync instance is NULL!";
         }
         
-        // Set initial rich presence
-        steamworks_wrapper->setRichPresence("Playing PlayStation via PSStream", "");
+        // Set initial rich presence (no game, shows "Remote Play")
+        steamworks_wrapper->setRichPresence("");
         
         qCInfo(chiakiGui) << "QmlBackend: Using pre-initialized Steamworks instance";
     } else {
@@ -1015,9 +1015,8 @@ void QmlBackend::createSession(const StreamSessionConnectInfo &connect_info)
     // Update rich presence when streaming starts
     if (steamworks_wrapper && steamworks_wrapper->isSteamAvailable()) {
         QString gameName = connect_info.game_name;
-        QString status = gameName.isEmpty() ? "Playing PlayStation via PSStream" 
-                                            : QString("Playing %1 via PSStream").arg(gameName);
-        steamworks_wrapper->setRichPresence(status, gameName);
+        // Enhanced Rich Presence: pass gameName (or empty), display token set automatically
+        steamworks_wrapper->setRichPresence(gameName);
     }
 #endif
 
