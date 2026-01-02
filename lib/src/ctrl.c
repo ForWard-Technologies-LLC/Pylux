@@ -179,6 +179,15 @@ CHIAKI_EXPORT void chiaki_ctrl_stop(ChiakiCtrl *ctrl)
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_ctrl_join(ChiakiCtrl *ctrl)
 {
+	// Check if thread was ever started by comparing with zero-initialized thread
+	// This prevents segfault when trying to join a thread that was never created
+	ChiakiThread zero_thread = { 0 };
+	if(memcmp(&ctrl->thread, &zero_thread, sizeof(ChiakiThread)) == 0)
+	{
+		// Thread was never started, nothing to join
+		return CHIAKI_ERR_SUCCESS;
+	}
+	
 	return chiaki_thread_join(&ctrl->thread, NULL);
 }
 
