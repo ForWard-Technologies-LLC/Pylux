@@ -422,8 +422,7 @@ void Settings::SetCloudResolutionPSCloud(int resolution)
 
 QString Settings::GetCloudLanguagePSCloud() const
 {
-	// Fallback to legacy cloud_language if not set (for migration)
-	return settings.value("settings/cloud_language_pscloud", settings.value("settings/cloud_language", "en-US").toString()).toString();
+	return settings.value("settings/cloud_language_pscloud", "en-US").toString();
 }
 
 void Settings::SetCloudLanguagePSCloud(const QString &language)

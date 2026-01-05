@@ -11,6 +11,26 @@
 #include <QNetworkReply>
 #include <QJSValue>
 
+// ============================================================================
+// Kamaji-specific constants
+// ============================================================================
+namespace KamajiConsts {
+    static const QString KAMAJI_BASE = "https://psnow.playstation.com/kamaji/api/pcnow/00_09_000";
+    static const QString CLIENT_ID = "bc6b0777-abb5-40da-92ca-e133cf18e989";
+    
+    // PS3 scopes (different from PS4)
+    static const QString PS3_SCOPES = "kamaji:commerce_native";
+    
+    // PS4 scopes
+    static const QString PS4_SCOPES = "kamaji:commerce_native kamaji:commerce_container kamaji:lists kamaji:s2s.subscriptionsPremium.get";
+    
+    // PSNOW HTTP headers and URIs
+    static const QString ORIGIN = "https://psnow.playstation.com";
+    static const QString REFERER = "https://psnow.playstation.com/app/2.2.0/133/5cdcc037d/";
+    static const QString REDIRECT_URI = "https://psnow.playstation.com/app/2.2.0/133/5cdcc037d/grc-response.html";
+    static const QString USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) playstation-now/0.0.0 Chrome/83.0.4103.104 Electron/9.0.4 Safari/537.36 gkApollo";
+}
+
 /**
  * PSKamajiSession - Handles PlayStation Cloud Gaming Kamaji Authentication (Steps 1-6)
  * 

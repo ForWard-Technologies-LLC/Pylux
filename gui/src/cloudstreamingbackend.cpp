@@ -28,27 +28,6 @@ extern "C" {
 
 Q_DECLARE_LOGGING_CATEGORY(chiakiGui)
 
-// ============================================================================
-// CONFIGURATION - Shared settings and values used by multiple classes
-// ============================================================================
-namespace CloudConfig {
-    // User preferences (configurable at top of file for now)
-    // Resolution: 720 or 1080 (integer value for resolutionSetting field)
-    static const int RESOLUTION = 1080;
-    static const QString LANGUAGE = "en-US";
-    static const QString TIMEZONE = "UTC-08:00";
-    
-    // Shared base values
-    static const QString ACCOUNT_BASE = "https://ca.account.sony.com/api";
-    
-    // Service-specific constants
-    static const QString PSNOW_REDIRECT_URI = "https://psnow.playstation.com/app/2.2.0/133/5cdcc037d/grc-response.html";
-    static const QString PSNOW_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) playstation-now/0.0.0 Chrome/83.0.4103.104 Electron/9.0.4 Safari/537.36 gkApollo";
-    
-    static const QString PSCLOUD_REDIRECT_URI = "gaikai://local";
-    static const QString PSCLOUD_USER_AGENT = "PlayStation Portal/6.0.0-rel.444+6a9cea6f5";
-}
-
 CloudStreamingBackend::CloudStreamingBackend(Settings *settings, QObject *parent)
     : QObject(parent)
     , settings(settings)
@@ -143,12 +122,12 @@ void CloudStreamingBackend::continueCloudSessionAfterAuth(QString serviceType, Q
     QString oauthApiPath;
     
     if (serviceType == "pscloud") {
-        redirectUri = CloudConfig::PSCLOUD_REDIRECT_URI;
-        userAgent = CloudConfig::PSCLOUD_USER_AGENT;
+        redirectUri = GaikaiConsts::REDIRECT_URI;
+        userAgent = GaikaiConsts::USER_AGENT;
         oauthApiPath = "/authz/v3";  // ACCOUNT_BASE already includes /api
     } else { // psnow
-        redirectUri = CloudConfig::PSNOW_REDIRECT_URI;
-        userAgent = CloudConfig::PSNOW_USER_AGENT;
+        redirectUri = KamajiConsts::REDIRECT_URI;
+        userAgent = KamajiConsts::USER_AGENT;
         oauthApiPath = "/v1";  // ACCOUNT_BASE already includes /api
     }
     
@@ -566,16 +545,16 @@ void CloudStreamingBackend::checkAuthorization(QString serviceType, QString npss
     
     if (serviceType == "psnow") {
         // PSNOW configuration (matching PSKamajiSession)
-        kamajiClientId = "bc6b0777-abb5-40da-92ca-e133cf18e989";  // KamajiConsts::CLIENT_ID
-        scopesStr = "kamaji:commerce_native kamaji:commerce_container kamaji:lists kamaji:s2s.subscriptionsPremium.get";  // PS4 scopes (default)
-        redirectUri = CloudConfig::PSNOW_REDIRECT_URI;
-        userAgent = CloudConfig::PSNOW_USER_AGENT;
+        kamajiClientId = KamajiConsts::CLIENT_ID;
+        scopesStr = KamajiConsts::PS4_SCOPES;
+        redirectUri = KamajiConsts::REDIRECT_URI;
+        userAgent = KamajiConsts::USER_AGENT;
     } else { // pscloud
         // PSCLOUD configuration
         kamajiClientId = "19ae39c4-3f88-4d11-a792-94e4f52c996d";
         scopesStr = "id_token:psn.basic_claims kamaji:s2s.subscriptionsPremium.get id_token:duid id_token:online_id openid psn:s2s";
-        redirectUri = CloudConfig::PSCLOUD_REDIRECT_URI;
-        userAgent = CloudConfig::PSCLOUD_USER_AGENT;
+        redirectUri = GaikaiConsts::REDIRECT_URI;
+        userAgent = GaikaiConsts::USER_AGENT;
     }
     
     // Disable cookie jar on auth manager - we use manual Cookie headers only

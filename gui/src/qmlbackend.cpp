@@ -2615,7 +2615,7 @@ QString QmlBackend::openPsnLink()
 
 QString QmlBackend::openNpssoPage()
 {
-    QUrl url = QUrl("https://ca.account.sony.com/api/v1/ssocookie");
+    QUrl url = QUrl(CloudConfig::ACCOUNT_BASE + "/v1/ssocookie");
     if(QDesktopServices::openUrl(url) && (qEnvironmentVariable("XDG_CURRENT_DESKTOP") != "gamescope"))
     {
         qCWarning(chiakiGui) << "Launched browser for NPSO page.";

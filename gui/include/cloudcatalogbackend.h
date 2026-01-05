@@ -86,6 +86,11 @@ private:
         QStringList categories;
         int currentCategoryIndex;
         QTimer *rateLimitTimer;
+        QString oauthCode;
+        QString jsessionId;
+        QString baseUrl;
+        QString duid;
+        bool authInProgress;
     } psnowState;
     
     // PS5 catalog fetching state
@@ -115,9 +120,6 @@ private:
         bool ownedGamesFetched;
     } crossReferenceState;
     
-    // PSNOW category IDs
-    static const QStringList PSNOW_CATEGORIES;
-    
     // Helper methods
     void setCachedData(const QString &key, const QJsonDocument &data);
     QString getCacheFilePath(const QString &key);
@@ -125,6 +127,14 @@ private:
     void fetchPsnowCategory(int categoryIndex);
     void processPsnowCatalogComplete();
     void fetchOwnedGamesOAuthToken();
+    void fetchPsnowOAuthToken();
+    void fetchPsnowSession();
+    void fetchPsnowStores();
+    void fetchPsnowRootContainer();
+    void handlePsnowOAuthResponse();
+    void handlePsnowSessionResponse();
+    void handlePsnowStoresResponse();
+    void handlePsnowRootContainerResponse();
     void executeGameDetailsFetch(const QString &productId);
     QJsonArray filterStreamingSupportedGames(const QJsonArray &games);
     QJsonArray filterOwnedPs5Games(const QJsonArray &entitlements);

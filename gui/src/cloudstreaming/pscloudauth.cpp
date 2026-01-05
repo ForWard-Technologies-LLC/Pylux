@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #include "cloudstreaming/pscloudauth.h"
+#include "cloudstreaming/pskamajisession.h"
 #include "jsonrequester.h"
 #include "chiaki/remote/holepunch.h"
 
@@ -43,7 +44,7 @@ void PSCloudAuth::ExchangeNPSSO(QString npssoToken)
     qInfo() << "Cloud Auth: Request body (first 100 chars):" << body.left(100);
     
     // Use PlayStation Now User-Agent (required by API)
-    QString userAgent = "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) playstation-now/0.0.0 Chrome/83.0.4103.104 Electron/9.0.4 Safari/537.36 gkApollo";
+    QString userAgent = KamajiConsts::USER_AGENT;
     
     JsonRequester* requester = new JsonRequester(this);
     connect(requester, &JsonRequester::requestFinished, this, &PSCloudAuth::handleAccessTokenResponse);

@@ -70,20 +70,6 @@ static void logKamajiRequest(const QString &stepName, const QNetworkRequest &req
     qInfo() << "========================================";
 }
 
-// ============================================================================
-// Kamaji-specific constants
-// ============================================================================
-namespace KamajiConsts {
-    static const QString KAMAJI_BASE = "https://psnow.playstation.com/kamaji/api/pcnow/00_09_000";
-    static const QString CLIENT_ID = "bc6b0777-abb5-40da-92ca-e133cf18e989";
-    
-    // PS3 scopes (different from PS4)
-    static const QString PS3_SCOPES = "kamaji:commerce_native";
-    
-    // PS4 scopes
-    static const QString PS4_SCOPES = "kamaji:commerce_native kamaji:commerce_container kamaji:lists kamaji:s2s.subscriptionsPremium.get";
-}
-
 PSKamajiSession::PSKamajiSession(
     Settings *settings,
     QString deviceUid,
@@ -327,12 +313,21 @@ void PSKamajiSession::handleAnonSessionResponse(QNetworkReply *reply)
 
 // ============================================================================
 // Step 0.5d: Convert Product ID → Entitlement ID
-// GET /store/api/pcnow/00_09_000/container/US/en/19/{PRODUCT_ID}?useOffers=true&gkb=1&gkb2=1
+// GET /store/api/pcnow/00_09_000/container/{COUNTRY}/{LANGUAGE}/19/{PRODUCT_ID}?useOffers=true&gkb=1&gkb2=1
 // ============================================================================
 void PSKamajiSession::step0_5d_ConvertProductId()
 {
-    QString url = QString("https://psnow.playstation.com/store/api/pcnow/00_09_000/container/US/en/19/%1?useOffers=true&gkb=1&gkb2=1")
-        .arg(productId);
+    // Get locale from unified language setting
+    QString localeSetting = settings ? settings->GetCloudLanguagePSCloud() : "en-US";
+    QString locale = localeSetting.toLower(); // Convert "en-US" to "en-us"
+    
+    // Extract country and language from locale (e.g., "en-us" -> "US", "en")
+    QStringList localeParts = locale.split("-");
+    QString country = localeParts.size() > 1 ? localeParts[1].toUpper() : "US";
+    QString language = localeParts[0].toLower();
+    
+    QString url = QString("https://psnow.playstation.com/store/api/pcnow/00_09_000/container/%1/%2/19/%3?useOffers=true&gkb=1&gkb2=1")
+        .arg(country, language, productId);
     
     qInfo() << "Kamaji Step 0.5d: Convert Product ID to Entitlement ID";
     if (settings && settings->GetLogVerbose()) {
@@ -428,44 +423,59 @@ void PSKamajiSession::handleProductIdConversionResponse(QNetworkReply *reply)
         }
     }
     
-    // Look for streaming SKU and entitlement
-    if (obj.contains("skus") && obj["skus"].isArray()) {
+    // Look for streaming entitlement - check default_sku first, then skus array
+    // Streaming entitlements have license_type == 4
+    QJsonObject defaultSku = obj["default_sku"].toObject();
+    if (!defaultSku.isEmpty() && defaultSku.contains("entitlements") && defaultSku["entitlements"].isArray()) {
+        QJsonArray entitlements = defaultSku["entitlements"].toArray();
+        for (const QJsonValue &entValue : entitlements) {
+            QJsonObject ent = entValue.toObject();
+            int licenseType = ent["license_type"].toInt();
+            
+            // Streaming entitlements have license_type == 4
+            if (licenseType == 4) {
+                QString entId = ent["id"].toString();
+                if (!entId.isEmpty()) {
+                    streamingEntitlementId = entId;
+                    sku = defaultSku["id"].toString();
+                    streamingSku = sku;
+                    qInfo() << "Found streaming Entitlement ID from default_sku:" << streamingEntitlementId;
+                    qInfo() << "License Type:" << licenseType;
+                    qInfo() << "SKU:" << sku;
+                    break;
+                }
+            }
+        }
+    }
+    
+    // If not found in default_sku, check all SKUs in the skus array
+    if (streamingEntitlementId.isEmpty() && obj.contains("skus") && obj["skus"].isArray()) {
         QJsonArray skus = obj["skus"].toArray();
         for (const QJsonValue &skuValue : skus) {
             QJsonObject skuObj = skuValue.toObject();
-            QString skuId = skuObj["id"].toString();
             
-            // Look for streaming SKUs (end in -UC0X where X is any digit)
-            QRegularExpression streamingSkuRegex("-UC0\\d+$");
-            QRegularExpressionMatch skuMatch = streamingSkuRegex.match(skuId);
-            if (skuMatch.hasMatch()) {
-                sku = skuId;
-                streamingSku = sku;  // Store for entitlement check
-                qInfo() << "Found streaming SKU:" << sku;
-                
-                if (skuObj.contains("entitlements") && skuObj["entitlements"].isArray()) {
-                    QJsonArray entitlements = skuObj["entitlements"].toArray();
-                    for (const QJsonValue &entValue : entitlements) {
-                        QJsonObject ent = entValue.toObject();
+            if (skuObj.contains("entitlements") && skuObj["entitlements"].isArray()) {
+                QJsonArray entitlements = skuObj["entitlements"].toArray();
+                for (const QJsonValue &entValue : entitlements) {
+                    QJsonObject ent = entValue.toObject();
+                    int licenseType = ent["license_type"].toInt();
+                    
+                    // Streaming entitlements have license_type == 4
+                    if (licenseType == 4) {
                         QString entId = ent["id"].toString();
-                        QString packageType = ent["packageType"].toString();
-                        
-                        // Check if this is a streaming entitlement
-                        QRegularExpression psnwRegex("PSNW\\d+$");
-                        bool isStreamingEnt = (packageType == "PS4GS") ||
-                                            entId.endsWith("PSRSVD0000000000") ||
-                                            psnwRegex.match(entId).hasMatch();
-                        
-                        if (isStreamingEnt) {
+                        if (!entId.isEmpty()) {
                             streamingEntitlementId = entId;
-                            qInfo() << "Found Entitlement ID:" << streamingEntitlementId;
-                            qInfo() << "Package Type:" << packageType;
+                            sku = skuObj["id"].toString();
+                            streamingSku = sku;
+                            qInfo() << "Found streaming Entitlement ID from skus array:" << streamingEntitlementId;
+                            qInfo() << "License Type:" << licenseType;
+                            qInfo() << "SKU:" << sku;
                             break;
                         }
                     }
                 }
-                if (!streamingEntitlementId.isEmpty()) break;
             }
+            if (!streamingEntitlementId.isEmpty()) break;
         }
     }
     
@@ -503,30 +513,6 @@ void PSKamajiSession::handleProductIdConversionResponse(QNetworkReply *reply)
         scopesStr = KamajiConsts::PS4_SCOPES;
     }
     qInfo() << "Updated scopes for platform" << platform << ":" << scopesStr;
-    
-    // Fallback: infer entitlement ID if not found in API
-    if (streamingEntitlementId.isEmpty()) {
-        qWarning() << "Entitlement ID not found in API response, inferring from Product ID...";
-        QString titleIdPrefix;
-        
-        // Extract title ID prefix (e.g., "UP2026-NPUB30498_00" from "UP2026-NPUB30498_00-PS3SAMMAXBTSEP04")
-        QRegularExpression titleIdRegex("^([A-Z]{2}\\d{4}-[A-Z]{4}\\d{5}_\\d{2}).*");
-        QRegularExpressionMatch titleMatch = titleIdRegex.match(productId);
-        if (titleMatch.hasMatch()) {
-            titleIdPrefix = titleMatch.captured(1);
-            
-            // Infer based on product ID pattern
-            if (productId.contains("CUSA") || productId.contains("PPSA")) {
-                streamingEntitlementId = titleIdPrefix + "-PSRSVD0000000000";
-            } else if (productId.contains("NPU")) {
-                streamingEntitlementId = titleIdPrefix + "-PSNW01";
-            }
-            
-            if (!streamingEntitlementId.isEmpty()) {
-                qInfo() << "Inferred Entitlement ID:" << streamingEntitlementId;
-            }
-        }
-    }
     
     if (streamingEntitlementId.isEmpty()) {
         emit sessionComplete(false, QString("Could not determine Entitlement ID from Product ID '%1'. Game may not be available for cloud streaming.").arg(productId), QString());

@@ -15,6 +15,18 @@
 
 Q_DECLARE_LOGGING_CATEGORY(chiakiGui)
 
+// ============================================================================
+// Gaikai-specific constants
+// ============================================================================
+namespace GaikaiConsts {
+    static const QString CONFIG_BASE = "https://config.cc.prod.gaikai.com/v1";
+    static const QString GAIKAI_BASE = "https://cc.prod.gaikai.com/v1";
+    
+    // PSCLOUD URIs and headers
+    static const QString REDIRECT_URI = "gaikai://local";
+    static const QString USER_AGENT = "PlayStation Portal/6.0.0-rel.444+6a9cea6f5";
+}
+
 // Complete Gaikai streaming allocation flow (Steps 7-13)
 class PSGaikaiStreaming : public QObject {
     Q_OBJECT
