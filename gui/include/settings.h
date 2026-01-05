@@ -429,6 +429,9 @@ class Settings : public QObject
 		QString GetLastSelectedCloudSection() const;
 		void SetLastSelectedCloudSection(QString section);
 
+		QString GetCloudLibraryFilter() const;
+		void SetCloudLibraryFilter(QString filter);
+
 		QString GetCurrentProfile() const;
 		void SetCurrentProfile(QString profile);
 

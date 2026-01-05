@@ -1154,29 +1154,12 @@ void CloudCatalogBackend::handleOwnedGamesOAuthResponse()
         
         // Apply 100ms cooldown before fetching owned games (after OAuth)
         QTimer::singleShot(100, this, [this]() {
-            // Now fetch owned games
-            QString url = "https://commerce.api.np.km.playstation.net/commerce/api/v1/users/me/internal_entitlements";
-            QUrlQuery query;
-            query.addQueryItem("fields", "game_meta");
-            query.addQueryItem("entitlement_type", "5");
-            query.addQueryItem("start", "0");
-            query.addQueryItem("size", "1000");
+            // Reset pagination state
+            ownedGamesState.accumulatedEntitlements = QJsonArray();
+            ownedGamesState.currentStart = 0;
             
-            QUrl fullUrl(url);
-            fullUrl.setQuery(query);
-            
-            if (settings && settings->GetLogVerbose()) {
-                qInfo() << "=== CloudCatalogBackend: Fetching owned games ===";
-                qInfo() << "  URL:" << fullUrl.toString();
-                qInfo() << "  Method: GET";
-            }
-            
-            QNetworkRequest request{fullUrl};
-            request.setRawHeader("Authorization", QString("Bearer %1").arg(ownedGamesState.oauthToken).toUtf8());
-            request.setRawHeader("Accept", "application/json");
-            
-            QNetworkReply *gamesReply = networkManager->get(request);
-            connect(gamesReply, &QNetworkReply::finished, this, &CloudCatalogBackend::handleOwnedGamesResponse);
+            // Start fetching first page
+            fetchOwnedGamesPage();
         });
     } else {
         // Check if the redirect URL itself indicates an error
@@ -1201,6 +1184,33 @@ void CloudCatalogBackend::handleOwnedGamesOAuthResponse()
             }
         }
     }
+}
+
+void CloudCatalogBackend::fetchOwnedGamesPage()
+{
+    QString url = "https://commerce.api.np.km.playstation.net/commerce/api/v1/users/me/internal_entitlements";
+    QUrlQuery query;
+    query.addQueryItem("fields", "game_meta");
+    query.addQueryItem("entitlement_type", "5");
+    query.addQueryItem("start", QString::number(ownedGamesState.currentStart));
+    query.addQueryItem("size", QString::number(OwnedGamesState::PAGE_SIZE));
+    
+    QUrl fullUrl(url);
+    fullUrl.setQuery(query);
+    
+    if (settings && settings->GetLogVerbose()) {
+        qInfo() << "=== CloudCatalogBackend: Fetching owned games (page) ===";
+        qInfo() << "  URL:" << fullUrl.toString();
+        qInfo() << "  Start:" << ownedGamesState.currentStart << "Size:" << OwnedGamesState::PAGE_SIZE;
+        qInfo() << "  Method: GET";
+    }
+    
+    QNetworkRequest request{fullUrl};
+    request.setRawHeader("Authorization", QString("Bearer %1").arg(ownedGamesState.oauthToken).toUtf8());
+    request.setRawHeader("Accept", "application/json");
+    
+    QNetworkReply *gamesReply = networkManager->get(request);
+    connect(gamesReply, &QNetworkReply::finished, this, &CloudCatalogBackend::handleOwnedGamesResponse);
 }
 
 void CloudCatalogBackend::handleOwnedGamesResponse()
@@ -1254,17 +1264,42 @@ void CloudCatalogBackend::handleOwnedGamesResponse()
     }
     
     QJsonObject obj = doc.object();
-    QJsonArray entitlements;
+    
+    // Get entitlements from this page
+    QJsonArray pageEntitlements;
     if (obj.contains("entitlements") && obj["entitlements"].isArray()) {
-        entitlements = obj["entitlements"].toArray();
+        pageEntitlements = obj["entitlements"].toArray();
     }
     
     if (settings && settings->GetLogVerbose()) {
-        qInfo() << "  Total entitlements:" << entitlements.size();
+        qInfo() << "  Page entitlements:" << pageEntitlements.size();
+        qInfo() << "  Accumulated so far:" << ownedGamesState.accumulatedEntitlements.size();
+    }
+    
+    // Accumulate entitlements from this page
+    for (const QJsonValue &ent : pageEntitlements) {
+        ownedGamesState.accumulatedEntitlements.append(ent);
+    }
+    
+    // Check if we need to fetch more pages (got a full page means more may exist)
+    if (pageEntitlements.size() >= OwnedGamesState::PAGE_SIZE) {
+        ownedGamesState.currentStart += pageEntitlements.size();
+        if (settings && settings->GetLogVerbose()) {
+            qInfo() << "  More pages to fetch... scheduling next page";
+        }
+        // Apply 100ms cooldown between page requests to avoid rate limiting
+        QTimer::singleShot(100, this, &CloudCatalogBackend::fetchOwnedGamesPage);
+        return;
+    }
+    
+    // All pages fetched, process the accumulated results
+    if (settings && settings->GetLogVerbose()) {
+        qInfo() << "=== CloudCatalogBackend: All owned games pages fetched ===";
+        qInfo() << "  Total accumulated entitlements:" << ownedGamesState.accumulatedEntitlements.size();
     }
     
     // Filter for PS5 games (package_type=PSGD)
-    QJsonArray ps5Games = filterOwnedPs5Games(entitlements);
+    QJsonArray ps5Games = filterOwnedPs5Games(ownedGamesState.accumulatedEntitlements);
     
     if (settings && settings->GetLogVerbose()) {
         qInfo() << "  PS5 games (PSGD):" << ps5Games.size();
@@ -2465,4 +2500,5 @@ void CloudCatalogBackend::createCloudSteamShortcut(const QString &gameIdentifier
     }
     delete steam_tools;
 }
+
 

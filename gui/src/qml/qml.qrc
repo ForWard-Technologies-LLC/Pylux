@@ -32,6 +32,7 @@
     <file>CloudGameCard.qml</file>
     <file>TrophyListDialog.qml</file>
     <file>GameShortcutDialog.qml</file>
+    <file>QRCodeDialog.qml</file>
     <file>controls/Button.qml</file>
     <file>controls/CheckBox.qml</file>
     <file>controls/ComboBox.qml</file>

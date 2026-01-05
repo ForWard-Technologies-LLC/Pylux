@@ -782,6 +782,17 @@ void QmlSettings::setLastSelectedCloudSection(const QString &section)
 	emit lastSelectedCloudSectionChanged();
 }
 
+QString QmlSettings::cloudLibraryFilter() const
+{
+	return settings->GetCloudLibraryFilter();
+}
+
+void QmlSettings::setCloudLibraryFilter(const QString &filter)
+{
+	settings->SetCloudLibraryFilter(filter);
+	emit cloudLibraryFilterChanged();
+}
+
 QString QmlSettings::psnAccountId() const
 {
     return settings->GetPsnAccountId();

@@ -64,6 +64,7 @@ private slots:
     void handlePsnowCategoryResponse();
     void handlePs5CatalogResponse();
     void handleOwnedGamesOAuthResponse();
+    void fetchOwnedGamesPage();
     void handleOwnedGamesResponse();
     void handleGameDetailsResponse();
     void processCrossReferenceComplete();
@@ -102,6 +103,9 @@ private:
     struct OwnedGamesState {
         QJSValue callback;
         QString oauthToken;
+        QJsonArray accumulatedEntitlements;  // Accumulate results across pages
+        int currentStart = 0;                 // Current pagination offset
+        static const int PAGE_SIZE = 300;     // Page size for API requests
     } ownedGamesState;
     
     // Game details fetching state

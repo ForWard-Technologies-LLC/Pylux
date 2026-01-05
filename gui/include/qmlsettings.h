@@ -90,6 +90,7 @@ class QmlSettings : public QObject
     Q_PROPERTY(bool psnGamesSyncEnabled READ psnGamesSyncEnabled WRITE setPsnGamesSyncEnabled NOTIFY psnGamesSyncEnabledChanged)
     Q_PROPERTY(int lastSelectedMainTab READ lastSelectedMainTab WRITE setLastSelectedMainTab NOTIFY lastSelectedMainTabChanged)
     Q_PROPERTY(QString lastSelectedCloudSection READ lastSelectedCloudSection WRITE setLastSelectedCloudSection NOTIFY lastSelectedCloudSectionChanged)
+    Q_PROPERTY(QString cloudLibraryFilter READ cloudLibraryFilter WRITE setCloudLibraryFilter NOTIFY cloudLibraryFilterChanged)
     Q_PROPERTY(bool mouseTouchEnabled READ mouseTouchEnabled WRITE setMouseTouchEnabled NOTIFY mouseTouchEnabledChanged)
     Q_PROPERTY(bool keyboardEnabled READ keyboardEnabled WRITE setKeyboardEnabled NOTIFY keyboardEnabledChanged)
     Q_PROPERTY(bool dpadTouchEnabled READ dpadTouchEnabled WRITE setDpadTouchEnabled NOTIFY dpadTouchEnabledChanged)
@@ -550,6 +551,9 @@ public:
     QString lastSelectedCloudSection() const;
     void setLastSelectedCloudSection(const QString &section);
 
+    QString cloudLibraryFilter() const;
+    void setCloudLibraryFilter(const QString &filter);
+
     bool psnGamesSyncEnabled() const;
     void setPsnGamesSyncEnabled(bool enabled);
 
@@ -697,6 +701,7 @@ signals:
     void psnGamesSyncEnabledChanged();
     void lastSelectedMainTabChanged();
     void lastSelectedCloudSectionChanged();
+    void cloudLibraryFilterChanged();
     void mouseTouchEnabledChanged();
     void keyboardEnabledChanged();
     void dpadTouchEnabledChanged();
