@@ -256,7 +256,7 @@ Pane {
                                         // Show toast for non-auth errors
                                         authErrorMessage = ""; // Clear any previous auth error
                                         showErrorToast(qsTr("Ownership Check Failed"), 
-                                            ownershipErrorMsg + " " + qsTr("Some games may show 'View Game' instead of 'Stream Game'."));
+                                            ownershipErrorMsg + " " + qsTr("Some games may show 'Add Game' instead of 'Stream Game'."));
                                     }
                                 } else {
                                     authErrorMessage = ""; // Clear auth error on full success

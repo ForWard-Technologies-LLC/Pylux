@@ -278,6 +278,9 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 	host = connect_info.host;
 	title_id = connect_info.title_id;
 	service_type = connect_info.service_type;
+	fullscreen = connect_info.fullscreen;
+	zoom = connect_info.zoom;
+	stretch = connect_info.stretch;
 	QByteArray host_str = connect_info.host.toUtf8();
 
 	ChiakiConnectInfo chiaki_connect_info = {};
