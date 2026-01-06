@@ -333,13 +333,11 @@ Rectangle {
                             }
                         } else {
                             console.log("[CloudGameCard] Normal stream behavior");
-                            // Normal stream behavior
-                            let productId = getProductId();
+                            // Normal stream behavior - use getStreamingIdentifier for correct ID
+                            let streamingId = getStreamingIdentifier();
                             let platform = getPlatform();
                             let serviceType = getServiceType();
-                            if (productId !== "") {
-                                // For PSCloud, use entitlement ID, for PSNOW use productId
-                                let streamingId = isPsnow ? productId : (gameData && gameData.id ? gameData.id : productId);
+                            if (streamingId !== "") {
                                 streamGame(streamingId, platform, serviceType);
                             }
                         }
@@ -350,7 +348,7 @@ Rectangle {
                     anchors.centerIn: parent
                     text: {
                         if (!isPsnow && libraryFilter === "all" && gameData && !gameData.isOwned) {
-                            return qsTr("View Game")
+                            return qsTr("Add Game")
                         }
                         return qsTr("Stream Game")
                     }
@@ -436,12 +434,12 @@ Rectangle {
                     event.accepted = true;
                 }
             } else {
-                // Normal stream behavior
-                let productId = getProductId();
+                // Normal stream behavior - use getStreamingIdentifier for correct ID
+                let streamingId = getStreamingIdentifier();
                 let platform = getPlatform();
                 let serviceType = getServiceType();
-                if (productId !== "") {
-                    streamGame(productId, platform, serviceType);
+                if (streamingId !== "") {
+                    streamGame(streamingId, platform, serviceType);
                     event.accepted = true;
                 }
             }

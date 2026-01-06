@@ -1184,8 +1184,8 @@ Pane {
                             console.log("[CloudPlayView] root.qrCodeDialogRef:", root ? root.qrCodeDialogRef : "root is null");
                         }
                         
-                        onStreamGame: (productId, platform, serviceType) => {
-                            console.log("Stream game:", productId, platform, serviceType);
+                        onStreamGame: (streamingId, platform, serviceType) => {
+                            console.log("Stream game:", streamingId, platform, serviceType);
                             
                             // Show StreamView immediately with loading spinner
                             // Find Main component by traversing parent chain
@@ -1197,15 +1197,11 @@ Pane {
                                 mainComp.showStreamView();
                             }
                             
-                            // For PSCloud, use entitlement ID (gameData.id), for PSNOW use productId
-                            let streamingIdentifier = productId;
-                            if (serviceType === "pscloud" && gameData && gameData.id) {
-                                streamingIdentifier = gameData.id; // Use entitlement ID for PSCloud
-                            }
-                            
+                            // CloudGameCard now sends the correct identifier directly
+                            // (entitlement ID for PSCloud, product ID for PSNOW)
                             Chiaki.cloudStreaming.startCompleteCloudSession(
                                 serviceType,
-                                streamingIdentifier,
+                                streamingId,
                                 function(success, message, serverIp) {
                                     console.log("Cloud streaming:", success ? "SUCCESS" : "FAILED");
                                     console.log("Result:", message);
