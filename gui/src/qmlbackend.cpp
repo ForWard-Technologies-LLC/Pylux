@@ -2493,7 +2493,11 @@ void QmlBackend::configureSteamControllerLayout()
     qCInfo(chiakiGui) << "Applying workshop ID:" << controller_layout_workshop_id;
     
     // Pass "PSStream" - it will be lowercased to "psstream" internally by updateControllerConfig
-    steam_tools->updateControllerConfig("3946320", controller_layout_workshop_id);
+    try {
+        steam_tools->updateControllerConfig("3946320", controller_layout_workshop_id);
+    } catch (const std::exception& e) {
+        qCWarning(chiakiGui) << "Failed to update Steam controller config:" << e.what();
+    }
     
     // Save this Steam user as configured so we never override their choice again
     settings->AddSteamControllerConfiguredUser(steam_user_id);
@@ -2575,7 +2579,11 @@ void QmlBackend::createSteamShortcut(QString shortcutName, QString launchOptions
         shortcuts.append(newShortcut);
     }
     steam_tools->updateShortcuts(std::move(shortcuts));
-    steam_tools->updateControllerConfig(newShortcut.getAppName(), std::move(controller_layout_workshop_id));
+    try {
+        steam_tools->updateControllerConfig(newShortcut.getAppName(), std::move(controller_layout_workshop_id));
+    } catch (const std::exception& e) {
+        qCWarning(chiakiGui) << "Failed to update Steam controller config:" << e.what();
+    }
     if (!found)
     {
         if (cb.isCallable())
@@ -2607,7 +2615,7 @@ QString QmlBackend::openPsnLink()
 
 QString QmlBackend::openNpssoPage()
 {
-    QUrl url = QUrl("https://ca.account.sony.com/api/v1/ssocookie");
+    QUrl url = QUrl(CloudConfig::ACCOUNT_BASE + "/v1/ssocookie");
     if(QDesktopServices::openUrl(url) && (qEnvironmentVariable("XDG_CURRENT_DESKTOP") != "gamescope"))
     {
         qCWarning(chiakiGui) << "Launched browser for NPSO page.";

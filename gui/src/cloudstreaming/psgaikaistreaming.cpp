@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #include "cloudstreaming/psgaikaistreaming.h"
+#include "cloudstreaming/pskamajisession.h"
 #include "cloudstreaming/datacenterping.h"
 #include "chiaki/remote/holepunch.h"
 #include "chiaki/common.h"
@@ -24,14 +25,6 @@
 #include <QTimeZone>
 #include <QDateTime>
 
-// ============================================================================
-// GAIKAI CONFIG - Gaikai-specific base URLs only
-// ============================================================================
-namespace GaikaiConsts {
-    static const QString CONFIG_BASE = "https://config.cc.prod.gaikai.com/v1";
-    static const QString GAIKAI_BASE = "https://cc.prod.gaikai.com/v1";
-}
-
 PSGaikaiStreaming::PSGaikaiStreaming(Settings *settings, QString deviceUid,
                                    QString serviceTypeParam, QString platformParam,
                                    QObject *parent)
@@ -53,13 +46,13 @@ PSGaikaiStreaming::PSGaikaiStreaming(Settings *settings, QString deviceUid,
     // Set service-specific constants based on serviceType
     accountBaseUrl = "https://ca.account.sony.com";
     if (serviceType == "pscloud") {
-        redirectUriUrl = "gaikai://local";
-        userAgentString = "PlayStation Portal/6.0.0-rel.444+6a9cea6f5";
+        redirectUriUrl = GaikaiConsts::REDIRECT_URI;
+        userAgentString = GaikaiConsts::USER_AGENT;
         oauthApiPath = "/api/authz/v3";
     } else {
         // PSNOW
-        redirectUriUrl = "https://psnow.playstation.com/app/2.2.0/133/5cdcc037d/grc-response.html";
-        userAgentString = "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) playstation-now/0.0.0 Chrome/83.0.4103.104 Electron/9.0.4 Safari/537.36 gkApollo";
+        redirectUriUrl = KamajiConsts::REDIRECT_URI;
+        userAgentString = KamajiConsts::USER_AGENT;
         oauthApiPath = "/api/v1";
     }
     
@@ -156,15 +149,14 @@ QJsonObject PSGaikaiStreaming::buildRequestGameSpec(QString entitlementId)
     spec["npEnv"] = "np";
     
     // Read resolution and language from settings fresh each time (not cached)
+    // Use unified language setting for both PSCloud and PSNOW
+    QString language = settings->GetCloudLanguagePSCloud();
     int resolution;
-    QString language;
     if (serviceType == "pscloud") {
         resolution = settings->GetCloudResolutionPSCloud();
-        language = settings->GetCloudLanguagePSCloud();
     } else {
         // PSNOW
         resolution = settings->GetCloudResolutionPSNOW();
-        language = settings->GetCloudLanguagePSNOW();
     }
     spec["language"] = language;
     
@@ -488,7 +480,7 @@ void PSGaikaiStreaming::step0_GetClientIds()
     emit AllocationProgress("Getting Client IDs - Step 1 of 10");
     qInfo() << "Gaikai Step 0: Getting client IDs for virtType:" << virtType;
     
-    QString url = QString("https://cc.prod.gaikai.com/v1/client_ids?virtType=%1").arg(virtType);
+    QString url = QString("%1/client_ids?virtType=%2").arg(GaikaiConsts::GAIKAI_BASE, virtType);
     
     QNetworkRequest req{QUrl(url)};
     req.setRawHeader("User-Agent", userAgentString.toUtf8());

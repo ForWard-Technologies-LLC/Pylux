@@ -10,11 +10,19 @@
 #include <QJSValue>
 #include <QNetworkAccessManager>
 
+// ============================================================================
+// CONFIGURATION - Shared settings and values used by multiple classes
+// ============================================================================
+namespace CloudConfig {
+    // Shared base values (used by both PSNOW and PSCLOUD)
+    static const QString ACCOUNT_BASE = "https://ca.account.sony.com/api";
+}
+
 /**
  * CloudStreamingBackend - Orchestrates PlayStation Plus Cloud Gaming flow
  * 
  * This class is the main entry point for cloud gaming. It:
- * - Holds shared configuration (CloudConfig namespace in .cpp)
+ * - Holds shared configuration (CloudConfig namespace in header)
  * - Orchestrates Kamaji authentication (PSKamajiSession) 
  * - Orchestrates Gaikai allocation (PSGaikaiStreaming)
  * - Provides a single unified API for the frontend

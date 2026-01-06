@@ -422,8 +422,7 @@ void Settings::SetCloudResolutionPSCloud(int resolution)
 
 QString Settings::GetCloudLanguagePSCloud() const
 {
-	// Fallback to legacy cloud_language if not set (for migration)
-	return settings.value("settings/cloud_language_pscloud", settings.value("settings/cloud_language", "en-US").toString()).toString();
+	return settings.value("settings/cloud_language_pscloud", "en-US").toString();
 }
 
 void Settings::SetCloudLanguagePSCloud(const QString &language)
@@ -911,6 +910,16 @@ QString Settings::GetLastSelectedCloudSection() const
 void Settings::SetLastSelectedCloudSection(QString section)
 {
 	settings.setValue("settings/last_selected_cloud_section", section);
+}
+
+QString Settings::GetCloudLibraryFilter() const
+{
+	return settings.value("settings/cloud_library_filter", "owned").toString();
+}
+
+void Settings::SetCloudLibraryFilter(QString filter)
+{
+	settings.setValue("settings/cloud_library_filter", filter);
 }
 
 QString Settings::GetCurrentProfile() const

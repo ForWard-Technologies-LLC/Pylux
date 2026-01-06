@@ -2720,9 +2720,9 @@ DialogView {
                             }
                         }
                         visible: selectedCloudService == SettingsDialog.CloudService.PSCloud
-                        KeyNavigation.right: languagePSCloud
+                        KeyNavigation.right: datacenterPSCloud
                         KeyNavigation.up: cloudServiceSelection
-                        KeyNavigation.down: languagePSCloud
+                        KeyNavigation.down: datacenterPSCloud
                         KeyNavigation.priority: {
                             if(!popup.visible)
                                 KeyNavigation.BeforeItem
@@ -2760,85 +2760,8 @@ DialogView {
                             }
                         }
                         visible: selectedCloudService == SettingsDialog.CloudService.PSNOW
-                        KeyNavigation.right: languagePSNOW
+                        KeyNavigation.right: datacenterPSNOW
                         KeyNavigation.up: cloudServiceSelection
-                        KeyNavigation.down: languagePSNOW
-                        KeyNavigation.priority: {
-                            if(!popup.visible)
-                                KeyNavigation.BeforeItem
-                            else
-                                KeyNavigation.AfterItem
-                        }
-                    }
-
-                    Label {
-                        Layout.alignment: Qt.AlignRight
-                        text: qsTr("(1080p)")
-                        visible: selectedCloudService == SettingsDialog.CloudService.PSNOW
-                    }
-
-                        Label {
-                            Layout.alignment: Qt.AlignRight
-                            text: qsTr("Language:")
-                        }
-
-                        C.ComboBox {
-                            id: languagePSCloud
-                            Layout.preferredWidth: 400
-                            model: [
-                            "en-US", "en-GB", "ja-JP", "fr-FR", "de-DE", 
-                            "es-ES", "it-IT", "pt-BR", "ru-RU", "ko-KR",
-                            "zh-CN", "zh-TW", "nl-NL", "sv-SE", "no-NO",
-                            "da-DK", "fi-FI", "pl-PL", "cs-CZ", "hu-HU",
-                            "tr-TR", "ar-SA", "he-IL", "th-TH", "vi-VN"
-                        ]
-                        currentIndex: {
-                            let lang = Chiaki.settings.cloudLanguagePSCloud;
-                            let index = model.indexOf(lang);
-                            return index >= 0 ? index : 0;
-                        }
-                        onActivated: index => {
-                            Chiaki.settings.cloudLanguagePSCloud = model[index];
-                        }
-                        visible: selectedCloudService == SettingsDialog.CloudService.PSCloud
-                        KeyNavigation.left: resolutionPSCloud
-                        KeyNavigation.up: resolutionPSCloud
-                        KeyNavigation.down: datacenterPSCloud
-                        KeyNavigation.priority: {
-                            if(!popup.visible)
-                                KeyNavigation.BeforeItem
-                            else
-                                KeyNavigation.AfterItem
-                        }
-                    }
-
-                    Label {
-                        Layout.alignment: Qt.AlignRight
-                        text: qsTr("(en-US)")
-                        visible: selectedCloudService == SettingsDialog.CloudService.PSCloud
-                    }
-
-                    C.ComboBox {
-                        id: languagePSNOW
-                        Layout.preferredWidth: 400
-                        model: [
-                            "en-US", "en-GB", "ja-JP", "fr-FR", "de-DE", 
-                            "es-ES", "it-IT", "pt-BR", "ru-RU", "ko-KR",
-                            "zh-CN", "zh-TW", "nl-NL", "sv-SE", "no-NO",
-                            "da-DK", "fi-FI", "pl-PL", "cs-CZ", "hu-HU",
-                            "tr-TR", "ar-SA", "he-IL", "th-TH", "vi-VN"
-                        ]
-                        currentIndex: {
-                            let lang = Chiaki.settings.cloudLanguagePSNOW;
-                            let index = model.indexOf(lang);
-                            return index >= 0 ? index : 0;
-                        }
-                        onActivated: index => {
-                            Chiaki.settings.cloudLanguagePSNOW = model[index];
-                        }
-                        visible: selectedCloudService == SettingsDialog.CloudService.PSNOW
-                        KeyNavigation.left: resolutionPSNOW
-                        KeyNavigation.up: resolutionPSNOW
                         KeyNavigation.down: datacenterPSNOW
                         KeyNavigation.priority: {
                             if(!popup.visible)
@@ -2850,7 +2773,7 @@ DialogView {
 
                     Label {
                         Layout.alignment: Qt.AlignRight
-                        text: qsTr("(en-US)")
+                        text: qsTr("(1080p)")
                         visible: selectedCloudService == SettingsDialog.CloudService.PSNOW
                     }
 
@@ -2908,8 +2831,8 @@ DialogView {
                             }
                         }
                         visible: selectedCloudService == SettingsDialog.CloudService.PSCloud
-                        KeyNavigation.left: languagePSCloud
-                        KeyNavigation.up: languagePSCloud
+                        KeyNavigation.left: resolutionPSCloud
+                        KeyNavigation.up: resolutionPSCloud
                         KeyNavigation.priority: {
                             if(!popup.visible)
                                 KeyNavigation.BeforeItem
@@ -2974,8 +2897,8 @@ DialogView {
                             }
                         }
                         visible: selectedCloudService == SettingsDialog.CloudService.PSNOW
-                        KeyNavigation.left: languagePSNOW
-                        KeyNavigation.up: languagePSNOW
+                        KeyNavigation.left: resolutionPSNOW
+                        KeyNavigation.up: resolutionPSNOW
                         KeyNavigation.priority: {
                             if(!popup.visible)
                                 KeyNavigation.BeforeItem

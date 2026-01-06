@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #include "cloudcatalogbackend.h"
+#include "cloudstreamingbackend.h"
+#include "cloudstreaming/pskamajisession.h"
 #include "steamtools.h"
+#include <chiaki/remote/holepunch.h>
 #include <QLoggingCategory>
 #include <QUrlQuery>
 #include <QRegularExpression>
@@ -26,17 +29,7 @@
 Q_DECLARE_LOGGING_CATEGORY(chiakiGui)
 
 // PSNOW category IDs (alphabetical categories)
-const QStringList CloudCatalogBackend::PSNOW_CATEGORIES = {
-    "STORE-MSF192018-APOLLOAB",  // A-B
-    "STORE-MSF192018-APOLLOCD",  // C-D
-    "STORE-MSF192018-APOLLOEG",  // E-G
-    "STORE-MSF192018-APOLLOHL",  // H-L
-    "STORE-MSF192018-APOLLOMO",  // M-O
-    "STORE-MSF192018-APOLLOPR",  // P-R
-    "STORE-MSF192018-APOLLOSS",  // S
-    "STORE-MSF192018-APOLLOT",   // T
-    "STORE-MSF192018-APOLLOUZ"   // U-Z
-};
+// PSNOW categories are now dynamically fetched from the stores endpoint
 
 CloudCatalogBackend::CloudCatalogBackend(Settings *settings, QObject *parent)
     : QObject(parent)
@@ -55,6 +48,11 @@ CloudCatalogBackend::CloudCatalogBackend(Settings *settings, QObject *parent)
     psnowState.rateLimitTimer = new QTimer(this);
     psnowState.rateLimitTimer->setSingleShot(true);
     psnowState.rateLimitTimer->setInterval(100); // 100ms cooldown between API calls
+    psnowState.oauthCode = QString();
+    psnowState.jsessionId = QString();
+    psnowState.baseUrl = QString();
+    psnowState.duid = QString();
+    psnowState.authInProgress = false;
     
     // Initialize game details cooldown timer
     gameDetailsState.cooldownTimer = new QTimer(this);
@@ -165,19 +163,497 @@ void CloudCatalogBackend::fetchPsnowCatalog(const QJSValue &callback)
         return;
     }
     
-    qInfo() << "[API CALL] Fetching PSNOW catalog from API (cache miss or expired)";
-    if (settings && settings->GetLogVerbose()) {
-        qInfo() << "=== CloudCatalogBackend: Starting PSNOW catalog fetch ===";
-        qInfo() << "  Categories to fetch:" << PSNOW_CATEGORIES.size();
+    // Check if already authenticating
+    if (psnowState.authInProgress) {
+        qInfo() << "[PSNOW] Authentication already in progress, skipping duplicate request";
+        if (callback.isCallable()) {
+            callback.call({false, "Request already in progress", QJSValue()});
+        }
+        return;
     }
+    
+    // Check NPSSO token - required for authentication
+    QString npsso = getNpSsoToken();
+    if (npsso.isEmpty()) {
+        QString errorMsg = "NPSSO token is required for PSNOW catalog. Please login to PSN and enter a valid NPSSO token.";
+        qWarning() << "CloudCatalogBackend:" << errorMsg;
+        if (callback.isCallable()) {
+            callback.call({false, errorMsg, QJSValue()});
+        }
+        return;
+    }
+    
+    qInfo() << "[API CALL] Fetching PSNOW catalog from API (cache miss or expired)";
     
     // Initialize fetch state
     psnowState.callback = callback;
     psnowState.allGames = QJsonArray();
-    psnowState.categories = PSNOW_CATEGORIES;
+    psnowState.categories = QStringList();
     psnowState.currentCategoryIndex = 0;
+    psnowState.authInProgress = true;
+    psnowState.oauthCode.clear();
+    psnowState.jsessionId.clear();
+    psnowState.baseUrl.clear();
+    psnowState.duid.clear();
     
-    // Start fetching first category
+    // Start authentication flow: OAuth -> Session -> Stores -> Categories
+    fetchPsnowOAuthToken();
+}
+
+void CloudCatalogBackend::fetchPsnowOAuthToken()
+{
+    QString npsso = getNpSsoToken();
+    if (npsso.isEmpty()) {
+        psnowState.authInProgress = false;
+        QString errorMsg = "NPSSO token is required for PSNOW catalog. Please login to PSN and enter a valid NPSSO token.";
+        qWarning() << "CloudCatalogBackend:" << errorMsg;
+        if (psnowState.callback.isCallable()) {
+            psnowState.callback.call({false, errorMsg, QJSValue()});
+        }
+        return;
+    }
+    
+    // Generate DUID dynamically (matching CloudStreamingBackend)
+    size_t duid_size = CHIAKI_DUID_STR_SIZE;
+    char duid_arr[duid_size];
+    ChiakiErrorCode duid_err = chiaki_holepunch_generate_client_device_uid(duid_arr, &duid_size);
+    if (duid_err != CHIAKI_ERR_SUCCESS) {
+        psnowState.authInProgress = false;
+        QString errorMsg = "Failed to generate device UID for PSNOW OAuth authentication.";
+        qWarning() << "CloudCatalogBackend:" << errorMsg;
+        if (psnowState.callback.isCallable()) {
+            psnowState.callback.call({false, errorMsg, QJSValue()});
+        }
+        return;
+    }
+    psnowState.duid = QString(duid_arr);
+    
+    QUrl url(CloudConfig::ACCOUNT_BASE + "/v1/oauth/authorize");
+    QUrlQuery query;
+    query.addQueryItem("smcid", "pc:psnow");
+    query.addQueryItem("applicationId", "psnow");
+    query.addQueryItem("response_type", "code");
+    query.addQueryItem("scope", KamajiConsts::PS4_SCOPES);
+    query.addQueryItem("client_id", KamajiConsts::CLIENT_ID);
+    query.addQueryItem("redirect_uri", KamajiConsts::REDIRECT_URI);
+    query.addQueryItem("service_entity", "urn:service-entity:psn");
+    query.addQueryItem("prompt", "none");
+    query.addQueryItem("renderMode", "mobilePortrait");
+    query.addQueryItem("hidePageElements", "forgotPasswordLink");
+    query.addQueryItem("displayFooter", "none");
+    query.addQueryItem("disableLinks", "qriocityLink");
+    query.addQueryItem("mid", "PSNOW");
+    query.addQueryItem("duid", psnowState.duid);
+    query.addQueryItem("layout_type", "popup");
+    query.addQueryItem("service_logo", "ps");
+    query.addQueryItem("tp_psn", "true");
+    query.addQueryItem("noEVBlock", "true");
+    url.setQuery(query);
+    
+    if (settings && settings->GetLogVerbose()) {
+        qInfo() << "=== CloudCatalogBackend: PSNOW OAuth Token Request ===";
+        qInfo() << "  URL:" << url.toString();
+        qInfo() << "  Method: GET";
+    }
+    
+    QNetworkRequest req(url);
+    req.setRawHeader("User-Agent", KamajiConsts::USER_AGENT.toUtf8());
+    req.setRawHeader("Cookie", QString("npsso=%1").arg(npsso).toUtf8());
+    req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::ManualRedirectPolicy);
+    
+    QNetworkReply *reply = networkManager->get(req);
+    connect(reply, &QNetworkReply::finished, this, &CloudCatalogBackend::handlePsnowOAuthResponse);
+}
+
+void CloudCatalogBackend::handlePsnowOAuthResponse()
+{
+    QNetworkReply *reply = qobject_cast<QNetworkReply*>(sender());
+    if (!reply) return;
+    
+    reply->deleteLater();
+    
+    int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    
+    if (settings && settings->GetLogVerbose()) {
+        qInfo() << "=== CloudCatalogBackend: PSNOW OAuth Response ===";
+        qInfo() << "  Status:" << statusCode;
+    }
+    
+    QUrl redirectUrl = reply->attribute(QNetworkRequest::RedirectionTargetAttribute).toUrl();
+    if (redirectUrl.isEmpty()) {
+        QByteArray locationHeader = reply->rawHeader("Location");
+        if (!locationHeader.isEmpty()) {
+            redirectUrl = QUrl::fromEncoded(locationHeader);
+        }
+    }
+    
+    if (redirectUrl.isEmpty() || statusCode != 302) {
+        psnowState.authInProgress = false;
+        QString errorMsg = "OAuth request failed for PSNOW catalog";
+        qWarning() << "CloudCatalogBackend:" << errorMsg;
+        if (psnowState.callback.isCallable()) {
+            psnowState.callback.call({false, errorMsg, QJSValue()});
+        }
+        return;
+    }
+    
+    // Extract code from redirect URL
+    QUrlQuery query(redirectUrl);
+    QString code = query.queryItemValue("code");
+    
+    if (code.isEmpty()) {
+        // Try fragment
+        QString fragment = redirectUrl.fragment();
+        QRegularExpression codeRe("code=([^&]+)");
+        QRegularExpressionMatch codeMatch = codeRe.match(fragment);
+        if (codeMatch.hasMatch()) {
+            code = codeMatch.captured(1);
+        }
+    }
+    
+    if (code.isEmpty()) {
+        psnowState.authInProgress = false;
+        QString errorMsg = "No authorization code in OAuth response";
+        qWarning() << "CloudCatalogBackend:" << errorMsg;
+        if (psnowState.callback.isCallable()) {
+            psnowState.callback.call({false, errorMsg, QJSValue()});
+        }
+        return;
+    }
+    
+    psnowState.oauthCode = code;
+    qInfo() << "[PSNOW] Got OAuth code, creating session...";
+    fetchPsnowSession();
+}
+
+void CloudCatalogBackend::fetchPsnowSession()
+{
+    QString url = KamajiConsts::KAMAJI_BASE + "/user/session";
+    QString body = QString("code=%1&client_id=%2&duid=%3")
+        .arg(psnowState.oauthCode)
+        .arg(KamajiConsts::CLIENT_ID)
+        .arg(psnowState.duid);
+    
+    if (settings && settings->GetLogVerbose()) {
+        qInfo() << "=== CloudCatalogBackend: PSNOW Session Request ===";
+        qInfo() << "  URL:" << url;
+        qInfo() << "  Method: POST";
+        qInfo() << "  Body:" << body;
+    }
+    
+    QNetworkRequest req{QUrl(url)};
+    req.setRawHeader("Content-Type", "text/plain;charset=UTF-8");
+    req.setRawHeader("User-Agent", KamajiConsts::USER_AGENT.toUtf8());
+    req.setRawHeader("X-Alt-Referer", KamajiConsts::REDIRECT_URI.toUtf8());
+    req.setRawHeader("Origin", KamajiConsts::ORIGIN.toUtf8());
+    req.setRawHeader("Referer", KamajiConsts::REFERER.toUtf8());
+    req.setRawHeader("Accept", "*/*");
+    
+    QNetworkReply *reply = networkManager->post(req, body.toUtf8());
+    connect(reply, &QNetworkReply::finished, this, &CloudCatalogBackend::handlePsnowSessionResponse);
+}
+
+void CloudCatalogBackend::handlePsnowSessionResponse()
+{
+    QNetworkReply *reply = qobject_cast<QNetworkReply*>(sender());
+    if (!reply) return;
+    
+    reply->deleteLater();
+    
+    int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    QByteArray response = reply->readAll();
+    
+    if (settings && settings->GetLogVerbose()) {
+        qInfo() << "=== CloudCatalogBackend: PSNOW Session Response ===";
+        qInfo() << "  Status:" << statusCode;
+        qInfo() << "  Body:" << QString(response);
+    }
+    
+    if (reply->error() != QNetworkReply::NoError || statusCode != 200) {
+        psnowState.authInProgress = false;
+        QString errorMsg = QString("Session creation failed: %1").arg(reply->errorString());
+        qWarning() << "CloudCatalogBackend:" << errorMsg;
+        if (psnowState.callback.isCallable()) {
+            psnowState.callback.call({false, errorMsg, QJSValue()});
+        }
+        return;
+    }
+    
+    QJsonDocument doc = QJsonDocument::fromJson(response);
+    if (!doc.isObject()) {
+        psnowState.authInProgress = false;
+        QString errorMsg = "Invalid JSON in session response";
+        qWarning() << "CloudCatalogBackend:" << errorMsg;
+        if (psnowState.callback.isCallable()) {
+            psnowState.callback.call({false, errorMsg, QJSValue()});
+        }
+        return;
+    }
+    
+    QJsonObject obj = doc.object();
+    QJsonObject header = obj["header"].toObject();
+    QJsonObject data = obj["data"].toObject();
+    
+    if (header["status_code"].toString() != "0x0000") {
+        psnowState.authInProgress = false;
+        QString errorMsg = QString("Session failed with status: %1").arg(header["status_code"].toString());
+        qWarning() << "CloudCatalogBackend:" << errorMsg;
+        if (psnowState.callback.isCallable()) {
+            psnowState.callback.call({false, errorMsg, QJSValue()});
+        }
+        return;
+    }
+    
+    // Extract JSESSIONID from Set-Cookie header
+    QList<QNetworkReply::RawHeaderPair> headers = reply->rawHeaderPairs();
+    for (const auto &headerPair : headers) {
+        if (headerPair.first.toLower() == "set-cookie") {
+            QString setCookieValue = QString::fromUtf8(headerPair.second);
+            QRegularExpression jsessionRegex("JSESSIONID=([^;]+)");
+            QRegularExpressionMatch match = jsessionRegex.match(setCookieValue);
+            if (match.hasMatch()) {
+                psnowState.jsessionId = match.captured(1);
+                break;
+            }
+        }
+    }
+    
+    if (psnowState.jsessionId.isEmpty()) {
+        psnowState.authInProgress = false;
+        QString errorMsg = "No JSESSIONID in session response";
+        qWarning() << "CloudCatalogBackend:" << errorMsg;
+        if (psnowState.callback.isCallable()) {
+            psnowState.callback.call({false, errorMsg, QJSValue()});
+        }
+        return;
+    }
+    
+    // Save country and language from session response to settings
+    QString country = data["country"].toString();
+    QString language = data["language"].toString();
+    if (!country.isEmpty() && !language.isEmpty()) {
+        // Format: language-COUNTRY (e.g., "nl-NL" or "en-US")
+        QString locale = QString("%1-%2").arg(language, country.toUpper());
+        if (settings) {
+            QString previousLocale = settings->GetCloudLanguagePSCloud();
+            settings->SetCloudLanguagePSCloud(locale);
+            qInfo() << "[PSNOW] Saved locale from session:" << locale;
+            
+            // Invalidate cache if locale changed
+            if (previousLocale != locale) {
+                qInfo() << "[PSNOW] Locale changed from" << previousLocale << "to" << locale << "- invalidating cache";
+                invalidateCache();
+            }
+        }
+    }
+    
+    qInfo() << "[PSNOW] Session created successfully, fetching stores...";
+    fetchPsnowStores();
+}
+
+void CloudCatalogBackend::fetchPsnowStores()
+{
+    QString url = KamajiConsts::KAMAJI_BASE + "/user/stores";
+    
+    if (settings && settings->GetLogVerbose()) {
+        qInfo() << "=== CloudCatalogBackend: PSNOW Stores Request ===";
+        qInfo() << "  URL:" << url;
+        qInfo() << "  Method: GET";
+    }
+    
+    QNetworkRequest req{QUrl(url)};
+    req.setRawHeader("User-Agent", KamajiConsts::USER_AGENT.toUtf8());
+    req.setRawHeader("Cookie", QString("JSESSIONID=%1").arg(psnowState.jsessionId).toUtf8());
+    req.setRawHeader("Origin", KamajiConsts::ORIGIN.toUtf8());
+    req.setRawHeader("Referer", KamajiConsts::REFERER.toUtf8());
+    req.setRawHeader("Accept", "application/json");
+    
+    QNetworkReply *reply = networkManager->get(req);
+    connect(reply, &QNetworkReply::finished, this, &CloudCatalogBackend::handlePsnowStoresResponse);
+}
+
+void CloudCatalogBackend::handlePsnowStoresResponse()
+{
+    QNetworkReply *reply = qobject_cast<QNetworkReply*>(sender());
+    if (!reply) return;
+    
+    reply->deleteLater();
+    
+    int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    QByteArray response = reply->readAll();
+    
+    if (settings && settings->GetLogVerbose()) {
+        qInfo() << "=== CloudCatalogBackend: PSNOW Stores Response ===";
+        qInfo() << "  Status:" << statusCode;
+        qInfo() << "  Body:" << QString(response);
+    }
+    
+    if (reply->error() != QNetworkReply::NoError || statusCode != 200) {
+        psnowState.authInProgress = false;
+        QString errorMsg = QString("Stores request failed: %1").arg(reply->errorString());
+        qWarning() << "CloudCatalogBackend:" << errorMsg;
+        if (psnowState.callback.isCallable()) {
+            psnowState.callback.call({false, errorMsg, QJSValue()});
+        }
+        return;
+    }
+    
+    QJsonDocument doc = QJsonDocument::fromJson(response);
+    if (!doc.isObject()) {
+        psnowState.authInProgress = false;
+        QString errorMsg = "Invalid JSON in stores response";
+        qWarning() << "CloudCatalogBackend:" << errorMsg;
+        if (psnowState.callback.isCallable()) {
+            psnowState.callback.call({false, errorMsg, QJSValue()});
+        }
+        return;
+    }
+    
+    QJsonObject obj = doc.object();
+    QJsonObject header = obj["header"].toObject();
+    QJsonObject data = obj["data"].toObject();
+    
+    if (header["status_code"].toString() != "0x0000") {
+        psnowState.authInProgress = false;
+        QString errorMsg = QString("Stores request failed with status: %1").arg(header["status_code"].toString());
+        qWarning() << "CloudCatalogBackend:" << errorMsg;
+        if (psnowState.callback.isCallable()) {
+            psnowState.callback.call({false, errorMsg, QJSValue()});
+        }
+        return;
+    }
+    
+    QString baseUrl = data["base_url"].toString();
+    if (baseUrl.isEmpty()) {
+        psnowState.authInProgress = false;
+        QString errorMsg = "No base_url in stores response";
+        qWarning() << "CloudCatalogBackend:" << errorMsg;
+        if (psnowState.callback.isCallable()) {
+            psnowState.callback.call({false, errorMsg, QJSValue()});
+        }
+        return;
+    }
+    
+    psnowState.baseUrl = baseUrl;
+    
+    qInfo() << "[PSNOW] Stores fetched successfully, base URL:" << baseUrl;
+    
+    // Fetch the root container to get dynamic category URLs
+    fetchPsnowRootContainer();
+}
+
+void CloudCatalogBackend::fetchPsnowRootContainer()
+{
+    // Fetch root container endpoint with ?size=100
+    QString rootUrl = psnowState.baseUrl + "?size=100";
+    
+    if (settings && settings->GetLogVerbose()) {
+        qInfo() << "=== CloudCatalogBackend: PSNOW Root Container Request ===";
+        qInfo() << "  URL:" << rootUrl;
+        qInfo() << "  Method: GET";
+    }
+    
+    QNetworkRequest req{QUrl(rootUrl)};
+    req.setRawHeader("User-Agent", KamajiConsts::USER_AGENT.toUtf8());
+    req.setRawHeader("Cookie", QString("JSESSIONID=%1").arg(psnowState.jsessionId).toUtf8());
+    req.setRawHeader("Origin", KamajiConsts::ORIGIN.toUtf8());
+    req.setRawHeader("Referer", KamajiConsts::REFERER.toUtf8());
+    req.setRawHeader("Accept", "application/json");
+    
+    QNetworkReply *reply = networkManager->get(req);
+    connect(reply, &QNetworkReply::finished, this, &CloudCatalogBackend::handlePsnowRootContainerResponse);
+}
+
+void CloudCatalogBackend::handlePsnowRootContainerResponse()
+{
+    QNetworkReply *reply = qobject_cast<QNetworkReply*>(sender());
+    if (!reply) return;
+    
+    reply->deleteLater();
+    
+    int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    QByteArray response = reply->readAll();
+    
+    if (settings && settings->GetLogVerbose()) {
+        qInfo() << "=== CloudCatalogBackend: PSNOW Root Container Response ===";
+        qInfo() << "  Status:" << statusCode;
+        qInfo() << "  Body:" << QString(response);
+    }
+    
+    if (reply->error() != QNetworkReply::NoError || statusCode != 200) {
+        psnowState.authInProgress = false;
+        QString errorMsg = QString("Root container request failed: %1").arg(reply->errorString());
+        qWarning() << "CloudCatalogBackend:" << errorMsg;
+        if (psnowState.callback.isCallable()) {
+            psnowState.callback.call({false, errorMsg, QJSValue()});
+        }
+        return;
+    }
+    
+    QJsonDocument doc = QJsonDocument::fromJson(response);
+    if (!doc.isObject()) {
+        psnowState.authInProgress = false;
+        QString errorMsg = "Invalid JSON in root container response";
+        qWarning() << "CloudCatalogBackend:" << errorMsg;
+        if (psnowState.callback.isCallable()) {
+            psnowState.callback.call({false, errorMsg, QJSValue()});
+        }
+        return;
+    }
+    
+    QJsonObject obj = doc.object();
+    QJsonArray links = obj["links"].toArray();
+    
+    // Alphabetical category name patterns to match
+    QStringList categoryPatterns = {
+        "A - B",
+        "C - D",
+        "E - G",
+        "H - L",
+        "M - O",
+        "P - R",
+        "S",
+        "T",
+        "U - Z"
+    };
+    
+    QStringList categoryUrls;
+    
+    // Extract URLs from links that match alphabetical category patterns
+    for (const QJsonValue &linkValue : links) {
+        QJsonObject link = linkValue.toObject();
+        QString name = link["name"].toString();
+        
+        // Check if this link matches any of our category patterns
+        if (categoryPatterns.contains(name)) {
+            QString url = link["url"].toString();
+            if (!url.isEmpty()) {
+                categoryUrls.append(url);
+                if (settings && settings->GetLogVerbose()) {
+                    qInfo() << "[PSNOW] Found category:" << name << "URL:" << url;
+                }
+            }
+        }
+    }
+    
+    if (categoryUrls.isEmpty()) {
+        psnowState.authInProgress = false;
+        QString errorMsg = "No alphabetical category URLs found in root container response";
+        qWarning() << "CloudCatalogBackend:" << errorMsg;
+        if (psnowState.callback.isCallable()) {
+            psnowState.callback.call({false, errorMsg, QJSValue()});
+        }
+        return;
+    }
+    
+    psnowState.categories = categoryUrls;
+    psnowState.authInProgress = false;
+    
+    qInfo() << "[PSNOW] Root container fetched successfully, extracted" << categoryUrls.size() << "alphabetical category URLs";
+    
+    // Now start fetching categories
+    psnowState.allGames = QJsonArray();
+    psnowState.currentCategoryIndex = 0;
     fetchPsnowCategory(0);
 }
 
@@ -189,13 +665,26 @@ void CloudCatalogBackend::fetchPsnowCategory(int categoryIndex)
         return;
     }
     
-    QString categoryId = psnowState.categories[categoryIndex];
-    QString baseUrl = "https://psnow.playstation.com/store/api/pcnow/00_09_000/container/US/en/19";
-    QString url = QString("%1/%2?start=0&size=500").arg(baseUrl, categoryId);
+    // Check if we have categories (from stores endpoint)
+    if (psnowState.categories.isEmpty()) {
+        qWarning() << "PSNOW categories not available - authentication may not have completed";
+        return;
+    }
+    
+    // Use the URL directly from the root container response
+    QString url = psnowState.categories[categoryIndex];
+    
+    // Append query parameters if not already present
+    if (!url.contains("?")) {
+        url = QString("%1?start=0&size=500").arg(url);
+    } else {
+        // URL already has query parameters, append ours
+        url = QString("%1&start=0&size=500").arg(url);
+    }
     
     if (settings && settings->GetLogVerbose()) {
         qInfo() << "=== CloudCatalogBackend: Fetching PSNOW category ===";
-        qInfo() << "  Category:" << categoryId;
+        qInfo() << "  Category Index:" << categoryIndex;
         qInfo() << "  URL:" << url;
         qInfo() << "  Method: GET";
     }
@@ -354,10 +843,14 @@ void CloudCatalogBackend::processPsnowCatalogComplete()
 
 void CloudCatalogBackend::fetchPs5CloudCatalog(const QJSValue &callback)
 {
+    // Get locale from unified language setting and convert to lowercase for API
+    QString localeSetting = settings ? settings->GetCloudLanguagePSCloud() : "en-US";
+    QString locale = localeSetting.toLower(); // Convert "en-US" to "en-us"
+    
     // Check cache first
     QString cached = getCachedData("ps5_cloud_catalog", CACHE_DURATION_CATALOG);
     if (!cached.isEmpty()) {
-        qInfo() << "[CACHE] Using cached PS5 cloud catalog (skipping API call)";
+        qInfo() << "[CACHE] Using cached PS5 cloud catalog";
         QJsonDocument doc = QJsonDocument::fromJson(cached.toUtf8());
         if (callback.isCallable()) {
             callback.call({true, "Cached", QJSValue(QString::fromUtf8(doc.toJson(QJsonDocument::Compact)))});
@@ -368,13 +861,7 @@ void CloudCatalogBackend::fetchPs5CloudCatalog(const QJSValue &callback)
     qInfo() << "[API CALL] Fetching PS5 cloud catalog from API (cache miss or expired)";
     ps5State.callback = callback;
     
-    QString url = "https://www.playstation.com/bin/imagic/gameslist?locale=en-us&categoryList=all-ps5-list";
-    
-    if (settings && settings->GetLogVerbose()) {
-        qInfo() << "=== CloudCatalogBackend: Fetching PS5 cloud catalog ===";
-        qInfo() << "  URL:" << url;
-        qInfo() << "  Method: GET";
-    }
+    QString url = QString("https://www.playstation.com/bin/imagic/gameslist?locale=%1&categoryList=all-ps5-list").arg(locale);
     
     QNetworkRequest request{QUrl(url)};
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
@@ -542,12 +1029,12 @@ void CloudCatalogBackend::fetchOwnedGamesOAuthToken()
     }
     
     // Get OAuth token for entitlements API
-    QString url = "https://ca.account.sony.com/api/v1/oauth/authorize";
+    QString url = CloudConfig::ACCOUNT_BASE + "/v1/oauth/authorize";
     QUrlQuery query;
     query.addQueryItem("response_type", "token");
     query.addQueryItem("scope", "kamaji:get_internal_entitlements user:account.attributes.validate");
     query.addQueryItem("client_id", "dc523cc2-b51b-4190-bff0-3397c06871b3");
-    query.addQueryItem("redirect_uri", "https://psnow.playstation.com/app/2.2.0/133/5cdcc037d/grc-response.html");
+    query.addQueryItem("redirect_uri", KamajiConsts::REDIRECT_URI);
     query.addQueryItem("service_entity", "urn:service-entity:psn");
     query.addQueryItem("prompt", "none");
     
@@ -670,29 +1157,12 @@ void CloudCatalogBackend::handleOwnedGamesOAuthResponse()
         
         // Apply 100ms cooldown before fetching owned games (after OAuth)
         QTimer::singleShot(100, this, [this]() {
-            // Now fetch owned games
-            QString url = "https://commerce.api.np.km.playstation.net/commerce/api/v1/users/me/internal_entitlements";
-            QUrlQuery query;
-            query.addQueryItem("fields", "game_meta");
-            query.addQueryItem("entitlement_type", "5");
-            query.addQueryItem("start", "0");
-            query.addQueryItem("size", "500");
+            // Reset pagination state
+            ownedGamesState.accumulatedEntitlements = QJsonArray();
+            ownedGamesState.currentStart = 0;
             
-            QUrl fullUrl(url);
-            fullUrl.setQuery(query);
-            
-            if (settings && settings->GetLogVerbose()) {
-                qInfo() << "=== CloudCatalogBackend: Fetching owned games ===";
-                qInfo() << "  URL:" << fullUrl.toString();
-                qInfo() << "  Method: GET";
-            }
-            
-            QNetworkRequest request{fullUrl};
-            request.setRawHeader("Authorization", QString("Bearer %1").arg(ownedGamesState.oauthToken).toUtf8());
-            request.setRawHeader("Accept", "application/json");
-            
-            QNetworkReply *gamesReply = networkManager->get(request);
-            connect(gamesReply, &QNetworkReply::finished, this, &CloudCatalogBackend::handleOwnedGamesResponse);
+            // Start fetching first page
+            fetchOwnedGamesPage();
         });
     } else {
         // Check if the redirect URL itself indicates an error
@@ -717,6 +1187,33 @@ void CloudCatalogBackend::handleOwnedGamesOAuthResponse()
             }
         }
     }
+}
+
+void CloudCatalogBackend::fetchOwnedGamesPage()
+{
+    QString url = "https://commerce.api.np.km.playstation.net/commerce/api/v1/users/me/internal_entitlements";
+    QUrlQuery query;
+    query.addQueryItem("fields", "game_meta");
+    query.addQueryItem("entitlement_type", "5");
+    query.addQueryItem("start", QString::number(ownedGamesState.currentStart));
+    query.addQueryItem("size", QString::number(OwnedGamesState::PAGE_SIZE));
+    
+    QUrl fullUrl(url);
+    fullUrl.setQuery(query);
+    
+    if (settings && settings->GetLogVerbose()) {
+        qInfo() << "=== CloudCatalogBackend: Fetching owned games (page) ===";
+        qInfo() << "  URL:" << fullUrl.toString();
+        qInfo() << "  Start:" << ownedGamesState.currentStart << "Size:" << OwnedGamesState::PAGE_SIZE;
+        qInfo() << "  Method: GET";
+    }
+    
+    QNetworkRequest request{fullUrl};
+    request.setRawHeader("Authorization", QString("Bearer %1").arg(ownedGamesState.oauthToken).toUtf8());
+    request.setRawHeader("Accept", "application/json");
+    
+    QNetworkReply *gamesReply = networkManager->get(request);
+    connect(gamesReply, &QNetworkReply::finished, this, &CloudCatalogBackend::handleOwnedGamesResponse);
 }
 
 void CloudCatalogBackend::handleOwnedGamesResponse()
@@ -770,26 +1267,42 @@ void CloudCatalogBackend::handleOwnedGamesResponse()
     }
     
     QJsonObject obj = doc.object();
-    QJsonArray entitlements;
+    
+    // Get entitlements from this page
+    QJsonArray pageEntitlements;
     if (obj.contains("entitlements") && obj["entitlements"].isArray()) {
-        entitlements = obj["entitlements"].toArray();
+        pageEntitlements = obj["entitlements"].toArray();
     }
     
     if (settings && settings->GetLogVerbose()) {
-        qInfo() << "  Total entitlements:" << entitlements.size();
-        // Log first entitlement structure for debugging
-        if (entitlements.size() > 0 && entitlements[0].isObject()) {
-            QJsonObject firstEnt = entitlements[0].toObject();
-            qInfo() << "  Sample entitlement keys:" << firstEnt.keys();
-            if (firstEnt.contains("game_meta") && firstEnt["game_meta"].isObject()) {
-                QJsonObject gameMeta = firstEnt["game_meta"].toObject();
-                qInfo() << "  Sample game_meta keys:" << gameMeta.keys();
-            }
+        qInfo() << "  Page entitlements:" << pageEntitlements.size();
+        qInfo() << "  Accumulated so far:" << ownedGamesState.accumulatedEntitlements.size();
+    }
+    
+    // Accumulate entitlements from this page
+    for (const QJsonValue &ent : pageEntitlements) {
+        ownedGamesState.accumulatedEntitlements.append(ent);
+    }
+    
+    // Check if we need to fetch more pages (got a full page means more may exist)
+    if (pageEntitlements.size() >= OwnedGamesState::PAGE_SIZE) {
+        ownedGamesState.currentStart += pageEntitlements.size();
+        if (settings && settings->GetLogVerbose()) {
+            qInfo() << "  More pages to fetch... scheduling next page";
         }
+        // Apply 100ms cooldown between page requests to avoid rate limiting
+        QTimer::singleShot(100, this, &CloudCatalogBackend::fetchOwnedGamesPage);
+        return;
+    }
+    
+    // All pages fetched, process the accumulated results
+    if (settings && settings->GetLogVerbose()) {
+        qInfo() << "=== CloudCatalogBackend: All owned games pages fetched ===";
+        qInfo() << "  Total accumulated entitlements:" << ownedGamesState.accumulatedEntitlements.size();
     }
     
     // Filter for PS5 games (package_type=PSGD)
-    QJsonArray ps5Games = filterOwnedPs5Games(entitlements);
+    QJsonArray ps5Games = filterOwnedPs5Games(ownedGamesState.accumulatedEntitlements);
     
     if (settings && settings->GetLogVerbose()) {
         qInfo() << "  PS5 games (PSGD):" << ps5Games.size();
@@ -912,6 +1425,7 @@ void CloudCatalogBackend::getOwnedPs5CloudGames(const QJSValue &callback)
     
     // Check cache for both catalogs first
     QString cachedCatalog = getCachedData("ps5_cloud_catalog", CACHE_DURATION_CATALOG);
+    
     QString cachedOwned = getCachedData("ps5_cloud_library", CACHE_DURATION_CATALOG);
     
     bool catalogFromCache = !cachedCatalog.isEmpty();
@@ -994,18 +1508,27 @@ void CloudCatalogBackend::fetchGameDetails(const QString &productId, const QJSVa
 
 void CloudCatalogBackend::executeGameDetailsFetch(const QString &productId)
 {
+    // Get locale from unified language setting
+    QString localeSetting = settings ? settings->GetCloudLanguagePSCloud() : "en-US";
+    QString locale = localeSetting.toLower(); // Convert "en-US" to "en-us"
+    
+    // Extract country and language from locale (e.g., "en-us" -> "US", "en")
+    QStringList localeParts = locale.split("-");
+    QString country = localeParts.size() > 1 ? localeParts[1].toUpper() : "US";
+    QString language = localeParts[0].toLower();
+    
     // Check if productId looks like a title ID (ends with _00) or is a full product ID
     QString url;
     bool isTitleId = productId.contains("_00") && productId.length() <= 15; // Title IDs are short like "PPSA01325_00"
     
     if (isTitleId) {
         // It's a title ID, use store API directly
-        url = QString("https://store.playstation.com/store/api/chihiro/00_09_000/container/US/en/999/%1/0")
-            .arg(productId);
+        url = QString("https://store.playstation.com/store/api/chihiro/00_09_000/container/%1/%2/999/%3/0")
+            .arg(country, language, productId);
     } else {
         // It's a product ID, try PSNOW API first
-        url = QString("https://psnow.playstation.com/store/api/pcnow/00_09_000/container/US/en/19/%1?useOffers=true&gkb=1&gkb2=1")
-            .arg(productId);
+        url = QString("https://psnow.playstation.com/store/api/pcnow/00_09_000/container/%1/%2/19/%3?useOffers=true&gkb=1&gkb2=1")
+            .arg(country, language, productId);
     }
     
     if (settings && settings->GetLogVerbose()) {
@@ -1946,7 +2469,11 @@ void CloudCatalogBackend::createCloudSteamShortcut(const QString &gameIdentifier
     // Update controller config for Steam Deck
     QString controller_layout_workshop_id = "3049833406";
     qInfo() << "Updating Steam Deck controller config with workshop ID:" << controller_layout_workshop_id;
-    steam_tools->updateControllerConfig(newShortcut.getAppName(), std::move(controller_layout_workshop_id));
+    try {
+        steam_tools->updateControllerConfig(newShortcut.getAppName(), std::move(controller_layout_workshop_id));
+    } catch (const std::exception& e) {
+        qWarning() << "Failed to update Steam controller config:" << e.what();
+    }
     
     infoLambda("[I] Successfully created Steam shortcut!");
     infoLambda("");
@@ -1976,4 +2503,5 @@ void CloudCatalogBackend::createCloudSteamShortcut(const QString &gameIdentifier
     }
     delete steam_tools;
 }
+
 

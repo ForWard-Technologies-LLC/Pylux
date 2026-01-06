@@ -6,6 +6,8 @@ import QtQuick.Effects
 
 import org.streetpea.chiaking
 
+import "controls" as C
+
 Pane {
     id: root
     padding: 0
@@ -28,6 +30,9 @@ Pane {
     property bool isLoading: false
     property string searchQuery: ""
     property string authErrorMessage: "" // Persistent auth error message
+    property string libraryFilter: "owned" // "owned" or "all" - filter for PS5 Game Library
+    property var ownedProductIds: [] // Set of product IDs that are owned (for filtering)
+    property var qrCodeDialogRef: null // Reference to QR code dialog for child components
     
     // Clean blue background
     CleanBlueBackground {
@@ -51,6 +56,11 @@ Pane {
         let savedSection = Chiaki.settings.lastSelectedCloudSection;
         if (savedSection === "library" || savedSection === "catalog") {
             currentSection = savedSection;
+        }
+        // Load saved library filter
+        let savedFilter = Chiaki.settings.cloudLibraryFilter;
+        if (savedFilter === "owned" || savedFilter === "all") {
+            libraryFilter = savedFilter;
         }
         // Load games when component is first created
         Qt.callLater(() => {
@@ -186,51 +196,171 @@ Pane {
         filteredGames = [];
         currentPageGames = [];
         isLoading = true;
-        Chiaki.cloudCatalog.getOwnedPs5CloudGames(function(success, message, jsonData) {
-            isLoading = false;
-            if (success && jsonData) {
-                try {
-                    let data = JSON.parse(jsonData);
-                    if (data.games && Array.isArray(data.games)) {
-                        allGames = data.games;
-                        authErrorMessage = ""; // Clear auth error on success
-                        applySearchFilter();
-                        // Set focus after games are loaded
-                        Qt.callLater(() => {
-                            if (gamesGrid.count > 0) {
-                                gamesGrid.currentIndex = 0;
-                                gamesGrid.forceActiveFocus();
-                            }
-                        });
-                    } else {
+        
+        if (libraryFilter === "all") {
+            // Fetch all streamable games from PS5 cloud catalog
+            Chiaki.cloudCatalog.fetchPs5CloudCatalog(function(success, message, jsonData) {
+                if (success && jsonData) {
+                    try {
+                        let data = JSON.parse(jsonData);
+                        if (data.games && Array.isArray(data.games)) {
+                            // Also fetch owned games to mark which ones are owned
+                            Chiaki.cloudCatalog.getOwnedPs5CloudGames(function(ownedSuccess, ownedMessage, ownedJsonData) {
+                                let ownedIds = new Set();
+                                let ownershipCheckFailed = false;
+                                let ownershipErrorMsg = "";
+                                
+                                if (ownedSuccess && ownedJsonData) {
+                                    try {
+                                        let ownedData = JSON.parse(ownedJsonData);
+                                        if (ownedData.games && Array.isArray(ownedData.games)) {
+                                            for (let i = 0; i < ownedData.games.length; i++) {
+                                                let game = ownedData.games[i];
+                                                let productId = game.product_id || game.productId;
+                                                if (productId) {
+                                                    ownedIds.add(productId);
+                                                }
+                                            }
+                                        }
+                                    } catch (e) {
+                                        console.warn("Failed to parse owned games for filtering:", e);
+                                        ownershipCheckFailed = true;
+                                        ownershipErrorMsg = qsTr("Failed to parse ownership data. Some games may show incorrect ownership status.");
+                                    }
+                                } else {
+                                    // Ownership check failed - network error, auth error, or API error
+                                    console.warn("Failed to fetch owned games:", ownedMessage);
+                                    ownershipCheckFailed = true;
+                                    ownershipErrorMsg = ownedMessage || qsTr("Failed to verify game ownership");
+                                }
+                                
+                                // Mark games as owned or not (will all be false if ownership check failed)
+                                for (let i = 0; i < data.games.length; i++) {
+                                    let game = data.games[i];
+                                    let productId = game.productId || game.product_id;
+                                    data.games[i].isOwned = ownedIds.has(productId);
+                                }
+                                
+                                ownedProductIds = Array.from(ownedIds);
+                                allGames = data.games;
+                                isLoading = false;
+                                
+                                // Handle ownership check failure with user-visible feedback
+                                if (ownershipCheckFailed) {
+                                    // Check if it's an auth error - show persistent banner
+                                    if (ownershipErrorMsg.includes("NPSSO") || ownershipErrorMsg.includes("login") || 
+                                        ownershipErrorMsg.includes("Authentication") || ownershipErrorMsg.includes("PS Plus") ||
+                                        ownershipErrorMsg.includes("token") || ownershipErrorMsg.includes("expired")) {
+                                        authErrorMessage = ownershipErrorMsg + " " + qsTr("Owned games cannot be identified.");
+                                    } else {
+                                        // Show toast for non-auth errors
+                                        authErrorMessage = ""; // Clear any previous auth error
+                                        showErrorToast(qsTr("Ownership Check Failed"), 
+                                            ownershipErrorMsg + " " + qsTr("Some games may show 'Add Game' instead of 'Stream Game'."));
+                                    }
+                                } else {
+                                    authErrorMessage = ""; // Clear auth error on full success
+                                }
+                                
+                                applySearchFilter();
+                                // Set focus after games are loaded
+                                Qt.callLater(() => {
+                                    if (gamesGrid.count > 0) {
+                                        gamesGrid.currentIndex = 0;
+                                        gamesGrid.forceActiveFocus();
+                                    }
+                                });
+                            });
+                        } else {
+                            allGames = [];
+                            filteredGames = [];
+                            currentPageGames = [];
+                            authErrorMessage = ""; // Clear auth error on success
+                            isLoading = false;
+                            showErrorToast(qsTr("Error"), qsTr("No cloud streamable games found"));
+                        }
+                    } catch (e) {
+                        console.error("Failed to parse PS5 cloud catalog:", e);
                         allGames = [];
                         filteredGames = [];
                         currentPageGames = [];
-                        authErrorMessage = ""; // Clear auth error on success
-                        showErrorToast(qsTr("Error"), qsTr("No cloud streamable games found in library"));
+                        isLoading = false;
+                        showErrorToast(qsTr("Parse Error"), qsTr("Failed to parse catalog data: %1").arg(e.toString()));
                     }
-                } catch (e) {
-                    console.error("Failed to parse PS5 cloud library:", e);
+                } else {
+                    console.error("Failed to fetch PS5 cloud catalog:", message);
                     allGames = [];
                     filteredGames = [];
                     currentPageGames = [];
-                    showErrorToast(qsTr("Parse Error"), qsTr("Failed to parse library data: %1").arg(e.toString()));
-                }
-            } else {
-                console.error("Failed to fetch PS5 cloud library:", message);
-                allGames = [];
-                filteredGames = [];
-                currentPageGames = [];
-                // Check if it's an authentication error
-                let errorMsg = message || qsTr("Failed to fetch PS5 cloud library");
-                if (errorMsg.includes("NPSSO") || errorMsg.includes("login") || errorMsg.includes("Authentication") || errorMsg.includes("PS Plus")) {
-                    authErrorMessage = errorMsg;
-                } else {
-                    authErrorMessage = "";
+                    isLoading = false;
+                    let errorMsg = message || qsTr("Failed to fetch PS5 cloud catalog");
                     showErrorToast(qsTr("API Error"), errorMsg);
                 }
-            }
-        });
+            });
+        } else {
+            // Fetch only owned games (cross-referenced)
+            Chiaki.cloudCatalog.getOwnedPs5CloudGames(function(success, message, jsonData) {
+                isLoading = false;
+                if (success && jsonData) {
+                    try {
+                        let data = JSON.parse(jsonData);
+                        if (data.games && Array.isArray(data.games)) {
+                            // Mark all as owned since they come from the owned games endpoint
+                            for (let i = 0; i < data.games.length; i++) {
+                                data.games[i].isOwned = true;
+                            }
+                            
+                            // Track owned product IDs
+                            let ownedIds = new Set();
+                            for (let i = 0; i < data.games.length; i++) {
+                                let game = data.games[i];
+                                let productId = game.product_id || game.productId;
+                                if (productId) {
+                                    ownedIds.add(productId);
+                                }
+                            }
+                            ownedProductIds = Array.from(ownedIds);
+                            
+                            allGames = data.games;
+                            authErrorMessage = ""; // Clear auth error on success
+                            applySearchFilter();
+                            // Set focus after games are loaded
+                            Qt.callLater(() => {
+                                if (gamesGrid.count > 0) {
+                                    gamesGrid.currentIndex = 0;
+                                    gamesGrid.forceActiveFocus();
+                                }
+                            });
+                        } else {
+                            allGames = [];
+                            filteredGames = [];
+                            currentPageGames = [];
+                            authErrorMessage = ""; // Clear auth error on success
+                            showErrorToast(qsTr("Error"), qsTr("No cloud streamable games found in library"));
+                        }
+                    } catch (e) {
+                        console.error("Failed to parse PS5 cloud library:", e);
+                        allGames = [];
+                        filteredGames = [];
+                        currentPageGames = [];
+                        showErrorToast(qsTr("Parse Error"), qsTr("Failed to parse library data: %1").arg(e.toString()));
+                    }
+                } else {
+                    console.error("Failed to fetch PS5 cloud library:", message);
+                    allGames = [];
+                    filteredGames = [];
+                    currentPageGames = [];
+                    // Check if it's an authentication error
+                    let errorMsg = message || qsTr("Failed to fetch PS5 cloud library");
+                    if (errorMsg.includes("NPSSO") || errorMsg.includes("login") || errorMsg.includes("Authentication") || errorMsg.includes("PS Plus")) {
+                        authErrorMessage = errorMsg;
+                    } else {
+                        authErrorMessage = "";
+                        showErrorToast(qsTr("API Error"), errorMsg);
+                    }
+                }
+            });
+        }
     }
     
     function applySearchFilter() {
@@ -246,13 +376,8 @@ Pane {
             });
         }
         
-        // For PSNOW catalog, show all games on one page (no pagination)
-        if (currentSection === "catalog") {
-            currentPageGames = filteredGames.slice();
-        } else {
-            currentPage = 0;
-            updateCurrentPage();
-        }
+        // Show all games on one page (no pagination for both catalog and library)
+        currentPageGames = filteredGames.slice();
     }
     
     function updateCurrentPage() {
@@ -281,7 +406,6 @@ Pane {
         filteredGames = [];
         currentPageGames = [];
         currentSection = section;
-        currentPage = 0;
         searchQuery = "";
         // Save the selected section
         Chiaki.settings.lastSelectedCloudSection = section;
@@ -671,7 +795,7 @@ Pane {
                     onClicked: switchSection("library")
                     
                     KeyNavigation.left: catalogButton
-                    KeyNavigation.right: refreshButton
+                    KeyNavigation.right: currentSection === "library" ? filterToggle : refreshButton
                     KeyNavigation.down: gamesGrid.count > 0 ? gamesGrid : null
                     
                     Keys.onReturnPressed: {
@@ -757,6 +881,67 @@ Pane {
             RowLayout {
                 spacing: 0
                 
+                // Filter toggle (only visible when library section is active)
+                // Single clickable text that toggles between Owned and All
+                Item {
+                    id: filterToggle
+                    visible: currentSection === "library"
+                    Layout.preferredWidth: filterToggleText.implicitWidth + 16
+                    Layout.preferredHeight: 36
+                    Layout.rightMargin: 16
+                    
+                    Rectangle {
+                        anchors.fill: parent
+                        color: filterToggle.activeFocus ? Qt.rgba(0, 212/255, 255/255, 0.15) : "transparent"
+                        border.color: filterToggle.activeFocus ? "#00d4ff" : "transparent"
+                        border.width: filterToggle.activeFocus ? 1 : 0
+                        radius: 4
+                        
+                        // Underline always visible
+                        Rectangle {
+                            anchors {
+                                left: parent.left
+                                right: parent.right
+                                bottom: parent.bottom
+                            }
+                            height: 3
+                            color: "#00d4ff"
+                            radius: 1.5
+                        }
+                    }
+                    
+                    Text {
+                        id: filterToggleText
+                        anchors.centerIn: parent
+                        text: libraryFilter === "owned" ? qsTr("Owned") : qsTr("All")
+                        font.pixelSize: 14
+                        font.weight: Font.Medium
+                        color: filterToggle.activeFocus ? "#00d4ff" : "#00d4ff"
+                    }
+                    
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            libraryFilter = libraryFilter === "owned" ? "all" : "owned"
+                            Chiaki.settings.cloudLibraryFilter = libraryFilter
+                            loadPs5CloudLibrary()
+                        }
+                    }
+                    
+                    focusPolicy: Qt.StrongFocus
+                    KeyNavigation.left: libraryButton
+                    KeyNavigation.right: refreshButton
+                    KeyNavigation.down: gamesGrid.count > 0 ? gamesGrid : null
+                    KeyNavigation.up: mainTabBar ? mainTabBar.itemAt(1) : null
+                    
+                    Keys.onReturnPressed: {
+                        libraryFilter = libraryFilter === "owned" ? "all" : "owned"
+                        Chiaki.settings.cloudLibraryFilter = libraryFilter
+                        loadPs5CloudLibrary()
+                    }
+                }
+                
                 // Refresh button
                 Button {
                     id: refreshButton
@@ -778,7 +963,7 @@ Pane {
                         }
                     }
                     
-                    KeyNavigation.left: libraryButton
+                    KeyNavigation.left: currentSection === "library" ? filterToggle : libraryButton
                     KeyNavigation.down: gamesGrid.count > 0 ? gamesGrid : null
                     
                     Keys.onReturnPressed: {
@@ -991,9 +1176,16 @@ Pane {
                         focus: false  // GridView handles focus, not individual cards
                         activeFocusOnTab: false
                         isPsnow: currentSection === "catalog"
+                        libraryFilter: root.libraryFilter
+                        qrCodeDialog: root.qrCodeDialogRef
                         
-                        onStreamGame: (productId, platform, serviceType) => {
-                            console.log("Stream game:", productId, platform, serviceType);
+                        Component.onCompleted: {
+                            console.log("[CloudPlayView] CloudGameCard created, qrCodeDialog property:", qrCodeDialog);
+                            console.log("[CloudPlayView] root.qrCodeDialogRef:", root ? root.qrCodeDialogRef : "root is null");
+                        }
+                        
+                        onStreamGame: (streamingId, platform, serviceType) => {
+                            console.log("Stream game:", streamingId, platform, serviceType);
                             
                             // Show StreamView immediately with loading spinner
                             // Find Main component by traversing parent chain
@@ -1005,15 +1197,11 @@ Pane {
                                 mainComp.showStreamView();
                             }
                             
-                            // For PSCloud, use entitlement ID (gameData.id), for PSNOW use productId
-                            let streamingIdentifier = productId;
-                            if (serviceType === "pscloud" && gameData && gameData.id) {
-                                streamingIdentifier = gameData.id; // Use entitlement ID for PSCloud
-                            }
-                            
+                            // CloudGameCard now sends the correct identifier directly
+                            // (entitlement ID for PSCloud, product ID for PSNOW)
                             Chiaki.cloudStreaming.startCompleteCloudSession(
                                 serviceType,
-                                streamingIdentifier,
+                                streamingId,
                                 function(success, message, serverIp) {
                                     console.log("Cloud streaming:", success ? "SUCCESS" : "FAILED");
                                     console.log("Result:", message);
@@ -1218,36 +1406,14 @@ Pane {
             }
         }
         
-        // Pagination Footer (only for PS5 Library, not for PSNOW Catalog)
-        RowLayout {
-            id: paginationFooter
-            Layout.fillWidth: true
-            Layout.preferredHeight: visible ? implicitHeight : 0
-            Layout.bottomMargin: 20
-            Layout.leftMargin: 40
-            Layout.rightMargin: 40
-            visible: currentSection === "library" && filteredGames.length > gamesPerPage && !isLoading
-            
-            Button {
-                text: qsTr("← Previous")
-                enabled: currentPage > 0
-                onClicked: previousPage()
-            }
-            
-            Item { Layout.fillWidth: true }
-            
-            Label {
-                text: qsTr("Page %1 of %2").arg(currentPage + 1).arg(Math.ceil(filteredGames.length / gamesPerPage))
-                font.pixelSize: 16
-            }
-            
-            Item { Layout.fillWidth: true }
-            
-            Button {
-                text: qsTr("Next →")
-                enabled: (currentPage + 1) * gamesPerPage < filteredGames.length
-                onClicked: nextPage()
-            }
+    }
+    
+    // QR Code Dialog
+    QRCodeDialog {
+        id: qrCodeDialog
+        
+        Component.onCompleted: {
+            root.qrCodeDialogRef = qrCodeDialog;
         }
     }
     

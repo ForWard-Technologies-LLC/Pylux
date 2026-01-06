@@ -14,6 +14,8 @@ Rectangle {
     property bool hasFocus: isCurrentItem && GridView.view.activeFocus
     property bool isPsnow: true // true for PSNOW, false for PS5 Cloud
     property string cachedImageUrl: ""
+    property string libraryFilter: "owned" // "owned" or "all" - filter mode for PS5 Game Library
+    property var qrCodeDialog: null // Reference to QR code dialog
     
     signal streamGame(string productId, string platform, string serviceType)
     signal createShortcut(string productId, string entitlementId, string platform, string serviceType, string gameName)
@@ -306,32 +308,63 @@ Rectangle {
                     cursorShape: Qt.PointingHandCursor
                     
                     onClicked: {
-                        let productId = getProductId();
-                        let platform = getPlatform();
-                        let serviceType = getServiceType();
-                        if (productId !== "") {
-                            // For PSCloud, use entitlement ID, for PSNOW use productId
-                            let streamingId = isPsnow ? productId : (gameData && gameData.id ? gameData.id : productId);
-                            streamGame(streamingId, platform, serviceType);
+                        console.log("[CloudGameCard] Button clicked - isPsnow:", isPsnow, "libraryFilter:", libraryFilter, "gameData:", gameData, "isOwned:", gameData ? gameData.isOwned : "N/A");
+                        console.log("[CloudGameCard] qrCodeDialog:", qrCodeDialog);
+                        
+                        // Check if this is a non-owned game in "All" filter mode
+                        if (!isPsnow && libraryFilter === "all" && gameData && !gameData.isOwned) {
+                            console.log("[CloudGameCard] Condition met for QR code - showing dialog");
+                            // Show QR code dialog with conceptUrl
+                            let conceptUrl = gameData.conceptUrl || gameData.concept_url;
+                            console.log("[CloudGameCard] conceptUrl:", conceptUrl);
+                            console.log("[CloudGameCard] qrCodeDialog type:", typeof qrCodeDialog, "qrCodeDialog value:", qrCodeDialog);
+                            
+                            if (conceptUrl) {
+                                console.log("[CloudGameCard] conceptUrl found:", conceptUrl);
+                                if (qrCodeDialog) {
+                                    console.log("[CloudGameCard] Calling qrCodeDialog.showDialog()");
+                                    qrCodeDialog.showDialog(conceptUrl);
+                                    console.log("[CloudGameCard] showDialog() called");
+                                } else {
+                                    console.error("[CloudGameCard] ERROR: qrCodeDialog is null/undefined!");
+                                }
+                            } else {
+                                console.error("[CloudGameCard] ERROR: conceptUrl is missing!");
+                            }
+                        } else {
+                            console.log("[CloudGameCard] Normal stream behavior");
+                            // Normal stream behavior - use getStreamingIdentifier for correct ID
+                            let streamingId = getStreamingIdentifier();
+                            let platform = getPlatform();
+                            let serviceType = getServiceType();
+                            if (streamingId !== "") {
+                                streamGame(streamingId, platform, serviceType);
+                            }
                         }
                     }
                 }
                 
                 Label {
                     anchors.centerIn: parent
-                    text: qsTr("Stream Game")
+                    text: {
+                        if (!isPsnow && libraryFilter === "all" && gameData && !gameData.isOwned) {
+                            return qsTr("Add Game")
+                        }
+                        return qsTr("Stream Game")
+                    }
                     font.pixelSize: 14
                     font.weight: Font.DemiBold
                     color: "white"
                 }
             }
             
-            // Shortcut button with Square/X icon
+            // Shortcut button with Square/X icon (hidden for non-owned games in "All" filter)
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 36
                 Layout.minimumHeight: 36
                 Layout.maximumHeight: 36
+                visible: !(!isPsnow && libraryFilter === "all" && gameData && !gameData.isOwned)
                 radius: 6
                 color: shortcutMouseArea.containsMouse ? Qt.rgba(255, 255, 255, 0.3) : Qt.rgba(255, 255, 255, 0.15)
                 border.width: 1
@@ -390,14 +423,25 @@ Rectangle {
     }
     
     Keys.onPressed: (event) => {
-        // Cross/A button (Enter/Space) - Stream game
+        // Cross/A button (Enter/Space) - Stream game or show QR code
         if (event.key === Qt.Key_Return || event.key === Qt.Key_Space || event.key === Qt.Key_Enter) {
-            let productId = getProductId();
-            let platform = getPlatform();
-            let serviceType = getServiceType();
-            if (productId !== "") {
-                streamGame(productId, platform, serviceType);
-                event.accepted = true;
+            // Check if this is a non-owned game in "All" filter mode
+            if (!isPsnow && libraryFilter === "all" && gameData && !gameData.isOwned) {
+                // Show QR code dialog with conceptUrl
+                let conceptUrl = gameData.conceptUrl || gameData.concept_url;
+                if (conceptUrl && qrCodeDialog) {
+                    qrCodeDialog.showDialog(conceptUrl);
+                    event.accepted = true;
+                }
+            } else {
+                // Normal stream behavior - use getStreamingIdentifier for correct ID
+                let streamingId = getStreamingIdentifier();
+                let platform = getPlatform();
+                let serviceType = getServiceType();
+                if (streamingId !== "") {
+                    streamGame(streamingId, platform, serviceType);
+                    event.accepted = true;
+                }
             }
         }
         // Square/X button (X key) - Create shortcut

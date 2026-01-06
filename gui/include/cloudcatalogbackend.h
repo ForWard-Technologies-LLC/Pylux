@@ -64,6 +64,7 @@ private slots:
     void handlePsnowCategoryResponse();
     void handlePs5CatalogResponse();
     void handleOwnedGamesOAuthResponse();
+    void fetchOwnedGamesPage();
     void handleOwnedGamesResponse();
     void handleGameDetailsResponse();
     void processCrossReferenceComplete();
@@ -86,6 +87,11 @@ private:
         QStringList categories;
         int currentCategoryIndex;
         QTimer *rateLimitTimer;
+        QString oauthCode;
+        QString jsessionId;
+        QString baseUrl;
+        QString duid;
+        bool authInProgress;
     } psnowState;
     
     // PS5 catalog fetching state
@@ -97,6 +103,9 @@ private:
     struct OwnedGamesState {
         QJSValue callback;
         QString oauthToken;
+        QJsonArray accumulatedEntitlements;  // Accumulate results across pages
+        int currentStart = 0;                 // Current pagination offset
+        static const int PAGE_SIZE = 300;     // Page size for API requests
     } ownedGamesState;
     
     // Game details fetching state
@@ -115,9 +124,6 @@ private:
         bool ownedGamesFetched;
     } crossReferenceState;
     
-    // PSNOW category IDs
-    static const QStringList PSNOW_CATEGORIES;
-    
     // Helper methods
     void setCachedData(const QString &key, const QJsonDocument &data);
     QString getCacheFilePath(const QString &key);
@@ -125,6 +131,14 @@ private:
     void fetchPsnowCategory(int categoryIndex);
     void processPsnowCatalogComplete();
     void fetchOwnedGamesOAuthToken();
+    void fetchPsnowOAuthToken();
+    void fetchPsnowSession();
+    void fetchPsnowStores();
+    void fetchPsnowRootContainer();
+    void handlePsnowOAuthResponse();
+    void handlePsnowSessionResponse();
+    void handlePsnowStoresResponse();
+    void handlePsnowRootContainerResponse();
     void executeGameDetailsFetch(const QString &productId);
     QJsonArray filterStreamingSupportedGames(const QJsonArray &games);
     QJsonArray filterOwnedPs5Games(const QJsonArray &entitlements);

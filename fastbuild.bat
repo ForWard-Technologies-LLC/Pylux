@@ -1,6 +1,7 @@
 @echo off
 REM Fast build and launch script for Chiaki-ng on Windows
-REM Usage: fastbuild.bat
+REM Usage: fastbuild.bat [clean]
+REM   clean - Delete build folder for a fresh rebuild
 
 echo.
 echo ========================================
@@ -10,13 +11,39 @@ echo.
 
 cd /d "%~dp0"
 
+REM Check for clean flag
+if "%1"=="clean" (
+    echo [0/5] Cleaning build folder...
+    if exist build (
+        rmdir /s /q build
+        echo [OK] Build folder deleted
+    ) else (
+        echo [INFO] Build folder does not exist
+    )
+    if exist chiaki-ng-Win (
+        rmdir /s /q chiaki-ng-Win
+        echo [OK] chiaki-ng-Win folder deleted
+    ) else (
+        echo [INFO] chiaki-ng-Win folder does not exist
+    )
+    echo.
+)
+
 REM Setup MSYS2 environment
 set MSYSTEM=MINGW64
 set PATH=C:\msys64\mingw64\bin;C:\msys64\usr\bin;%PATH%
 
 REM Configure with Steamworks enabled (only reconfigures if needed)
 echo [1/5] Configuring with Steamworks...
-C:\msys64\usr\bin\bash.exe -lc "cd /c/Users/User/repos/chiaki-ng && cmake -B build -DCHIAKI_ENABLE_STEAMWORKS=ON -DCHIAKI_ENABLE_CLI=OFF -CHIAKI_ENABLE_CONSOLE=ON"
+C:\msys64\usr\bin\bash.exe -lc "cd /c/Users/User/repos/chiaki-ng && cmake -B build -DCHIAKI_ENABLE_STEAMWORKS=ON -DCHIAKI_ENABLE_CLI=OFF -DCHIAKI_ENABLE_CONSOLE=ON"
+
+if errorlevel 1 (
+    echo.
+    echo [ERROR] CMake configuration failed!
+    echo Please check the error messages above.
+    pause
+    exit /b 1
+)
 
 REM Fast incremental build
 echo [2/5] Building (incremental - only changed files)...
@@ -39,6 +66,11 @@ ping 127.0.0.1 -n 3 >nul
 
 REM Copy new executable and Steamworks DLL
 echo [4/5] Copying new executable and dependencies...
+REM Create chiaki-ng-Win folder if it doesn't exist
+if not exist "chiaki-ng-Win" (
+    mkdir "chiaki-ng-Win"
+    echo [INFO] Created chiaki-ng-Win folder
+)
 copy /Y "build\gui\chiaki.exe" "chiaki-ng-Win\chiaki.exe" >nul
 if errorlevel 1 (
     echo [WARNING] Copy may have failed. Retrying...
@@ -46,7 +78,20 @@ if errorlevel 1 (
     copy /Y "build\gui\chiaki.exe" "chiaki-ng-Win\chiaki.exe" >nul
 )
 copy /Y "third-party\steamworks\steamworks_sdk\redistributable_bin\win64\steam_api64.dll" "chiaki-ng-Win\" >nul
-copy /Y "steam_appid.txt" "chiaki-ng-Win\" >nul
+copy /Y "steam_appid.txt" "chiaki-ng-Win\" >nul 2>nul
+
+REM Copy cpp-steam-tools DLL if it exists
+if exist "build\third-party\cpp-steam-tools\libcpp-steam-tools.dll" (
+    copy /Y "build\third-party\cpp-steam-tools\libcpp-steam-tools.dll" "chiaki-ng-Win\" >nul
+)
+
+REM Copy all DLL dependencies using ldd (same as GitHub Actions)
+echo [INFO] Copying DLL dependencies...
+C:\msys64\usr\bin\bash.exe -lc "cd /c/Users/User/repos/chiaki-ng && export PATH=\"$PWD/build/third-party/cpp-steam-tools:/mingw64/share/qt6/bin/:/mingw64/bin/:\${PATH}\" && echo chiaki-ng-Win/chiaki.exe > tmp0.txt && while [ -e tmp0.txt ]; do cp tmp0.txt tmp.txt && rm tmp0.txt && sort -u tmp.txt -o tmp.txt && ldd \$(<tmp.txt) 2>/dev/null | grep -v \":\" | cut -d \" \" -f3 | grep -iv \"system32\" | grep -iv \"not\" | xargs -d \$'\n' sh -c 'for arg do if [ -n \"\$arg\" ] && [ ! -e \"chiaki-ng-Win/\${arg##*/}\" ]; then echo \"Copied \${arg##*/}\"; cp \"\$arg\" chiaki-ng-Win/ ; echo \"\$arg\" >> tmp0.txt; fi; done'; done && rm -f tmp0.txt tmp.txt"
+
+REM Copy Qt plugins and QML modules using windeployqt6
+echo [INFO] Deploying Qt dependencies...
+C:\msys64\usr\bin\bash.exe -lc "cd /c/Users/User/repos/chiaki-ng && export PATH=\"/mingw64/share/qt6/bin/:/mingw64/bin/:\${PATH}\" && windeployqt6.exe --no-translations --qmldir=gui/src/qml chiaki-ng-Win/chiaki.exe"
 
 REM Launch application with console output
 echo [5/5] Launching application with console...
@@ -82,4 +127,3 @@ echo ========================================
 echo   Application Closed
 echo ========================================
 echo.
-
