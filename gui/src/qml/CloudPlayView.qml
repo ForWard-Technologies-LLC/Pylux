@@ -200,7 +200,6 @@ Pane {
         if (libraryFilter === "all") {
             // Fetch all streamable games from PS5 cloud catalog
             Chiaki.cloudCatalog.fetchPs5CloudCatalog(function(success, message, jsonData) {
-                isLoading = false;
                 if (success && jsonData) {
                     try {
                         let data = JSON.parse(jsonData);
@@ -208,6 +207,9 @@ Pane {
                             // Also fetch owned games to mark which ones are owned
                             Chiaki.cloudCatalog.getOwnedPs5CloudGames(function(ownedSuccess, ownedMessage, ownedJsonData) {
                                 let ownedIds = new Set();
+                                let ownershipCheckFailed = false;
+                                let ownershipErrorMsg = "";
+                                
                                 if (ownedSuccess && ownedJsonData) {
                                     try {
                                         let ownedData = JSON.parse(ownedJsonData);
@@ -222,10 +224,17 @@ Pane {
                                         }
                                     } catch (e) {
                                         console.warn("Failed to parse owned games for filtering:", e);
+                                        ownershipCheckFailed = true;
+                                        ownershipErrorMsg = qsTr("Failed to parse ownership data. Some games may show incorrect ownership status.");
                                     }
+                                } else {
+                                    // Ownership check failed - network error, auth error, or API error
+                                    console.warn("Failed to fetch owned games:", ownedMessage);
+                                    ownershipCheckFailed = true;
+                                    ownershipErrorMsg = ownedMessage || qsTr("Failed to verify game ownership");
                                 }
                                 
-                                // Mark games as owned or not
+                                // Mark games as owned or not (will all be false if ownership check failed)
                                 for (let i = 0; i < data.games.length; i++) {
                                     let game = data.games[i];
                                     let productId = game.productId || game.product_id;
@@ -234,7 +243,25 @@ Pane {
                                 
                                 ownedProductIds = Array.from(ownedIds);
                                 allGames = data.games;
-                                authErrorMessage = ""; // Clear auth error on success
+                                isLoading = false;
+                                
+                                // Handle ownership check failure with user-visible feedback
+                                if (ownershipCheckFailed) {
+                                    // Check if it's an auth error - show persistent banner
+                                    if (ownershipErrorMsg.includes("NPSSO") || ownershipErrorMsg.includes("login") || 
+                                        ownershipErrorMsg.includes("Authentication") || ownershipErrorMsg.includes("PS Plus") ||
+                                        ownershipErrorMsg.includes("token") || ownershipErrorMsg.includes("expired")) {
+                                        authErrorMessage = ownershipErrorMsg + " " + qsTr("Owned games cannot be identified.");
+                                    } else {
+                                        // Show toast for non-auth errors
+                                        authErrorMessage = ""; // Clear any previous auth error
+                                        showErrorToast(qsTr("Ownership Check Failed"), 
+                                            ownershipErrorMsg + " " + qsTr("Some games may show 'View Game' instead of 'Stream Game'."));
+                                    }
+                                } else {
+                                    authErrorMessage = ""; // Clear auth error on full success
+                                }
+                                
                                 applySearchFilter();
                                 // Set focus after games are loaded
                                 Qt.callLater(() => {
@@ -249,6 +276,7 @@ Pane {
                             filteredGames = [];
                             currentPageGames = [];
                             authErrorMessage = ""; // Clear auth error on success
+                            isLoading = false;
                             showErrorToast(qsTr("Error"), qsTr("No cloud streamable games found"));
                         }
                     } catch (e) {
@@ -256,6 +284,7 @@ Pane {
                         allGames = [];
                         filteredGames = [];
                         currentPageGames = [];
+                        isLoading = false;
                         showErrorToast(qsTr("Parse Error"), qsTr("Failed to parse catalog data: %1").arg(e.toString()));
                     }
                 } else {
@@ -263,6 +292,7 @@ Pane {
                     allGames = [];
                     filteredGames = [];
                     currentPageGames = [];
+                    isLoading = false;
                     let errorMsg = message || qsTr("Failed to fetch PS5 cloud catalog");
                     showErrorToast(qsTr("API Error"), errorMsg);
                 }

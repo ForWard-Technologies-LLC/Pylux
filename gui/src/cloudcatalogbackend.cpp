@@ -166,6 +166,9 @@ void CloudCatalogBackend::fetchPsnowCatalog(const QJSValue &callback)
     // Check if already authenticating
     if (psnowState.authInProgress) {
         qInfo() << "[PSNOW] Authentication already in progress, skipping duplicate request";
+        if (callback.isCallable()) {
+            callback.call({false, "Request already in progress", QJSValue()});
+        }
         return;
     }
     
