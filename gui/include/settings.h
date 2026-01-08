@@ -423,6 +423,9 @@ class Settings : public QObject
 		QString GetNpssoToken() const;
 		void SetNpssoToken(QString npsso_token);
 
+		bool GetAccountAttributesCheckPassed() const;
+		void SetAccountAttributesCheckPassed(bool passed);
+
 		int GetLastSelectedMainTab() const;
 		void SetLastSelectedMainTab(int tabIndex);
 		

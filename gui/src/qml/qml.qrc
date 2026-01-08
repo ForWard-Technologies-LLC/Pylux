@@ -9,6 +9,7 @@
     <file>ConfirmDialog.qml</file>
     <file>RemindDialog.qml</file>
     <file>MessageDialog.qml</file>
+    <file>AccountPrivacyDialog.qml</file>
     <file>DialogView.qml</file>
     <file>ManualHostDialog.qml</file>
     <file>RegistDialog.qml</file>

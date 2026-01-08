@@ -76,12 +76,14 @@ public:
 signals:
     void sessionComplete(bool success, QString message, QString entitlementId);
     void psPlusSubscriptionError();
+    void accountPrivacySettingsError(QString upgradeUrl);
 
 private slots:
     void handleAnonAuthCodeResponse(QNetworkReply *reply);
     void handleAnonSessionResponse(QNetworkReply *reply);
     void handleProductIdConversionResponse(QNetworkReply *reply);
     void handleCommerceOAuthTokenResponse(QNetworkReply *reply);
+    void handleAccountAttributesResponse(QNetworkReply *reply);
     void handleCheckEntitlementResponse(QNetworkReply *reply);
     void handleCheckoutPreviewResponse(QNetworkReply *reply);
     void handleCheckoutBuynowResponse(QNetworkReply *reply);
@@ -124,6 +126,7 @@ private:
     void step0_5d_ConvertProductId();   // GET /store/api/pcnow/.../container/.../{PRODUCT_ID}
     void step0_5e_CheckEntitlement();   // Check and acquire entitlement if needed (entitlement_check.py flow)
     void step0_5e_GetCommerceOAuthToken(); // GET /oauth/authorize (response_type=token for Commerce API)
+    void step0_5e_CheckAccountAttributes(); // POST /api/v2/accounts/me/attributes (verify account attributes)
     void step0_5e_CheckEntitlementExists(); // GET /commerce/api/v1/users/me/internal_entitlements/{entitlementId}
     void step0_5e_CheckoutPreview();    // POST /checkout/buynow/preview
     void step0_5e_CheckoutBuynow();     // POST /checkout/buynow

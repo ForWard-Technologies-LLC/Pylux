@@ -164,6 +164,26 @@ Item {
                 );
             });
         }
+        
+        // Check if account privacy settings dialog should be shown
+        if (Chiaki.showAccountPrivacySettingsDialog) {
+            Qt.callLater(() => {
+                accountPrivacyDialog.upgradeUrl = Chiaki.accountPrivacyUpgradeUrl || "";
+                accountPrivacyDialog.callback = () => {
+                    // Ignore Forever - set setting to skip future checks
+                    Chiaki.settings.accountAttributesCheckPassed = true;
+                    Chiaki.showAccountPrivacySettingsDialog = false;
+                    Chiaki.accountPrivacyUpgradeUrl = "";
+                };
+                accountPrivacyDialog.rejectCallback = () => {
+                    // Cancel - just close dialog
+                    Chiaki.showAccountPrivacySettingsDialog = false;
+                    Chiaki.accountPrivacyUpgradeUrl = "";
+                };
+                accountPrivacyDialog.restoreFocusItem = Window.window.activeFocusItem;
+                accountPrivacyDialog.open();
+            });
+        }
     }
 
     function showStreamView() {
@@ -420,6 +440,10 @@ Item {
 
     MessageDialog {
         id: messageDialog
+    }
+
+    AccountPrivacyDialog {
+        id: accountPrivacyDialog
     }
 
     RemindDialog {

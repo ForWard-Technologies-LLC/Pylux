@@ -760,6 +760,17 @@ void QmlSettings::setPsnNpssoToken(const QString &npsso_token)
 	emit psnNpssoTokenChanged();
 }
 
+bool QmlSettings::accountAttributesCheckPassed() const
+{
+	return settings->GetAccountAttributesCheckPassed();
+}
+
+void QmlSettings::setAccountAttributesCheckPassed(bool passed)
+{
+	settings->SetAccountAttributesCheckPassed(passed);
+	emit accountAttributesCheckPassedChanged();
+}
+
 int QmlSettings::lastSelectedMainTab() const
 {
 	return settings->GetLastSelectedMainTab();

@@ -642,8 +642,150 @@ void PSKamajiSession::handleCommerceOAuthTokenResponse(QNetworkReply *reply)
     commerceOAuthToken = match.captured(1);
     qInfo() << "Kamaji Step 0.5e.1 complete - Got Commerce OAuth token:" << commerceOAuthToken.left(30) << "...";
     
-    // Continue to check entitlement
-    step0_5e_CheckEntitlementExists();
+    // Continue to check account attributes
+    step0_5e_CheckAccountAttributes();
+}
+
+void PSKamajiSession::step0_5e_CheckAccountAttributes()
+{
+    // Skip check if it has already passed previously
+    if (settings && settings->GetAccountAttributesCheckPassed()) {
+        qInfo() << "Kamaji Step 0.5e.1a: Skipping account attributes check (previously passed)";
+        step0_5e_CheckEntitlementExists();
+        return;
+    }
+    
+    qInfo() << "Kamaji Step 0.5e.1a: Checking account attributes...";
+    
+    QString url = "https://accounts.api.playstation.com/api/v2/accounts/me/attributes";
+    
+    // Create JSON payload
+    QJsonObject payload;
+    QJsonArray attributes;
+    attributes.append("ONLINE_ID");
+    attributes.append("BIRTH_DATE");
+    attributes.append("CITY");
+    attributes.append("REAL_NAME");
+    attributes.append("PRIVACY_SETTING_ACTIVITYSTREAM");
+    attributes.append("PRIVACY_SETTING_FRIENDSLIST");
+    attributes.append("PRIVACY_SETTING_FRIENDREQUESTS");
+    attributes.append("PRIVACY_SETTING_MESSAGES");
+    attributes.append("PRIVACY_SETTING_TRUENAME");
+    attributes.append("PRIVACY_SETTING_SEARCH");
+    attributes.append("PRIVACY_SETTING_RECOMMENDUSERS");
+    attributes.append("PRIVACY_SETTING_BROADCAST");
+    payload["attributes"] = attributes;
+    
+    QJsonDocument doc(payload);
+    QByteArray postData = doc.toJson(QJsonDocument::Compact);
+    
+    QNetworkRequest req{QUrl(url)};
+    req.setRawHeader("Authorization", QString("Bearer %1").arg(commerceOAuthToken).toUtf8());
+    req.setRawHeader("User-Agent", userAgentString.toUtf8());
+    req.setRawHeader("Accept", "application/json");
+    req.setRawHeader("Content-Type", "application/json");
+    
+    logKamajiRequest("Step 0.5e.1a: CheckAccountAttributes", req, postData);
+    
+    QNetworkReply *reply = manager->post(req, postData);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        handleAccountAttributesResponse(reply);
+    });
+}
+
+void PSKamajiSession::handleAccountAttributesResponse(QNetworkReply *reply)
+{
+    reply->deleteLater();
+    
+    int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    QByteArray data = reply->readAll();
+    
+    if (settings && settings->GetLogVerbose()) {
+        qInfo() << "=== Account Attributes Response ===";
+        qInfo() << "  Status:" << statusCode;
+        qInfo() << "  Body:" << QString::fromUtf8(data);
+    }
+    
+    // Check for successful response (200 or 204)
+    if (statusCode == 200 || statusCode == 204) {
+        qInfo() << "Kamaji Step 0.5e.1a complete - Account attributes check successful";
+        
+        // Mark check as passed so we don't need to do it again
+        if (settings) {
+            settings->SetAccountAttributesCheckPassed(true);
+        }
+        
+        // Continue to check entitlement
+        step0_5e_CheckEntitlementExists();
+        return;
+    }
+    
+    // Any other status code is an error - parse missing elements and construct upgrade URL
+    QString errorMsg = QString("Account attributes check failed with status %1").arg(statusCode);
+    if (!data.isEmpty()) {
+        errorMsg += ": " + QString::fromUtf8(data);
+    }
+    qWarning() << errorMsg;
+    
+    // Parse missing elements from error response
+    QStringList missingElements;
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    if (!doc.isNull() && doc.isObject()) {
+        QJsonObject obj = doc.object();
+        QJsonObject error = obj["error"].toObject();
+        QJsonArray validationErrors = error["validationErrors"].toArray();
+        
+        for (const QJsonValue &validationError : validationErrors) {
+            QJsonObject validationObj = validationError.toObject();
+            QJsonArray missingElementsArray = validationObj["missingElements"].toArray();
+            
+            for (const QJsonValue &missingElement : missingElementsArray) {
+                QJsonObject elementObj = missingElement.toObject();
+                QString elementName = elementObj["name"].toString();
+                if (!elementName.isEmpty()) {
+                    missingElements.append(elementName);
+                }
+            }
+        }
+    }
+    
+    // Construct Sony upgrade URL
+    QString upgradeUrl;
+    if (!missingElements.isEmpty()) {
+        QString missingElementsParam = missingElements.join(",");
+        
+        QUrl url("https://id.sonyentertainmentnetwork.com/id/upgrade_account_ca/");
+        QUrlQuery query;
+        query.addQueryItem("entry", "upgrade_account");
+        query.addQueryItem("pr_referer", "upgrade");
+        query.addQueryItem("redirect_uri", redirectUriUrl);
+        query.addQueryItem("applicationId", "psnow");
+        query.addQueryItem("refererPage", "websso");
+        query.addQueryItem("service_logo", "ps");
+        query.addQueryItem("tp_console", "true");
+        query.addQueryItem("disableLinks", "SENLink");
+        query.addQueryItem("renderMode", "mobilePortrait");
+        query.addQueryItem("noEVBlock", "true");
+        query.addQueryItem("displayFooter", "none");
+        query.addQueryItem("hidePageElements", "SENLogo");
+        query.addQueryItem("layout_type", "popup");
+        query.addQueryItem("missing_elements", missingElementsParam);
+        query.addQueryItem("response_type", "code");
+        query.addQueryItem("service_entity", "urn:service-entity:psn");
+        query.addQueryItem("smcid", "pc:psnow");
+        query.addQueryItem("tp_psn", "true");
+        query.addQueryItem("tp_social", "true");
+        query.addQueryItem("elements_visibility_upgrade", "no_cancel");
+        url.setQuery(query);
+        
+        upgradeUrl = url.toString();
+        qInfo() << "Sony upgrade URL:" << upgradeUrl;
+    }
+    
+    // Show warning dialog to user - session is STOPPED
+    // User can click "Ignore Forever" to skip this check in future sessions
+    emit accountPrivacySettingsError(upgradeUrl);
+    emit sessionComplete(false, "Account privacy settings check failed. Please complete privacy settings or click 'Ignore Forever' and try again.", entitlementId);
 }
 
 void PSKamajiSession::step0_5e_CheckEntitlementExists()
