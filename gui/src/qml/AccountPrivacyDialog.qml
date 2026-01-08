@@ -30,22 +30,15 @@ Dialog {
     }
     
     onOpened: {
-        console.log("AccountPrivacyDialog opened, URL length:", upgradeUrl.length);
         cancelButton.forceActiveFocus(Qt.TabFocusReason);
         if (upgradeUrl && upgradeUrl.length > 0) {
-            console.log("Attempting to copy URL to clipboard...");
             Chiaki.setClipboardText(upgradeUrl);
-            console.log("Copied URL to clipboard:", upgradeUrl.substring(0, 50) + "...");
-        } else {
-            console.warn("No URL to copy - upgradeUrl is empty!");
         }
     }
     
     onUpgradeUrlChanged: {
-        console.log("upgradeUrl changed, length:", upgradeUrl.length);
         // Also copy when URL changes (in case it's set after dialog opens)
         if (visible && upgradeUrl && upgradeUrl.length > 0) {
-            console.log("Copying URL after property change...");
             Chiaki.setClipboardText(upgradeUrl);
         }
     }

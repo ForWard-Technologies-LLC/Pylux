@@ -364,6 +364,8 @@ Pane {
     }
     
     function applySearchFilter() {
+        let hadFocus = searchField && searchField.activeFocus;
+        
         if (!searchQuery || searchQuery.trim() === "") {
             filteredGames = allGames.slice();
         } else {
@@ -378,6 +380,15 @@ Pane {
         
         // Show all games on one page (no pagination for both catalog and library)
         currentPageGames = filteredGames.slice();
+        
+        // If user was typing, restore focus immediately after model update
+        if (hadFocus) {
+            Qt.callLater(() => {
+                if (searchField) {
+                    searchField.forceActiveFocus();
+                }
+            });
+        }
     }
     
     function updateCurrentPage() {
@@ -614,28 +625,12 @@ Pane {
                         
                         onTextChanged: {
                             searchQuery = text;
-                            // Maintain focus after text change
-                            Qt.callLater(() => {
-                                if (searchField) {
-                                    searchField.forceActiveFocus();
-                                }
-                            });
                         }
                         
                         Keys.onEscapePressed: {
                             text = "";
                             searchQuery = "";
                             focus = false;
-                        }
-                        
-                        onActiveFocusChanged: {
-                            if (activeFocus) {
-                                Qt.callLater(() => {
-                                    if (searchField) {
-                                        searchField.forceActiveFocus();
-                                    }
-                                });
-                            }
                         }
                     }
                     
@@ -1386,9 +1381,10 @@ Pane {
                             if (currentIndex < 0) {
                                 currentIndex = 0;
                             }
-                            // Set focus when items are added
+                            // Only auto-focus if search field doesn't have focus
+                            // This prevents stealing focus while user is typing in search
                             Qt.callLater(() => {
-                                if (count > 0) {
+                                if (count > 0 && !searchField.activeFocus) {
                                     currentIndex = 0;
                                     forceActiveFocus();
                                 }

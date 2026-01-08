@@ -2657,16 +2657,9 @@ QString QmlBackend::getClipboardText() const
 
 void QmlBackend::setClipboardText(const QString &text)
 {
-    qInfo() << "setClipboardText called with text length:" << text.length();
     QClipboard *clipboard = QGuiApplication::clipboard();
     if (clipboard) {
         clipboard->setText(text);
-        qInfo() << "Text set to clipboard successfully";
-        // Verify it was set
-        QString retrieved = clipboard->text();
-        qInfo() << "Verified clipboard content length:" << retrieved.length();
-    } else {
-        qWarning() << "Clipboard is not available!";
     }
 }
 
