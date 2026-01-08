@@ -104,6 +104,8 @@ class QmlBackend : public QObject
     Q_PROPERTY(bool showPingTimeoutDialog READ showPingTimeoutDialog WRITE setShowPingTimeoutDialog NOTIFY showPingTimeoutDialogChanged)
     Q_PROPERTY(bool showAuthorizationFailedDialog READ showAuthorizationFailedDialog WRITE setShowAuthorizationFailedDialog NOTIFY showAuthorizationFailedDialogChanged)
     Q_PROPERTY(bool showPSPlusSubscriptionDialog READ showPSPlusSubscriptionDialog WRITE setShowPSPlusSubscriptionDialog NOTIFY showPSPlusSubscriptionDialogChanged)
+    Q_PROPERTY(bool showAccountPrivacySettingsDialog READ showAccountPrivacySettingsDialog WRITE setShowAccountPrivacySettingsDialog NOTIFY showAccountPrivacySettingsDialogChanged)
+    Q_PROPERTY(QString accountPrivacyUpgradeUrl READ accountPrivacyUpgradeUrl WRITE setAccountPrivacyUpgradeUrl NOTIFY accountPrivacyUpgradeUrlChanged)
     Q_PROPERTY(CloudStreamingBackend* cloudStreaming READ cloudStreaming CONSTANT)
     Q_PROPERTY(CloudCatalogBackend* cloudCatalog READ cloudCatalog CONSTANT)
 
@@ -172,6 +174,10 @@ public:
     
     bool showPSPlusSubscriptionDialog() const { return show_ps_plus_subscription_dialog; }
     void setShowPSPlusSubscriptionDialog(bool show);
+    bool showAccountPrivacySettingsDialog() const { return show_account_privacy_settings_dialog; }
+    void setShowAccountPrivacySettingsDialog(bool show);
+    QString accountPrivacyUpgradeUrl() const { return account_privacy_upgrade_url; }
+    void setAccountPrivacyUpgradeUrl(const QString &url);
 
     void finishAutoRegister(const ChiakiRegisteredHost &host);
 
@@ -219,6 +225,7 @@ public:
     Q_INVOKABLE QString openNpssoPage();
     Q_INVOKABLE QString openPlaceboOptionsLink();
     Q_INVOKABLE QString getClipboardText() const;
+    Q_INVOKABLE void setClipboardText(const QString &text);
 
     Q_INVOKABLE void initPsnAuth(const QUrl &url, const QJSValue &callback);
     Q_INVOKABLE void initPsnAuthV3(const QString &npsso, const QJSValue &callback);
@@ -275,6 +282,8 @@ signals:
     void showPingTimeoutDialogChanged();
     void showAuthorizationFailedDialogChanged();
     void showPSPlusSubscriptionDialogChanged();
+    void showAccountPrivacySettingsDialogChanged();
+    void accountPrivacyUpgradeUrlChanged();
     void discoveryEnabledChanged();
     void hostsChanged();
     void hiddenHostsChanged();
@@ -379,6 +388,8 @@ private:
     bool show_ping_timeout_dialog = false;
     bool show_authorization_failed_dialog = false;
     bool show_ps_plus_subscription_dialog = false;
+    bool show_account_privacy_settings_dialog = false;
+    QString account_privacy_upgrade_url;
     bool resume_session = false;
     bool settings_allocd = false;
     HostMAC auto_connect_mac = {};

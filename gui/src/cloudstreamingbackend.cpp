@@ -172,6 +172,17 @@ void CloudStreamingBackend::continueCloudSessionAfterAuth(QString serviceType, Q
             }
         });
         
+        // Connect account privacy settings error signal
+        connect(kamajiSession, &PSKamajiSession::accountPrivacySettingsError, this, [this](QString upgradeUrl) {
+            qInfo() << "Account privacy settings error - URL:" << upgradeUrl;
+            QmlBackend *qmlBackend = qobject_cast<QmlBackend*>(parent());
+            if (qmlBackend) {
+                qmlBackend->setAccountPrivacyUpgradeUrl(upgradeUrl);
+                qmlBackend->setShowAccountPrivacySettingsDialog(true);
+                qInfo() << "Dialog triggered with URL length:" << upgradeUrl.length();
+            }
+        });
+        
         connect(kamajiSession, &PSKamajiSession::sessionComplete, this, 
                 [this, kamajiSession, callback, sharedDuid, serviceType, gameIdentifier, target, redirectUri, userAgent, oauthApiPath](bool success, QString message, QString entitlementId) {
             if (!success) {

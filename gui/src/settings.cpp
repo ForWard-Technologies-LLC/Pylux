@@ -892,6 +892,16 @@ void Settings::SetNpssoToken(QString npsso_token)
 	settings.setValue("settings/psn_npsso_token", npsso_token);
 }
 
+bool Settings::GetAccountAttributesCheckPassed() const
+{
+	return settings.value("settings/account_attributes_check_passed", false).toBool();
+}
+
+void Settings::SetAccountAttributesCheckPassed(bool passed)
+{
+	settings.setValue("settings/account_attributes_check_passed", passed);
+}
+
 int Settings::GetLastSelectedMainTab() const
 {
 	return settings.value("settings/last_selected_main_tab", 0).toInt();

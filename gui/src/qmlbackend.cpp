@@ -1946,6 +1946,24 @@ void QmlBackend::setShowPSPlusSubscriptionDialog(bool show)
     }
 }
 
+void QmlBackend::setShowAccountPrivacySettingsDialog(bool show)
+{
+    if(show_account_privacy_settings_dialog != show)
+    {
+        show_account_privacy_settings_dialog = show;
+        emit showAccountPrivacySettingsDialogChanged();
+    }
+}
+
+void QmlBackend::setAccountPrivacyUpgradeUrl(const QString &url)
+{
+    if(account_privacy_upgrade_url != url)
+    {
+        account_privacy_upgrade_url = url;
+        emit accountPrivacyUpgradeUrlChanged();
+    }
+}
+
 QVariantList QmlBackend::currentControllerMapping() const
 {
     QVariantList out;
@@ -2635,6 +2653,21 @@ QString QmlBackend::getClipboardText() const
         return clipboard->text();
     }
     return QString();
+}
+
+void QmlBackend::setClipboardText(const QString &text)
+{
+    qInfo() << "setClipboardText called with text length:" << text.length();
+    QClipboard *clipboard = QGuiApplication::clipboard();
+    if (clipboard) {
+        clipboard->setText(text);
+        qInfo() << "Text set to clipboard successfully";
+        // Verify it was set
+        QString retrieved = clipboard->text();
+        qInfo() << "Verified clipboard content length:" << retrieved.length();
+    } else {
+        qWarning() << "Clipboard is not available!";
+    }
 }
 
 QString QmlBackend::openPlaceboOptionsLink()
