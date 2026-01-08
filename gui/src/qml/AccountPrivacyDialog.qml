@@ -30,7 +30,7 @@ Dialog {
     }
     
     onOpened: {
-        cancelButton.forceActiveFocus(Qt.TabFocusReason);
+        mainContent.forceActiveFocus(Qt.TabFocusReason);
         if (upgradeUrl && upgradeUrl.length > 0) {
             Chiaki.setClipboardText(upgradeUrl);
         }
@@ -62,7 +62,7 @@ Dialog {
     function restoreFocus() {
         if (restoreFocusItem)
             restoreFocusItem.forceActiveFocus(Qt.TabFocusReason);
-        mainLabel.focus = false;
+        mainContent.focus = false;
     }
 
     Component.onCompleted: {
@@ -89,16 +89,26 @@ Dialog {
         onActivated: dialog.reject()
     }
     
-    // Y button to ignore forever (advanced option)
-    Shortcut {
-        sequence: "Y"
-        enabled: dialog.visible
-        onActivated: dialog.accept()
-    }
-    
     ColumnLayout {
+        id: mainContent
         spacing: 20
         width: parent.width
+        focus: true
+        
+        // Handle controller button presses
+        Keys.onPressed: (event) => {
+            if (event.modifiers)
+                return;
+            
+            switch (event.key) {
+            case Qt.Key_Y:      // Keyboard Y
+            case Qt.Key_C:      // Controller Y/Triangle (primary mapping)
+            case Qt.Key_Yes:    // Controller Y/Triangle (fallback)
+                dialog.accept();
+                event.accepted = true;
+                break;
+            }
+        }
 
         Label {
             id: mainLabel
