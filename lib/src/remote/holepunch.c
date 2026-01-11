@@ -3553,7 +3553,6 @@ static ChiakiErrorCode get_client_addr_local(Session *session, Candidate *local_
         CHIAKI_LOGE(session->log, "Couldn't find a valid external address!");
         return CHIAKI_ERR_NETWORK;
     }
-
 #else
     struct ifaddrs *local_addrs, *current_addr;
     void *in_addr;

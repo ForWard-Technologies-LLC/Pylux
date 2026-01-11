@@ -1,0 +1,138 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 2,
+    "identityHash": "2fea63b7499fa89872d89cb9f5306ba2",
+    "entities": [
+      {
+        "tableName": "registered_host",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `target` INTEGER NOT NULL, `ap_ssid` TEXT, `ap_bssid` TEXT, `ap_key` TEXT, `ap_name` TEXT, `server_mac` INTEGER NOT NULL, `server_nickname` TEXT, `rp_regist_key` BLOB NOT NULL, `rp_key_type` INTEGER NOT NULL, `rp_key` BLOB NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "target",
+            "columnName": "target",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "apSsid",
+            "columnName": "ap_ssid",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "apBssid",
+            "columnName": "ap_bssid",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "apKey",
+            "columnName": "ap_key",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "apName",
+            "columnName": "ap_name",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "serverMac",
+            "columnName": "server_mac",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverNickname",
+            "columnName": "server_nickname",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "rpRegistKey",
+            "columnName": "rp_regist_key",
+            "affinity": "BLOB",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rpKeyType",
+            "columnName": "rp_key_type",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rpKey",
+            "columnName": "rp_key",
+            "affinity": "BLOB",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "manual_host",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `host` TEXT NOT NULL, `registered_host` INTEGER, FOREIGN KEY(`registered_host`) REFERENCES `registered_host`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "host",
+            "columnName": "host",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "registeredHost",
+            "columnName": "registered_host",
+            "affinity": "INTEGER",
+            "notNull": false
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": [
+          {
+            "table": "registered_host",
+            "onDelete": "SET NULL",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "registered_host"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      }
+    ],
+    "views": [],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '2fea63b7499fa89872d89cb9f5306ba2')"
+    ]
+  }
+}
