@@ -1064,6 +1064,16 @@ void Settings::SetPsnAccountId(QString account_id)
 	settings.setValue("settings/psn_account_id", account_id);
 }
 
+QString Settings::GetLastShownNotificationId() const
+{
+	return settings.value("settings/last_shown_notification_id").toString();
+}
+
+void Settings::SetLastShownNotificationId(QString notification_id)
+{
+	settings.setValue("settings/last_shown_notification_id", notification_id);
+}
+
 QString Settings::GetPsnGamesJson() const
 {
 	return settings.value("psn_games/devices_json").toString();

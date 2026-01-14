@@ -445,6 +445,97 @@ QmlBackend::QmlBackend(Settings *settings, QmlMainWindow *window, SteamworksWrap
     // Now safe to refresh PSN token (will use cloud token if it was newer)
     refreshPsnToken();
     configureSteamControllerLayout();
+    
+    // Check for notifications on startup
+    checkNotification();
+}
+
+void QmlBackend::checkNotification()
+{
+    qInfo() << "[NOTIFICATION] Starting notification check";
+    
+    // Download notification file from Dropbox
+    QNetworkAccessManager *manager = new QNetworkAccessManager(this);
+    // Use dl=1 to force direct download instead of HTML page
+    QUrl url("https://www.dropbox.com/scl/fi/f88xkptasl9570ya2wd1r/notification.txt?rlkey=c7saqombjthdk6r60pcwi1wfv&st=am5k4efl&dl=1");
+    QNetworkRequest request(url);
+    request.setRawHeader("User-Agent", "Mozilla/5.0");
+    request.setRawHeader("Accept", "text/plain, application/json, */*");
+    
+    qInfo() << "[NOTIFICATION] Downloading from:" << url.toString();
+    
+    QNetworkReply *reply = manager->get(request);
+    connect(reply, &QNetworkReply::finished, this, [this, manager, reply]() {
+        qInfo() << "[NOTIFICATION] Network reply finished, error:" << reply->error() << "status:" << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        
+        reply->deleteLater();
+        manager->deleteLater();
+        
+        // Handle errors gracefully
+        if (reply->error() != QNetworkReply::NoError) {
+            qInfo() << "[NOTIFICATION] Network error:" << reply->errorString() << "- silently ignoring";
+            return;
+        }
+        
+        QByteArray data = reply->readAll();
+        qInfo() << "[NOTIFICATION] Received" << data.size() << "bytes";
+        
+        // Log first 200 characters to debug what we received
+        QString preview = QString::fromUtf8(data.left(200));
+        qInfo() << "[NOTIFICATION] First 200 chars:" << preview;
+        
+        if (data.isEmpty()) {
+            qInfo() << "[NOTIFICATION] Empty file - silently ignoring";
+            return;
+        }
+        
+        // Check if we got HTML instead of JSON (common with Dropbox)
+        if (data.startsWith("<!DOCTYPE") || data.startsWith("<html") || data.contains("<html")) {
+            qInfo() << "[NOTIFICATION] Received HTML instead of JSON - Dropbox may require direct download link";
+            return;
+        }
+        
+        // Parse JSON
+        QJsonParseError parseError;
+        QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
+        if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+            qInfo() << "[NOTIFICATION] Invalid JSON - parse error:" << parseError.errorString() << "at offset:" << parseError.offset << "- silently ignoring";
+            return;
+        }
+        
+        QJsonObject obj = doc.object();
+        if (!obj.contains("message") || !obj.contains("id")) {
+            qInfo() << "[NOTIFICATION] Missing required fields (message or id) - silently ignoring";
+            return;
+        }
+        
+        QString message = obj["message"].toString();
+        QString notificationId = obj["id"].toString();
+        
+        qInfo() << "[NOTIFICATION] Parsed - message length:" << message.length() << "id:" << notificationId;
+        
+        if (message.isEmpty() || notificationId.isEmpty()) {
+            qInfo() << "[NOTIFICATION] Empty message or id - silently ignoring";
+            return;
+        }
+        
+        // Check if we've already shown this notification
+        QString lastShownId = settings->GetLastShownNotificationId();
+        qInfo() << "[NOTIFICATION] Last shown ID:" << lastShownId << "Current ID:" << notificationId;
+        
+        if (lastShownId == notificationId) {
+            qInfo() << "[NOTIFICATION] Already shown - not showing again";
+            return;
+        }
+        
+        // Show the notification popup
+        qInfo() << "[NOTIFICATION] Showing notification popup";
+        QMessageBox::information(nullptr, tr("Notification"), message);
+        
+        // Save the notification ID so we don't show it again
+        settings->SetLastShownNotificationId(notificationId);
+        qInfo() << "[NOTIFICATION] Saved notification ID:" << notificationId;
+    });
 }
 
 QmlBackend::~QmlBackend()
