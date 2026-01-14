@@ -132,6 +132,31 @@ jobs:
           zip -r PSStream.zip PSStream
           echo "RELEASE_PACKAGE_PATH=PSStream.zip" >> $GITHUB_ENV
 
+      - name: Extract version
+        run: |
+          CHIAKI_VERSION_MAJOR=$(grep '^set(CHIAKI_VERSION_MAJOR' CMakeLists.txt | awk '{print $2}' | tr -d ')')
+          CHIAKI_VERSION_MINOR=$(grep '^set(CHIAKI_VERSION_MINOR' CMakeLists.txt | awk '{print $2}' | tr -d ')')
+          CHIAKI_VERSION_PATCH=$(grep '^set(CHIAKI_VERSION_PATCH' CMakeLists.txt | awk '{print $2}' | tr -d ')')
+          CHIAKI_VERSION="${CHIAKI_VERSION_MAJOR}.${CHIAKI_VERSION_MINOR}.${CHIAKI_VERSION_PATCH}"
+          echo "CHIAKI_VERSION=${CHIAKI_VERSION}" >> $GITHUB_ENV
+          echo "CHIAKI_VERSION_MAJOR=${CHIAKI_VERSION_MAJOR}" >> $GITHUB_ENV
+          echo "CHIAKI_VERSION_MINOR=${CHIAKI_VERSION_MINOR}" >> $GITHUB_ENV
+          echo "CHIAKI_VERSION_PATCH=${CHIAKI_VERSION_PATCH}" >> $GITHUB_ENV
+          echo "Version: ${CHIAKI_VERSION}"
+
+      - name: Compile .ISS to .EXE Installer
+        uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
+        with:
+          path: "scripts/chiaki-ng.iss"
+          options: /O+
+
+      - name: Rename installer with version
+        run: |
+          INSTALLER_NAME="PSStream-windows-installer-${{ env.CHIAKI_VERSION }}.exe"
+          cp PSStream-windows-installer.exe "${INSTALLER_NAME}"
+          echo "INSTALLER_NAME=${INSTALLER_NAME}" >> $GITHUB_ENV
+          echo "Renamed installer to: ${INSTALLER_NAME}"
+
       - name: Upload to Dropbox
         continue-on-error: true
         env:
@@ -139,7 +164,7 @@ jobs:
           DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
           DROPBOX_APP_SECRET: ${{ secrets.DROPBOX_APP_SECRET }}
         run: |
-          # Get short-lived access token from refresh token
+          # Get short-lived access token from refresh token (once for both uploads)
           ACCESS_TOKEN=$(curl -s https://api.dropbox.com/oauth2/token \
             -d refresh_token=$DROPBOX_REFRESH_TOKEN \
             -d grant_type=refresh_token \
@@ -148,24 +173,20 @@ jobs:
             | jq -r '.access_token')
           
           # Upload portable zip file to fixed location
+          echo "Uploading portable zip to /PSStream/windows/PSStream.zip"
           curl -X POST https://content.dropboxapi.com/2/files/upload \
             --header "Authorization: Bearer $ACCESS_TOKEN" \
             --header "Dropbox-API-Arg: {\"path\": \"/PSStream/windows/PSStream.zip\",\"mode\": \"overwrite\",\"autorename\": false}" \
             --header "Content-Type: application/octet-stream" \
             --data-binary @${{ env.RELEASE_PACKAGE_PATH }}
-
-      # - name: Compile .ISS to .EXE Installer
-      #   uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
-      #   with:
-      #     path: "scripts/chiaki-ng.iss"
-      #     options: /O+
-
-      # - name: Upload chiaki-ng Artifact
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: chiaki-ng-win_x64-MSYS2-Release-installer.exe
-      #     path: chiaki-ng-windows-installer.exe
-      #     if-no-files-found: error
-      #     retention-days: 7
+          
+          # Upload installer to versioned folder
+          INSTALLER_PATH="/PSStream/windows/installer/${{ env.CHIAKI_VERSION }}/${{ env.INSTALLER_NAME }}"
+          echo "Uploading installer to: ${INSTALLER_PATH}"
+          curl -X POST https://content.dropboxapi.com/2/files/upload \
+            --header "Authorization: Bearer $ACCESS_TOKEN" \
+            --header "Dropbox-API-Arg: {\"path\": \"${INSTALLER_PATH}\",\"mode\": \"overwrite\",\"autorename\": false}" \
+            --header "Content-Type: application/octet-stream" \
+            --data-binary @${{ env.INSTALLER_NAME }}
           
 
