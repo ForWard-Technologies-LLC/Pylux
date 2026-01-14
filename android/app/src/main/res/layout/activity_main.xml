@@ -5,163 +5,94 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:clipChildren="false">
-
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/hostsRecyclerView"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:paddingBottom="96dp"
-        android:clipToPadding="false"
-        android:clipChildren="false"
-        app:layout_behavior="@string/appbar_scrolling_view_behavior"/>
-
-    <LinearLayout
-        android:id="@+id/emptyInfoLayout"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center"
-        android:orientation="vertical"
-        android:gravity="center_horizontal">
-        <ImageView
-            android:id="@+id/emptyInfoImageView"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:src="@drawable/ic_discover_off"
-            app:layout_constraintLeft_toLeftOf="parent"
-            app:layout_constraintRight_toRightOf="parent"
-            app:layout_constraintTop_toTopOf="parent"
-            app:layout_constraintBottom_toTopOf="@id/emptyInfoTextView"
-            app:layout_constraintVertical_chainStyle="packed"
-            android:alpha="0.5"/>
-
-        <com.google.android.material.textview.MaterialTextView
-            android:id="@+id/emptyInfoTextView"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:fontFamily="sans-serif-condensed"
-            android:text="@string/display_hosts_empty_discovery_off_info"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintLeft_toLeftOf="parent"
-            app:layout_constraintRight_toRightOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/emptyInfoImageView"
-            android:gravity="center_horizontal"
-            android:maxWidth="300dp"/>
-    </LinearLayout>
-
-    <FrameLayout
-        android:id="@+id/floatingActionButtonDialBackground"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="#44000000"
-        android:visibility="gone"
-        android:clickable="true"
-        app:layout_behavior=".main.FloatingActionButtonBackgroundBehavior"/>
-
-    <LinearLayout
-        android:id="@+id/floatingActionButtonDial"
-        android:layout_gravity="top|end"
-        android:visibility="invisible"
-        app:layout_anchor="@id/floatingActionButton"
-        app:layout_anchorGravity="top|end"
-        android:orientation="vertical"
-        android:layout_marginRight="20dp"
-        android:layout_height="wrap_content"
-        android:layout_width="wrap_content"
-        app:layout_behavior=".main.FloatingActionButtonSpeedDialBehavior"
-        android:gravity="right"
-        android:clipChildren="false">
-
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginTop="16dp"
-            android:layout_marginBottom="16dp">
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/registerLabelButton"
-                style="@style/AppTheme.FloatingActionButtonSpeedDial"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginEnd="16dp"
-                android:text="@string/action_register"
-                android:textStyle="bold"
-                app:rippleColor="@color/floating_action_button_speed_dial_tint"
-                app:cornerRadius="8dp" />
-
-            <com.google.android.material.floatingactionbutton.FloatingActionButton
-                android:id="@+id/registerButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:src="@drawable/ic_register"
-                app:fabSize="mini"
-                style="@style/AppTheme.FloatingActionButtonSpeedDial" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginBottom="16dp">
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/addManualLabelButton"
-                style="@style/AppTheme.FloatingActionButtonSpeedDial"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginEnd="16dp"
-                android:text="@string/action_add_manual"
-                android:textStyle="bold"
-                app:rippleColor="@color/floating_action_button_speed_dial_tint"
-                app:cornerRadius="8dp" />
-
-            <com.google.android.material.floatingactionbutton.FloatingActionButton
-                android:id="@+id/addManualButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:src="@drawable/ic_add"
-                app:fabSize="mini"
-                style="@style/AppTheme.FloatingActionButtonSpeedDial" />
-        </LinearLayout>
-
-    </LinearLayout>
-
-    <com.google.android.material.floatingactionbutton.FloatingActionButton
-        android:id="@+id/floatingActionButton"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        app:srcCompat="@drawable/selector_add_fab"
-        android:layout_margin="16dp"
-        android:layout_gravity="bottom|end"
-        app:fabSize="normal" />
-
+    android:clipChildren="false"
+    android:fitsSystemWindows="true">
 
     <com.google.android.material.appbar.AppBarLayout
         android:id="@+id/appBarLayout"
         android:layout_height="wrap_content"
-        android:layout_width="match_parent">
+        android:layout_width="match_parent"
+        android:background="?attr/colorPrimary">
+
         <com.google.android.material.appbar.MaterialToolbar
             android:id="@+id/toolbar"
-            android:layout_height="wrap_content"
+            android:layout_height="48dp"
             android:layout_width="match_parent"
-            android:background="?attr/colorPrimarySurface"
-            app:layout_scrollFlags="scroll|enterAlways"
+            android:background="?attr/colorPrimary"
+            android:elevation="0dp"
+            android:minHeight="48dp"
+            android:contentInsetStartWithNavigation="0dp"
+            android:contentInsetEnd="0dp"
             android:theme="@style/AppTheme.Toolbar">
 
-            <androidx.appcompat.widget.AppCompatTextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center"
-                android:fontFamily="sans-serif-condensed"
-                android:text="@string/title_main"
-                android:textColor="?attr/colorOnPrimary"
-                android:textSize="20dp" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <!-- WiFi Discovery Icon (Remote Play) -->
+                <ImageView
+                    android:id="@+id/wifiIcon"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:padding="12dp"
+                    android:src="@drawable/ic_discover_off"
+                    android:contentDescription="@string/action_discover"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:tint="#FFFFFF" />
+
+                <!-- Search Icon (Cloud Play) -->
+                <ImageView
+                    android:id="@+id/searchIcon"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:padding="12dp"
+                    android:src="@android:drawable/ic_menu_search"
+                    android:contentDescription="Search"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:tint="#FFFFFF"
+                    android:visibility="gone" />
+
+                <!-- Main Tabs in Center -->
+                <com.google.android.material.tabs.TabLayout
+                    android:id="@+id/tabLayout"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="match_parent"
+                    android:layout_gravity="center"
+                    android:background="@android:color/transparent"
+                    app:tabMode="fixed"
+                    app:tabGravity="center"
+                    app:tabTextColor="#99FFFFFF"
+                    app:tabSelectedTextColor="@color/tab_indicator"
+                    app:tabIndicatorColor="@color/tab_indicator"
+                    app:tabIndicatorHeight="2dp"
+                    app:tabPaddingStart="12dp"
+                    app:tabPaddingEnd="12dp"
+                    app:tabTextAppearance="@style/TabTextAppearance" />
+
+                <!-- Settings Icon on Right -->
+                <ImageView
+                    android:id="@+id/settingsIcon"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:padding="12dp"
+                    android:src="@drawable/ic_settings"
+                    android:contentDescription="@string/action_settings"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:tint="#FFFFFF" />
+
+            </LinearLayout>
 
         </com.google.android.material.appbar.MaterialToolbar>
+
     </com.google.android.material.appbar.AppBarLayout>
+
+    <androidx.viewpager2.widget.ViewPager2
+        android:id="@+id/viewPager"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:layout_behavior="@string/appbar_scrolling_view_behavior"/>
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

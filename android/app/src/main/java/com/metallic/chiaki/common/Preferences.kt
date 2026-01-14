@@ -136,4 +136,113 @@ class Preferences(context: Context)
 		else
 			it.copy(bitrate = bitrate)
 	}
+
+	// Cloud Play settings
+	val npssoTokenKey get() = "npsso_token"
+	fun getNpssoToken(): String
+	{
+		// TODO: Replace with actual token from settings/login
+		// For now, return hardcoded token for testing
+		return sharedPreferences.getString(npssoTokenKey, "") ?: ""
+	}
+
+	fun setNpssoToken(token: String)
+	{
+		sharedPreferences.edit().putString(npssoTokenKey, token).apply()
+	}
+
+	// Cloud language settings - UNIFIED for both PSNow and PSCloud (matching Qt GetCloudLanguagePSCloud)
+	// Qt uses ONE setting for both PSNow and PSCloud
+	fun getCloudLanguage(): String
+	{
+		return sharedPreferences.getString("cloud_language_pscloud", "en-US") ?: "en-US"
+	}
+
+	fun setCloudLanguage(value: String)
+	{
+		sharedPreferences.edit().putString("cloud_language_pscloud", value).apply()
+	}
+
+	// Cloud datacenter settings (matching Qt GetCloudDatacenterPSNOW/SetCloudDatacenterPSNOW)
+	val cloudDatacenterPsnowKey get() = resources.getString(R.string.preferences_cloud_datacenter_psnow_key)
+	fun getCloudDatacenterPsnow(): String
+	{
+		return sharedPreferences.getString(cloudDatacenterPsnowKey, "Auto") ?: "Auto"
+	}
+
+	fun setCloudDatacenterPsnow(value: String)
+	{
+		sharedPreferences.edit().putString(cloudDatacenterPsnowKey, value).apply()
+	}
+
+	// Cloud datacenters JSON (matching Qt GetCloudDatacentersJsonPSNOW/SetCloudDatacentersJsonPSNOW)
+	val cloudDatacentersJsonPsnowKey get() = resources.getString(R.string.preferences_cloud_datacenters_json_psnow_key)
+	fun getCloudDatacentersJsonPsnow(): String
+	{
+		return sharedPreferences.getString(cloudDatacentersJsonPsnowKey, "") ?: ""
+	}
+
+	fun setCloudDatacentersJsonPsnow(json: String)
+	{
+		sharedPreferences.edit().putString(cloudDatacentersJsonPsnowKey, json).apply()
+	}
+
+	// PSCloud datacenter settings (matching Qt GetCloudDatacenterPSCloud/SetCloudDatacenterPSCloud)
+	val cloudDatacenterPscloudKey get() = resources.getString(R.string.preferences_cloud_datacenter_pscloud_key)
+	fun getCloudDatacenterPscloud(): String
+	{
+		return sharedPreferences.getString(cloudDatacenterPscloudKey, "Auto") ?: "Auto"
+	}
+
+	fun setCloudDatacenterPscloud(value: String)
+	{
+		sharedPreferences.edit().putString(cloudDatacenterPscloudKey, value).apply()
+	}
+
+	// PSCloud datacenters JSON (matching Qt GetCloudDatacentersJsonPSCloud/SetCloudDatacentersJsonPSCloud)
+	val cloudDatacentersJsonPscloudKey get() = resources.getString(R.string.preferences_cloud_datacenters_json_pscloud_key)
+	fun getCloudDatacentersJsonPscloud(): String
+	{
+		return sharedPreferences.getString(cloudDatacentersJsonPscloudKey, "") ?: ""
+	}
+
+	fun setCloudDatacentersJsonPscloud(json: String)
+	{
+		sharedPreferences.edit().putString(cloudDatacentersJsonPscloudKey, json).apply()
+	}
+
+	// Cloud Play UI state
+	private val LAST_CLOUD_SECTION_KEY = "last_cloud_section"
+	private val PSCLOUD_FILTER_OWNED_KEY = "pscloud_filter_owned"
+	private val LAST_MAIN_TAB_KEY = "last_main_tab"
+
+	fun getLastCloudSection(): String
+	{
+		return sharedPreferences.getString(LAST_CLOUD_SECTION_KEY, "psnow") ?: "psnow"
+	}
+
+	fun setLastCloudSection(section: String)
+	{
+		sharedPreferences.edit().putString(LAST_CLOUD_SECTION_KEY, section).apply()
+	}
+
+	fun getPsCloudFilterOwned(): Boolean
+	{
+		return sharedPreferences.getBoolean(PSCLOUD_FILTER_OWNED_KEY, false)
+	}
+
+	fun setPsCloudFilterOwned(isOwned: Boolean)
+	{
+		sharedPreferences.edit().putBoolean(PSCLOUD_FILTER_OWNED_KEY, isOwned).apply()
+	}
+
+	fun getLastMainTab(): Int
+	{
+		return sharedPreferences.getInt(LAST_MAIN_TAB_KEY, 0) // Default to Remote Play (0)
+	}
+
+	fun setLastMainTab(tabPosition: Int)
+	{
+		sharedPreferences.edit().putInt(LAST_MAIN_TAB_KEY, tabPosition).apply()
+	}
 }

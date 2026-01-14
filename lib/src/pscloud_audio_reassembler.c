@@ -302,21 +302,20 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_pscloud_audio_reassembler_put_packet(
 				}
 			}
 			
-			// Emit all received source units in order (if not already emitted)
-			if(!reassembler->source_units_emitted)
+		// Emit all received source units (if not already emitted)
+		if(!reassembler->source_units_emitted)
+		{
+			for(uint16_t i = 0; i < reassembler->units_source_expected; i++)
 			{
-				for(uint16_t i = 0; i < reassembler->units_source_expected; i++)
+				if(reassembler->unit_received[i])
 				{
-					if(reassembler->unit_received[i])
-					{
-						uint8_t *unit_buf = reassembler->frame_buf + i * reassembler->buf_stride_per_unit;
-						// Use first_frame_index + unit_index for ordering
-						ChiakiSeqNum16 frame_index = (ChiakiSeqNum16)(reassembler->first_frame_index + i);
-						if(frame_cb)
-							frame_cb(frame_index, unit_buf, reassembler->unit_size, reassembler->unit_is_haptics[i], frame_cb_user);
-					}
+					uint8_t *unit_buf = reassembler->frame_buf + i * reassembler->buf_stride_per_unit;
+					ChiakiSeqNum16 frame_index = (ChiakiSeqNum16)(reassembler->first_frame_index + i);
+					if(frame_cb)
+						frame_cb(frame_index, unit_buf, reassembler->unit_size, reassembler->unit_is_haptics[i], frame_cb_user);
 				}
 			}
+		}
 		}
 		// Mark previous generation as flushed
 		reassembler->flushed = true;
@@ -351,11 +350,19 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_pscloud_audio_reassembler_put_packet(
 	// Check if already received
 	if(reassembler->unit_received[packet->unit_index])
 	{
-		CHIAKI_LOGW(reassembler->log, "PSCLOUD audio: duplicate unit_index %u", (unsigned)packet->unit_index);
+		CHIAKI_LOGW(reassembler->log, "PSCLOUD audio: duplicate unit_index %u in gen=%u (frame_index=%u, received %u+%u/%u+%u)",
+			(unsigned)packet->unit_index, (unsigned)reassembler->generation_id, (unsigned)packet->frame_index,
+			(unsigned)reassembler->units_source_received, (unsigned)reassembler->units_fec_received,
+			(unsigned)reassembler->units_source_expected, (unsigned)reassembler->units_fec_expected);
 		return CHIAKI_ERR_INVALID_DATA;
 	}
 	
-	// Validate data size
+	// Validate data pointer and size
+	if(!packet->data)
+	{
+		CHIAKI_LOGE(reassembler->log, "PSCLOUD audio: NULL data pointer for unit_index %u", (unsigned)packet->unit_index);
+		return CHIAKI_ERR_INVALID_DATA;
+	}
 	if(packet->data_size == 0)
 	{
 		CHIAKI_LOGE(reassembler->log, "PSCLOUD audio: zero data_size for unit_index %u", (unsigned)packet->unit_index);
@@ -393,23 +400,10 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_pscloud_audio_reassembler_put_packet(
 	else
 		reassembler->units_fec_received++;
 	
-	// Log unit reception for debugging (verbose only, first few to avoid spam)
-	static uint32_t log_count = 0;
-	if(log_count++ < 5)
-	{
-		CHIAKI_LOGV(reassembler->log, "PSCLOUD audio gen=%u: unit_index=%u frame_index=%u progress: %u+%u/%u+%u",
-			(unsigned)reassembler->generation_id, (unsigned)packet->unit_index, (unsigned)packet->frame_index,
-			(unsigned)reassembler->units_source_received, (unsigned)reassembler->units_fec_received,
-			(unsigned)reassembler->units_source_expected, (unsigned)reassembler->units_fec_expected);
-	}
-	
 	// Check if we can emit source units immediately (all received)
-	// Note: We emit source units as soon as we have them, but keep the generation open
-	// for FEC units until we receive all units or start a new generation
 	if(reassembler->units_source_received == reassembler->units_source_expected && !reassembler->source_units_emitted)
 	{
-		// Emit all source units in order
-		// Use first_frame_index + unit_index for ordering within generation
+		// Emit units individually for ChiakiOpusDecoder
 		for(uint16_t i = 0; i < reassembler->units_source_expected; i++)
 		{
 			uint8_t *unit_buf = reassembler->frame_buf + i * reassembler->buf_stride_per_unit;
@@ -418,8 +412,6 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_pscloud_audio_reassembler_put_packet(
 				frame_cb(frame_index, unit_buf, reassembler->unit_size, reassembler->unit_is_haptics[i], frame_cb_user);
 		}
 		reassembler->source_units_emitted = true;
-		// Don't set flushed=true here - keep generation open for FEC units
-		// Generation will be flushed when we start a new one
 	}
 	
 	return CHIAKI_ERR_SUCCESS;

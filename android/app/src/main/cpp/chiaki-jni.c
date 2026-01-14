@@ -9,14 +9,18 @@
 #include <chiaki/session.h>
 #include <chiaki/discoveryservice.h>
 #include <chiaki/regist.h>
+#include <chiaki/senkusha.h>
 
 #include <string.h>
 #include <linux/in.h>
 #include <linux/in6.h>
 #include <arpa/inet.h>
+#include <netdb.h>
+#include <sys/socket.h>
 
 #include "video-decoder.h"
 #include "audio-decoder.h"
+#include "opus-decoder.h"
 #include "audio-output.h"
 #include "log.h"
 #include "chiaki-jni.h"
@@ -158,6 +162,8 @@ typedef struct android_chiaki_session_t
 
 	AndroidChiakiVideoDecoder video_decoder;
 	AndroidChiakiAudioDecoder audio_decoder;
+	AndroidChiakiOpusDecoder opus_decoder;
+	bool use_opus_decoder; // true for PSCloud, false for PSNow/Remote Play
 	void *audio_output;
 } AndroidChiakiSession;
 
@@ -272,6 +278,77 @@ JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject 
 
 	connect_info.video_profile_auto_downgrade = true;
 
+	// Cloud streaming fields (optional, null for remote play)
+	jstring service_type_string = E->GetObjectField(env, connect_info_obj, E->GetFieldID(env, connect_info_class, "serviceType", "Ljava/lang/String;"));
+	if(service_type_string)
+	{
+		const char *service_type_str = E->GetStringUTFChars(env, service_type_string, NULL);
+		CHIAKI_LOGI(log, "[ANDROID JNI] Service type string from Java: '%s'", service_type_str);
+		if(strcmp(service_type_str, "pscloud") == 0)
+		{
+			connect_info.service_type = CHIAKI_SERVICE_TYPE_PSCLOUD;
+			CHIAKI_LOGI(log, "[ANDROID JNI] Set service_type to PSCLOUD (%d)", CHIAKI_SERVICE_TYPE_PSCLOUD);
+		}
+		else if(strcmp(service_type_str, "psnow") == 0)
+		{
+			connect_info.service_type = CHIAKI_SERVICE_TYPE_PSNOW;
+			CHIAKI_LOGI(log, "[ANDROID JNI] Set service_type to PSNOW (%d)", CHIAKI_SERVICE_TYPE_PSNOW);
+		}
+		else
+		{
+			connect_info.service_type = CHIAKI_SERVICE_TYPE_REMOTE_PLAY;
+			CHIAKI_LOGI(log, "[ANDROID JNI] Service type '%s' not recognized, defaulting to REMOTE_PLAY (%d)", service_type_str, CHIAKI_SERVICE_TYPE_REMOTE_PLAY);
+		}
+		E->ReleaseStringUTFChars(env, service_type_string, service_type_str);
+	}
+	else
+	{
+		connect_info.service_type = CHIAKI_SERVICE_TYPE_REMOTE_PLAY;
+		CHIAKI_LOGI(log, "[ANDROID JNI] No service type string from Java, defaulting to REMOTE_PLAY (%d)", CHIAKI_SERVICE_TYPE_REMOTE_PLAY);
+	}
+
+	jstring cloud_launch_spec_string = E->GetObjectField(env, connect_info_obj, E->GetFieldID(env, connect_info_class, "cloudLaunchSpec", "Ljava/lang/String;"));
+	if(cloud_launch_spec_string)
+	{
+		const char *str = E->GetStringUTFChars(env, cloud_launch_spec_string, NULL);
+		connect_info.cloud_launch_spec = strdup(str);
+		E->ReleaseStringUTFChars(env, cloud_launch_spec_string, str);
+	}
+	else
+	{
+		connect_info.cloud_launch_spec = NULL;
+	}
+
+	jstring cloud_handshake_key_string = E->GetObjectField(env, connect_info_obj, E->GetFieldID(env, connect_info_class, "cloudHandshakeKey", "Ljava/lang/String;"));
+	if(cloud_handshake_key_string)
+	{
+		const char *str = E->GetStringUTFChars(env, cloud_handshake_key_string, NULL);
+		connect_info.cloud_handshake_key = strdup(str);
+		E->ReleaseStringUTFChars(env, cloud_handshake_key_string, str);
+	}
+	else
+	{
+		connect_info.cloud_handshake_key = NULL;
+	}
+
+	jstring cloud_session_id_string = E->GetObjectField(env, connect_info_obj, E->GetFieldID(env, connect_info_class, "cloudSessionId", "Ljava/lang/String;"));
+	if(cloud_session_id_string)
+	{
+		const char *str = E->GetStringUTFChars(env, cloud_session_id_string, NULL);
+		connect_info.cloud_session_id = strdup(str);
+		E->ReleaseStringUTFChars(env, cloud_session_id_string, str);
+	}
+	else
+	{
+		connect_info.cloud_session_id = NULL;
+	}
+
+	connect_info.cloud_port = (uint16_t)E->GetIntField(env, connect_info_obj, E->GetFieldID(env, connect_info_class, "cloudPort", "I"));
+	connect_info.cloud_psn_wrapper_type = (uint8_t)E->GetIntField(env, connect_info_obj, E->GetFieldID(env, connect_info_class, "cloudPsnWrapperType", "I"));
+	connect_info.cloud_mtu_in = (uint32_t)E->GetIntField(env, connect_info_obj, E->GetFieldID(env, connect_info_class, "cloudMtuIn", "I"));
+	connect_info.cloud_mtu_out = (uint32_t)E->GetIntField(env, connect_info_obj, E->GetFieldID(env, connect_info_class, "cloudMtuOut", "I"));
+	connect_info.cloud_rtt_us = (uint64_t)E->GetLongField(env, connect_info_obj, E->GetFieldID(env, connect_info_class, "cloudRttUs", "J"));
+
 	session = CHIAKI_NEW(AndroidChiakiSession);
 	if(!session)
 	{
@@ -289,25 +366,58 @@ JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject 
 		goto beach;
 	}
 
-	err = android_chiaki_audio_decoder_init(&session->audio_decoder, log);
-	if(err != CHIAKI_ERR_SUCCESS)
+	// Determine which audio decoder to use based on service type
+	// PSCloud uses native Opus decoder (unitized Opus format)
+	// PSNow/Remote Play use MediaCodec (standard Opus format)
+	session->use_opus_decoder = (connect_info.service_type == CHIAKI_SERVICE_TYPE_PSCLOUD);
+	
+	if(session->use_opus_decoder)
 	{
-		android_chiaki_video_decoder_fini(&session->video_decoder);
-		free(session);
-		session = NULL;
-		goto beach;
+		CHIAKI_LOGI(log, "JNI: Using native Opus decoder for PSCloud");
+		err = android_chiaki_opus_decoder_init(&session->opus_decoder, log);
+		if(err != CHIAKI_ERR_SUCCESS)
+		{
+			android_chiaki_video_decoder_fini(&session->video_decoder);
+			free(session);
+			session = NULL;
+			goto beach;
+		}
+	}
+	else
+	{
+		CHIAKI_LOGI(log, "JNI: Using MediaCodec for audio decoding");
+		err = android_chiaki_audio_decoder_init(&session->audio_decoder, log);
+		if(err != CHIAKI_ERR_SUCCESS)
+		{
+			android_chiaki_video_decoder_fini(&session->video_decoder);
+			free(session);
+			session = NULL;
+			goto beach;
+		}
 	}
 
 	session->audio_output = android_chiaki_audio_output_new(log);
 
-	android_chiaki_audio_decoder_set_cb(&session->audio_decoder, android_chiaki_audio_output_settings, android_chiaki_audio_output_frame, session->audio_output);
+	if(session->use_opus_decoder)
+	{
+		session->opus_decoder.cb_user = session->audio_output;
+		session->opus_decoder.settings_cb = android_chiaki_audio_output_settings;
+		session->opus_decoder.frame_cb = android_chiaki_audio_output_frame;
+	}
+	else
+	{
+		android_chiaki_audio_decoder_set_cb(&session->audio_decoder, android_chiaki_audio_output_settings, android_chiaki_audio_output_frame, session->audio_output);
+	}
 
 	err = chiaki_session_init(&session->session, &connect_info, log);
 	if(err != CHIAKI_ERR_SUCCESS)
 	{
 		CHIAKI_LOGE(log, "JNI ChiakiSession failed to init");
 		android_chiaki_video_decoder_fini(&session->video_decoder);
-		android_chiaki_audio_decoder_fini(&session->audio_decoder);
+		if(session->use_opus_decoder)
+			android_chiaki_opus_decoder_fini(&session->opus_decoder);
+		else
+			android_chiaki_audio_decoder_fini(&session->audio_decoder);
 		android_chiaki_audio_output_free(session->audio_output);
 		free(session);
 		session = NULL;
@@ -350,7 +460,10 @@ JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject 
 	chiaki_session_set_video_sample_cb(&session->session, android_chiaki_video_decoder_video_sample, &session->video_decoder);
 
 	ChiakiAudioSink audio_sink;
-	android_chiaki_audio_decoder_get_sink(&session->audio_decoder, &audio_sink);
+	if(session->use_opus_decoder)
+		android_chiaki_opus_decoder_get_sink(&session->opus_decoder, &audio_sink);
+	else
+		android_chiaki_audio_decoder_get_sink(&session->audio_decoder, &audio_sink);
 	chiaki_session_set_audio_sink(&session->session, &audio_sink);
 
 beach:
@@ -373,7 +486,10 @@ JNIEXPORT void JNICALL JNI_FCN(sessionFree)(JNIEnv *env, jobject obj, jlong ptr)
 	CHIAKI_LOGI(session->log, "Shutting down JNI Session");
 	chiaki_session_fini(&session->session);
 	android_chiaki_video_decoder_fini(&session->video_decoder);
-	android_chiaki_audio_decoder_fini(&session->audio_decoder);
+	if(session->use_opus_decoder)
+		android_chiaki_opus_decoder_fini(&session->opus_decoder);
+	else
+		android_chiaki_audio_decoder_fini(&session->audio_decoder);
 	android_chiaki_audio_output_free(session->audio_output);
 	E->DeleteGlobalRef(env, session->java_session);
 	E->DeleteGlobalRef(env, session->java_session_class);
@@ -831,4 +947,192 @@ JNIEXPORT void JNICALL JNI_FCN(registFree)(JNIEnv *env, jobject obj, jlong ptr)
 	chiaki_regist_fini(&regist->regist);
 	android_chiaki_regist_fini_partial(env, regist);
 	free(regist);
+}
+
+// Datacenter Ping JNI
+JNIEXPORT jobject JNICALL Java_com_metallic_chiaki_cloudplay_ping_DatacenterPingNative_performPing(
+	JNIEnv *env, jobject obj, jstring publicIp, jint port, jstring sessionKey, jstring serviceType)
+{
+	// Create a minimal logger (Qt line 54-55)
+	ChiakiLog log;
+	chiaki_log_init(&log, CHIAKI_LOG_ALL & ~CHIAKI_LOG_VERBOSE, chiaki_log_cb_print, NULL);
+	
+	const char *ip_str = (*env)->GetStringUTFChars(env, publicIp, NULL);
+	const char *session_key_str = (*env)->GetStringUTFChars(env, sessionKey, NULL);
+	const char *service_type_str = (*env)->GetStringUTFChars(env, serviceType, NULL);
+	
+	if(!ip_str || !session_key_str || !service_type_str)
+	{
+		CHIAKI_LOGI(&log, "DatacenterPing: Failed to get JNI strings");
+		
+		// Create failure result
+		jclass pingResultClass = (*env)->FindClass(env, "com/metallic/chiaki/cloudplay/ping/PingResult");
+		jmethodID constructor = (*env)->GetMethodID(env, pingResultClass, "<init>", "(JII)V");
+		jobject result = (*env)->NewObject(env, pingResultClass, constructor, (jlong)-1, (jint)0, (jint)0);
+		
+		if(ip_str) (*env)->ReleaseStringUTFChars(env, publicIp, ip_str);
+		if(session_key_str) (*env)->ReleaseStringUTFChars(env, sessionKey, session_key_str);
+		if(service_type_str) (*env)->ReleaseStringUTFChars(env, serviceType, service_type_str);
+		return result;
+	}
+	
+	CHIAKI_LOGI(&log, "DatacenterPing: Pinging %s:%d (service=%s)", ip_str, port, service_type_str);
+	
+	// Resolve hostname to IP
+	struct addrinfo hints;
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_INET;
+	hints.ai_socktype = SOCK_DGRAM;
+	hints.ai_protocol = IPPROTO_UDP;
+	
+	char port_str[16];
+	snprintf(port_str, sizeof(port_str), "%d", port);
+	
+	struct addrinfo *addrinfo_result = NULL;
+	int err = getaddrinfo(ip_str, port_str, &hints, &addrinfo_result);
+	if(err != 0 || !addrinfo_result)
+	{
+		CHIAKI_LOGE(&log, "DatacenterPing: Failed to resolve %s:%d - %s", ip_str, port, gai_strerror(err));
+		
+		// Create failure result
+		jclass pingResultClass = (*env)->FindClass(env, "com/metallic/chiaki/cloudplay/ping/PingResult");
+		jmethodID constructor = (*env)->GetMethodID(env, pingResultClass, "<init>", "(JII)V");
+		jobject result = (*env)->NewObject(env, pingResultClass, constructor, (jlong)-1, (jint)0, (jint)0);
+		
+		(*env)->ReleaseStringUTFChars(env, publicIp, ip_str);
+		(*env)->ReleaseStringUTFChars(env, sessionKey, session_key_str);
+		(*env)->ReleaseStringUTFChars(env, serviceType, service_type_str);
+		return result;
+	}
+	
+	// Allocate and initialize session buffer (Qt lines 115-132)
+	size_t session_size = sizeof(ChiakiSession);
+	ChiakiSession *session = (ChiakiSession *)calloc(1, session_size);
+	if(!session)
+	{
+		CHIAKI_LOGE(&log, "DatacenterPing: Failed to allocate session buffer");
+		freeaddrinfo(addrinfo_result);
+		
+		// Create failure result
+		jclass pingResultClass = (*env)->FindClass(env, "com/metallic/chiaki/cloudplay/ping/PingResult");
+		jmethodID constructor = (*env)->GetMethodID(env, pingResultClass, "<init>", "(JII)V");
+		jobject result = (*env)->NewObject(env, pingResultClass, constructor, (jlong)-1, (jint)0, (jint)0);
+		
+		(*env)->ReleaseStringUTFChars(env, publicIp, ip_str);
+		(*env)->ReleaseStringUTFChars(env, sessionKey, session_key_str);
+		(*env)->ReleaseStringUTFChars(env, serviceType, service_type_str);
+		return result;
+	}
+	
+	session->log = &log;
+	session->connect_info.host_addrinfo_selected = addrinfo_result;
+	session->connect_info.enable_dualsense = false;
+	session->target = CHIAKI_TARGET_PS5_1;
+	session->cloud_port = port;
+	
+	// Set service type for cloud ping (Qt lines 133-145)
+	if(strcmp(service_type_str, "pscloud") == 0)
+	{
+		session->cloud_psn_wrapper_type = 0;  // No PSN wrapper for PSCloud
+		session->service_type = CHIAKI_SERVICE_TYPE_PSCLOUD;
+	}
+	else  // "psnow" or fallback
+	{
+		session->cloud_psn_wrapper_type = 0x01;  // PSN wrapper for PSNOW
+		session->service_type = CHIAKI_SERVICE_TYPE_PSNOW;
+	}
+	
+	// Initialize senkusha (Qt lines 148-159)
+	ChiakiSenkusha senkusha;
+	ChiakiErrorCode chiaki_err = chiaki_senkusha_init(&senkusha, session);
+	if(chiaki_err != CHIAKI_ERR_SUCCESS)
+	{
+		CHIAKI_LOGE(&log, "DatacenterPing: Failed to initialize senkusha: %d", chiaki_err);
+		freeaddrinfo(addrinfo_result);
+		free(session);
+		
+		// Create failure result
+		jclass pingResultClass = (*env)->FindClass(env, "com/metallic/chiaki/cloudplay/ping/PingResult");
+		jmethodID constructor = (*env)->GetMethodID(env, pingResultClass, "<init>", "(JII)V");
+		jobject result = (*env)->NewObject(env, pingResultClass, constructor, (jlong)-1, (jint)0, (jint)0);
+		
+		(*env)->ReleaseStringUTFChars(env, publicIp, ip_str);
+		(*env)->ReleaseStringUTFChars(env, sessionKey, session_key_str);
+		(*env)->ReleaseStringUTFChars(env, serviceType, service_type_str);
+		return result;
+	}
+	
+	// Force protocol version to 9 for cloud ping (Qt line 162)
+	senkusha.protocol_version = 9;
+	
+	// Set session key (x-gaikai-session) for cloud mode BIG message (Qt lines 164-179)
+	size_t session_key_len = strlen(session_key_str);
+	senkusha.cloud_launch_spec = (char *)malloc(session_key_len + 1);
+	if(!senkusha.cloud_launch_spec)
+	{
+		CHIAKI_LOGE(&log, "DatacenterPing: Failed to allocate session key string");
+		chiaki_senkusha_fini(&senkusha);
+		freeaddrinfo(addrinfo_result);
+		free(session);
+		
+		// Create failure result
+		jclass pingResultClass = (*env)->FindClass(env, "com/metallic/chiaki/cloudplay/ping/PingResult");
+		jmethodID constructor = (*env)->GetMethodID(env, pingResultClass, "<init>", "(JII)V");
+		jobject result = (*env)->NewObject(env, pingResultClass, constructor, (jlong)-1, (jint)0, (jint)0);
+		
+		(*env)->ReleaseStringUTFChars(env, publicIp, ip_str);
+		(*env)->ReleaseStringUTFChars(env, sessionKey, session_key_str);
+		(*env)->ReleaseStringUTFChars(env, serviceType, service_type_str);
+		return result;
+	}
+	memcpy(senkusha.cloud_launch_spec, session_key_str, session_key_len);
+	senkusha.cloud_launch_spec[session_key_len] = '\0';
+	
+	// Run senkusha (this will do the full handshake + echo/ping test) (Qt line 186)
+	uint32_t mtu_in = 0;
+	uint32_t mtu_out = 0;
+	uint64_t rtt_us = 0;
+	
+	chiaki_err = chiaki_senkusha_run(&senkusha, &mtu_in, &mtu_out, &rtt_us, NULL);
+	
+	// Free resources (Qt lines 189-196)
+	if(senkusha.cloud_launch_spec)
+	{
+		free(senkusha.cloud_launch_spec);
+		senkusha.cloud_launch_spec = NULL;
+	}
+	
+	chiaki_senkusha_fini(&senkusha);
+	freeaddrinfo(addrinfo_result);
+	free(session);
+	
+	// Create result object (Qt lines 198-210)
+	jlong result_rtt_us = -1;
+	jint result_mtu_in = 0;
+	jint result_mtu_out = 0;
+	
+	if(chiaki_err == CHIAKI_ERR_SUCCESS)
+	{
+		result_rtt_us = (jlong)rtt_us;
+		result_mtu_in = (jint)mtu_in;
+		result_mtu_out = (jint)mtu_out;
+		CHIAKI_LOGI(&log, "DatacenterPing: %s:%d - RTT: %lld us, MTU in: %d, MTU out: %d", 
+			ip_str, port, (long long)rtt_us, mtu_in, mtu_out);
+	}
+	else
+	{
+		CHIAKI_LOGE(&log, "DatacenterPing: %s:%d - Ping failed with error: %d", ip_str, port, chiaki_err);
+	}
+	
+	// Release JNI strings
+	(*env)->ReleaseStringUTFChars(env, publicIp, ip_str);
+	(*env)->ReleaseStringUTFChars(env, sessionKey, session_key_str);
+	(*env)->ReleaseStringUTFChars(env, serviceType, service_type_str);
+	
+	// Create and return PingResult object
+	jclass pingResultClass = (*env)->FindClass(env, "com/metallic/chiaki/cloudplay/ping/PingResult");
+	jmethodID constructor = (*env)->GetMethodID(env, pingResultClass, "<init>", "(JII)V");
+	jobject result = (*env)->NewObject(env, pingResultClass, constructor, result_rtt_us, result_mtu_in, result_mtu_out);
+	
+	return result;
 }

@@ -79,6 +79,26 @@
     </PreferenceCategory>
 
     <PreferenceCategory
+        app:key="category_cloud"
+        app:title="@string/preferences_category_title_cloud">
+        <ListPreference
+            app:key="@string/preferences_cloud_datacenter_psnow_key"
+            app:title="@string/preferences_cloud_datacenter_psnow_title"
+            app:summary="%s"
+            app:entries="@array/cloud_datacenter_entries"
+            app:entryValues="@array/cloud_datacenter_values"
+            app:defaultValue="Auto"/>
+        
+        <ListPreference
+            app:key="@string/preferences_cloud_datacenter_pscloud_key"
+            app:title="@string/preferences_cloud_datacenter_pscloud_title"
+            app:summary="%s"
+            app:entries="@array/cloud_datacenter_entries"
+            app:entryValues="@array/cloud_datacenter_values"
+            app:defaultValue="Auto"/>
+    </PreferenceCategory>
+
+    <PreferenceCategory
         app:key="category_export"
         app:title="@string/preferences_category_title_export">
         <Preference

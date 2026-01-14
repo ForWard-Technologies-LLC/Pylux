@@ -69,7 +69,17 @@ data class ConnectInfo(
 	val host: String,
 	val registKey: ByteArray,
 	val morning: ByteArray,
-	val videoProfile: ConnectVideoProfile
+	val videoProfile: ConnectVideoProfile,
+	// Cloud streaming fields (optional, null for remote play)
+	val serviceType: String? = null, // "psnow" or "pscloud"
+	val cloudLaunchSpec: String? = null,
+	val cloudHandshakeKey: String? = null,
+	val cloudSessionId: String? = null,
+	val cloudPort: Int = 0,
+	val cloudPsnWrapperType: Int = 0,
+	val cloudMtuIn: Int = 0,
+	val cloudMtuOut: Int = 0,
+	val cloudRttUs: Long = 0L
 ): Parcelable
 
 private class ChiakiNative
@@ -101,6 +111,7 @@ private class ChiakiNative
 		@JvmStatic external fun registFree(ptr: Long)
 	}
 }
+
 
 class ErrorCode(val value: Int)
 {

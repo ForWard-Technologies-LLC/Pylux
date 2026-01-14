@@ -56,21 +56,24 @@ class StreamSession(val connectInfo: ConnectInfo, val logManager: LogManager, va
 	{
 		if(session != null)
 			return
-		try
-		{
-			val session = Session(connectInfo, logManager.createNewFile().file.absolutePath, logVerbose)
-			_state.value = StreamStateConnecting
-			session.eventCallback = this::eventCallback
-			session.start()
-			val surface = surface
-			if(surface != null)
-				session.setSurface(surface)
-			this.session = session
-		}
-		catch(e: CreateError)
-		{
-			_state.value = StreamStateCreateError(e)
-		}
+		_state.value = StreamStateConnecting
+		// Create session on background thread to avoid ANR (DNS resolution can block)
+		Thread {
+			try
+			{
+				val session = Session(connectInfo, logManager.createNewFile().file.absolutePath, logVerbose)
+				session.eventCallback = this::eventCallback
+				session.start()
+				val surface = surface
+				if(surface != null)
+					session.setSurface(surface)
+				this.session = session
+			}
+			catch(e: CreateError)
+			{
+				_state.postValue(StreamStateCreateError(e))
+			}
+		}.start()
 	}
 
 	private fun eventCallback(event: Event)

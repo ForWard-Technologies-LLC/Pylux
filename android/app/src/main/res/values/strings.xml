@@ -2,6 +2,10 @@
     <string name="app_name">Chiaki</string>
     <string name="title_main">Chiaki 千秋</string>
     <string name="title_settings">Settings</string>
+    <string name="tab_remote_play">Remote Play</string>
+    <string name="tab_cloud_play">Cloud Play</string>
+    <string name="error">Error</string>
+    <string name="action_ok">OK</string>
     <string name="alert_message_standby_wakeup">The Console is currently in standby mode. Do you want to send a Wakeup packet instead of trying to connect immediately?</string>
     <string name="alert_message_session_quit">Session has quit: %s</string>
     <string name="alert_message_session_create_error">Failed to create Session: %s</string>
@@ -103,6 +107,19 @@
     <string name="registered_hosts_empty_info">No Consoles registered.</string>
     <string name="display_hosts_empty_discovery_off_info">No consoles added yet.\nEnable Discovery to automatically find consoles on your local network.</string>
     <string name="display_hosts_empty_discovery_on_info">No consoles added or discovered.</string>
+    <string name="preferences_category_title_cloud">Cloud Streaming</string>
+    <string name="preferences_cloud_datacenter_psnow_title">PSNow Catalog Datacenter</string>
+    <string name="preferences_cloud_datacenter_psnow_summary">Select a specific datacenter or use Auto for best ping</string>
+    <string name="preferences_cloud_datacenter_pscloud_title">PS Game Library Datacenter</string>
+    <string name="preferences_cloud_datacenter_pscloud_summary">Select a specific datacenter or use Auto for best ping</string>
+    
+    <!-- Datacenter options -->
+    <string-array name="cloud_datacenter_entries">
+        <item>Auto (Best Ping)</item>
+    </string-array>
+    <string-array name="cloud_datacenter_values">
+        <item>Auto</item>
+    </string-array>
 
     <!-- Don't localize these -->
     <string name="preferences_discovery_enabled_key">discovery_enabled</string>
@@ -119,4 +136,8 @@
     <string name="preferences_fps_key">stream_fps</string>
     <string name="preferences_bitrate_key">stream_bitrate</string>
     <string name="preferences_codec_key">stream_codec</string>
+    <string name="preferences_cloud_datacenter_psnow_key">cloud_datacenter_psnow</string>
+    <string name="preferences_cloud_datacenters_json_psnow_key">cloud_datacenters_json_psnow</string>
+    <string name="preferences_cloud_datacenter_pscloud_key">cloud_datacenter_pscloud</string>
+    <string name="preferences_cloud_datacenters_json_pscloud_key">cloud_datacenters_json_pscloud</string>
 </resources>

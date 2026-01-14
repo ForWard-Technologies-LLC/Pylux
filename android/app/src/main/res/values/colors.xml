@@ -1,18 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="primary">#162d50</color>
-    <color name="primary_dark">#000128</color>
-    <color name="accent">#ffaaee</color>
+    <!-- Cool Blue Theme -->
+    <color name="primary">#1A2332</color>              <!-- Dark blue-gray -->
+    <color name="primary_dark">#0D1117</color>          <!-- Very dark blue -->
+    <color name="accent">#4A9EFF</color>                <!-- Bright blue accent -->
+    <color name="accent_light">#6BB6FF</color>          <!-- Light blue -->
 
     <color name="stream_text">@android:color/white</color>
     <color name="stream_background">@android:color/black</color>
     <color name="stream_overlay_background">#77000000</color>
 
-    <color name="floating_action_button_speed_dial_background">#fafafa</color>
-    <color name="floating_action_button_speed_dial_tint">#333333</color>
+    <color name="floating_action_button_speed_dial_background">#4A9EFF</color>
+    <color name="floating_action_button_speed_dial_tint">#ffffff</color>
 
     <color name="control_primary">#22ffffff</color>
     <color name="control_pressed">#88ffffff</color>
 
     <color name="item_delete_background">#B71C1C</color>
+    
+    <!-- UI Elements -->
+    <color name="fab_background">#4A9EFF</color>
+    <color name="search_background">#2A3A4A</color>
+    <color name="tab_indicator">#6BB6FF</color>
 </resources>

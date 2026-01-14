@@ -33,6 +33,10 @@ android {
         targetSdk 35
         versionCode 11
         versionName chiakiVersion
+        ndk {
+            // Only build for arm64-v8a for faster local development
+            abiFilters "arm64-v8a"
+        }
         externalNativeBuild {
             cmake {
                 arguments "-DCHIAKI_ENABLE_TESTS=OFF",
@@ -42,7 +46,7 @@ android {
                         "-DCHIAKI_ENABLE_ANDROID=ON",
                         "-DCHIAKI_ENABLE_FFMPEG_DECODER=OFF",
                         "-DCHIAKI_ENABLE_PI_DECODER=OFF",
-                        "-DCHIAKI_LIB_ENABLE_OPUS=OFF",
+                        "-DCHIAKI_LIB_ENABLE_OPUS=ON",
                         "-DCHIAKI_LIB_ENABLE_MBEDTLS=ON",
                         "-DCHIAKI_LIB_MBEDTLS_EXTERNAL_PROJECT=ON",
                         "-DCHIAKI_ENABLE_RUDP=ON",
@@ -155,4 +159,7 @@ dependencies {
     kapt "androidx.room:room-compiler:$room_version"
     implementation "com.squareup.moshi:moshi:1.15.1"
     kapt "com.squareup.moshi:moshi-kotlin-codegen:1.15.1"
+    implementation 'androidx.viewpager2:viewpager2:1.0.0'
+    implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
+    implementation 'io.coil-kt:coil:2.4.0'
 }

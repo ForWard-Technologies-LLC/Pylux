@@ -35,6 +35,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_audio_receiver_init(ChiakiAudioReceiver *au
 	// Initialize PSCLOUD audio reassembler if this is a PSCLOUD session
 	if(session && session->service_type == CHIAKI_SERVICE_TYPE_PSCLOUD)
 	{
+		CHIAKI_LOGI(session->log, "Audio Receiver: Detected PSCLOUD service type - initializing custom audio reassembler");
 		ChiakiPSCLOUDAudioReassembler *reassembler = malloc(sizeof(ChiakiPSCLOUDAudioReassembler));
 		if(!reassembler)
 			return CHIAKI_ERR_MEMORY;
@@ -47,6 +48,16 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_audio_receiver_init(ChiakiAudioReceiver *au
 		}
 		
 		audio_receiver->pscloud_audio_reassembler = reassembler;
+		CHIAKI_LOGI(session->log, "Audio Receiver: ✓ PSCLOUD audio reassembler initialized successfully");
+	}
+	else
+	{
+		if(session)
+			CHIAKI_LOGI(session->log, "Audio Receiver: Using standard audio decoder (service_type=%s)", 
+				chiaki_service_type_string(session->service_type));
+		else
+			CHIAKI_LOGI(session->log, "Audio Receiver: Using standard audio decoder (no session)");
+		audio_receiver->pscloud_audio_reassembler = NULL;
 	}
 
 	return CHIAKI_ERR_SUCCESS;

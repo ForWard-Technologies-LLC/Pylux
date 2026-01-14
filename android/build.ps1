@@ -1,5 +1,5 @@
 # Simple Android build script for chiaki-ng
-# Usage: .\build.ps1 [debug|release] [-quick] [-clean] [-abi <abi>] [-install] [-launch]
+# Usage: .\build.ps1 [debug|release] [-quick] [-clean] [-abi <abi>] [-install] [-launch] [-apponly]
 
 param(
     [string]$BuildType = "debug",
@@ -7,7 +7,8 @@ param(
     [switch]$Clean = $false,
     [string]$Abi = "",
     [switch]$Install = $false,
-    [switch]$Launch = $false
+    [switch]$Launch = $false,
+    [switch]$AppOnly = $false
 )
 
 $ErrorActionPreference = "Continue"
@@ -146,6 +147,76 @@ Write-Host ""
 # Track overall script execution time
 $scriptStart = Get-Date
 
+# If app-only mode (Kotlin/Java changes only, no native rebuild)
+if ($AppOnly) {
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host "[APP ONLY MODE] Fast rebuild for Kotlin/Java changes" -ForegroundColor Cyan
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host ""
+    
+    $sdkPath = "$env:LOCALAPPDATA\Android\Sdk"
+    if (-not (Test-Path $sdkPath)) {
+        $sdkPath = "C:\Users\$env:USERNAME\AppData\Local\Android\Sdk"
+    }
+    
+    $adb = Join-Path $sdkPath "platform-tools\adb.exe"
+    if (-not (Test-Path $adb)) {
+        Write-Host "[ERROR] ADB not found at: $adb" -ForegroundColor Red
+        exit 1
+    }
+    
+    # Check for connected devices (USB and network)
+    Write-Host "Checking for connected device..." -ForegroundColor Yellow
+    $devices = & $adb devices 2>&1
+    $deviceConnected = $false
+    foreach ($line in $devices) {
+        # Match both USB devices (alphanumeric) and network devices (IP:port)
+        if ($line -match "^\S+\s+device\s*$") {
+            $deviceConnected = $true
+            Write-Host "Device found: $line" -ForegroundColor Green
+            break
+        }
+    }
+    
+    if (-not $deviceConnected) {
+        Write-Host "[ERROR] No Android device/emulator connected." -ForegroundColor Red
+        exit 1
+    }
+    
+    Write-Host ""
+    Write-Host "Building and installing app (Kotlin/Java only)..." -ForegroundColor Cyan
+    & .\gradlew.bat installDebug -q
+    
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host ""
+        Write-Host "[ERROR] Build failed!" -ForegroundColor Red
+        exit 1
+    }
+    
+    Write-Host ""
+    Write-Host "========================================" -ForegroundColor Green
+    Write-Host "App installed successfully!" -ForegroundColor Green
+    Write-Host "========================================" -ForegroundColor Green
+    Write-Host ""
+    
+    # Launch the app
+    Write-Host "Launching app..." -ForegroundColor Cyan
+    & $adb shell am force-stop com.metallic.chiaki 2>&1 | Out-Null
+    Start-Sleep -Milliseconds 500
+    & $adb shell am start -n com.metallic.chiaki/.main.MainActivity 2>&1 | Out-Null
+    
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "App launched successfully!" -ForegroundColor Green
+    } else {
+        Write-Host "[WARN] Failed to launch app" -ForegroundColor Yellow
+    }
+    
+    $totalDuration = (Get-Date) - $scriptStart
+    Write-Host ""
+    Write-Host "[TIMING] Total time: $($totalDuration.TotalSeconds.ToString('F2'))s" -ForegroundColor Cyan
+    exit 0
+}
+
 # If launch-only mode, skip build and install, just launch the app
 if ($Launch) {
     Write-Host "[LAUNCH ONLY] Skipping build, just launching app..." -ForegroundColor Cyan
@@ -160,12 +231,13 @@ if ($Launch) {
         exit 1
     }
     
-    # Check for connected devices
+    # Check for connected devices (USB and network)
     Write-Host "Checking for connected devices..." -ForegroundColor Yellow
     $devices = & $adb devices 2>&1
     $deviceConnected = $false
     foreach ($line in $devices) {
-        if ($line -match "^\w+\s+device\s*$") {
+        # Match both USB devices (alphanumeric) and network devices (IP:port)
+        if ($line -match "^\S+\s+device\s*$") {
             $deviceConnected = $true
             Write-Host "Device found: $line" -ForegroundColor Green
             break
@@ -238,12 +310,13 @@ if ($Install) {
         exit 1
     }
     
-    # Check for connected devices - fix regex to match properly
+    # Check for connected devices - fix regex to match properly (USB and network)
     Write-Host "Checking for connected devices..." -ForegroundColor Yellow
     $devices = & $adb devices 2>&1
     $deviceConnected = $false
     foreach ($line in $devices) {
-        if ($line -match "^\w+\s+device\s*$") {
+        # Match both USB devices (alphanumeric) and network devices (IP:port)
+        if ($line -match "^\S+\s+device\s*$") {
             $deviceConnected = $true
             Write-Host "Device found: $line" -ForegroundColor Green
             break
@@ -571,12 +644,13 @@ if ($buildSucceeded) {
             Write-Host ""
             Write-Host "Launching app..." -ForegroundColor Cyan
             
-            # Check for connected devices - fix regex to match properly
+            # Check for connected devices - fix regex to match properly (USB and network devices)
             Write-Host "Checking for connected devices..." -ForegroundColor Yellow
             $devices = & $adb devices 2>&1
             $deviceConnected = $false
             foreach ($line in $devices) {
-                if ($line -match "^\w+\s+device\s*$") {
+                # Match both USB devices (alphanumeric) and network devices (IP:port)
+                if ($line -match "^\S+\s+device\s*$") {
                     $deviceConnected = $true
                     Write-Host "Device found: $line" -ForegroundColor Green
                     break
@@ -584,13 +658,23 @@ if ($buildSucceeded) {
             }
             
             if ($deviceConnected) {
+                # Install APK first
+                Write-Host "Installing APK to device..." -ForegroundColor Yellow
+                & $adb install -r $apkPath 2>&1 | Out-Null
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Host "APK installed successfully!" -ForegroundColor Green
+                    
+                    # Now launch the app
                 Write-Host "Launching app..." -ForegroundColor Yellow
                 & $adb shell am start -n com.metallic.chiaki/.main.MainActivity 2>&1 | Out-Null
                 if ($LASTEXITCODE -eq 0) {
                     Write-Host "App launched successfully!" -ForegroundColor Green
                 } else {
                     Write-Host "[WARN] Failed to launch app (exit code: $LASTEXITCODE)" -ForegroundColor Yellow
-                    Write-Host "       Make sure the app is already installed on the device" -ForegroundColor Yellow
+                    }
+                } else {
+                    Write-Host "[WARN] Failed to install APK (exit code: $LASTEXITCODE)" -ForegroundColor Yellow
+                    Write-Host "       Try manually installing: adb install -r $apkPath" -ForegroundColor Yellow
                 }
             } else {
                 Write-Host "[WARN] No Android device/emulator connected. Skipping install/launch." -ForegroundColor Yellow

@@ -179,4 +179,40 @@ if(ANDROID)
 	# We'll handle this in lib/CMakeLists.txt by also including the build dir
 	set(MINIUPNPC_INCLUDE_DIR "${MINIUPNPC_WRAPPER_DIR}" CACHE PATH "miniupnpc include directory" FORCE)
 	set(MINIUPNPC_BUILD_DIR "${miniupnp_BINARY_DIR}" CACHE PATH "miniupnpc build directory" FORCE)
+	
+	##################
+	# opus for Android (using FetchContent for proper build integration)
+	# Required for PSCloud audio decoding (unitized Opus format)
+	##################
+	# Configure opus build options before fetching
+	set(OPUS_BUILD_SHARED_LIBRARY OFF CACHE BOOL "" FORCE)
+	set(OPUS_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+	set(OPUS_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
+	set(OPUS_INSTALL_PKG_CONFIG_MODULE OFF CACHE BOOL "" FORCE)
+	set(OPUS_INSTALL_CMAKE_CONFIG_MODULE OFF CACHE BOOL "" FORCE)
+	
+	FetchContent_Declare(
+		opus
+		GIT_REPOSITORY https://github.com/xiph/opus.git
+		GIT_TAG v1.5.2
+		GIT_SHALLOW TRUE
+	)
+	FetchContent_MakeAvailable(opus)
+	
+	# Create a wrapper include directory so #include <opus/opus.h> works
+	# Opus headers are in opus_SOURCE_DIR/include/*.h
+	# We need them accessible as opus/*.h
+	set(OPUS_WRAPPER_DIR "${CMAKE_CURRENT_BINARY_DIR}/opus-include-wrapper")
+	file(MAKE_DIRECTORY "${OPUS_WRAPPER_DIR}/opus")
+	file(GLOB OPUS_HEADERS "${opus_SOURCE_DIR}/include/*.h")
+	foreach(HEADER ${OPUS_HEADERS})
+		get_filename_component(HEADER_NAME ${HEADER} NAME)
+		configure_file(${HEADER} "${OPUS_WRAPPER_DIR}/opus/${HEADER_NAME}" COPYONLY)
+	endforeach()
+	
+	# Create an alias target matching what find_package(Opus) would create
+	# The opus library target is already created by opus's CMakeLists.txt
+	set(Opus_INCLUDE_DIRS "${OPUS_WRAPPER_DIR}" CACHE PATH "opus include directory" FORCE)
+	set(Opus_LIBRARIES opus CACHE STRING "opus libraries" FORCE)
+	add_library(Opus::opus ALIAS opus)
 endif()
