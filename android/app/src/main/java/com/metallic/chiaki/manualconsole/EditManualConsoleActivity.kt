@@ -61,9 +61,9 @@ class EditManualConsoleActivity: AppCompatActivity(), RevealActivity
 			binding.registeredHostTextView.setText(titleForRegisteredHost(it))
 		})
 
-		viewModel.registeredHosts.observe(this, Observer { hosts ->
+		viewModel.registeredHosts.observe(this) { hosts ->
 			binding.registeredHostTextView.setAdapter(ArrayAdapter<String>(this, R.layout.dropdown_menu_popup_item,
-				hosts.map { titleForRegisteredHost(it) }))
+				hosts.map { host -> titleForRegisteredHost(host) }))
 			binding.registeredHostTextView.onItemClickListener = object: AdapterView.OnItemClickListener {
 				override fun onItemClick(parent: AdapterView<*>?, view: View?, position: Int, id: Long)
 				{
@@ -73,7 +73,7 @@ class EditManualConsoleActivity: AppCompatActivity(), RevealActivity
 					viewModel.selectedRegisteredHost.value = host
 				}
 			}
-		})
+		}
 
 		binding.saveButton.setOnClickListener { saveHost() }
 	}

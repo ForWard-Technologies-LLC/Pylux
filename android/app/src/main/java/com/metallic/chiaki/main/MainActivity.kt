@@ -2,35 +2,27 @@
 
 package com.metallic.chiaki.main
 
-import android.app.ActivityOptions
 import android.content.Intent
 import android.os.Bundle
-import android.view.Menu
-import android.view.MenuItem
-import android.view.View
 import androidx.appcompat.app.AppCompatActivity
+import androidx.fragment.app.Fragment
 import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModelProvider
-import androidx.recyclerview.widget.LinearLayoutManager
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import androidx.viewpager2.adapter.FragmentStateAdapter
+import com.google.android.material.tabs.TabLayoutMediator
 import com.metallic.chiaki.R
-import com.metallic.chiaki.common.*
-import com.metallic.chiaki.common.ext.putRevealExtra
+import com.metallic.chiaki.common.Preferences
 import com.metallic.chiaki.common.ext.viewModelFactory
+import com.metallic.chiaki.common.getDatabase
 import com.metallic.chiaki.databinding.ActivityMainBinding
-import com.metallic.chiaki.lib.ConnectInfo
-import com.metallic.chiaki.lib.DiscoveryHost
-import com.metallic.chiaki.manualconsole.EditManualConsoleActivity
-import com.metallic.chiaki.regist.RegistActivity
 import com.metallic.chiaki.settings.SettingsActivity
-import com.metallic.chiaki.stream.StreamActivity
 
 class MainActivity : AppCompatActivity()
 {
 	private lateinit var viewModel: MainViewModel
-
 	private lateinit var binding: ActivityMainBinding
-	private var discoveryMenuItem: MenuItem? = null
+	private lateinit var preferences: Preferences
+	private var currentPage = 0
 
 	override fun onCreate(savedInstanceState: Bundle?)
 	{
@@ -40,201 +32,119 @@ class MainActivity : AppCompatActivity()
 
 		title = ""
 		setSupportActionBar(binding.toolbar)
+		
+		// Ensure toolbar content insets are balanced for centering
+		binding.toolbar.setContentInsetsRelative(0, 0)
 
-		binding.floatingActionButton.setOnClickListener {
-			expandFloatingActionButton(!binding.floatingActionButton.isExpanded)
+		preferences = Preferences(this)
+		viewModel = ViewModelProvider(this, viewModelFactory {
+			MainViewModel(getDatabase(this), preferences)
+		}).get(MainViewModel::class.java)
+
+		setupViewPager()
+		observeViewModel()
+		
+		// Restore last selected tab
+		val lastTab = preferences.getLastMainTab()
+		if (lastTab in 0..1) {
+			binding.viewPager.setCurrentItem(lastTab, false)
+			currentPage = lastTab
+			updateIconsVisibility()
 		}
-		binding.floatingActionButtonDialBackground.setOnClickListener {
-			expandFloatingActionButton(false)
-		}
+	}
 
-		binding.addManualButton.setOnClickListener { addManualConsole() }
-		binding.addManualLabelButton.setOnClickListener { addManualConsole() }
+	private fun setupViewPager()
+	{
+		val adapter = ViewPagerAdapter(this)
+		binding.viewPager.adapter = adapter
 
-		binding.registerButton.setOnClickListener { showRegistration() }
-		binding.registerLabelButton.setOnClickListener { showRegistration() }
+		TabLayoutMediator(binding.tabLayout, binding.viewPager) { tab, position ->
+			tab.text = when(position)
+			{
+				0 -> "Remote Play"
+				1 -> "Cloud Play"
+				else -> ""
+			}
+		}.attach()
 
-		viewModel = ViewModelProvider(this, viewModelFactory { MainViewModel(getDatabase(this), Preferences(this)) })
-			.get(MainViewModel::class.java)
-
-		val recyclerViewAdapter = DisplayHostRecyclerViewAdapter(this::hostTriggered, this::wakeupHost, this::editHost, this::deleteHost)
-		binding.hostsRecyclerView.adapter = recyclerViewAdapter
-		binding.hostsRecyclerView.layoutManager = LinearLayoutManager(this)
-		viewModel.displayHosts.observe(this, Observer {
-			val top = binding.hostsRecyclerView.computeVerticalScrollOffset() == 0
-			recyclerViewAdapter.hosts = it
-			if(top)
-				binding.hostsRecyclerView.scrollToPosition(0)
-			updateEmptyInfo()
+		// Handle icon visibility based on selected tab
+		binding.tabLayout.addOnTabSelectedListener(object : com.google.android.material.tabs.TabLayout.OnTabSelectedListener {
+			override fun onTabSelected(tab: com.google.android.material.tabs.TabLayout.Tab?) {
+				currentPage = tab?.position ?: 0
+				preferences.setLastMainTab(currentPage)
+				updateIconsVisibility()
+			}
+			override fun onTabUnselected(tab: com.google.android.material.tabs.TabLayout.Tab?) {}
+			override fun onTabReselected(tab: com.google.android.material.tabs.TabLayout.Tab?) {}
 		})
 
-		viewModel.discoveryActive.observe(this, Observer { active ->
-			discoveryMenuItem?.let { updateDiscoveryMenuItem(it, active) }
-			updateEmptyInfo()
-		})
-	}
-
-	private fun updateEmptyInfo()
-	{
-		if(viewModel.displayHosts.value?.isEmpty() ?: true)
-		{
-			binding.emptyInfoLayout.visibility = View.VISIBLE
-			val discoveryActive = viewModel.discoveryActive.value ?: false
-			binding.emptyInfoImageView.setImageResource(if(discoveryActive) R.drawable.ic_discover_on else R.drawable.ic_discover_off)
-			binding.emptyInfoTextView.setText(if(discoveryActive) R.string.display_hosts_empty_discovery_on_info else R.string.display_hosts_empty_discovery_off_info)
-		}
-		else
-			binding.emptyInfoLayout.visibility = View.GONE
-	}
-
-	private fun expandFloatingActionButton(expand: Boolean)
-	{
-		binding.floatingActionButton.isExpanded = expand
-		binding.floatingActionButton.isActivated = binding.floatingActionButton.isExpanded
-	}
-
-	override fun onStart()
-	{
-		super.onStart()
-		viewModel.discoveryManager.resume()
-	}
-
-	override fun onStop()
-	{
-		super.onStop()
-		viewModel.discoveryManager.pause()
-	}
-
-	override fun onBackPressed()
-	{
-		if(binding.floatingActionButton.isExpanded)
-		{
-			expandFloatingActionButton(false)
-			return
-		}
-		super.onBackPressed()
-	}
-
-	override fun onCreateOptionsMenu(menu: Menu): Boolean
-	{
-		menuInflater.inflate(R.menu.main, menu)
-		val discoveryItem = menu.findItem(R.id.action_discover)
-		discoveryMenuItem = discoveryItem
-		val discoveryActive = viewModel.discoveryActive.value ?: false
-		updateDiscoveryMenuItem(discoveryItem, discoveryActive)
-		return true
-	}
-
-	private fun updateDiscoveryMenuItem(item: MenuItem, active: Boolean)
-	{
-		item.isChecked = active
-		item.setIcon(if(active) R.drawable.ic_discover_on else R.drawable.ic_discover_off)
-	}
-
-	override fun onOptionsItemSelected(item: MenuItem): Boolean = when(item.itemId)
-	{
-		R.id.action_discover ->
-		{
+		// Setup WiFi icon click listener
+		binding.wifiIcon.setOnClickListener {
 			viewModel.discoveryManager.active = !(viewModel.discoveryActive.value ?: false)
-			true
 		}
-
-		R.id.action_settings ->
-		{
+		
+		// Setup Search icon click listener
+		binding.searchIcon.setOnClickListener {
+			// Notify CloudPlayFragment to toggle search
+			val fragment = supportFragmentManager.findFragmentByTag("f${binding.viewPager.currentItem}") as? CloudPlayFragment
+			fragment?.toggleSearch()
+		}
+		
+		// Setup Settings icon click listener
+		binding.settingsIcon.setOnClickListener {
 			Intent(this, SettingsActivity::class.java).also {
 				startActivity(it)
 			}
-			true
 		}
-
-		else -> super.onOptionsItemSelected(item)
-	}
-
-	private fun addManualConsole()
-	{
-		Intent(this, EditManualConsoleActivity::class.java).also {
-			it.putRevealExtra(binding.addManualButton, binding.rootLayout)
-			startActivity(it, ActivityOptions.makeSceneTransitionAnimation(this).toBundle())
-		}
-	}
-
-	private fun showRegistration()
-	{
-		Intent(this, RegistActivity::class.java).also {
-			it.putRevealExtra(binding.registerButton, binding.rootLayout)
-			startActivity(it, ActivityOptions.makeSceneTransitionAnimation(this).toBundle())
-		}
-	}
-
-	private fun hostTriggered(host: DisplayHost)
-	{
-		val registeredHost = host.registeredHost
-		if(registeredHost != null)
-		{
-			fun connect() {
-				val connectInfo = ConnectInfo(host.isPS5, host.host, registeredHost.rpRegistKey, registeredHost.rpKey, Preferences(this).videoProfile)
-				Intent(this, StreamActivity::class.java).let {
-					it.putExtra(StreamActivity.EXTRA_CONNECT_INFO, connectInfo)
-					startActivity(it)
-				}
+		
+		// Also save tab position when swiping (not just clicking)
+		binding.viewPager.registerOnPageChangeCallback(object : androidx.viewpager2.widget.ViewPager2.OnPageChangeCallback() {
+			override fun onPageSelected(position: Int) {
+				super.onPageSelected(position)
+				currentPage = position
+				preferences.setLastMainTab(position)
+				updateIconsVisibility()
 			}
+		})
+	}
 
-			if(host is DiscoveredDisplayHost && host.discoveredHost.state == DiscoveryHost.State.STANDBY)
+	private fun updateIconsVisibility()
+	{
+		// Show WiFi icon on Remote Play (position 0), Search icon on Cloud Play (position 1)
+		if (currentPage == 0) {
+			binding.wifiIcon.visibility = android.view.View.VISIBLE
+			binding.searchIcon.visibility = android.view.View.GONE
+		} else {
+			binding.wifiIcon.visibility = android.view.View.GONE
+			binding.searchIcon.visibility = android.view.View.VISIBLE
+		}
+	}
+
+	private fun observeViewModel()
+	{
+		viewModel.discoveryActive.observe(this, Observer { active ->
+			updateWifiIcon(active)
+		})
+	}
+
+	private fun updateWifiIcon(active: Boolean)
+	{
+		binding.wifiIcon.setImageResource(if(active) R.drawable.ic_discover_on else R.drawable.ic_discover_off)
+	}
+
+
+	private inner class ViewPagerAdapter(activity: AppCompatActivity) : FragmentStateAdapter(activity)
+	{
+		override fun getItemCount(): Int = 2
+
+		override fun createFragment(position: Int): Fragment
+		{
+			return when(position)
 			{
-				MaterialAlertDialogBuilder(this)
-					.setMessage(R.string.alert_message_standby_wakeup)
-					.setPositiveButton(R.string.action_wakeup) { _, _ ->
-						wakeupHost(host)
-					}
-					.setNeutralButton(R.string.action_connect_immediately) { _, _ ->
-						connect()
-					}
-					.setNegativeButton(R.string.action_connect_cancel_connect) { _, _ -> }
-					.create()
-					.show()
-			}
-			else
-				connect()
-		}
-		else
-		{
-			Intent(this, RegistActivity::class.java).let {
-				it.putExtra(RegistActivity.EXTRA_HOST, host.host)
-				it.putExtra(RegistActivity.EXTRA_BROADCAST, false)
-				if(host is ManualDisplayHost)
-					it.putExtra(RegistActivity.EXTRA_ASSIGN_MANUAL_HOST_ID, host.manualHost.id)
-				startActivity(it)
+				0 -> RemotePlayFragment()
+				1 -> CloudPlayFragment()
+				else -> RemotePlayFragment()
 			}
 		}
-	}
-
-	private fun wakeupHost(host: DisplayHost)
-	{
-		val registeredHost = host.registeredHost ?: return
-		viewModel.discoveryManager.sendWakeup(host.host, registeredHost.rpRegistKey, registeredHost.target.isPS5)
-	}
-
-	private fun editHost(host: DisplayHost)
-	{
-		if(host !is ManualDisplayHost)
-			return
-		Intent(this, EditManualConsoleActivity::class.java).also {
-			it.putExtra(EditManualConsoleActivity.EXTRA_MANUAL_HOST_ID, host.manualHost.id)
-			startActivity(it)
-		}
-	}
-
-	private fun deleteHost(host: DisplayHost)
-	{
-		if(host !is ManualDisplayHost)
-			return
-		MaterialAlertDialogBuilder(this)
-			.setMessage(getString(R.string.alert_message_delete_manual_host, host.manualHost.host))
-			.setPositiveButton(R.string.action_delete) { _, _ ->
-				viewModel.deleteManualHost(host.manualHost)
-			}
-			.setNegativeButton(R.string.action_keep) { _, _ -> }
-			.create()
-			.show()
 	}
 }

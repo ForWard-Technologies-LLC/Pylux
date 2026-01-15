@@ -14,3 +14,4 @@
 .cxx
 /app/release
 keystore.jks
+build-output.txt

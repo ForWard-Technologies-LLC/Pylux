@@ -1352,6 +1352,12 @@ QJsonArray CloudCatalogBackend::filterOwnedPs5Games(const QJsonArray &entitlemen
                 
                 // Filter for PS5 games (PSGD)
                 if (packageType == "PSGD") {
+                    // Skip inactive games (active_flag must be true)
+                    bool activeFlag = entObj.contains("active_flag") && entObj["active_flag"].toBool();
+                    if (!activeFlag) {
+                        continue;
+                    }
+                    
                     // Skip subscriptions/services (Product IDs starting with IP or SUB)
                     QString productId = entObj["product_id"].toString();
                     if (!productId.startsWith("IP") && !productId.startsWith("SUB")) {
@@ -1953,6 +1959,7 @@ void CloudCatalogBackend::processCrossReferenceComplete()
     // Cross-reference owned games with cloud catalog
     // Create a lookup map from cloud catalog using productId as key
     QMap<QString, QJsonObject> cloudCatalogMap;
+    
     for (const QJsonValue &game : crossReferenceState.cloudCatalogGames) {
         if (game.isObject()) {
             QJsonObject gameObj = game.toObject();
@@ -1971,17 +1978,34 @@ void CloudCatalogBackend::processCrossReferenceComplete()
     // Filter owned games to only include those in the cloud catalog
     QJsonArray filteredGames;
     int matchedCount = 0;
+    int productIdMatchCount = 0;
+    int entitlementIdMatchCount = 0;
     
     for (const QJsonValue &ownedGame : crossReferenceState.ownedGames) {
         if (ownedGame.isObject()) {
             QJsonObject ownedGameObj = ownedGame.toObject();
             QString productId = ownedGameObj["product_id"].toString();
+            QString entitlementId = ownedGameObj["id"].toString();
             
-            // Check if this game is in the cloud catalog (meaning it supports streaming)
-            if (cloudCatalogMap.contains(productId)) {
+            QJsonObject cloudGame;
+            bool found = false;
+            
+            // First try product_id
+            if (!productId.isEmpty() && cloudCatalogMap.contains(productId)) {
+                cloudGame = cloudCatalogMap[productId];
+                found = true;
+                productIdMatchCount++;
+            }
+            // Fallback: try entitlement id (this often matches catalog productId)
+            else if (!entitlementId.isEmpty() && cloudCatalogMap.contains(entitlementId)) {
+                cloudGame = cloudCatalogMap[entitlementId];
+                found = true;
+                entitlementIdMatchCount++;
+            }
+            
+            if (found) {
                 // Game supports streaming - include it
                 // Optionally merge data from cloud catalog (e.g., better images)
-                QJsonObject cloudGame = cloudCatalogMap[productId];
                 
                 // Prefer cloud catalog imageUrl if available
                 if (cloudGame.contains("imageUrl") && !cloudGame["imageUrl"].toString().isEmpty()) {
@@ -2000,6 +2024,8 @@ void CloudCatalogBackend::processCrossReferenceComplete()
     
     if (settings && settings->GetLogVerbose()) {
         qInfo() << "[CROSS-REF] Matched games (cloud streamable):" << matchedCount;
+        qInfo() << "[CROSS-REF]   By product_id:" << productIdMatchCount;
+        qInfo() << "[CROSS-REF]   By entitlement id (fallback):" << entitlementIdMatchCount;
     }
     
     // Prepare result

@@ -15,3 +15,8 @@ Chiaki is a Free and Open Source Software Client for PlayStation 4 and PlayStati
 for Linux, FreeBSD, OpenBSD, Android, macOS, Windows, Nintendo Switch and potentially even more platforms.
 # My fork with improvements
 # Release test v2
+
+Left off here:
+1. Migrate to site was a WIP - Needed to add updater and payments
+2. Andorid was functional - Needed to add login. 
+RIP

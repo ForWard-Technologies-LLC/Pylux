@@ -66,10 +66,24 @@ if (NOT CHIAKI_IS_SWITCH)
 		set(CURL_DISABLE_INSTALL ON)
 		set(HTTP_ONLY ON)
 		set(ENABLE_WEBSOCKETS ON)
-	if(WIN32)
-		set(USE_SSLEAY ON)
-		set(CURL_USE_SCHANNEL ON)
-	endif()
+		if(ANDROID AND CHIAKI_LIB_ENABLE_MBEDTLS)
+			# Android: Use mbedTLS for curl SSL support (same SSL backend as Chiaki)
+			# This is required for HTTPS endpoints and WSS (WebSocket Secure)
+			set(CURL_USE_MBEDTLS ON CACHE BOOL "Use mbedTLS for curl" FORCE)
+			# mbedTLS was fetched via FetchContent in root CMakeLists.txt before this
+			# Set include/library paths for curl to find mbedTLS
+			# FindMbedTLS.cmake needs actual file paths, not target names
+			if(mbedtls_SOURCE_DIR AND mbedtls_BINARY_DIR)
+				set(MBEDTLS_INCLUDE_DIR "${mbedtls_SOURCE_DIR}/include" CACHE PATH "mbedTLS include directory" FORCE)
+				# Point to where the libraries WILL be built
+				set(MBEDTLS_LIBRARY "${mbedtls_BINARY_DIR}/library/libmbedtls.a" CACHE FILEPATH "mbedtls library" FORCE)
+				set(MBEDX509_LIBRARY "${mbedtls_BINARY_DIR}/library/libmbedx509.a" CACHE FILEPATH "mbedx509 library" FORCE)
+				set(MBEDCRYPTO_LIBRARY "${mbedtls_BINARY_DIR}/library/libmbedcrypto.a" CACHE FILEPATH "mbedcrypto library" FORCE)
+			endif()
+		elseif(WIN32)
+			set(USE_SSLEAY ON)
+			set(CURL_USE_SCHANNEL ON)
+		endif()
 		find_package(PkgConfig QUIET)
 		if (PKG_CONFIG_FOUND)
 			pkg_check_modules(PkgLibIdn2 IMPORTED_TARGET GLOBAL libidn2)
@@ -93,4 +107,112 @@ endif()
 
 if(CHIAKI_ENABLE_STEAMWORKS)
 	add_subdirectory(steamworks)
+endif()
+
+if(ANDROID)
+	##################
+	# json-c for Android (using FetchContent for proper build integration)
+	# Always built for Android since RUDP is always enabled
+	##################
+	include(FetchContent)
+	
+	# Configure json-c build options before fetching
+	set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+	set(BUILD_STATIC_LIBS ON CACHE BOOL "" FORCE)
+	set(BUILD_APPS OFF CACHE BOOL "" FORCE)
+	set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+	set(DISABLE_WERROR ON CACHE BOOL "" FORCE)
+	
+	FetchContent_Declare(
+		jsonc
+		GIT_REPOSITORY https://github.com/json-c/json-c.git
+		GIT_TAG json-c-0.17-20230812
+		GIT_SHALLOW TRUE
+		SOURCE_DIR ${CMAKE_CURRENT_BINARY_DIR}/_deps/json-c  # Name it json-c so includes work
+	)
+	FetchContent_MakeAvailable(jsonc)
+	
+	# Export include directory for chiaki-lib to use
+	# The source is now in _deps/json-c, so parent dir allows #include <json-c/...>
+	set(JSONC_INCLUDE_DIR "${CMAKE_CURRENT_BINARY_DIR}/_deps" CACHE PATH "json-c include directory" FORCE)
+	
+	##################
+	# miniupnpc for Android (using FetchContent for proper build integration)
+	##################
+	# Configure miniupnpc build options before fetching
+	set(UPNPC_BUILD_STATIC ON CACHE BOOL "" FORCE)
+	set(UPNPC_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+	set(UPNPC_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+	set(UPNPC_BUILD_SAMPLE OFF CACHE BOOL "" FORCE)
+	set(UPNPC_NO_INSTALL ON CACHE BOOL "" FORCE)
+	
+	FetchContent_Declare(
+		miniupnp
+		GIT_REPOSITORY https://github.com/miniupnp/miniupnp.git
+		GIT_TAG miniupnpc_2_2_8
+		GIT_SHALLOW TRUE
+		SOURCE_SUBDIR miniupnpc
+	)
+	FetchContent_MakeAvailable(miniupnp)
+	
+	# Export include directory - miniupnpc headers are in miniupnpc/include/
+	# The repo structure is miniupnp/miniupnpc/include/miniupnpc.h (NOT include/miniupnpc/miniupnpc.h)
+	# Code uses #include <miniupnpc/miniupnpc.h>
+	# The libminiupnpc-static target sets BUILD_INTERFACE to include/ which has miniupnpc.h directly
+	# So we need a directory where 'miniupnpc' folder contains the headers
+	# Solution: Create a wrapper directory structure at configure time
+	# After FetchContent_MakeAvailable, miniupnp_SOURCE_DIR points to the repo root
+	# With SOURCE_SUBDIR=miniupnpc, the actual miniupnpc source is at miniupnp_SOURCE_DIR/miniupnpc
+	set(MINIUPNPC_WRAPPER_DIR "${CMAKE_CURRENT_BINARY_DIR}/miniupnpc-include-wrapper")
+	file(MAKE_DIRECTORY "${MINIUPNPC_WRAPPER_DIR}/miniupnpc")
+	# Copy headers to wrapper - headers are at miniupnp_SOURCE_DIR/miniupnpc/include/
+	set(MINIUPNPC_SRC_INCLUDE "${miniupnp_SOURCE_DIR}/miniupnpc/include")
+	file(GLOB MINIUPNPC_HEADERS "${MINIUPNPC_SRC_INCLUDE}/*.h")
+	message(STATUS "miniupnp_SOURCE_DIR: ${miniupnp_SOURCE_DIR}")
+	message(STATUS "Looking for headers in: ${MINIUPNPC_SRC_INCLUDE}")
+	message(STATUS "Found miniupnpc headers: ${MINIUPNPC_HEADERS}")
+	foreach(HEADER ${MINIUPNPC_HEADERS})
+		get_filename_component(HEADER_NAME ${HEADER} NAME)
+		configure_file(${HEADER} "${MINIUPNPC_WRAPPER_DIR}/miniupnpc/${HEADER_NAME}" COPYONLY)
+	endforeach()
+	# Also copy generated header from build dir (created during build, not configure)
+	# We'll handle this in lib/CMakeLists.txt by also including the build dir
+	set(MINIUPNPC_INCLUDE_DIR "${MINIUPNPC_WRAPPER_DIR}" CACHE PATH "miniupnpc include directory" FORCE)
+	set(MINIUPNPC_BUILD_DIR "${miniupnp_BINARY_DIR}" CACHE PATH "miniupnpc build directory" FORCE)
+	
+	##################
+	# opus for Android (using FetchContent for proper build integration)
+	# Required for PSCloud audio decoding (unitized Opus format)
+	##################
+	# Configure opus build options before fetching
+	set(OPUS_BUILD_SHARED_LIBRARY OFF CACHE BOOL "" FORCE)
+	set(OPUS_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+	set(OPUS_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
+	set(OPUS_INSTALL_PKG_CONFIG_MODULE OFF CACHE BOOL "" FORCE)
+	set(OPUS_INSTALL_CMAKE_CONFIG_MODULE OFF CACHE BOOL "" FORCE)
+	
+	FetchContent_Declare(
+		opus
+		GIT_REPOSITORY https://github.com/xiph/opus.git
+		GIT_TAG v1.5.2
+		GIT_SHALLOW TRUE
+	)
+	FetchContent_MakeAvailable(opus)
+	
+	# Create a wrapper include directory so #include <opus/opus.h> works
+	# Opus headers are in opus_SOURCE_DIR/include/*.h
+	# We need them accessible as opus/*.h
+	set(OPUS_WRAPPER_DIR "${CMAKE_CURRENT_BINARY_DIR}/opus-include-wrapper")
+	file(MAKE_DIRECTORY "${OPUS_WRAPPER_DIR}/opus")
+	file(GLOB OPUS_HEADERS "${opus_SOURCE_DIR}/include/*.h")
+	foreach(HEADER ${OPUS_HEADERS})
+		get_filename_component(HEADER_NAME ${HEADER} NAME)
+		configure_file(${HEADER} "${OPUS_WRAPPER_DIR}/opus/${HEADER_NAME}" COPYONLY)
+	endforeach()
+	
+	# Create an alias target matching what find_package(Opus) would create
+	# The opus library target is already created by opus's CMakeLists.txt
+	set(Opus_INCLUDE_DIRS "${OPUS_WRAPPER_DIR}" CACHE PATH "opus include directory" FORCE)
+	set(Opus_LIBRARIES opus CACHE STRING "opus libraries" FORCE)
+	add_library(Opus::opus ALIAS opus)
 endif()

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="cloud_game_image_height">120dp</dimen>
+    <dimen name="cloud_game_text_padding">8dp</dimen>
+    <dimen name="cloud_game_name_text_size">12sp</dimen>
+    <dimen name="cloud_game_platform_text_size">10sp</dimen>
+</resources>
+

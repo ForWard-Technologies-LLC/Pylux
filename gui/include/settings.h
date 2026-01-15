@@ -482,6 +482,8 @@ class Settings : public QObject
 
 		QString GetPsnAccountId() const;
 		void SetPsnAccountId(QString account_id);
+		QString GetLastShownNotificationId() const;
+		void SetLastShownNotificationId(QString notification_id);
 		QString GetPsnGamesJson() const;
 		void SetPsnGamesJson(const QString &games_json);
 		bool GetPsnGamesSyncEnabled() const;

@@ -49,6 +49,8 @@ class DataStore(val preferences: Preferences): PreferenceDataStore()
 		preferences.fpsKey -> preferences.fps.value
 		preferences.bitrateKey -> preferences.bitrate?.toString() ?: ""
 		preferences.codecKey -> preferences.codec.value
+		preferences.cloudDatacenterPsnowKey -> preferences.getCloudDatacenterPsnow()
+		preferences.cloudDatacenterPscloudKey -> preferences.getCloudDatacenterPscloud()
 		else -> defValue
 	}
 
@@ -72,6 +74,8 @@ class DataStore(val preferences: Preferences): PreferenceDataStore()
 				val codec = Preferences.Codec.values().firstOrNull { it.value == value } ?: return
 				preferences.codec = codec
 			}
+			preferences.cloudDatacenterPsnowKey -> preferences.setCloudDatacenterPsnow(value ?: "Auto")
+			preferences.cloudDatacenterPscloudKey -> preferences.setCloudDatacenterPscloud(value ?: "Auto")
 		}
 	}
 }
@@ -106,6 +110,16 @@ class SettingsFragment: PreferenceFragmentCompat(), TitleFragment
 			it.entryValues = Preferences.fpsAll.map { fps -> fps.value }.toTypedArray()
 			it.entries = Preferences.fpsAll.map { fps -> getString(fps.title) }.toTypedArray()
 		}
+
+		// Populate cloud datacenter dropdowns dynamically from saved ping results
+		populateCloudDatacenterPreference(
+			preferenceScreen.findPreference(getString(R.string.preferences_cloud_datacenter_psnow_key)),
+			preferences.getCloudDatacentersJsonPsnow()
+		)
+		populateCloudDatacenterPreference(
+			preferenceScreen.findPreference(getString(R.string.preferences_cloud_datacenter_pscloud_key)),
+			preferences.getCloudDatacentersJsonPscloud()
+		)
 
 		val bitratePreference = preferenceScreen.findPreference<EditTextPreference>(getString(R.string.preferences_bitrate_key))
 		val bitrateSummaryProvider = Preference.SummaryProvider<EditTextPreference> {
@@ -169,6 +183,68 @@ class SettingsFragment: PreferenceFragmentCompat(), TitleFragment
 			data?.data?.also {
 				importSettingsFromUri(activity, it, disposable)
 			}
+		}
+	}
+
+	/**
+	 * Populate cloud datacenter dropdown from saved ping results JSON
+	 * Matches Qt behavior of showing discovered datacenters with their ping times
+	 */
+	private fun populateCloudDatacenterPreference(preference: ListPreference?, datacentersJson: String)
+	{
+		if (preference == null) return
+
+		try
+		{
+			if (datacentersJson.isEmpty())
+			{
+				// No saved datacenters, use default "Auto" only
+				preference.entries = arrayOf("Auto (Best Ping)")
+				preference.entryValues = arrayOf("Auto")
+				return
+			}
+
+			// Parse the JSON array of datacenter ping results
+			val datacenters = org.json.JSONArray(datacentersJson)
+			val entries = mutableListOf<String>()
+			val values = mutableListOf<String>()
+
+			// Always add "Auto" as first option
+			entries.add("Auto (Best Ping)")
+			values.add("Auto")
+
+			// Add each datacenter with its ping time (no IP)
+			for (i in 0 until datacenters.length())
+			{
+				val dc = datacenters.getJSONObject(i)
+				val name = dc.optString("dataCenter", "")
+				val rtt = dc.optInt("rtt", 0)
+
+				if (name.isNotEmpty())
+				{
+					// Format: "sjca (36ms)" - just name and ping, no IP
+					val displayName = if (rtt > 0 && rtt < 999)
+					{
+						"$name (${rtt}ms)"
+					}
+					else
+					{
+						name
+					}
+
+					entries.add(displayName)
+					values.add(name)  // Store just the datacenter name as the value
+				}
+			}
+
+			preference.entries = entries.toTypedArray()
+			preference.entryValues = values.toTypedArray()
+		}
+		catch (e: Exception)
+		{
+			// If JSON parsing fails, fall back to Auto only
+			preference.entries = arrayOf("Auto (Best Ping)")
+			preference.entryValues = arrayOf("Auto")
 		}
 	}
 }

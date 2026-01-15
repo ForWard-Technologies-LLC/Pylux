@@ -137,20 +137,41 @@ target_include_directories(chiaki-lib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/includ
 find_package(Threads REQUIRED)
 target_link_libraries(chiaki-lib Threads::Threads)
 
-if (CHIAKI_IS_SWITCH)
+if(ANDROID)
+	# json-c and miniupnpc built via FetchContent in third-party/CMakeLists.txt
+	# RUDP is always enabled on Android
+	# Link against targets created by FetchContent
+	# json-c target is named "json-c" when BUILD_SHARED_LIBS=OFF (which we set)
+	target_link_libraries(chiaki-lib json-c)
+	# Include the parent of json-c source so #include <json-c/...> works
+	# JSONC_INCLUDE_DIR is set by third-party/CMakeLists.txt to point to _deps/
+	target_include_directories(chiaki-lib PRIVATE ${JSONC_INCLUDE_DIR})
+	# Also need the build dir for generated headers like json_config.h
+	target_include_directories(chiaki-lib PRIVATE ${jsonc_BINARY_DIR})
+	# miniupnpc - link against static library target
+	target_link_libraries(chiaki-lib libminiupnpc-static)
+	# Include dir for <miniupnpc/miniupnpc.h>
+	target_include_directories(chiaki-lib PRIVATE ${MINIUPNPC_INCLUDE_DIR})
+	# Also need build dir for generated miniupnpcstrings.h (inside miniupnpc/ wrapper)
+	target_include_directories(chiaki-lib PRIVATE ${MINIUPNPC_BUILD_DIR})
+elseif (CHIAKI_IS_SWITCH)
 	find_library(JSONC_LIB json-c ${PORTLIBS}/lib)
 	target_link_libraries(chiaki-lib ${JSONC_LIB})
 	target_include_directories(chiaki-lib PUBLIC "${PORTLIBS}/include/json-c")
+	
+	find_package(PkgConfig REQUIRED)
+	pkg_search_module(MINIUPNPC REQUIRED miniupnpc IMPORTED_TARGET)
+	target_link_libraries(chiaki-lib PkgConfig::MINIUPNPC)
 else()
 	find_package(PkgConfig REQUIRED)
 	pkg_search_module(json-c REQUIRED json-c IMPORTED_TARGET)
 	target_include_directories(chiaki-lib PRIVATE ${json-c_INCLUDE_DIRS})
 	target_link_libraries(chiaki-lib PkgConfig::json-c)
+	
+	find_package(PkgConfig REQUIRED)
+	pkg_search_module(MINIUPNPC REQUIRED miniupnpc IMPORTED_TARGET)
+	target_link_libraries(chiaki-lib PkgConfig::MINIUPNPC)
 endif()
-
-find_package(PkgConfig REQUIRED)
-pkg_search_module(MINIUPNPC REQUIRED miniupnpc IMPORTED_TARGET)
-target_link_libraries(chiaki-lib PkgConfig::MINIUPNPC)
 
 target_link_libraries(chiaki-lib CURL::libcurl)
 

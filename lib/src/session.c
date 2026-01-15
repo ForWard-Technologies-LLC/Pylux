@@ -185,7 +185,11 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_session_init(ChiakiSession *session, Chiaki
 	session->dontfrag = true;
 
 	// Defensive defaulting: if the caller didn't initialize service_type, treat it as Remote Play.
+	CHIAKI_LOGI(log, "[SESSION INIT] Received service_type from ConnectInfo: %d (%s)", 
+		connect_info->service_type, chiaki_service_type_string(connect_info->service_type));
 	connect_info->service_type = chiaki_service_type_normalize(connect_info->service_type);
+	CHIAKI_LOGI(log, "[SESSION INIT] After normalization: %d (%s)", 
+		connect_info->service_type, chiaki_service_type_string(connect_info->service_type));
 
 	ChiakiErrorCode err = chiaki_cond_init(&session->state_cond);
 	if(err != CHIAKI_ERR_SUCCESS)

@@ -139,6 +139,7 @@ public:
     bool discoveryEnabled() const;
     void setDiscoveryEnabled(bool enabled);
     void refreshAuth();
+    void checkNotification();
 
     PsnConnectState connectState() const;
     void setConnectState(PsnConnectState connect_state);
