@@ -8,7 +8,7 @@ import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
 import androidx.vectordrawable.graphics.drawable.VectorDrawableCompat
-import com.metallic.chiaki.R
+import com.pylux.stream.R
 import kotlin.math.PI
 import kotlin.math.atan2
 

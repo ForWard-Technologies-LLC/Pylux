@@ -81,13 +81,20 @@
     <PreferenceCategory
         app:key="category_cloud"
         app:title="@string/preferences_category_title_cloud">
+        <Preference
+            app:key="psn_login"
+            app:title="@string/preferences_psn_login_title"
+            app:summary="@string/preferences_psn_login_summary"
+            app:icon="@drawable/ic_console_simple"/>
+        
         <ListPreference
             app:key="@string/preferences_cloud_datacenter_psnow_key"
             app:title="@string/preferences_cloud_datacenter_psnow_title"
             app:summary="%s"
             app:entries="@array/cloud_datacenter_entries"
             app:entryValues="@array/cloud_datacenter_values"
-            app:defaultValue="Auto"/>
+            app:defaultValue="Auto"
+            app:icon="@drawable/ic_bitrate"/>
         
         <ListPreference
             app:key="@string/preferences_cloud_datacenter_pscloud_key"
@@ -95,7 +102,8 @@
             app:summary="%s"
             app:entries="@array/cloud_datacenter_entries"
             app:entryValues="@array/cloud_datacenter_values"
-            app:defaultValue="Auto"/>
+            app:defaultValue="Auto"
+            app:icon="@drawable/ic_gamepad"/>
     </PreferenceCategory>
 
     <PreferenceCategory
@@ -112,5 +120,15 @@
             app:summary="@string/preferences_import_settings_summary"
             app:title="@string/preferences_import_settings_title"
             app:icon="@drawable/ic_import"/>
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        app:key="category_about"
+        app:title="@string/preferences_category_title_about">
+        <Preference
+            app:key="view_license"
+            app:summary="@string/preferences_view_license_summary"
+            app:title="@string/preferences_view_license_title"
+            app:icon="@drawable/ic_log"/>
     </PreferenceCategory>
 </PreferenceScreen>

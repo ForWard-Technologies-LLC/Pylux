@@ -2,6 +2,8 @@
 
 package com.metallic.chiaki.main
 
+import android.app.Activity
+import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import android.view.LayoutInflater
@@ -16,20 +18,31 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
 import coil.load
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.metallic.chiaki.R
+import com.pylux.stream.R
+import com.metallic.chiaki.cloudplay.PsnLoginActivity
 import com.metallic.chiaki.cloudplay.api.CloudStreamingBackend
+import com.metallic.chiaki.cloudplay.model.CloudError
 import com.metallic.chiaki.cloudplay.model.CloudGame
 import com.metallic.chiaki.common.Preferences
 import com.metallic.chiaki.common.ext.viewModelFactory
-import com.metallic.chiaki.databinding.FragmentCloudPlayBinding
+import com.pylux.stream.databinding.FragmentCloudPlayBinding
 import kotlinx.coroutines.launch
 
 class CloudPlayFragment : Fragment()
 {
+	companion object
+	{
+		private const val REQUEST_PSN_LOGIN = 1001
+	}
+	
 	private lateinit var viewModel: CloudPlayViewModel
 	private lateinit var binding: FragmentCloudPlayBinding
 	private lateinit var adapter: CloudGameAdapter
-
+	private lateinit var preferences: Preferences
+	
+	// Sort state: 0 = Default, 1 = A->Z, 2 = Z->A
+	private var sortState: Int = 0
+	
 	override fun onCreateView(
 		inflater: LayoutInflater,
 		container: ViewGroup?,
@@ -49,6 +62,15 @@ class CloudPlayFragment : Fragment()
 			requireActivity().requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
 			savedOrientation = -1
 			Log.i("CloudPlayFragment", "Orientation unlocked (returning to device default)")
+		}
+		
+		// Re-check login status when returning to fragment
+		// This ensures that if user logged out in settings, we show the login screen
+		if (!preferences.hasNpssoToken()) {
+			Log.i("CloudPlayFragment", "onResume: No token found, showing login state")
+			viewModel.clearCache()
+			viewModel.clearGames()
+			showLoginRequiredState()
 		}
 	}
 
@@ -71,35 +93,194 @@ class CloudPlayFragment : Fragment()
 	{
 		super.onViewCreated(view, savedInstanceState)
 
+		preferences = Preferences(requireContext())
+		
+		// Load saved sort state
+		sortState = preferences.getCloudSortState()
+		
 		viewModel = ViewModelProvider(this, viewModelFactory {
-			CloudPlayViewModel(requireContext(), Preferences(requireContext()))
+			CloudPlayViewModel(requireContext(), preferences)
 		}).get(CloudPlayViewModel::class.java)
 
 		setupRecyclerView()
 		setupCloudTabs()
 		setupSearchView()
-		setupFilterFab()
+		setupSettingsFab()
 		setupSwipeRefresh()
 		setupScrollListener()
-		observeViewModel()
+		setupLoginButton()
 
-		// Load catalog on first launch
+		// Check login status BEFORE observing ViewModel to prevent cached games from showing
 		if(savedInstanceState == null)
 		{
-			// Load based on last selected section (default to PSNow)
-			val currentSection = viewModel.getCurrentSection()
-			if (currentSection == "pscloud")
+			checkLoginStatus()
+		}
+		
+		observeViewModel()
+	}
+	
+	private fun setupLoginButton()
+	{
+		binding.loginButton.setOnClickListener {
+			launchPsnLogin()
+		}
+	}
+	
+	private fun checkLoginStatus()
+	{
+		if (!preferences.hasNpssoToken())
+		{
+			Log.i("CloudPlayFragment", "No NPSSO token found, showing login required state")
+			// IMMEDIATELY clear adapter so no cached games show
+			adapter.games = emptyList()
+			// Clear any cached data since we don't have valid credentials
+			viewModel.clearCache()
+			viewModel.clearGames()
+			// Show the login required UI (with button)
+			showLoginRequiredState()
+		}
+		else
+		{
+			Log.i("CloudPlayFragment", "NPSSO token found, validating...")
+			validateTokenAndLoadCatalog()
+		}
+	}
+	
+	private fun showLoginPrompt()
+	{
+		MaterialAlertDialogBuilder(requireContext())
+			.setTitle(R.string.psn_login_required_title)
+			.setMessage(R.string.psn_login_prompt_message)
+			.setPositiveButton(R.string.psn_login_button) { _, _ ->
+				launchPsnLogin()
+			}
+			.setNegativeButton(R.string.action_cancel) { _, _ ->
+				showLoginRequiredState()
+			}
+			.setCancelable(false)
+			.show()
+	}
+	
+	private fun launchPsnLogin()
+	{
+		val intent = Intent(requireContext(), PsnLoginActivity::class.java)
+		startActivityForResult(intent, REQUEST_PSN_LOGIN)
+	}
+	
+	private fun validateTokenAndLoadCatalog()
+	{
+		// Test token validity by attempting authorization check
+		// This uses the same check as the main library (CloudStreamingBackend.checkAuthorization)
+		lifecycleScope.launch {
+			try
 			{
-				binding.cloudTabLayout.selectTab(binding.cloudTabLayout.getTabAt(1))
-				val isOwnedFilter = viewModel.preferences.getPsCloudFilterOwned()
-				binding.filterFab.visibility = android.view.View.VISIBLE
-				binding.filterFab.text = if (isOwnedFilter) "Owned Games" else "All Games"
+				val npssoToken = preferences.getNpssoToken()
+				if (npssoToken.isEmpty())
+				{
+					Log.w("CloudPlayFragment", "Token is empty, clearing cache")
+					viewModel.clearCache()
+					viewModel.clearGames()
+					showLoginRequiredState()
+					return@launch
+				}
+				
+				// For now, assume token is valid and load catalog
+				// The actual validation will happen when trying to start a cloud session
+				// If token is invalid, the error handler will catch it and show login button
+				Log.i("CloudPlayFragment", "Token appears valid, loading catalog")
+				loadCatalog()
+			}
+			catch (e: Exception)
+			{
+				Log.e("CloudPlayFragment", "Token validation failed, clearing cache", e)
+				viewModel.clearCache()
+				viewModel.clearGames()
+				showLoginRequiredState()
+			}
+		}
+	}
+	
+	private fun loadCatalog()
+	{
+		hideLoginRequiredState()
+		
+		// Load based on last selected section (default to PSNow)
+		val currentSection = viewModel.getCurrentSection()
+		if (currentSection == "pscloud")
+		{
+			binding.cloudTabLayout.selectTab(binding.cloudTabLayout.getTabAt(1))
+			adapter.showOwnershipBadge = true
+			binding.sortOptionLayout.visibility = android.view.View.VISIBLE
+			binding.filterOptionLayout.visibility = android.view.View.VISIBLE
+			updateFilterButtonText()
+			updateSortButtonText()
+			
+			// Fetch games based on current filter (observer will handle favorites filtering)
+			val isOwnedFilter = viewModel.preferences.getPsCloudFilterOwned()
+			val isFavoritesFilter = preferences.getPsCloudFilterFavorites()
+			
+			if (isFavoritesFilter) {
+				// Fetch all games, observer will filter favorites
+				viewModel.fetchPs5CloudCatalog(showOnlyOwned = false)
+			} else {
 				viewModel.fetchPs5CloudCatalog(showOnlyOwned = isOwnedFilter)
 			}
-			else
+		}
+		else
+		{
+			binding.cloudTabLayout.selectTab(binding.cloudTabLayout.getTabAt(0))
+			adapter.showOwnershipBadge = false
+			binding.sortOptionLayout.visibility = android.view.View.VISIBLE
+			binding.filterOptionLayout.visibility = android.view.View.VISIBLE
+			updateFilterButtonText()
+			updateSortButtonText()
+			
+			// Fetch catalog (observer will handle favorites filtering if active)
+			viewModel.fetchPsnowCatalog()
+		}
+	}
+	
+	private fun showLoginRequiredState()
+	{
+		// IMMEDIATELY clear adapter and view model games
+		adapter.games = emptyList()
+		viewModel.clearGames()
+		
+		binding.loginRequiredLayout.visibility = View.VISIBLE
+		binding.gamesRecyclerView.visibility = View.GONE
+		binding.emptyStateLayout.visibility = View.GONE
+		binding.progressBar.visibility = View.GONE
+		binding.swipeRefreshLayout.isEnabled = false
+	}
+	
+	private fun hideLoginRequiredState()
+	{
+		binding.loginRequiredLayout.visibility = View.GONE
+		binding.swipeRefreshLayout.isEnabled = true
+	}
+	
+	override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?)
+	{
+		super.onActivityResult(requestCode, resultCode, data)
+		
+		if (requestCode == REQUEST_PSN_LOGIN)
+		{
+			when (resultCode)
 			{
-				binding.cloudTabLayout.selectTab(binding.cloudTabLayout.getTabAt(0))
-				viewModel.fetchPsnowCatalog()
+				Activity.RESULT_OK -> {
+					Log.i("CloudPlayFragment", "Login successful")
+					Toast.makeText(requireContext(), R.string.psn_login_success, Toast.LENGTH_SHORT).show()
+					validateTokenAndLoadCatalog()
+				}
+				Activity.RESULT_CANCELED -> {
+					Log.i("CloudPlayFragment", "Login cancelled by user")
+					showLoginRequiredState()
+				}
+				PsnLoginActivity.RESULT_LOGIN_FAILED -> {
+					Log.e("CloudPlayFragment", "Login failed")
+					Toast.makeText(requireContext(), R.string.psn_login_failed, Toast.LENGTH_LONG).show()
+					showLoginRequiredState()
+				}
 			}
 		}
 	}
@@ -192,8 +373,8 @@ class CloudPlayFragment : Fragment()
 	
 	private fun setupCloudTabs()
 	{
-		binding.cloudTabLayout.addTab(binding.cloudTabLayout.newTab().setText("Cloud Catalog"))
-		binding.cloudTabLayout.addTab(binding.cloudTabLayout.newTab().setText("PS5 Game Library"))
+		binding.cloudTabLayout.addTab(binding.cloudTabLayout.newTab().setText("Catalog"))
+		binding.cloudTabLayout.addTab(binding.cloudTabLayout.newTab().setText("Library"))
 		
 		binding.cloudTabLayout.addOnTabSelectedListener(object : com.google.android.material.tabs.TabLayout.OnTabSelectedListener
 		{
@@ -202,18 +383,38 @@ class CloudPlayFragment : Fragment()
 				when (tab?.position)
 				{
 					0 -> {
-						// PSNow Catalog
+						// Catalog
 						viewModel.setCurrentSection("psnow")
-						binding.filterFab.visibility = android.view.View.GONE
+						adapter.showOwnershipBadge = false
+						// Show both sort and filter options for catalog tab
+						binding.sortOptionLayout.visibility = android.view.View.VISIBLE
+						binding.filterOptionLayout.visibility = android.view.View.VISIBLE
+						updateSortButtonText()
+						updateFilterButtonText()
+						// Always fetch when switching to this tab (uses cache if available)
+						// Observer will handle favorites filtering if active
 						viewModel.fetchPsnowCatalog()
 					}
 					1 -> {
-						// PS5 Game Library
+						// Game Library
 						viewModel.setCurrentSection("pscloud")
-						binding.filterFab.visibility = android.view.View.VISIBLE
+						adapter.showOwnershipBadge = true
+						// Show both sort and filter options for game library tab
+						binding.sortOptionLayout.visibility = android.view.View.VISIBLE
+						binding.filterOptionLayout.visibility = android.view.View.VISIBLE
+						updateSortButtonText()
+						updateFilterButtonText()
+						// Always fetch when switching to this tab (uses cache if available)
+						// Observer will handle favorites filtering if active
 						val isOwnedFilter = viewModel.preferences.getPsCloudFilterOwned()
-						binding.filterFab.text = if (isOwnedFilter) "Owned Games" else "All Games"
-						viewModel.fetchPs5CloudCatalog(showOnlyOwned = isOwnedFilter)
+						val isFavoritesFilter = preferences.getPsCloudFilterFavorites()
+						
+						if (isFavoritesFilter) {
+							// Fetch all games, observer will filter favorites
+							viewModel.fetchPs5CloudCatalog(showOnlyOwned = false)
+						} else {
+							viewModel.fetchPs5CloudCatalog(showOnlyOwned = isOwnedFilter)
+						}
 					}
 				}
 			}
@@ -223,38 +424,278 @@ class CloudPlayFragment : Fragment()
 		})
 	}
 	
-	private fun setupFilterFab()
+	private fun setupSettingsFab()
 	{
-		// Setup FAB for PS5 Game Library filter
-		val isOwnedFilter = viewModel.preferences.getPsCloudFilterOwned()
-		binding.filterFab.text = if (isOwnedFilter) "Owned Games" else "All Games"
+		binding.settingsFab.setOnClickListener {
+			expandSettingsFab(!binding.settingsFab.isExpanded)
+		}
 		
-		binding.filterFab.setOnClickListener {
-			// Toggle between All Games and Owned Games
-			val currentlyOwned = viewModel.preferences.getPsCloudFilterOwned()
-			val newOwned = !currentlyOwned
-			
-			// Update FAB text
-			binding.filterFab.text = if (newOwned) "Owned Games" else "All Games"
-			
-			// Save filter state to preferences
-			viewModel.preferences.setPsCloudFilterOwned(newOwned)
-			
-			// Reload PS5 catalog with filter (use cache - don't force refresh)
-			if (viewModel.getCurrentSection() == "pscloud")
-			{
-				viewModel.fetchPs5CloudCatalog(showOnlyOwned = newOwned, forceRefresh = false)
+		binding.settingsDialBackground.setOnClickListener {
+			expandSettingsFab(false)
+		}
+		
+		// Refresh button and label
+		binding.refreshButton.setOnClickListener { refreshGamesList() }
+		binding.refreshLabelButton.setOnClickListener { refreshGamesList() }
+		
+		// Sort button and label
+		binding.sortButton.setOnClickListener { showSortMenu(binding.sortButton) }
+		binding.sortLabelButton.setOnClickListener { showSortMenu(binding.sortLabelButton) }
+		
+		// Filter button and label (owned/all games)
+		binding.filterButton.setOnClickListener { showFilterMenu(binding.filterButton) }
+		binding.filterLabelButton.setOnClickListener { showFilterMenu(binding.filterLabelButton) }
+		
+		updateSortButtonText()
+	}
+	
+	private fun expandSettingsFab(expand: Boolean)
+	{
+		binding.settingsFab.isExpanded = expand
+		binding.settingsFab.isActivated = binding.settingsFab.isExpanded
+	}
+	
+	private fun refreshGamesList()
+	{
+		expandSettingsFab(false)
+		
+		// Keep current sort state when refreshing
+		val currentSection = viewModel.getCurrentSection()
+		if (currentSection == "pscloud")
+		{
+			val isOwnedFilter = viewModel.preferences.getPsCloudFilterOwned()
+			viewModel.fetchPs5CloudCatalog(showOnlyOwned = isOwnedFilter, forceRefresh = true)
+		}
+		else
+		{
+			viewModel.fetchPsnowCatalog(forceRefresh = true)
+		}
+	}
+	
+	private fun showSortMenu(anchor: android.view.View)
+	{
+		expandSettingsFab(false)
+		
+		val currentSection = viewModel.getCurrentSection()
+		val popup = androidx.appcompat.widget.PopupMenu(requireContext(), anchor)
+		
+		// Different default sort for Library vs Catalog
+		if (currentSection == "pscloud") {
+			popup.menu.add(0, 0, 0, "Owned First (Default)")
+		} else {
+			popup.menu.add(0, 0, 0, "Recent (Default)")
+		}
+		popup.menu.add(0, 1, 1, "Name: A → Z")
+		popup.menu.add(0, 2, 2, "Name: Z → A")
+		
+		// Highlight current selection with radio button style
+		popup.menu.findItem(sortState)?.isChecked = true
+		popup.menu.setGroupCheckable(0, true, true)
+		
+		popup.setOnMenuItemClickListener { item ->
+			applySortState(item.itemId)
+			true
+		}
+		
+		popup.show()
+	}
+	
+	private fun applySortState(newSortState: Int)
+	{
+		sortState = newSortState
+		preferences.setCloudSortState(sortState)
+		updateSortButtonText()
+		
+		val currentGames = viewModel.games.value ?: return
+		val currentSection = viewModel.getCurrentSection()
+		
+		when (sortState) {
+			0 -> {
+				// Default: Different behavior for Library vs Catalog
+				if (currentSection == "pscloud") {
+					// Library: Sort by ownership (owned first), then maintain order
+					val sortedGames = currentGames.sortedWith(
+						compareByDescending<CloudGame> { it.isOwned }
+					)
+					viewModel.setSortedGames(sortedGames)
+				} else {
+					// Catalog: Reload from cache to restore original API order
+					viewModel.fetchPsnowCatalog(forceRefresh = false)
+				}
+			}
+			1 -> {
+				// A->Z
+				val sortedGames = currentGames.sortedBy { it.name.lowercase() }
+				viewModel.setSortedGames(sortedGames)
+			}
+			2 -> {
+				// Z->A
+				val sortedGames = currentGames.sortedByDescending { it.name.lowercase() }
+				viewModel.setSortedGames(sortedGames)
 			}
 		}
+	}
+	
+	private fun updateSortButtonText()
+	{
+		val currentSection = viewModel.getCurrentSection()
+		val text = when (sortState) {
+			0 -> if (currentSection == "pscloud") "Sort: Owned" else "Sort: Recent"
+			1 -> "Sort: A→Z"
+			2 -> "Sort: Z→A"
+			else -> if (currentSection == "pscloud") "Sort: Owned" else "Sort: Recent"
+		}
+		binding.sortLabelButton.text = text
+	}
+	
+	private fun showFilterMenu(anchor: android.view.View)
+	{
+		expandSettingsFab(false)
+		
+		val currentSection = viewModel.getCurrentSection()
+		val popup = androidx.appcompat.widget.PopupMenu(requireContext(), anchor)
+		
+		if (currentSection == "pscloud") {
+			// Game Library: All Games, Owned Games, Favorites
+			popup.menu.add(0, 0, 0, "Show: All Games")
+			popup.menu.add(0, 1, 1, "Show: Owned Only")
+			popup.menu.add(0, 2, 2, "Show: Favorites")
+			
+			// Highlight current selection
+			val currentItem = when {
+				preferences.getPsCloudFilterFavorites() -> 2
+				preferences.getPsCloudFilterOwned() -> 1
+				else -> 0
+			}
+			popup.menu.findItem(currentItem)?.isChecked = true
+		} else {
+			// Cloud Catalog: All Games, Favorites
+			popup.menu.add(0, 0, 0, "Show: All Games")
+			popup.menu.add(0, 1, 1, "Show: Favorites")
+			
+			// Highlight current selection
+			val currentItem = if (preferences.getPsnowFilterFavorites()) 1 else 0
+			popup.menu.findItem(currentItem)?.isChecked = true
+		}
+		
+		popup.menu.setGroupCheckable(0, true, true)
+		
+		popup.setOnMenuItemClickListener { item ->
+			applyFilterState(currentSection, item.itemId)
+			true
+		}
+		
+		popup.show()
+	}
+	
+	private fun applyFilterState(currentSection: String, selectedItem: Int)
+	{
+		if (currentSection == "pscloud") {
+			// Game Library
+			when (selectedItem) {
+				0 -> {
+					// All Games
+					preferences.setPsCloudFilterFavorites(false)
+					preferences.setPsCloudFilterOwned(false)
+					viewModel.fetchPs5CloudCatalog(showOnlyOwned = false, forceRefresh = false)
+				}
+				1 -> {
+					// Owned Games
+					preferences.setPsCloudFilterFavorites(false)
+					preferences.setPsCloudFilterOwned(true)
+					viewModel.fetchPs5CloudCatalog(showOnlyOwned = true, forceRefresh = false)
+				}
+				2 -> {
+					// Favorites
+					preferences.setPsCloudFilterFavorites(true)
+					preferences.setPsCloudFilterOwned(false)
+					viewModel.fetchPs5CloudCatalog(showOnlyOwned = false, forceRefresh = false)
+				}
+			}
+		} else {
+			// Cloud Catalog
+			when (selectedItem) {
+				0 -> {
+					// All Games
+					preferences.setPsnowFilterFavorites(false)
+					viewModel.fetchPsnowCatalog(forceRefresh = false)
+				}
+				1 -> {
+					// Favorites
+					preferences.setPsnowFilterFavorites(true)
+					viewModel.fetchPsnowCatalog(forceRefresh = false)
+				}
+			}
+		}
+		
+		updateFilterButtonText()
+	}
+	
+	private fun updateFilterButtonText()
+	{
+		val currentSection = viewModel.getCurrentSection()
+		val text = if (currentSection == "pscloud") {
+			// Game Library
+			when {
+				preferences.getPsCloudFilterFavorites() -> "Show: Favorites"
+				preferences.getPsCloudFilterOwned() -> "Show: Owned"
+				else -> "Show: All"
+			}
+		} else {
+			// Cloud Catalog
+			if (preferences.getPsnowFilterFavorites()) "Show: Favorites" else "Show: All"
+		}
+		binding.filterLabelButton.text = text
+	}
+	
+	private fun filterAndDisplayFavorites()
+	{
+		val favoriteIds = preferences.getFavoriteGames()
+		val allGames = viewModel.getAllCachedGames()
+		val favoriteGames = allGames.filter { favoriteIds.contains(it.productId) }
+		
+		// Apply current sort state
+		val sortedGames = when (sortState) {
+			1 -> favoriteGames.sortedBy { it.name.lowercase() }
+			2 -> favoriteGames.sortedByDescending { it.name.lowercase() }
+			else -> favoriteGames
+		}
+		
+		adapter.games = sortedGames
+		updateEmptyState(sortedGames.isEmpty())
+		binding.swipeRefreshLayout.isRefreshing = false
 	}
 
 	private fun setupRecyclerView()
 	{
-		adapter = CloudGameAdapter(this::onGameClicked)
+		adapter = CloudGameAdapter(
+			onGameClick = this::onGameClicked,
+			onFavoriteClick = this::onGameFavoriteToggled,
+			isFavorite = { productId -> preferences.isFavoriteGame(productId) }
+		)
 		binding.gamesRecyclerView.adapter = adapter
 		// Use 5 columns in landscape, 2 in portrait
 		val spanCount = if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) 5 else 2
 		binding.gamesRecyclerView.layoutManager = GridLayoutManager(requireContext(), spanCount)
+	}
+	
+	private fun onGameFavoriteToggled(game: CloudGame, isFavorite: Boolean)
+	{
+		if (isFavorite) {
+			preferences.addFavoriteGame(game.productId)
+		} else {
+			preferences.removeFavoriteGame(game.productId)
+		}
+		
+		// If currently showing favorites, refresh the list
+		val currentSection = viewModel.getCurrentSection()
+		if (currentSection == "psnow" && preferences.getPsnowFilterFavorites()) {
+			// Refresh catalog favorites
+			refreshGamesList()
+		} else if (currentSection == "pscloud" && preferences.getPsCloudFilterFavorites()) {
+			// Refresh game library favorites
+			refreshGamesList()
+		}
 	}
 
 	private fun setupSearchView()
@@ -293,8 +734,52 @@ class CloudPlayFragment : Fragment()
 	{
 		viewModel.games.observe(viewLifecycleOwner, Observer { games ->
 			android.util.Log.i("CloudPlayFragment", "Games LiveData updated: ${games.size} games")
-			adapter.games = games
-			updateEmptyState(games.isEmpty())
+			
+			// Don't show games if user is not logged in
+			if (!preferences.hasNpssoToken()) {
+				android.util.Log.i("CloudPlayFragment", "No token, ignoring cached games")
+				adapter.games = emptyList()
+				return@Observer
+			}
+			
+			// Check if favorites filter is active for current section
+			val currentSection = viewModel.getCurrentSection()
+			val isFavoritesFilter = if (currentSection == "pscloud") {
+				preferences.getPsCloudFilterFavorites()
+			} else {
+				preferences.getPsnowFilterFavorites()
+			}
+			
+			// Filter for favorites if that filter is active
+			val filteredGames = if (isFavoritesFilter) {
+				val favoriteIds = preferences.getFavoriteGames()
+				games.filter { favoriteIds.contains(it.productId) }
+			} else {
+				games
+			}
+			
+			// Apply saved sort state when games are loaded
+			val sortedGames = when (sortState) {
+				0 -> {
+					// Default sort: Owned first for Library, original order for Catalog
+					if (currentSection == "pscloud") {
+						filteredGames.sortedWith(compareByDescending { it.isOwned })
+					} else {
+						filteredGames
+					}
+				}
+				1 -> filteredGames.sortedBy { it.name.lowercase() } // A->Z
+				2 -> filteredGames.sortedByDescending { it.name.lowercase() } // Z->A
+				else -> filteredGames
+			}
+			adapter.games = sortedGames
+			
+			updateEmptyState(sortedGames.isEmpty())
+			
+			// Auto-focus first item after games are loaded
+			if (sortedGames.isNotEmpty()) {
+				focusFirstGame()
+			}
 		})
 
 		viewModel.loading.observe(viewLifecycleOwner, Observer { loading ->
@@ -304,11 +789,18 @@ class CloudPlayFragment : Fragment()
 		})
 
 		viewModel.error.observe(viewLifecycleOwner, Observer { error ->
-			android.util.Log.i("CloudPlayFragment", "Error LiveData updated: $error")
-			error?.let {
-				showError(it)
-				viewModel.clearError()
+			if (error.isNullOrEmpty()) {
+				Log.d("CloudPlayFragment", "Error is null/empty, ignoring")
+				return@Observer
 			}
+			
+			Log.w("CloudPlayFragment", "Processing error: '$error'")
+			
+			// Clear the error FIRST so we don't get another notification
+			viewModel.clearError()
+			
+			// Then show the error dialog
+			showError(error)
 		})
 	}
 
@@ -317,12 +809,90 @@ class CloudPlayFragment : Fragment()
 		binding.emptyStateLayout.visibility = if(isEmpty) View.VISIBLE else View.GONE
 		binding.gamesRecyclerView.visibility = if(isEmpty) View.GONE else View.VISIBLE
 	}
+	
+	private fun focusFirstGame()
+	{
+		binding.gamesRecyclerView.postDelayed({
+			if (adapter.itemCount > 0) {
+				val layoutManager = binding.gamesRecyclerView.layoutManager as? androidx.recyclerview.widget.GridLayoutManager
+				// Scroll to position first to ensure it's visible
+				layoutManager?.scrollToPosition(0)
+				// Then request focus with another slight delay for the view to be ready
+				binding.gamesRecyclerView.postDelayed({
+					val firstView = layoutManager?.findViewByPosition(0)
+					firstView?.requestFocus()
+				}, 50)
+			}
+		}, 100)
+	}
 
 	private fun showError(message: String)
 	{
+		Log.d("CloudPlayFragment", "showError called with: '$message'")
+		val error = CloudError.fromMessage(message)
+		Log.d("CloudPlayFragment", "Error classified as: ${error::class.simpleName}")
+		
+		when (error) {
+			is CloudError.AuthenticationError -> {
+				Log.i("CloudPlayFragment", "Handling as AuthenticationError")
+				handleAuthenticationError(error)
+			}
+			is CloudError.NetworkError -> {
+				Log.i("CloudPlayFragment", "Handling as NetworkError")
+				handleNetworkError(error)
+			}
+			is CloudError.GeneralError -> {
+				Log.i("CloudPlayFragment", "Handling as GeneralError")
+				handleGeneralError(error)
+			}
+		}
+	}
+	
+	private fun handleAuthenticationError(error: CloudError.AuthenticationError)
+	{
+		Log.w("CloudPlayFragment", "Authentication error: ${error.message}, clearing everything")
+		
+		// IMMEDIATELY clear games list first so user doesn't see cached games
+		adapter.games = emptyList()
+		
+		// Clear cache, games, and token
+		viewModel.clearCache()
+		viewModel.clearGames()
+		preferences.clearNpssoToken()
+		
+		// Show login required state
+		showLoginRequiredState()
+		
+		// Then show authentication error dialog
+		MaterialAlertDialogBuilder(requireContext())
+			.setTitle(getString(R.string.psn_login_required_title))
+			.setMessage(getString(R.string.psn_login_session_expired_message))
+			.setPositiveButton(R.string.psn_login_button) { _, _ ->
+				launchPsnLogin()
+			}
+			.setNegativeButton(R.string.action_cancel, null)
+			.setCancelable(false)
+			.show()
+	}
+	
+	private fun handleNetworkError(error: CloudError.NetworkError)
+	{
+		MaterialAlertDialogBuilder(requireContext())
+			.setTitle(R.string.error_network_title)
+			.setMessage(error.message)
+			.setPositiveButton(R.string.action_retry) { _, _ ->
+				// Retry loading catalog
+				loadCatalog()
+			}
+			.setNegativeButton(R.string.action_cancel, null)
+			.show()
+	}
+	
+	private fun handleGeneralError(error: CloudError.GeneralError)
+	{
 		MaterialAlertDialogBuilder(requireContext())
 			.setTitle(R.string.error)
-			.setMessage(message)
+			.setMessage(error.message)
 			.setPositiveButton(R.string.action_ok, null)
 			.show()
 	}
@@ -372,7 +942,7 @@ class CloudPlayFragment : Fragment()
 		
 		MaterialAlertDialogBuilder(requireContext())
 			.setTitle("Add to Library")
-			.setMessage("This game needs to be added to your PlayStation library before you can stream it.")
+			.setMessage("This game needs to be added to your library before you can stream it.\n\nAfter adding the game, press the Refresh Games button to update your list.")
 			.setPositiveButton("Add Now") { _, _ ->
 				// Open concept URL in external browser
 				openUrlInBrowser(game.conceptUrl)
@@ -500,8 +1070,8 @@ class CloudPlayFragment : Fragment()
 			Log.i("CloudPlayFragment", "Full-screen progress dialog shown with game image (landscape)")
 		}
 		
-		// Get NPSSO token from preferences (hardcoded for now)
-		val npssoToken = "hPLRoUZVyJk4tQWAe4c5kPRaD0nyhokC2QgLT2f9x8RxKsQ4ciizweq5XRp75nsX"
+		// Get NPSSO token from secure storage
+		val npssoToken = preferences.getNpssoToken()
 		
 		// Start cloud session in coroutine
 		lifecycleScope.launch {

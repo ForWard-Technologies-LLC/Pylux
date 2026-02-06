@@ -11,12 +11,12 @@ import android.widget.ArrayAdapter
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModelProvider
-import com.metallic.chiaki.R
+import com.pylux.stream.R
 import com.metallic.chiaki.common.RegisteredHost
 import com.metallic.chiaki.common.ext.RevealActivity
 import com.metallic.chiaki.common.ext.viewModelFactory
 import com.metallic.chiaki.common.getDatabase
-import com.metallic.chiaki.databinding.ActivityEditManualBinding
+import com.pylux.stream.databinding.ActivityEditManualBinding
 import io.reactivex.android.schedulers.AndroidSchedulers
 import io.reactivex.disposables.CompositeDisposable
 import io.reactivex.rxkotlin.addTo

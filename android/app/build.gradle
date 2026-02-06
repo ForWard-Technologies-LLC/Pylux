@@ -20,7 +20,7 @@ def chiakiVersion = "$chiakiVersionMajor.$chiakiVersionMinor.$chiakiVersionPatch
 println("Determined Chiaki Version: $chiakiVersion")
 
 android {
-    namespace "com.metallic.chiaki"
+    namespace "com.pylux.stream"
     compileSdk 35
     
     // Specify NDK version - r28+ required for 16KB page size alignment
@@ -28,14 +28,16 @@ android {
     ndkVersion "28.2.13676358" // NDK r28.2 - provides 16KB alignment by default
     
     defaultConfig {
-        applicationId "com.metallic.chiaki"
+        applicationId "com.pylux.stream"
         minSdk 24
         targetSdk 35
         versionCode 11
         versionName chiakiVersion
         ndk {
-            // Only build for arm64-v8a for faster local development
-            abiFilters "arm64-v8a"
+            // For local development: arm64-v8a only
+            // For production builds: include all ABIs (armeabi-v7a, arm64-v8a, x86, x86_64)
+            // The build script can override this with -Pandroid.injected.build.abi
+            abiFilters "arm64-v8a", "armeabi-v7a", "x86", "x86_64"
         }
         externalNativeBuild {
             cmake {
@@ -77,7 +79,7 @@ android {
     }
     externalNativeBuild {
         cmake {
-            version "3.28.1+"
+            version "3.30.4"
             path rootCMakeLists
         }
     }
@@ -162,4 +164,5 @@ dependencies {
     implementation 'androidx.viewpager2:viewpager2:1.0.0'
     implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
     implementation 'io.coil-kt:coil:2.4.0'
+    implementation 'androidx.security:security-crypto:1.1.0-alpha06'
 }

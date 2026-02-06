@@ -13,11 +13,11 @@ import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.metallic.chiaki.R
+import com.pylux.stream.R
 import com.metallic.chiaki.common.*
 import com.metallic.chiaki.common.ext.putRevealExtra
 import com.metallic.chiaki.common.ext.viewModelFactory
-import com.metallic.chiaki.databinding.FragmentRemotePlayBinding
+import com.pylux.stream.databinding.FragmentRemotePlayBinding
 import com.metallic.chiaki.lib.ConnectInfo
 import com.metallic.chiaki.lib.DiscoveryHost
 import com.metallic.chiaki.manualconsole.EditManualConsoleActivity

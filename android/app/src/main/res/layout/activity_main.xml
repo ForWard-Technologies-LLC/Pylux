@@ -16,11 +16,11 @@
 
         <com.google.android.material.appbar.MaterialToolbar
             android:id="@+id/toolbar"
-            android:layout_height="48dp"
+            android:layout_height="?attr/actionBarSize"
             android:layout_width="match_parent"
             android:background="?attr/colorPrimary"
             android:elevation="0dp"
-            android:minHeight="48dp"
+            android:minHeight="?attr/actionBarSize"
             android:contentInsetStartWithNavigation="0dp"
             android:contentInsetEnd="0dp"
             android:theme="@style/AppTheme.Toolbar">
@@ -34,8 +34,8 @@
                 <!-- WiFi Discovery Icon (Remote Play) -->
                 <ImageView
                     android:id="@+id/wifiIcon"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
+                    android:layout_width="?attr/actionBarSize"
+                    android:layout_height="?attr/actionBarSize"
                     android:padding="12dp"
                     android:src="@drawable/ic_discover_off"
                     android:contentDescription="@string/action_discover"
@@ -45,8 +45,8 @@
                 <!-- Search Icon (Cloud Play) -->
                 <ImageView
                     android:id="@+id/searchIcon"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
+                    android:layout_width="?attr/actionBarSize"
+                    android:layout_height="?attr/actionBarSize"
                     android:padding="12dp"
                     android:src="@android:drawable/ic_menu_search"
                     android:contentDescription="Search"
@@ -75,8 +75,8 @@
                 <!-- Settings Icon on Right -->
                 <ImageView
                     android:id="@+id/settingsIcon"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
+                    android:layout_width="?attr/actionBarSize"
+                    android:layout_height="?attr/actionBarSize"
                     android:padding="12dp"
                     android:src="@drawable/ic_settings"
                     android:contentDescription="@string/action_settings"

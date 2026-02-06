@@ -85,10 +85,9 @@ class CloudGameRepository(
 				val cachedGames = loadCachedGames(PSCLOUD_CACHE_FILE)
 				if (cachedGames != null)
 				{
-					Log.i(TAG, "Returning ${cachedGames.size} PS5 games from cache")
-					// Still need to cross-reference with owned games to mark ownership
-					val gamesWithOwnership = crossReferenceOwnership(cachedGames, npssoToken)
-					return@withContext PsnResult.Success(gamesWithOwnership)
+					Log.i(TAG, "Returning ${cachedGames.size} PS5 games from cache (ownership already cached)")
+					// Return cached games with their cached ownership status
+					return@withContext PsnResult.Success(cachedGames)
 				}
 			}
 			

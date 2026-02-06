@@ -17,7 +17,7 @@
         tools:ignore="GoogleAppIndexingWarning">
 
         <provider
-            android:authorities="com.metallic.chiaki.fileprovider"
+            android:authorities="com.pylux.stream.fileprovider"
             android:name="androidx.core.content.FileProvider"
             android:grantUriPermissions="true"
             android:exported="false">
@@ -27,7 +27,7 @@
                 />
         </provider>
 
-        <activity android:name=".main.MainActivity"
+        <activity android:name="com.metallic.chiaki.main.MainActivity"
             android:exported="true"
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize">
             <intent-filter>
@@ -37,34 +37,46 @@
         </activity>
 
         <activity
-            android:name=".stream.StreamActivity"
+            android:name="com.metallic.chiaki.stream.StreamActivity"
             android:exported="false"
             android:theme="@style/StreamTheme"
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize"
             android:screenOrientation="userLandscape"/>
 
         <activity
-            android:name=".settings.SettingsActivity"
+            android:name="com.metallic.chiaki.settings.SettingsActivity"
             android:exported="false" />
 
         <activity
-            android:name=".regist.RegistActivity"
+            android:name="com.metallic.chiaki.regist.RegistActivity"
             android:exported="false"
             android:theme="@style/MageTheme"
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize"
             android:windowSoftInputMode="adjustResize"/>
 
         <activity
-            android:name=".regist.RegistExecuteActivity"
+            android:name="com.metallic.chiaki.regist.RegistExecuteActivity"
             android:exported="false"
             android:theme="@style/MageTheme"
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize" />
 
         <activity
-            android:name=".manualconsole.EditManualConsoleActivity"
+            android:name="com.metallic.chiaki.manualconsole.EditManualConsoleActivity"
             android:exported="false"
             android:theme="@style/MageTheme"
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize" />
+
+        <activity
+            android:name="com.metallic.chiaki.cloudplay.PsnLoginActivity"
+            android:exported="false"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize" />
+
+        <activity
+            android:name="com.metallic.chiaki.common.LicenseAgreementActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize"
+            android:launchMode="singleTop" />
     </application>
 
 </manifest>

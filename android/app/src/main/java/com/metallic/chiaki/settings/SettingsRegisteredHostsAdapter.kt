@@ -6,7 +6,7 @@ import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
 import com.metallic.chiaki.common.RegisteredHost
-import com.metallic.chiaki.databinding.ItemRegisteredHostBinding
+import com.pylux.stream.databinding.ItemRegisteredHostBinding
 
 class SettingsRegisteredHostsAdapter: RecyclerView.Adapter<SettingsRegisteredHostsAdapter.ViewHolder>()
 {

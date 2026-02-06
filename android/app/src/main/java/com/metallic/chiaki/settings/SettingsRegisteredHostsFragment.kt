@@ -16,11 +16,11 @@ import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.metallic.chiaki.R
+import com.pylux.stream.R
 import com.metallic.chiaki.common.ext.putRevealExtra
 import com.metallic.chiaki.common.ext.viewModelFactory
 import com.metallic.chiaki.common.getDatabase
-import com.metallic.chiaki.databinding.FragmentSettingsRegisteredHostsBinding
+import com.pylux.stream.databinding.FragmentSettingsRegisteredHostsBinding
 import com.metallic.chiaki.regist.RegistActivity
 
 class SettingsRegisteredHostsFragment: AppCompatDialogFragment(), TitleFragment

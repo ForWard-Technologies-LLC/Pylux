@@ -7,10 +7,15 @@ import android.content.Intent
 import android.content.res.Resources
 import android.os.Bundle
 import android.text.InputType
+import android.widget.Toast
 import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
 import androidx.preference.*
-import com.metallic.chiaki.R
+import com.pylux.stream.R
+import com.metallic.chiaki.cloudplay.PsnLoginActivity
+import com.metallic.chiaki.cloudplay.repository.CloudGameRepository
+import com.metallic.chiaki.common.LicenseAgreementActivity
 import com.metallic.chiaki.common.Preferences
 import com.metallic.chiaki.common.exportAndShareAllSettings
 import com.metallic.chiaki.common.ext.viewModelFactory
@@ -18,6 +23,7 @@ import com.metallic.chiaki.common.getDatabase
 import com.metallic.chiaki.common.importSettingsFromUri
 import io.reactivex.disposables.CompositeDisposable
 import io.reactivex.rxkotlin.addTo
+import kotlinx.coroutines.launch
 
 class DataStore(val preferences: Preferences): PreferenceDataStore()
 {
@@ -85,6 +91,7 @@ class SettingsFragment: PreferenceFragmentCompat(), TitleFragment
 	companion object
 	{
 		private const val PICK_SETTINGS_JSON_REQUEST = 1
+		private const val REQUEST_PSN_LOGIN = 1002
 	}
 
 	private var disposable = CompositeDisposable()
@@ -149,6 +156,26 @@ class SettingsFragment: PreferenceFragmentCompat(), TitleFragment
 
 		preferenceScreen.findPreference<Preference>(getString(R.string.preferences_export_settings_key))?.setOnPreferenceClickListener { exportSettings(); true }
 		preferenceScreen.findPreference<Preference>(getString(R.string.preferences_import_settings_key))?.setOnPreferenceClickListener { importSettings(); true }
+		
+		// View License
+		preferenceScreen.findPreference<Preference>("view_license")?.setOnPreferenceClickListener { viewLicense(); true }
+		
+		// PSN Login
+		val psnLoginPreference = preferenceScreen.findPreference<Preference>("psn_login")
+		updatePsnLoginSummary(psnLoginPreference, preferences)
+		psnLoginPreference?.setOnPreferenceClickListener {
+			if (preferences.hasNpssoToken())
+			{
+				// User is logged in, show logout option
+				showLogoutDialog(preferences, psnLoginPreference)
+			}
+			else
+			{
+				// User is not logged in, launch login activity
+				launchPsnLogin()
+			}
+			true
+		}
 	}
 
 	override fun onDestroy()
@@ -174,6 +201,13 @@ class SettingsFragment: PreferenceFragmentCompat(), TitleFragment
 		}
 		startActivityForResult(intent, PICK_SETTINGS_JSON_REQUEST)
 	}
+	
+	private fun viewLicense()
+	{
+		val intent = Intent(requireContext(), LicenseAgreementActivity::class.java)
+		intent.putExtra(LicenseAgreementActivity.EXTRA_VIEW_ONLY, true)
+		startActivity(intent)
+	}
 
 	override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?)
 	{
@@ -184,6 +218,73 @@ class SettingsFragment: PreferenceFragmentCompat(), TitleFragment
 				importSettingsFromUri(activity, it, disposable)
 			}
 		}
+		else if (requestCode == REQUEST_PSN_LOGIN)
+		{
+			val context = context ?: return
+			val preferences = Preferences(context)
+			
+			when (resultCode)
+			{
+				Activity.RESULT_OK -> {
+					Toast.makeText(context, R.string.psn_login_success, Toast.LENGTH_SHORT).show()
+					// Update the preference summary
+					val psnLoginPreference = preferenceScreen.findPreference<Preference>("psn_login")
+					updatePsnLoginSummary(psnLoginPreference, preferences)
+				}
+				Activity.RESULT_CANCELED -> {
+					// User cancelled login
+				}
+				PsnLoginActivity.RESULT_LOGIN_FAILED -> {
+					Toast.makeText(context, R.string.psn_login_failed, Toast.LENGTH_LONG).show()
+				}
+			}
+		}
+	}
+	
+	private fun launchPsnLogin()
+	{
+		val intent = Intent(requireContext(), PsnLoginActivity::class.java)
+		startActivityForResult(intent, REQUEST_PSN_LOGIN)
+	}
+	
+	private fun updatePsnLoginSummary(preference: Preference?, preferences: Preferences)
+	{
+		preference?.summary = if (preferences.hasNpssoToken())
+		{
+			getString(R.string.preferences_psn_login_summary_logged_in)
+		}
+		else
+		{
+			getString(R.string.preferences_psn_login_summary)
+		}
+	}
+	
+	private fun showLogoutDialog(preferences: Preferences, loginPreference: Preference?)
+	{
+		val context = context ?: return
+		androidx.appcompat.app.AlertDialog.Builder(context)
+			.setTitle(R.string.preferences_psn_logout_title)
+			.setMessage(R.string.preferences_psn_logout_message)
+			.setPositiveButton(R.string.preferences_psn_logout_confirm) { _, _ ->
+				// Clear token
+				preferences.clearNpssoToken()
+				
+				// Clear cached cloud game data
+				lifecycleScope.launch {
+					try {
+						val repository = CloudGameRepository(context, preferences)
+						repository.clearCache()
+						android.util.Log.i("SettingsFragment", "Cleared cloud game cache on logout")
+					} catch (e: Exception) {
+						android.util.Log.e("SettingsFragment", "Failed to clear cache on logout", e)
+					}
+				}
+				
+				updatePsnLoginSummary(loginPreference, preferences)
+				Toast.makeText(context, R.string.preferences_psn_logout_success, Toast.LENGTH_SHORT).show()
+			}
+			.setNegativeButton(R.string.action_cancel, null)
+			.show()
 	}
 
 	/**

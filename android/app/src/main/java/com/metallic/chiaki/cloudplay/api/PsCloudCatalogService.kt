@@ -331,6 +331,7 @@ class PsCloudCatalogService
 		{
 			val entitlement = entitlementsArray.getJSONObject(i)
 			val productId = entitlement.optString("id", "")
+			
 			if (productId.isNotEmpty())
 			{
 				productIds.add(productId)
@@ -355,10 +356,9 @@ class PsCloudCatalogService
 		for (game in publicCatalog)
 		{
 			// Check if user owns this game (Qt lines 1312-1320)
-			val isOwned = entitlements.contains(game.productId)
-			if (isOwned)
+			if (entitlements.contains(game.productId))
 			{
-				// Mark as owned and add to list
+				// Mark as owned
 				ownedGames.add(game.copy(isOwned = true))
 			}
 		}

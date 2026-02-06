@@ -64,7 +64,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:padding="8dp"
-                android:clipToPadding="false" />
+                android:clipToPadding="false"
+                android:descendantFocusability="afterDescendants"
+                android:focusable="true" />
 
             <LinearLayout
                 android:id="@+id/emptyStateLayout"
@@ -91,6 +93,51 @@
 
             </LinearLayout>
 
+            <LinearLayout
+                android:id="@+id/loginRequiredLayout"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:orientation="vertical"
+                android:gravity="center_horizontal"
+                android:padding="24dp"
+                android:visibility="gone">
+
+                <ImageView
+                    android:layout_width="96dp"
+                    android:layout_height="96dp"
+                    android:src="@drawable/ic_console_simple"
+                    android:alpha="0.6" />
+
+                <com.google.android.material.textview.MaterialTextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:text="@string/psn_login_required_title"
+                    android:textSize="18sp"
+                    android:textStyle="bold"
+                    android:textColor="?android:textColorPrimary" />
+
+                <com.google.android.material.textview.MaterialTextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/psn_login_required_message"
+                    android:textSize="14sp"
+                    android:textColor="?android:textColorSecondary"
+                    android:textAlignment="center" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/loginButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    android:text="@string/psn_login_button"
+                    android:paddingStart="32dp"
+                    android:paddingEnd="32dp" />
+
+            </LinearLayout>
+
             <ProgressBar
                 android:id="@+id/progressBar"
                 android:layout_width="wrap_content"
@@ -102,22 +149,125 @@
 
     </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
-    <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
-        android:id="@+id/filterFab"
+    <FrameLayout
+        android:id="@+id/settingsDialBackground"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#44000000"
+        android:visibility="gone"
+        android:clickable="true"
+        app:layout_behavior="com.metallic.chiaki.main.FloatingActionButtonBackgroundBehavior"/>
+
+    <LinearLayout
+        android:id="@+id/settingsDial"
+        android:layout_gravity="top|start"
+        android:visibility="invisible"
+        app:layout_anchor="@id/settingsFab"
+        app:layout_anchorGravity="top|start"
+        android:orientation="vertical"
+        android:layout_marginLeft="20dp"
+        android:layout_height="wrap_content"
+        android:layout_width="wrap_content"
+        app:layout_behavior="com.metallic.chiaki.main.FloatingActionButtonSpeedDialBehavior"
+        android:gravity="left"
+        android:clipChildren="false">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="16dp">
+
+            <com.google.android.material.floatingactionbutton.FloatingActionButton
+                android:id="@+id/refreshButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:src="@android:drawable/ic_popup_sync"
+                app:fabSize="mini"
+                style="@style/AppTheme.FloatingActionButtonSpeedDial"
+                android:layout_marginEnd="16dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/refreshLabelButton"
+                style="@style/AppTheme.FloatingActionButtonSpeedDial"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Refresh Games List"
+                android:textStyle="bold"
+                app:rippleColor="@color/floating_action_button_speed_dial_tint"
+                app:cornerRadius="8dp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/sortOptionLayout"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="16dp"
+            android:visibility="gone">
+
+            <com.google.android.material.floatingactionbutton.FloatingActionButton
+                android:id="@+id/sortButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:src="@android:drawable/ic_menu_sort_alphabetically"
+                app:fabSize="mini"
+                style="@style/AppTheme.FloatingActionButtonSpeedDial"
+                android:layout_marginEnd="16dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/sortLabelButton"
+                style="@style/AppTheme.FloatingActionButtonSpeedDial"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Sort: Recent"
+                android:textStyle="bold"
+                app:rippleColor="@color/floating_action_button_speed_dial_tint"
+                app:cornerRadius="8dp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/filterOptionLayout"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="16dp"
+            android:visibility="gone">
+
+            <com.google.android.material.floatingactionbutton.FloatingActionButton
+                android:id="@+id/filterButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:src="@drawable/ic_gamepad"
+                app:fabSize="mini"
+                style="@style/AppTheme.FloatingActionButtonSpeedDial"
+                android:layout_marginEnd="16dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/filterLabelButton"
+                style="@style/AppTheme.FloatingActionButtonSpeedDial"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="All Games"
+                android:textStyle="bold"
+                app:rippleColor="@color/floating_action_button_speed_dial_tint"
+                app:cornerRadius="8dp" />
+        </LinearLayout>
+
+    </LinearLayout>
+
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/settingsFab"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_gravity="bottom|end"
-        android:layout_marginEnd="16dp"
-        android:layout_marginBottom="16dp"
-        android:text="All Games"
-        android:textSize="13sp"
-        android:textColor="#FFFFFF"
-        app:elevation="6dp"
-        app:backgroundTint="@color/fab_background"
-        app:strokeColor="#FFFFFF"
-        app:strokeWidth="2dp"
-        android:visibility="gone"
-        app:layout_dodgeInsetEdges="bottom" />
+        android:src="@drawable/ic_overflow"
+        android:layout_margin="16dp"
+        android:layout_gravity="bottom|start"
+        app:fabSize="normal" />
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>
 

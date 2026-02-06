@@ -6,7 +6,7 @@
     android:id="@+id/mainStreamLayout"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    tools:context=".stream.StreamActivity"
+    tools:context="com.metallic.chiaki.stream.StreamActivity"
     android:keepScreenOn="true">
 
     <com.metallic.chiaki.stream.AspectRatioFrameLayout

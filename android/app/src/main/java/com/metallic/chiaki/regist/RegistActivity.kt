@@ -10,9 +10,9 @@ import android.view.Window
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModelProvider
-import com.metallic.chiaki.R
+import com.pylux.stream.R
 import com.metallic.chiaki.common.ext.RevealActivity
-import com.metallic.chiaki.databinding.ActivityRegistBinding
+import com.pylux.stream.databinding.ActivityRegistBinding
 import com.metallic.chiaki.lib.RegistInfo
 import com.metallic.chiaki.lib.Target
 import java.lang.IllegalArgumentException

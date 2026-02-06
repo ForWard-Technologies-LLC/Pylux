@@ -1,5 +1,5 @@
 # Simple Android build script for chiaki-ng
-# Usage: .\build.ps1 [debug|release] [-quick] [-clean] [-abi <abi>] [-install] [-launch] [-apponly]
+# Usage: .\build.ps1 [debug|release] [-quick] [-clean] [-abi <abi>] [-install] [-launch] [-apponly] [-bundle]
 
 param(
     [string]$BuildType = "debug",
@@ -8,7 +8,8 @@ param(
     [string]$Abi = "",
     [switch]$Install = $false,
     [switch]$Launch = $false,
-    [switch]$AppOnly = $false
+    [switch]$AppOnly = $false,
+    [switch]$Bundle = $false
 )
 
 $ErrorActionPreference = "Continue"
@@ -201,9 +202,9 @@ if ($AppOnly) {
     
     # Launch the app
     Write-Host "Launching app..." -ForegroundColor Cyan
-    & $adb shell am force-stop com.metallic.chiaki 2>&1 | Out-Null
+    & $adb shell am force-stop com.pylux.stream 2>&1 | Out-Null
     Start-Sleep -Milliseconds 500
-    & $adb shell am start -n com.metallic.chiaki/.main.MainActivity 2>&1 | Out-Null
+    & $adb shell am start -n com.pylux.stream/com.metallic.chiaki.main.MainActivity 2>&1 | Out-Null
     
     if ($LASTEXITCODE -eq 0) {
         Write-Host "App launched successfully!" -ForegroundColor Green
@@ -253,7 +254,7 @@ if ($Launch) {
     
     Write-Host ""
     Write-Host "Launching app..." -ForegroundColor Cyan
-    & $adb shell am start -n com.metallic.chiaki/.main.MainActivity 2>&1 | Out-Host
+    & $adb shell am start -n com.pylux.stream/com.metallic.chiaki.main.MainActivity 2>&1 | Out-Host
     if ($LASTEXITCODE -eq 0) {
         Write-Host "App launched successfully!" -ForegroundColor Green
     } else {
@@ -338,7 +339,7 @@ if ($Install) {
     if ($LASTEXITCODE -eq 0) {
         Write-Host "App installed successfully! (took $($installDuration.TotalSeconds.ToString('F2'))s)" -ForegroundColor Green
         Write-Host "Launching app..." -ForegroundColor Cyan
-        & $adb shell am start -n com.metallic.chiaki/.main.MainActivity 2>&1 | Out-Host
+        & $adb shell am start -n com.pylux.stream/com.metallic.chiaki.main.MainActivity 2>&1 | Out-Host
         if ($LASTEXITCODE -eq 0) {
             Write-Host "App launched successfully!" -ForegroundColor Green
         } else {
@@ -373,7 +374,13 @@ if ($Clean) {
 Write-Host ""
 
 # Build with optimizations
-$buildTask = if ($BuildType -eq "release") { "assembleRelease" } else { "assembleDebug" }
+# Choose between APK (assemble) or AAB (bundle)
+if ($Bundle) {
+    $buildTask = if ($BuildType -eq "release") { "bundleRelease" } else { "bundleDebug" }
+    Write-Host "[BUNDLE MODE] Building AAB (Android App Bundle) for Google Play" -ForegroundColor Cyan
+} else {
+    $buildTask = if ($BuildType -eq "release") { "assembleRelease" } else { "assembleDebug" }
+}
 $logFile = "build-output.txt"
 
 # Build arguments for speed
@@ -602,10 +609,54 @@ if ($buildSucceeded) {
     Write-Host "Build completed successfully!" -ForegroundColor Green
     Write-Host "========================================" -ForegroundColor Green
     
+    # Check for AAB or APK depending on build mode
+    if ($Bundle) {
+        # Looking for AAB (Android App Bundle)
+        $outputPaths = @()
+        if ($BuildType -eq "release") {
+            $outputPaths += "app\build\outputs\bundle\release\app-release.aab"
+        } else {
+            $outputPaths += "app\build\outputs\bundle\debug\app-debug.aab"
+        }
+        
+        $aabFound = $false
+        $aabPath = $null
+        foreach ($outputPath in $outputPaths) {
+            if (Test-Path $outputPath) {
+                $aabPath = (Resolve-Path $outputPath).Path
+                $aabFile = Get-Item $aabPath
+                Write-Host "AAB location: $aabPath" -ForegroundColor Cyan
+                Write-Host "AAB size: $([math]::Round($aabFile.Length / 1MB, 2)) MB" -ForegroundColor Cyan
+                Write-Host ""
+                Write-Host "This AAB file is ready to upload to Google Play Console!" -ForegroundColor Green
+                $aabFound = $true
+                break
+            }
+        }
+        
+        if (-not $aabFound) {
+            Write-Host "[WARN] AAB not found in expected locations. Searching..." -ForegroundColor Yellow
+            $foundAabs = Get-ChildItem -Path "app\build" -Recurse -Filter "*.aab" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($foundAabs) {
+                $aabPath = $foundAabs[0].FullName
+                Write-Host "Found AAB at: $aabPath ($([math]::Round($foundAabs[0].Length / 1MB, 2)) MB)" -ForegroundColor Yellow
+            } else {
+                Write-Host "[ERROR] No AAB files found anywhere in build directory" -ForegroundColor Red
+            }
+        }
+        
+        # Total script execution time
+        $totalDuration = (Get-Date) - $scriptStart
+        Write-Host ""
+        Write-Host "[TIMING] Total script execution time: $($totalDuration.TotalMinutes.ToString('F2')) minutes ($($totalDuration.TotalSeconds.ToString('F2'))s)" -ForegroundColor Cyan
+        exit 0
+    }
+    
     # Check both standard output location and intermediates (used when ABI filter is set)
     $outputPaths = @()
     if ($BuildType -eq "release") {
         $outputPaths += "app\build\outputs\apk\release\app-release-unsigned.apk"
+        $outputPaths += "app\build\outputs\apk\release\app-release.apk"
         $outputPaths += "app\build\intermediates\apk\release\app-release-unsigned.apk"
     } else {
         $outputPaths += "app\build\outputs\apk\debug\app-debug.apk"
@@ -660,13 +711,18 @@ if ($buildSucceeded) {
             if ($deviceConnected) {
                 # Install APK first
                 Write-Host "Installing APK to device..." -ForegroundColor Yellow
-                & $adb install -r $apkPath 2>&1 | Out-Null
+                # Use -t flag for debug builds (test-only APKs)
+                if ($BuildType -eq "debug") {
+                    & $adb install -r -t $apkPath 2>&1 | Out-Null
+                } else {
+                    & $adb install -r $apkPath 2>&1 | Out-Null
+                }
                 if ($LASTEXITCODE -eq 0) {
                     Write-Host "APK installed successfully!" -ForegroundColor Green
                     
                     # Now launch the app
                 Write-Host "Launching app..." -ForegroundColor Yellow
-                & $adb shell am start -n com.metallic.chiaki/.main.MainActivity 2>&1 | Out-Null
+                & $adb shell am start -n com.pylux.stream/com.metallic.chiaki.main.MainActivity 2>&1 | Out-Null
                 if ($LASTEXITCODE -eq 0) {
                     Write-Host "App launched successfully!" -ForegroundColor Green
                 } else {
@@ -674,7 +730,8 @@ if ($buildSucceeded) {
                     }
                 } else {
                     Write-Host "[WARN] Failed to install APK (exit code: $LASTEXITCODE)" -ForegroundColor Yellow
-                    Write-Host "       Try manually installing: adb install -r $apkPath" -ForegroundColor Yellow
+                    $manualInstallCmd = if ($BuildType -eq "debug") { "adb install -r -t" } else { "adb install -r" }
+                    Write-Host "       Try manually installing: $manualInstallCmd $apkPath" -ForegroundColor Yellow
                 }
             } else {
                 Write-Host "[WARN] No Android device/emulator connected. Skipping install/launch." -ForegroundColor Yellow
@@ -682,7 +739,8 @@ if ($buildSucceeded) {
                 Write-Host $devices
                 Write-Host ""
                 Write-Host "To install manually, run:" -ForegroundColor Yellow
-                Write-Host "  adb install -r -t `"$apkPath`"" -ForegroundColor Cyan
+                $manualInstallCmd = if ($BuildType -eq "debug") { "adb install -r -t" } else { "adb install -r" }
+                Write-Host "  $manualInstallCmd `"$apkPath`"" -ForegroundColor Cyan
             }
         } else {
             Write-Host "[WARN] ADB not found. Cannot install/launch app automatically." -ForegroundColor Yellow

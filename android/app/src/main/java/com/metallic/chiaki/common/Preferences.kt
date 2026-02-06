@@ -6,7 +6,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.annotation.StringRes
 import androidx.preference.PreferenceManager
-import com.metallic.chiaki.R
+import com.pylux.stream.R
 import com.metallic.chiaki.lib.Codec
 import com.metallic.chiaki.lib.ConnectVideoProfile
 import com.metallic.chiaki.lib.VideoFPSPreset
@@ -18,6 +18,8 @@ import kotlin.math.min
 
 class Preferences(context: Context)
 {
+	private val tokenManager: SecureTokenManager = SecureTokenManager(context)
+	
 	enum class Resolution(val value: String, @StringRes val title: Int, val preset: VideoResolutionPreset)
 	{
 		RES_360P("360p", R.string.preferences_resolution_title_360p, VideoResolutionPreset.RES_360P),
@@ -138,17 +140,36 @@ class Preferences(context: Context)
 	}
 
 	// Cloud Play settings
-	val npssoTokenKey get() = "npsso_token"
+	/**
+	 * Get NPSSO token from secure storage
+	 */
 	fun getNpssoToken(): String
 	{
-		// TODO: Replace with actual token from settings/login
-		// For now, return hardcoded token for testing
-		return sharedPreferences.getString(npssoTokenKey, "") ?: ""
+		return tokenManager.getNpssoToken()
 	}
 
+	/**
+	 * Save NPSSO token to secure storage
+	 */
 	fun setNpssoToken(token: String)
 	{
-		sharedPreferences.edit().putString(npssoTokenKey, token).apply()
+		tokenManager.saveNpssoToken(token)
+	}
+	
+	/**
+	 * Check if NPSSO token exists
+	 */
+	fun hasNpssoToken(): Boolean
+	{
+		return tokenManager.hasNpssoToken()
+	}
+	
+	/**
+	 * Clear NPSSO token (logout)
+	 */
+	fun clearNpssoToken()
+	{
+		tokenManager.clearNpssoToken()
 	}
 
 	// Cloud language settings - UNIFIED for both PSNow and PSCloud (matching Qt GetCloudLanguagePSCloud)
@@ -215,6 +236,11 @@ class Preferences(context: Context)
 	private val LAST_CLOUD_SECTION_KEY = "last_cloud_section"
 	private val PSCLOUD_FILTER_OWNED_KEY = "pscloud_filter_owned"
 	private val LAST_MAIN_TAB_KEY = "last_main_tab"
+	private val CLOUD_SORT_STATE_KEY = "cloud_sort_state"
+	private val FAVORITE_GAMES_KEY = "favorite_games"
+	private val PSNOW_FILTER_FAVORITES_KEY = "psnow_filter_favorites"
+	private val PSCLOUD_FILTER_FAVORITES_KEY = "pscloud_filter_favorites"
+	private val LICENSE_AGREED_KEY = "license_agreed"
 
 	fun getLastCloudSection(): String
 	{
@@ -244,5 +270,72 @@ class Preferences(context: Context)
 	fun setLastMainTab(tabPosition: Int)
 	{
 		sharedPreferences.edit().putInt(LAST_MAIN_TAB_KEY, tabPosition).apply()
+	}
+	
+	fun getCloudSortState(): Int
+	{
+		return sharedPreferences.getInt(CLOUD_SORT_STATE_KEY, 0) // Default to Recent (0)
+	}
+	
+	fun setCloudSortState(sortState: Int)
+	{
+		sharedPreferences.edit().putInt(CLOUD_SORT_STATE_KEY, sortState).apply()
+	}
+	
+	// Favorite games management
+	fun getFavoriteGames(): Set<String>
+	{
+		return sharedPreferences.getStringSet(FAVORITE_GAMES_KEY, emptySet()) ?: emptySet()
+	}
+	
+	fun addFavoriteGame(productId: String)
+	{
+		val favorites = getFavoriteGames().toMutableSet()
+		favorites.add(productId)
+		sharedPreferences.edit().putStringSet(FAVORITE_GAMES_KEY, favorites).apply()
+	}
+	
+	fun removeFavoriteGame(productId: String)
+	{
+		val favorites = getFavoriteGames().toMutableSet()
+		favorites.remove(productId)
+		sharedPreferences.edit().putStringSet(FAVORITE_GAMES_KEY, favorites).apply()
+	}
+	
+	fun isFavoriteGame(productId: String): Boolean
+	{
+		return getFavoriteGames().contains(productId)
+	}
+	
+	// Filter states for favorites
+	fun getPsnowFilterFavorites(): Boolean
+	{
+		return sharedPreferences.getBoolean(PSNOW_FILTER_FAVORITES_KEY, false)
+	}
+	
+	fun setPsnowFilterFavorites(isFavorites: Boolean)
+	{
+		sharedPreferences.edit().putBoolean(PSNOW_FILTER_FAVORITES_KEY, isFavorites).apply()
+	}
+	
+	fun getPsCloudFilterFavorites(): Boolean
+	{
+		return sharedPreferences.getBoolean(PSCLOUD_FILTER_FAVORITES_KEY, false)
+	}
+	
+	fun setPsCloudFilterFavorites(isFavorites: Boolean)
+	{
+		sharedPreferences.edit().putBoolean(PSCLOUD_FILTER_FAVORITES_KEY, isFavorites).apply()
+	}
+	
+	// License agreement
+	fun hasAgreedToLicense(): Boolean
+	{
+		return sharedPreferences.getBoolean(LICENSE_AGREED_KEY, false)
+	}
+	
+	fun setLicenseAgreed(agreed: Boolean)
+	{
+		sharedPreferences.edit().putBoolean(LICENSE_AGREED_KEY, agreed).apply()
 	}
 }

@@ -26,9 +26,6 @@ class CloudPlayViewModel(
 	companion object
 	{
 		private const val TAG = "CloudPlayViewModel"
-		// TODO: Integrate with settings/preferences for NPSSO token storage
-		// For now, hardcoded for initial testing
-		private const val NPSSO_TOKEN = "fake123" // TODO: Fix this with real value from settings
 	}
 	
 	private val repository = CloudGameRepository(context, preferences)
@@ -71,7 +68,8 @@ class CloudPlayViewModel(
 				
 				Log.i(TAG, "Fetching PSNow catalog (forceRefresh=$forceRefresh)")
 				
-				when (val result = repository.fetchPsnowCatalog(NPSSO_TOKEN, forceRefresh))
+				val npssoToken = preferences.getNpssoToken()
+				when (val result = repository.fetchPsnowCatalog(npssoToken, forceRefresh))
 				{
 					is PsnResult.Success ->
 					{
@@ -110,11 +108,13 @@ class CloudPlayViewModel(
 				_loading.value = true
 				_error.value = null
 				
+				val npssoToken = preferences.getNpssoToken()
+				
 				if (showOnlyOwned)
 				{
 					Log.i(TAG, "Fetching owned PS5 games (forceRefresh=$forceRefresh)")
 					
-					when (val result = repository.fetchOwnedPs5Games(NPSSO_TOKEN, forceRefresh))
+					when (val result = repository.fetchOwnedPs5Games(npssoToken, forceRefresh))
 					{
 						is PsnResult.Success ->
 						{
@@ -133,7 +133,7 @@ class CloudPlayViewModel(
 				{
 					Log.i(TAG, "Fetching all PS5 Cloud catalog (forceRefresh=$forceRefresh)")
 					
-					when (val result = repository.fetchPs5CloudCatalog(NPSSO_TOKEN, forceRefresh))
+					when (val result = repository.fetchPs5CloudCatalog(npssoToken, forceRefresh))
 					{
 						is PsnResult.Success ->
 						{
@@ -225,6 +225,34 @@ class CloudPlayViewModel(
 			repository.clearCache()
 			Log.i(TAG, "Cache cleared")
 		}
+	}
+	
+	/**
+	 * Clear current games list (used when logging out or when token is invalid)
+	 */
+	fun clearGames()
+	{
+		allGames = emptyList()
+		_games.value = emptyList()
+		Log.i(TAG, "Games list cleared")
+	}
+	
+	/**
+	 * Update games with a sorted list
+	 */
+	fun setSortedGames(sortedGames: List<CloudGame>)
+	{
+		allGames = sortedGames
+		applySearchFilter()
+		Log.i(TAG, "Games list updated with sorted data")
+	}
+	
+	/**
+	 * Get all cached games (for filtering favorites)
+	 */
+	fun getAllCachedGames(): List<CloudGame>
+	{
+		return allGames
 	}
 }
 

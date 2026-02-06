@@ -9,7 +9,7 @@ import android.view.ViewGroup
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.Observer
-import com.metallic.chiaki.databinding.FragmentControlsBinding
+import com.pylux.stream.databinding.FragmentControlsBinding
 import com.metallic.chiaki.lib.ControllerState
 import io.reactivex.Observable
 import io.reactivex.rxkotlin.Observables.combineLatest

@@ -15,10 +15,10 @@ import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.*
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.metallic.chiaki.R
+import com.pylux.stream.R
 import com.metallic.chiaki.common.Preferences
 import com.metallic.chiaki.common.ext.viewModelFactory
-import com.metallic.chiaki.databinding.ActivityStreamBinding
+import com.pylux.stream.databinding.ActivityStreamBinding
 import com.metallic.chiaki.lib.ConnectInfo
 import com.metallic.chiaki.lib.ConnectVideoProfile
 import com.metallic.chiaki.session.*

@@ -12,12 +12,12 @@ import androidx.core.view.isGone
 import androidx.core.view.isVisible
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
-import com.metallic.chiaki.R
+import com.pylux.stream.R
 import com.metallic.chiaki.common.DiscoveredDisplayHost
 import com.metallic.chiaki.common.DisplayHost
 import com.metallic.chiaki.common.ManualDisplayHost
 import com.metallic.chiaki.common.ext.inflate
-import com.metallic.chiaki.databinding.ItemDisplayHostBinding
+import com.pylux.stream.databinding.ItemDisplayHostBinding
 import com.metallic.chiaki.lib.DiscoveryHost
 
 class DisplayHostDiffCallback(val old: List<DisplayHost>, val new: List<DisplayHost>): DiffUtil.Callback()

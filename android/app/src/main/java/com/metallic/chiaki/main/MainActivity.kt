@@ -10,11 +10,12 @@ import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModelProvider
 import androidx.viewpager2.adapter.FragmentStateAdapter
 import com.google.android.material.tabs.TabLayoutMediator
-import com.metallic.chiaki.R
+import com.pylux.stream.R
+import com.metallic.chiaki.common.LicenseAgreementActivity
 import com.metallic.chiaki.common.Preferences
 import com.metallic.chiaki.common.ext.viewModelFactory
 import com.metallic.chiaki.common.getDatabase
-import com.metallic.chiaki.databinding.ActivityMainBinding
+import com.pylux.stream.databinding.ActivityMainBinding
 import com.metallic.chiaki.settings.SettingsActivity
 
 class MainActivity : AppCompatActivity()
@@ -27,6 +28,18 @@ class MainActivity : AppCompatActivity()
 	override fun onCreate(savedInstanceState: Bundle?)
 	{
 		super.onCreate(savedInstanceState)
+		
+		preferences = Preferences(this)
+		
+		// Check if user has agreed to license
+		if (!preferences.hasAgreedToLicense()) {
+			// Show license agreement screen
+			val intent = Intent(this, LicenseAgreementActivity::class.java)
+			startActivity(intent)
+			finish()
+			return
+		}
+		
 		binding = ActivityMainBinding.inflate(layoutInflater)
 		setContentView(binding.root)
 
@@ -36,7 +49,6 @@ class MainActivity : AppCompatActivity()
 		// Ensure toolbar content insets are balanced for centering
 		binding.toolbar.setContentInsetsRelative(0, 0)
 
-		preferences = Preferences(this)
 		viewModel = ViewModelProvider(this, viewModelFactory {
 			MainViewModel(getDatabase(this), preferences)
 		}).get(MainViewModel::class.java)

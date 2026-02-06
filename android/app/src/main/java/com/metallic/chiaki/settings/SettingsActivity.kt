@@ -8,8 +8,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
 import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
-import com.metallic.chiaki.R
-import com.metallic.chiaki.databinding.ActivitySettingsBinding
+import com.pylux.stream.R
+import com.pylux.stream.databinding.ActivitySettingsBinding
 
 interface TitleFragment
 {
