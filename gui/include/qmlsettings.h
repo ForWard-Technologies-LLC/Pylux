@@ -92,6 +92,8 @@ class QmlSettings : public QObject
     Q_PROPERTY(int lastSelectedMainTab READ lastSelectedMainTab WRITE setLastSelectedMainTab NOTIFY lastSelectedMainTabChanged)
     Q_PROPERTY(QString lastSelectedCloudSection READ lastSelectedCloudSection WRITE setLastSelectedCloudSection NOTIFY lastSelectedCloudSectionChanged)
     Q_PROPERTY(QString cloudLibraryFilter READ cloudLibraryFilter WRITE setCloudLibraryFilter NOTIFY cloudLibraryFilterChanged)
+    Q_PROPERTY(QString cloudCatalogFilter READ cloudCatalogFilter WRITE setCloudCatalogFilter NOTIFY cloudCatalogFilterChanged)
+    Q_PROPERTY(QString cloudFavorites READ cloudFavorites WRITE setCloudFavorites NOTIFY cloudFavoritesChanged)
     Q_PROPERTY(bool mouseTouchEnabled READ mouseTouchEnabled WRITE setMouseTouchEnabled NOTIFY mouseTouchEnabledChanged)
     Q_PROPERTY(bool keyboardEnabled READ keyboardEnabled WRITE setKeyboardEnabled NOTIFY keyboardEnabledChanged)
     Q_PROPERTY(bool dpadTouchEnabled READ dpadTouchEnabled WRITE setDpadTouchEnabled NOTIFY dpadTouchEnabledChanged)
@@ -558,6 +560,12 @@ public:
     QString cloudLibraryFilter() const;
     void setCloudLibraryFilter(const QString &filter);
 
+    QString cloudCatalogFilter() const;
+    void setCloudCatalogFilter(const QString &filter);
+
+    QString cloudFavorites() const;
+    void setCloudFavorites(const QString &favorites);
+
     bool psnGamesSyncEnabled() const;
     void setPsnGamesSyncEnabled(bool enabled);
 
@@ -707,6 +715,8 @@ signals:
     void lastSelectedMainTabChanged();
     void lastSelectedCloudSectionChanged();
     void cloudLibraryFilterChanged();
+    void cloudCatalogFilterChanged();
+    void cloudFavoritesChanged();
     void mouseTouchEnabledChanged();
     void keyboardEnabledChanged();
     void dpadTouchEnabledChanged();

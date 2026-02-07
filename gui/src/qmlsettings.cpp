@@ -804,6 +804,28 @@ void QmlSettings::setCloudLibraryFilter(const QString &filter)
 	emit cloudLibraryFilterChanged();
 }
 
+QString QmlSettings::cloudCatalogFilter() const
+{
+	return settings->GetCloudCatalogFilter();
+}
+
+void QmlSettings::setCloudCatalogFilter(const QString &filter)
+{
+	settings->SetCloudCatalogFilter(filter);
+	emit cloudCatalogFilterChanged();
+}
+
+QString QmlSettings::cloudFavorites() const
+{
+	return settings->GetCloudFavorites();
+}
+
+void QmlSettings::setCloudFavorites(const QString &favorites)
+{
+	settings->SetCloudFavorites(favorites);
+	emit cloudFavoritesChanged();
+}
+
 QString QmlSettings::psnAccountId() const
 {
     return settings->GetPsnAccountId();

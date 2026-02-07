@@ -30,8 +30,10 @@ Pane {
     property bool isLoading: false
     property string searchQuery: ""
     property string authErrorMessage: "" // Persistent auth error message
-    property string libraryFilter: "owned" // "owned" or "all" - filter for Game Library
+    property string libraryFilter: "all" // "all", "owned", or "favorites" - filter for Game Library
+    property string catalogFilter: "all" // "all" or "favorites" - filter for Game Catalog
     property var ownedProductIds: [] // Set of product IDs that are owned (for filtering)
+    property var favoriteProductIds: [] // Set of product IDs that are favorited
     property var qrCodeDialogRef: null // Reference to QR code dialog for child components
     
     // Clean blue background
@@ -57,10 +59,24 @@ Pane {
         if (savedSection === "library" || savedSection === "catalog") {
             currentSection = savedSection;
         }
-        // Load saved library filter
-        let savedFilter = Chiaki.settings.cloudLibraryFilter;
-        if (savedFilter === "owned" || savedFilter === "all") {
-            libraryFilter = savedFilter;
+        // Load saved filters
+        let savedLibraryFilter = Chiaki.settings.cloudLibraryFilter;
+        if (savedLibraryFilter === "owned" || savedLibraryFilter === "all" || savedLibraryFilter === "favorites") {
+            libraryFilter = savedLibraryFilter;
+        }
+        let savedCatalogFilter = Chiaki.settings.cloudCatalogFilter;
+        if (savedCatalogFilter === "all" || savedCatalogFilter === "favorites") {
+            catalogFilter = savedCatalogFilter;
+        }
+        // Load saved favorites
+        let savedFavorites = Chiaki.settings.cloudFavorites;
+        if (savedFavorites) {
+            try {
+                favoriteProductIds = JSON.parse(savedFavorites);
+            } catch (e) {
+                console.error("Failed to parse saved favorites:", e);
+                favoriteProductIds = [];
+            }
         }
         // Load games when component is first created
         Qt.callLater(() => {
@@ -241,6 +257,17 @@ Pane {
                                     data.games[i].isOwned = ownedIds.has(productId);
                                 }
                                 
+                                // Sort so owned games appear first
+                                data.games.sort(function(a, b) {
+                                    // Owned games first
+                                    if (a.isOwned && !b.isOwned) return -1;
+                                    if (!a.isOwned && b.isOwned) return 1;
+                                    // Then sort alphabetically by name
+                                    let nameA = (a.name || (a.game_meta && a.game_meta.name) || "").toLowerCase();
+                                    let nameB = (b.name || (b.game_meta && b.game_meta.name) || "").toLowerCase();
+                                    return nameA.localeCompare(nameB);
+                                });
+                                
                                 ownedProductIds = Array.from(ownedIds);
                                 allGames = data.games;
                                 isLoading = false;
@@ -366,11 +393,28 @@ Pane {
     function applySearchFilter() {
         let hadFocus = searchField && searchField.activeFocus;
         
+        let gamesToFilter = allGames.slice();
+        
+        // Apply filter based on current section and filter mode
+        if (currentSection === "catalog" && catalogFilter === "favorites") {
+            // Filter catalog to only show favorites
+            gamesToFilter = gamesToFilter.filter(function(game) {
+                let productId = game.productId || game.product_id || game.id;
+                return favoriteProductIds.indexOf(productId) !== -1;
+            });
+        } else if (currentSection === "library" && libraryFilter === "favorites") {
+            // Filter library to only show favorites
+            gamesToFilter = gamesToFilter.filter(function(game) {
+                let productId = game.product_id || game.productId || game.id;
+                return favoriteProductIds.indexOf(productId) !== -1;
+            });
+        }
+        
         if (!searchQuery || searchQuery.trim() === "") {
-            filteredGames = allGames.slice();
+            filteredGames = gamesToFilter;
         } else {
             let query = searchQuery.toLowerCase().trim();
-            filteredGames = allGames.filter(function(game) {
+            filteredGames = gamesToFilter.filter(function(game) {
                 let name = "";
                 if (game.name) name = game.name.toLowerCase();
                 else if (game.game_meta && game.game_meta.name) name = game.game_meta.name.toLowerCase();
@@ -389,6 +433,30 @@ Pane {
                 }
             });
         }
+    }
+    
+    function toggleFavorite(productId) {
+        if (!productId) return;
+        
+        let index = favoriteProductIds.indexOf(productId);
+        let newFavorites = favoriteProductIds.slice(); // Create a new array
+        
+        if (index !== -1) {
+            // Remove from favorites
+            newFavorites.splice(index, 1);
+        } else {
+            // Add to favorites
+            newFavorites.push(productId);
+        }
+        
+        // Assign the new array to trigger property change notification
+        favoriteProductIds = newFavorites;
+        
+        // Save to settings
+        Chiaki.settings.cloudFavorites = JSON.stringify(favoriteProductIds);
+        
+        // Re-apply filter to update view
+        applySearchFilter();
     }
     
     function updateCurrentPage() {
@@ -876,11 +944,11 @@ Pane {
             RowLayout {
                 spacing: 0
                 
-                // Filter toggle (only visible when library section is active)
-                // Single clickable text that toggles between Owned and All
+                // Filter toggle (visible for both catalog and library)
+                // Cycles through filter options
                 Item {
                     id: filterToggle
-                    visible: currentSection === "library"
+                    visible: true
                     Layout.preferredWidth: filterToggleText.implicitWidth + 16
                     Layout.preferredHeight: 36
                     Layout.rightMargin: 16
@@ -908,7 +976,15 @@ Pane {
                     Text {
                         id: filterToggleText
                         anchors.centerIn: parent
-                        text: libraryFilter === "owned" ? qsTr("Owned") : qsTr("All")
+                        text: {
+                            if (currentSection === "library") {
+                                if (libraryFilter === "owned") return qsTr("Owned");
+                                if (libraryFilter === "all") return qsTr("All");
+                                return qsTr("Favorites");
+                            } else {
+                                return catalogFilter === "all" ? qsTr("All") : qsTr("Favorites");
+                            }
+                        }
                         font.pixelSize: 14
                         font.weight: Font.Medium
                         color: filterToggle.activeFocus ? "#00d4ff" : "#00d4ff"
@@ -918,22 +994,50 @@ Pane {
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
                         onClicked: {
-                            libraryFilter = libraryFilter === "owned" ? "all" : "owned"
-                            Chiaki.settings.cloudLibraryFilter = libraryFilter
-                            loadPs5CloudLibrary()
+                            if (currentSection === "library") {
+                                // Cycle through all -> owned -> favorites
+                                if (libraryFilter === "all") {
+                                    libraryFilter = "owned";
+                                } else if (libraryFilter === "owned") {
+                                    libraryFilter = "favorites";
+                                } else {
+                                    libraryFilter = "all";
+                                }
+                                Chiaki.settings.cloudLibraryFilter = libraryFilter;
+                                loadPs5CloudLibrary();
+                            } else {
+                                // Toggle between all and favorites for catalog
+                                catalogFilter = catalogFilter === "all" ? "favorites" : "all";
+                                Chiaki.settings.cloudCatalogFilter = catalogFilter;
+                                applySearchFilter();
+                            }
                         }
                     }
                     
                     focusPolicy: Qt.StrongFocus
-                    KeyNavigation.left: libraryButton
+                    KeyNavigation.left: currentSection === "catalog" ? catalogButton : libraryButton
                     KeyNavigation.right: refreshButton
                     KeyNavigation.down: gamesGrid.count > 0 ? gamesGrid : null
                     KeyNavigation.up: mainTabBar ? mainTabBar.itemAt(1) : null
                     
                     Keys.onReturnPressed: {
-                        libraryFilter = libraryFilter === "owned" ? "all" : "owned"
-                        Chiaki.settings.cloudLibraryFilter = libraryFilter
-                        loadPs5CloudLibrary()
+                        if (currentSection === "library") {
+                            // Cycle through all -> owned -> favorites
+                            if (libraryFilter === "all") {
+                                libraryFilter = "owned";
+                            } else if (libraryFilter === "owned") {
+                                libraryFilter = "favorites";
+                            } else {
+                                libraryFilter = "all";
+                            }
+                            Chiaki.settings.cloudLibraryFilter = libraryFilter;
+                            loadPs5CloudLibrary();
+                        } else {
+                            // Toggle between all and favorites for catalog
+                            catalogFilter = catalogFilter === "all" ? "favorites" : "all";
+                            Chiaki.settings.cloudCatalogFilter = catalogFilter;
+                            applySearchFilter();
+                        }
                     }
                 }
                 
@@ -1139,8 +1243,8 @@ Pane {
                             });
                         }
                     }
-                    cellWidth: 240
-                    cellHeight: 380
+                    cellWidth: 200
+                    cellHeight: 280
                     focus: true
                     clip: true
                     interactive: false
@@ -1173,6 +1277,21 @@ Pane {
                         isPsnow: currentSection === "catalog"
                         libraryFilter: root.libraryFilter
                         qrCodeDialog: root.qrCodeDialogRef
+                        
+                        // Bind isFavorite to favoriteProductIds array changes
+                        Binding on isFavorite {
+                            value: {
+                                if (!modelData) return false;
+                                let productId = modelData.productId || modelData.product_id || modelData.id;
+                                // Force re-evaluation by referencing the array
+                                let favs = root.favoriteProductIds;
+                                return favs.indexOf(productId) !== -1;
+                            }
+                        }
+                        
+                        onToggleFavorite: (productId) => {
+                            root.toggleFavorite(productId);
+                        }
                         
                         Component.onCompleted: {
                             console.log("[CloudPlayView] CloudGameCard created, qrCodeDialog property:", qrCodeDialog);

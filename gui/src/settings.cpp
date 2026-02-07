@@ -924,12 +924,32 @@ void Settings::SetLastSelectedCloudSection(QString section)
 
 QString Settings::GetCloudLibraryFilter() const
 {
-	return settings.value("settings/cloud_library_filter", "owned").toString();
+	return settings.value("settings/cloud_library_filter", "all").toString();
 }
 
 void Settings::SetCloudLibraryFilter(QString filter)
 {
 	settings.setValue("settings/cloud_library_filter", filter);
+}
+
+QString Settings::GetCloudCatalogFilter() const
+{
+	return settings.value("settings/cloud_catalog_filter", "all").toString();
+}
+
+void Settings::SetCloudCatalogFilter(QString filter)
+{
+	settings.setValue("settings/cloud_catalog_filter", filter);
+}
+
+QString Settings::GetCloudFavorites() const
+{
+	return settings.value("settings/cloud_favorites", "[]").toString();
+}
+
+void Settings::SetCloudFavorites(QString favorites)
+{
+	settings.setValue("settings/cloud_favorites", favorites);
 }
 
 QString Settings::GetCurrentProfile() const

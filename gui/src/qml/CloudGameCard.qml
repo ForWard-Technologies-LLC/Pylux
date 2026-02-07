@@ -14,11 +14,13 @@ Rectangle {
     property bool hasFocus: isCurrentItem && GridView.view.activeFocus
     property bool isPsnow: true // true for PSNOW, false for PS5 Cloud
     property string cachedImageUrl: ""
-    property string libraryFilter: "owned" // "owned" or "all" - filter mode for Game Library
+    property string libraryFilter: "owned" // "owned" or "all" or "favorites" - filter mode for Game Library
     property var qrCodeDialog: null // Reference to QR code dialog
+    property bool isFavorite: false // Whether this game is favorited
     
     signal streamGame(string productId, string platform, string serviceType)
     signal createShortcut(string productId, string entitlementId, string platform, string serviceType, string gameName)
+    signal toggleFavorite(string productId)
     
     // Generate controller button icon path
     function getControllerIcon(buttonName) {
@@ -213,21 +215,21 @@ Rectangle {
     
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 12
-        spacing: 8
+        anchors.margins: 6
+        spacing: 4
         
-        // Game Image
+        // Game Image with overlays
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            Layout.minimumHeight: 120
-            color: "#1a1a1a"
+            Layout.minimumHeight: 140
+            color: "transparent"
             radius: 4
+            clip: true
             
             Image {
                 id: gameImage
                 anchors.fill: parent
-                anchors.margins: 1
                 fillMode: Image.PreserveAspectFit
                 asynchronous: true
                 cache: true
@@ -258,29 +260,117 @@ Rectangle {
                     visible: gameImage.status !== Image.Ready && !gameImage.status === Image.Loading
                 }
             }
-        }
-        
-        // Game Title
-        Label {
-            Layout.fillWidth: true
-            Layout.preferredHeight: implicitHeight
-            text: getGameName()
-            font.pixelSize: 16
-            font.bold: true
-            elide: Text.ElideRight
-            maximumLineCount: 2
-            wrapMode: Text.Wrap
-        }
-        
-        // Platform Badge
-        Label {
-            Layout.fillWidth: true
-            Layout.preferredHeight: visible ? implicitHeight : 0
-            text: getPlatformBadge()
-            font.pixelSize: 12
-            font.weight: Font.Medium
-            color: "#FFD700"
-            visible: getPlatformBadge() !== ""
+            
+            // Favorite star button - Top Left (no background)
+            Item {
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.topMargin: 0
+                anchors.leftMargin: 8
+                width: 30
+                height: 30
+                
+                Label {
+                    id: favoriteStarLabel
+                    anchors.centerIn: parent
+                    text: card.isFavorite ? "★" : "☆"
+                    font.pixelSize: 24
+                    color: card.isFavorite ? "#FFD700" : "#FFFFFF"
+                    style: Text.Outline
+                    styleColor: "black"
+                }
+                
+                MouseArea {
+                    id: favoriteMouseArea
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: {
+                        let productId = getProductId();
+                        if (productId) {
+                            toggleFavorite(productId);
+                        }
+                        mouse.accepted = true;
+                    }
+                }
+            }
+            
+            // Owned/Not Owned badge - Top Right
+            Rectangle {
+                anchors.top: parent.top
+                anchors.right: parent.right
+                anchors.topMargin: 8
+                anchors.rightMargin: 8
+                width: ownedLabel.implicitWidth + 12
+                height: 22
+                radius: 4
+                color: gameData && gameData.isOwned ? "#4CAF50" : "#FF9800"
+                visible: !isPsnow && libraryFilter === "all"
+                
+                Label {
+                    id: ownedLabel
+                    anchors.centerIn: parent
+                    text: gameData && gameData.isOwned ? qsTr("OWNED") : qsTr("NOT OWNED")
+                    font.pixelSize: 10
+                    font.weight: Font.Bold
+                    color: "white"
+                }
+            }
+            
+            // Game Title overlay - Bottom
+            Rectangle {
+                id: titleOverlay
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                height: Math.max(titleLabel.implicitHeight + 12, 36)
+                color: Qt.rgba(0, 0, 0, 0.6)
+                
+                Label {
+                    id: titleLabel
+                    anchors.fill: parent
+                    anchors.leftMargin: 8
+                    anchors.rightMargin: 8
+                    anchors.topMargin: 6
+                    anchors.bottomMargin: 6
+                    text: getGameName()
+                    font.pixelSize: 14
+                    font.bold: true
+                    color: "white"
+                    elide: Text.ElideRight
+                    maximumLineCount: 1
+                    verticalAlignment: Text.AlignVCenter
+                    wrapMode: Text.NoWrap
+                }
+            }
+            
+            // Platform badge - Bottom Left (positioned relative to image edges, not title)
+            Rectangle {
+                anchors.bottom: parent.bottom
+                anchors.left: parent.left
+                anchors.bottomMargin: 44  // 36 (title height) + 8 spacing
+                anchors.leftMargin: 8
+                width: platformLabel.implicitWidth + 12
+                height: 24
+                radius: 4
+                color: Qt.rgba(0, 0, 0, 0.7)
+                visible: getPlatform() !== ""
+                
+                Label {
+                    id: platformLabel
+                    anchors.centerIn: parent
+                    text: {
+                        let platform = getPlatform();
+                        if (platform === "ps3") return "3";
+                        if (platform === "ps4") return "4";
+                        if (platform === "ps5") return "5";
+                        return "";
+                    }
+                    font.pixelSize: 14
+                    font.weight: Font.Bold
+                    color: "#FFD700"
+                }
+            }
         }
         
         // Action Buttons - fixed size to always fit

@@ -435,6 +435,12 @@ class Settings : public QObject
 		QString GetCloudLibraryFilter() const;
 		void SetCloudLibraryFilter(QString filter);
 
+		QString GetCloudCatalogFilter() const;
+		void SetCloudCatalogFilter(QString filter);
+
+		QString GetCloudFavorites() const;
+		void SetCloudFavorites(QString favorites);
+
 		QString GetCurrentProfile() const;
 		void SetCurrentProfile(QString profile);
 
