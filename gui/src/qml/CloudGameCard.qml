@@ -14,7 +14,7 @@ Rectangle {
     property bool hasFocus: isCurrentItem && GridView.view.activeFocus
     property bool isPsnow: true // true for PSNOW, false for PS5 Cloud
     property string cachedImageUrl: ""
-    property string libraryFilter: "owned" // "owned" or "all" - filter mode for PS5 Game Library
+    property string libraryFilter: "owned" // "owned" or "all" - filter mode for Game Library
     property var qrCodeDialog: null // Reference to QR code dialog
     
     signal streamGame(string productId, string platform, string serviceType)
@@ -45,7 +45,7 @@ Rectangle {
         if (!gameData) return "";
         // Prioritize product_id/productId over id
         if (gameData.product_id) return gameData.product_id; // Owned games (PSCloud library)
-        if (gameData.productId) return gameData.productId; // PS5 Cloud catalog
+        if (gameData.productId) return gameData.productId; // Game catalog
         if (gameData.id) return gameData.id; // Fallback: PSNOW or if product_id/productId not available
         return "";
     }

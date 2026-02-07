@@ -18,8 +18,8 @@
 class QNetworkAccessManager;
 class QmlGamesBackend;
 
-// PSStream Configuration
-#define PSSTREAM_URL "https://www.xbgamestream.com"
+// pylux Configuration
+#define PYLUX_URL "https://www.xbgamestream.com"
 
 #ifdef CHIAKI_HAVE_WEBENGINE
 #include <QQuickWebEngineProfile>
@@ -243,9 +243,9 @@ public:
     Q_INVOKABLE void controllerMappingApply();
     Q_INVOKABLE void autoRegister();
     Q_INVOKABLE QString generateQRCode();
-    Q_INVOKABLE QString getPSStreamURL();
-    Q_INVOKABLE void createPSStreamCode(const QString &code, const QJSValue &callback);
-    Q_INVOKABLE void checkPSStreamStatus(const QString &code, const QJSValue &callback);
+    Q_INVOKABLE QString getPyluxURL();
+    Q_INVOKABLE void createPyluxCode(const QString &code, const QJSValue &callback);
+    Q_INVOKABLE void checkPyluxStatus(const QString &code, const QJSValue &callback);
 #if CHIAKI_GUI_ENABLE_STEAM_SHORTCUT
     Q_INVOKABLE QString getSteamBaseDir();
     QString getSteamUserId();

@@ -41,6 +41,7 @@ chiaki.conf
 site/
 /gui/src/qml/qtwebengine_import.qml
 psstream_research/
+pylux_research/
 .cursor/
 chiaki-ng-Win/
 chiaki_fastbuild_logs.txt

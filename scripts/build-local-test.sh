@@ -10,7 +10,7 @@ set -xe
 # What it does:
 #   - Mimics the GitHub Actions build process (build-appimage-x64.yml)
 #   - Runs entirely in the same Docker container as GitHub Actions
-#   - Produces identical outputs: chiaki-ng.AppImage and PSStream.zip
+#   - Produces identical outputs: chiaki-ng.AppImage and pylux.zip
 #   - Saves artifacts to build-output/ for local testing
 #
 # Key differences from GitHub Actions:
@@ -56,14 +56,14 @@ podman run --rm \
     
     # Copy outputs to mounted /output with correct permissions
     sudo cp appimage/chiaki-ng.AppImage /output/
-    sudo cp -r appimage/PSStream /output/
+    sudo cp -r appimage/pylux /output/
     sudo chown -R $(id -u):$(id -g) /output
     sudo chmod -R u+rwX,go+rX /output
     
-    # Zip PSStream inside container (avoids host permission issues)
+    # Zip pylux inside container (avoids host permission issues)
     cd /output
-    zip -r PSStream.zip PSStream
-    rm -rf PSStream
+    zip -r pylux.zip pylux
+    rm -rf pylux
     
     echo '=== Build outputs ==='
     ls -lh /output/
@@ -74,5 +74,5 @@ echo "============================================"
 echo "Build complete! Artifacts in build-output/"
 ls -lh build-output/
 echo "  - chiaki-ng.AppImage"
-echo "  - PSStream.zip"
+echo "  - pylux.zip"
 echo "============================================"

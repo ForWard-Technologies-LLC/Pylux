@@ -361,7 +361,7 @@ DialogView {
                                                 id: warningText
                                                 anchors.centerIn: parent
                                                 width: parent.width - 20
-                                                text: qsTr("To register your console with PSStream, both your device and console must be connected to the same WiFi network. This is required even if you plan to use remote play away from home later.")
+                                                text: qsTr("To register your console with pylux, both your device and console must be connected to the same WiFi network. This is required even if you plan to use remote play away from home later.")
                                                 font.pixelSize: 16
                                                 color: Qt.rgba(1, 1, 1, 0.9)
                                                 horizontalAlignment: Text.AlignHCenter
@@ -372,7 +372,7 @@ DialogView {
                                         Label {
                                             Layout.alignment: Qt.AlignHCenter
                                             Layout.fillWidth: true
-                                            text: qsTr("✓ Make sure both devices are on the same network, then PSStream should automatically discover your console.")
+                                            text: qsTr("✓ Make sure both devices are on the same network, then pylux should automatically discover your console.")
                                             font.pixelSize: 14
                                             color: Qt.rgba(1, 1, 1, 0.8)
                                             horizontalAlignment: Text.AlignHCenter
@@ -549,7 +549,7 @@ DialogView {
                                         
                                         Label {
                                             Layout.alignment: Qt.AlignHCenter
-                                            text: qsTr("✅ Recommended: PSN Login (Automatic)")
+                                            text: qsTr("✅ Recommended: Login (Automatic)")
                                             font.pixelSize: 18
                                             font.weight: Font.Bold
                                             color: Qt.rgba(76/255, 175/255, 80/255, 1)
@@ -558,7 +558,7 @@ DialogView {
                                         
                                         Label {
                                             Layout.fillWidth: true
-                                            text: qsTr("Login to PSN from the main menu, then click your console for automatic registration.")
+                                            text: qsTr("Login from the main menu, then click your console for automatic registration.")
                                             font.pixelSize: 16
                                             color: Qt.rgba(1, 1, 1, 0.95)
                                             horizontalAlignment: Text.AlignHCenter
@@ -603,7 +603,7 @@ DialogView {
                                         
                                         Label {
                                             Layout.fillWidth: true
-                                            text: qsTr("Click your console, enter the PIN from your console screen, and use 'Public Lookup' to find your PSN Account ID.")
+                                            text: qsTr("Click your console, enter the PIN from your console screen, and use 'Public Lookup' to find your Account ID.")
                                             font.pixelSize: 15
                                             color: Qt.rgba(1, 1, 1, 0.7)
                                             horizontalAlignment: Text.AlignHCenter
@@ -617,7 +617,7 @@ DialogView {
                                     Layout.alignment: Qt.AlignHCenter
                                     Layout.fillWidth: true
                                     Layout.topMargin: 5
-                                    text: qsTr("💡 After registration, PSN login enables remote play from anywhere without port forwarding.")
+                                    text: qsTr("💡 After registration, login enables remote play from anywhere without port forwarding.")
                                     font.pixelSize: 13
                                     color: Qt.rgba(1, 1, 1, 0.65)
                                     horizontalAlignment: Text.AlignHCenter

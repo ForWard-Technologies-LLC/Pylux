@@ -769,7 +769,20 @@ void QmlMainWindow::resizeSwapchain()
     if (window_size == swapchain_size)
         return;
 
+    // Skip texture recreation if window has invalid dimensions (e.g., minimized)
+    if (window_size.width() <= 0 || window_size.height() <= 0) {
+        qCDebug(chiakiGui) << "Skipping swapchain resize for invalid window dimensions:" << window_size;
+        return;
+    }
+
     swapchain_size = window_size;
+    
+    // Double-check dimensions before calling libplacebo functions
+    if (swapchain_size.width() <= 0 || swapchain_size.height() <= 0) {
+        qCDebug(chiakiGui) << "Invalid swapchain_size before libplacebo calls:" << swapchain_size;
+        return;
+    }
+    
     pl_swapchain_resize(placebo_swapchain, &swapchain_size.rwidth(), &swapchain_size.rheight());
 
     struct pl_tex_params tex_params = {
@@ -779,6 +792,14 @@ void QmlMainWindow::resizeSwapchain()
         .sampleable = true,
         .renderable = true,
     };
+    
+    // Final safety check before calling libplacebo
+    if (tex_params.w <= 0 || tex_params.h <= 0) {
+        qCWarning(chiakiGui) << "Prevented invalid texture creation with dimensions:"
+                             << tex_params.w << "x" << tex_params.h;
+        return;
+    }
+    
     if (!pl_tex_recreate(placebo_vulkan->gpu, &quick_tex, &tex_params))
         qCCritical(chiakiGui) << "Failed to create placebo texture";
 

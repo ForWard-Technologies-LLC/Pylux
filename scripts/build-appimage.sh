@@ -76,7 +76,7 @@ chmod +x linuxdeploy-plugin-qt-${ARCH}.AppImage
     --exclude-library='libvulkan*' \
     --output appimage
 
-mv PSStream-${ARCH}.AppImage PSStream.AppImage
+mv pylux-${ARCH}.AppImage pylux.AppImage
 
 
 # ============================================================================
@@ -92,7 +92,7 @@ mv PSStream-${ARCH}.AppImage PSStream.AppImage
 # OpenSSL version conflicts, and creates a smart launch script.
 #
 # Key additions:
-#   - PSStream directory extraction from AppImage
+#   - pylux directory extraction from AppImage
 #   - Steam libraries (libsteam_api.so, libcpp-steam-tools.so)
 #   - NSS crypto modules for QtWebEngine in Steam runtime
 #   - OpenSSL fallback directory for version compatibility
@@ -100,13 +100,13 @@ mv PSStream-${ARCH}.AppImage PSStream.AppImage
 # ============================================================================
 # This runs AFTER AppImage is complete to avoid any interference
 echo "Creating Steam-compatible portable Linux build from extracted AppImage..."
-PORTABLE_DIR="PSStream"
+PORTABLE_DIR="pylux"
 
 # Extract the AppImage to get all bundled libraries
-chmod +x PSStream.AppImage
-./PSStream.AppImage --appimage-extract
+chmod +x pylux.AppImage
+./pylux.AppImage --appimage-extract
 
-# Rename extracted directory to PSStream
+# Rename extracted directory to pylux
 mv squashfs-root "${PORTABLE_DIR}"
 
 # ============================================================================

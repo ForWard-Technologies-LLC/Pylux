@@ -26,7 +26,7 @@ class PsCloudCatalogService
 	}
 	
 	/**
-	 * Fetch PS5 Cloud Catalog (public list of all streamable PS5 games)
+	 * Fetch PS5 Game Catalog (public list of all streamable PS5 games)
 	 * Mirrors: CloudCatalogBackend::fetchPs5CloudCatalog() (Qt lines 844-973)
 	 * 
 	 * @param locale Language locale (e.g., "en-us", "ja-jp")
@@ -34,7 +34,7 @@ class PsCloudCatalogService
 	 */
 	suspend fun fetchPs5CloudCatalog(locale: String): List<CloudGame>
 	{
-		Log.i(TAG, "=== Fetching PS5 Cloud Catalog ===")
+		Log.i(TAG, "=== Fetching PS5 Game Catalog ===")
 		Log.i(TAG, "  Locale: $locale")
 		
 		val url = "https://www.playstation.com/bin/imagic/gameslist?locale=$locale&categoryList=all-ps5-list"
@@ -205,7 +205,7 @@ class PsCloudCatalogService
 	{
 		if (npssoToken.isEmpty())
 		{
-			throw Exception("NPSSO token is required for PS5 cloud play. Please login to PSN and enter a valid NPSSO token.")
+			throw Exception("NPSSO token is required for cloud play. Please login and enter a valid NPSSO token.")
 		}
 		
 		Log.i(TAG, "=== Fetching Owned PS5 Games ===")

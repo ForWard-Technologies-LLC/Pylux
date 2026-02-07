@@ -151,7 +151,7 @@ DialogView {
 
             Label {
                 Layout.alignment: Qt.AlignRight
-                text: qsTr("PSN Account-ID:")
+                text: qsTr("Account-ID:")
                 visible: !ps4_7.checked
             }
 
@@ -167,7 +167,7 @@ DialogView {
 
             Label {
                 Layout.alignment: Qt.AlignRight
-                text: qsTr("PSN Online-ID:")
+                text: qsTr("Online-ID:")
                 visible: onlineId.visible
             }
 

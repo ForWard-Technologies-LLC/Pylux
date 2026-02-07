@@ -2532,7 +2532,7 @@ DialogView {
                         Layout.fillWidth: true
                         Layout.maximumWidth: 400
                         Layout.preferredHeight: 50
-                        text: qsTr("Login to PSN")
+                        text: qsTr("Login")
                         onClicked: {
                             root.showPSNTokenDialog(false);
                         }
@@ -2546,7 +2546,7 @@ DialogView {
                         Layout.fillWidth: true
                         Layout.maximumWidth: 400
                         Layout.preferredHeight: 50
-                        text: qsTr("Clear PSN Token")
+                        text: qsTr("Clear Token")
                         onClicked: {
                             Chiaki.settings.psnRefreshToken = ""
                             Chiaki.settings.psnAuthToken = ""
@@ -2669,7 +2669,7 @@ DialogView {
                         id: cloudServiceSelection
                         Layout.preferredWidth: 400
                         Layout.alignment: Qt.AlignLeft
-                        model: [qsTr("PS5 Library"), qsTr("Cloud Catalog")]
+                        model: [qsTr("Game Library"), qsTr("Game Catalog")]
                         currentIndex: selectedCloudService
                         onActivated: (index) => selectedCloudService = index
                         firstInFocusChain: true
@@ -2950,7 +2950,7 @@ DialogView {
             parent: Overlay.overlay
             x: Math.round((root.width - width) / 2)
             y: Math.round((root.height - height) / 2)
-            title: qsTr("About PSStream")
+            title: qsTr("About pylux")
             modal: true
             standardButtons: Dialog.Ok
             Material.roundedScale: Material.MediumScale
@@ -2973,7 +2973,7 @@ DialogView {
                     Layout.preferredWidth: 400
                     verticalAlignment: Text.AlignTop
                     wrapMode: Text.Wrap
-                    text: "<h1>PSStream</h1> version %1
+                    text: "<h1>pylux</h1> version %1
 
                         <p>Licensed under the GNU Affero General Public License version 3.</p>
 

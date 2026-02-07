@@ -34,7 +34,7 @@ class PsnLoginActivity : AppCompatActivity()
 	companion object
 	{
 		private const val TAG = "PsnLoginActivity"
-		private const val PSSTREAM_URL = "https://www.xbgamestream.com"
+		private const val PYLUX_URL = "https://www.xbgamestream.com"
 		const val EXTRA_NPSSO_TOKEN = "npsso_token"
 		const val RESULT_LOGIN_SUCCESS = Activity.RESULT_OK
 		const val RESULT_LOGIN_CANCELLED = Activity.RESULT_CANCELED
@@ -84,7 +84,7 @@ class PsnLoginActivity : AppCompatActivity()
 		
 		// Setup buttons
 		openBrowserButton.setOnClickListener {
-			openPSStreamInBrowser()
+			openPyluxInBrowser()
 		}
 		
 		checkStatusButton.setOnClickListener {
@@ -111,7 +111,7 @@ class PsnLoginActivity : AppCompatActivity()
 		
 		// Create code on xbgamestream server
 		scope.launch {
-			val success = createPSStreamCode(loginCode)
+			val success = createPyluxCode(loginCode)
 			if (success)
 			{
 				Log.i(TAG, "Code created successfully on xbgamestream")
@@ -132,11 +132,11 @@ class PsnLoginActivity : AppCompatActivity()
 	 * Create code on xbgamestream server
 	 * Reference: gui/src/qmlbackend.cpp lines 3363-3440
 	 */
-	private suspend fun createPSStreamCode(code: String): Boolean = withContext(Dispatchers.IO)
+	private suspend fun createPyluxCode(code: String): Boolean = withContext(Dispatchers.IO)
 	{
 		try
 		{
-			val url = URL("$PSSTREAM_URL/psstream/create-code")
+			val url = URL("$PYLUX_URL/psstream/create-code")
 			val connection = url.openConnection() as HttpURLConnection
 			connection.requestMethod = "POST"
 			connection.setRequestProperty("Content-Type", "application/json")
@@ -157,13 +157,13 @@ class PsnLoginActivity : AppCompatActivity()
 				
 				if (jsonResponse.optString("result") == "success")
 				{
-					Log.i(TAG, "PSStream code created successfully")
+					Log.i(TAG, "pylux code created successfully")
 					return@withContext true
 				}
 				else
 				{
 					val error = jsonResponse.optString("error", "Unknown error")
-					Log.e(TAG, "PSStream server error: $error")
+					Log.e(TAG, "pylux server error: $error")
 					return@withContext false
 				}
 			}
@@ -175,7 +175,7 @@ class PsnLoginActivity : AppCompatActivity()
 		}
 		catch (e: Exception)
 		{
-			Log.e(TAG, "Exception creating PSStream code", e)
+			Log.e(TAG, "Exception creating pylux code", e)
 			return@withContext false
 		}
 	}
@@ -190,7 +190,7 @@ class PsnLoginActivity : AppCompatActivity()
 		statusTextView.text = getString(R.string.psn_login_checking_status)
 		
 		scope.launch {
-			val token = checkPSStreamStatus(loginCode)
+			val token = checkPyluxStatus(loginCode)
 			
 			progressBar.visibility = View.GONE
 			checkStatusButton.isEnabled = true
@@ -217,11 +217,11 @@ class PsnLoginActivity : AppCompatActivity()
 	 * Check xbgamestream server for token status
 	 * Reference: gui/src/qmlbackend.cpp lines 3442-3525
 	 */
-	private suspend fun checkPSStreamStatus(code: String): String? = withContext(Dispatchers.IO)
+	private suspend fun checkPyluxStatus(code: String): String? = withContext(Dispatchers.IO)
 	{
 		try
 		{
-			val url = URL("$PSSTREAM_URL/psstream/get-tokens")
+			val url = URL("$PYLUX_URL/psstream/get-tokens")
 			val connection = url.openConnection() as HttpURLConnection
 			connection.requestMethod = "POST"
 			connection.setRequestProperty("Content-Type", "application/json")
@@ -269,7 +269,7 @@ class PsnLoginActivity : AppCompatActivity()
 					}
 					"error" -> {
 						val error = jsonResponse.optString("error", "Unknown error")
-						Log.e(TAG, "PSStream error: $error")
+						Log.e(TAG, "pylux error: $error")
 						return@withContext null
 					}
 					else -> {
@@ -295,7 +295,7 @@ class PsnLoginActivity : AppCompatActivity()
 		}
 		catch (e: Exception)
 		{
-			Log.e(TAG, "Exception checking PSStream status", e)
+			Log.e(TAG, "Exception checking pylux status", e)
 			return@withContext null
 		}
 	}
@@ -304,14 +304,14 @@ class PsnLoginActivity : AppCompatActivity()
 	 * Open xbgamestream.com with the login code in browser
 	 * Reference: gui/src/qml/QRLoginDialog.qml line 225
 	 */
-	private fun openPSStreamInBrowser()
+	private fun openPyluxInBrowser()
 	{
 		try
 		{
-			val psstreamUrl = "$PSSTREAM_URL/psstream/?psstream_code=$loginCode"
-			val intent = Intent(Intent.ACTION_VIEW, Uri.parse(psstreamUrl))
+			val pyluxUrl = "$PYLUX_URL/psstream/?psstream_code=$loginCode"
+			val intent = Intent(Intent.ACTION_VIEW, Uri.parse(pyluxUrl))
 			startActivity(intent)
-			Log.i(TAG, "Opened PSStream URL in browser: $psstreamUrl")
+			Log.i(TAG, "Opened pylux URL in browser: $pyluxUrl")
 			statusTextView.text = getString(R.string.psn_login_browser_opened)
 			
 			// Highlight the Check Status button by changing it to filled style

@@ -422,9 +422,9 @@ bool SteamCloudSync::deleteProfileFromCloud(const QString &profileName)
     // Convert profile name to cloud filename
     QString cloudFilename;
     if (profileName.isEmpty() || profileName == "default") {
-        cloudFilename = "PSStream.conf";
+        cloudFilename = "pylux.conf";
     } else {
-        cloudFilename = QString("PSStream-%1.conf").arg(profileName);
+        cloudFilename = QString("pylux-%1.conf").arg(profileName);
     }
 
     // Check if file exists in cloud
@@ -560,14 +560,14 @@ QString SteamCloudSync::extractProfileName(const QString &filename) const
     QFileInfo fileInfo(filename);
     QString basename = fileInfo.fileName();
     
-    // PSStream.conf -> "default"
-    if (basename == "PSStream.conf") {
+    // pylux.conf -> "default"
+    if (basename == "pylux.conf") {
         return "default";
     }
     
-    // PSStream-2333.conf -> "2333"
-    if (basename.startsWith("PSStream-") && basename.endsWith(".conf")) {
-        QString profile = basename.mid(9); // Remove "PSStream-"
+    // pylux-2333.conf -> "2333"
+    if (basename.startsWith("pylux-") && basename.endsWith(".conf")) {
+        QString profile = basename.mid(6); // Remove "pylux-"
         profile = profile.left(profile.length() - 5); // Remove ".conf"
         return profile;
     }
@@ -627,9 +627,9 @@ QStringList SteamCloudSync::getLocalConfigFiles() const
         return QStringList();
     }
 
-    // Find PSStream.conf and PSStream-*.conf files
+    // Find pylux.conf and pylux-*.conf files
     QStringList filters;
-    filters << "PSStream.conf" << "PSStream-*.conf";
+    filters << "pylux.conf" << "pylux-*.conf";
     
     QFileInfoList files = configDir.entryInfoList(filters, QDir::Files);
     QStringList paths;
@@ -657,8 +657,8 @@ QStringList SteamCloudSync::getCloudConfigFiles() const
         const char *filename = remoteStorage->GetFileNameAndSize(i, &fileSize);
         
         QString name = QString::fromUtf8(filename);
-        // Only include PSStream config files
-        if (name.startsWith("PSStream") && name.endsWith(".conf")) {
+        // Only include pylux config files
+        if (name.startsWith("pylux") && name.endsWith(".conf")) {
             cloudFiles.append(name);
         }
     }

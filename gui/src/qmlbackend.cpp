@@ -196,7 +196,7 @@ QmlBackend::QmlBackend(Settings *settings, QmlMainWindow *window, SteamworksWrap
         // Connect session quit handler
         connect(session, &StreamSession::SessionQuit, this, [this](ChiakiQuitReason reason, const QString &reason_str) {
             if (chiaki_quit_reason_is_error(reason)) {
-                QString m = tr("PSStream Session has quit") + ":\n" + chiaki_quit_reason_string(reason);
+                QString m = tr("pylux Session has quit") + ":\n" + chiaki_quit_reason_string(reason);
                 if (!reason_str.isEmpty())
                     m += "\n" + tr("Reason") + ": \"" + reason_str + "\"";
                 emit sessionError(tr("Session has quit"), m);
@@ -1145,7 +1145,7 @@ void QmlBackend::createSession(const StreamSessionConnectInfo &connect_info)
 
     connect(session, &StreamSession::SessionQuit, this, [this](ChiakiQuitReason reason, const QString &reason_str) {
         if (chiaki_quit_reason_is_error(reason)) {
-            QString m = tr("PSStream Session has quit") + ":\n" + chiaki_quit_reason_string(reason);
+            QString m = tr("pylux Session has quit") + ":\n" + chiaki_quit_reason_string(reason);
             if (!reason_str.isEmpty())
                 m += "\n" + tr("Reason") + ": \"" + reason_str + "\"";
             emit sessionError(tr("Session has quit"), m);
@@ -2596,12 +2596,12 @@ void QmlBackend::configureSteamControllerLayout()
         return;
     }
     
-    // Configure the controller layout for PSStream (first time for this user)
+    // Configure the controller layout for pylux (first time for this user)
     QString controller_layout_workshop_id = "3049833406";
-    qCInfo(chiakiGui) << "Configuring Steam Deck controller for PSStream (first time for Steam user" << steam_user_id << ")";
+    qCInfo(chiakiGui) << "Configuring Steam Deck controller for pylux (first time for Steam user" << steam_user_id << ")";
     qCInfo(chiakiGui) << "Applying workshop ID:" << controller_layout_workshop_id;
     
-    // Pass "PSStream" - it will be lowercased to "psstream" internally by updateControllerConfig
+    // Pass "pylux" - it will be lowercased to "pylux" internally by updateControllerConfig
     try {
         steam_tools->updateControllerConfig("3946320", controller_layout_workshop_id);
     } catch (const std::exception& e) {
@@ -3355,19 +3355,19 @@ QString QmlBackend::generateQRCode()
     return code;
 }
 
-QString QmlBackend::getPSStreamURL()
+QString QmlBackend::getPyluxURL()
 {
-    return QString(PSSTREAM_URL);
+    return QString(PYLUX_URL);
 }
 
-void QmlBackend::createPSStreamCode(const QString &code, const QJSValue &callback)
+void QmlBackend::createPyluxCode(const QString &code, const QJSValue &callback)
 {
     // Create network access manager
     QNetworkAccessManager *manager = new QNetworkAccessManager(this);
     
     // Prepare the request
     QNetworkRequest request;
-    request.setUrl(QUrl(QString(PSSTREAM_URL) + "/psstream/create-code"));
+    request.setUrl(QUrl(QString(PYLUX_URL) + "/psstream/create-code"));
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     
     // Prepare the JSON payload
@@ -3410,7 +3410,7 @@ void QmlBackend::createPSStreamCode(const QString &code, const QJSValue &callbac
             QString responseBody = QString::fromUtf8(responseData);
             
             // Log detailed error information for debugging
-            qDebug() << "Network error creating PSStream code:" << reply->errorString();
+            qDebug() << "Network error creating pylux code:" << reply->errorString();
             qDebug() << "HTTP status code:" << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             qDebug() << "Response body:" << responseBody;
             
@@ -3439,14 +3439,14 @@ void QmlBackend::createPSStreamCode(const QString &code, const QJSValue &callbac
     });
 }
 
-void QmlBackend::checkPSStreamStatus(const QString &code, const QJSValue &callback)
+void QmlBackend::checkPyluxStatus(const QString &code, const QJSValue &callback)
 {
     // Create network access manager
     QNetworkAccessManager *manager = new QNetworkAccessManager(this);
     
     // Prepare the request
     QNetworkRequest request;
-    request.setUrl(QUrl(QString(PSSTREAM_URL) + "/psstream/get-tokens"));
+    request.setUrl(QUrl(QString(PYLUX_URL) + "/psstream/get-tokens"));
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     
     // Prepare the JSON payload

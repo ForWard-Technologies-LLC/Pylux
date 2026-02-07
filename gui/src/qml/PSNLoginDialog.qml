@@ -14,7 +14,7 @@ DialogView {
     property bool submitting: false
     property bool closing: false
     property var psnurl: ""
-    title: qsTr("PSN Login")
+    title: qsTr("Login")
     buttonVisible: false
     buttonText: qsTr("Get Account ID")
     buttonEnabled: !submitting && url.text.trim()
@@ -273,7 +273,7 @@ DialogView {
                 columnSpacing: 20
                 Label {
                     id: nativeErrorHeader
-                    text: "Retrieving PSN account ID failed with error: "
+                    text: "Retrieving account ID failed with error: "
                     Layout.fillHeight: true
                     Layout.preferredWidth: 400
                     Layout.leftMargin: 20
@@ -352,7 +352,7 @@ DialogView {
             Label {
                 id: errorHeader
                 visible: false
-                text: "Retrieving PSN account ID failed with error"
+                text: "Retrieving account ID failed with error"
             }
 
             Label {
@@ -488,7 +488,7 @@ DialogView {
             Label {
                 Layout.columnSpan: 2
                 Layout.topMargin: 5
-                text: qsTr("Required for cloud play only. Sign in to PSN first, then copy the full token from the page.")
+                text: qsTr("Required for Game Catalog and Game Library. Sign in first, then copy the full token from the page.")
                 wrapMode: Text.Wrap
                 font.pixelSize: 11
                 opacity: 0.8
@@ -510,7 +510,7 @@ DialogView {
                 id: formLabel
                 Layout.alignment: Qt.AlignCenter
                 Layout.bottomMargin: 50
-                text: qsTr("This requires your PSN privacy settings to allow anyone to find you in your search")
+                text: qsTr("This requires your privacy settings to allow anyone to find you in your search")
             }
 
             C.TextField {

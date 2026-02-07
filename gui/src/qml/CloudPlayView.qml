@@ -30,7 +30,7 @@ Pane {
     property bool isLoading: false
     property string searchQuery: ""
     property string authErrorMessage: "" // Persistent auth error message
-    property string libraryFilter: "owned" // "owned" or "all" - filter for PS5 Game Library
+    property string libraryFilter: "owned" // "owned" or "all" - filter for Game Library
     property var ownedProductIds: [] // Set of product IDs that are owned (for filtering)
     property var qrCodeDialogRef: null // Reference to QR code dialog for child components
     
@@ -118,7 +118,7 @@ Pane {
         
         switch (event.key) {
         case Qt.Key_PageUp:
-            // L1 button - switch to Cloud Catalog
+            // L1 button - switch to Game Catalog
             if (currentSection !== "catalog") {
                 switchSection("catalog");
                 event.accepted = true;
@@ -138,7 +138,7 @@ Pane {
         // Check NPSSO token - show warning if missing (but still load games)
         let npssoToken = Chiaki.settings.psnNpssoToken;
         if (!npssoToken || npssoToken.trim().length === 0) {
-            authErrorMessage = "NPSSO token is required for cloud play. Please login to PSN and enter a valid NPSSO token. You also need a valid PS Plus subscription.";
+            authErrorMessage = "NPSSO token is required for Game Catalog and Game Library. Please login and enter a valid NPSSO token. You also need a valid PS Plus subscription.";
         } else {
             authErrorMessage = ""; // Clear auth error if token exists
         }
@@ -185,7 +185,7 @@ Pane {
                 allGames = [];
                 filteredGames = [];
                 currentPageGames = [];
-                showErrorToast(qsTr("API Error"), message || qsTr("Failed to fetch PSNOW catalog"));
+                showErrorToast(qsTr("API Error"), message || qsTr("Failed to fetch game catalog"));
             }
         });
     }
@@ -198,7 +198,7 @@ Pane {
         isLoading = true;
         
         if (libraryFilter === "all") {
-            // Fetch all streamable games from PS5 cloud catalog
+            // Fetch all streamable games from game catalog
             Chiaki.cloudCatalog.fetchPs5CloudCatalog(function(success, message, jsonData) {
                 if (success && jsonData) {
                     try {
@@ -280,7 +280,7 @@ Pane {
                             showErrorToast(qsTr("Error"), qsTr("No cloud streamable games found"));
                         }
                     } catch (e) {
-                        console.error("Failed to parse PS5 cloud catalog:", e);
+                        console.error("Failed to parse game catalog:", e);
                         allGames = [];
                         filteredGames = [];
                         currentPageGames = [];
@@ -288,12 +288,12 @@ Pane {
                         showErrorToast(qsTr("Parse Error"), qsTr("Failed to parse catalog data: %1").arg(e.toString()));
                     }
                 } else {
-                    console.error("Failed to fetch PS5 cloud catalog:", message);
+                    console.error("Failed to fetch game catalog:", message);
                     allGames = [];
                     filteredGames = [];
                     currentPageGames = [];
                     isLoading = false;
-                    let errorMsg = message || qsTr("Failed to fetch PS5 cloud catalog");
+                    let errorMsg = message || qsTr("Failed to fetch game catalog");
                     showErrorToast(qsTr("API Error"), errorMsg);
                 }
             });
@@ -666,7 +666,7 @@ Pane {
             RowLayout {
                 spacing: 10
                 
-                // Cloud Catalog button
+                // Game Catalog button
                 Button {
                     id: catalogButton
                     Layout.preferredHeight: 44
@@ -767,7 +767,7 @@ Pane {
                     }
                     
                     contentItem: Text {
-                        text: qsTr("Cloud Catalog")
+                        text: qsTr("Game Catalog")
                         font.pixelSize: 14
                         font.weight: parent.parent.checked ? Font.Medium : (parent.parent.activeFocus ? Font.Medium : Font.Normal)
                         // Checked = bright cyan, Focused = bright cyan (but different background), Neither = gray
@@ -780,7 +780,7 @@ Pane {
                     }
                 }
                 
-                // PS5 Game Library button
+                // Game Library button
                 Button {
                     id: libraryButton
                     Layout.preferredHeight: 44
@@ -856,7 +856,7 @@ Pane {
                     }
                     
                     contentItem: Text {
-                        text: qsTr("PS5 Game Library")
+                        text: qsTr("Game Library")
                         font.pixelSize: 14
                         font.weight: parent.parent.checked ? Font.Medium : Font.Normal
                         // Checked = bright cyan, Focused = cyan, Neither = gray

@@ -76,7 +76,7 @@ Dialog {
             font.pixelSize: 13
             enabled: !isRefreshing
             focusPolicy: Qt.StrongFocus
-            ToolTip.text: qsTr("Refresh trophy data from PSN (bypasses 24h cache)")
+            ToolTip.text: qsTr("Refresh trophy data from server (bypasses 24h cache)")
             ToolTip.visible: hovered || activeFocus
             
             KeyNavigation.up: trophyList

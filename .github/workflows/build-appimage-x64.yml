@@ -44,10 +44,10 @@ jobs:
         run: |
           cd chiaki-ng/appimage
           # Create zip for Dropbox upload
-          zip -r PSStream.zip PSStream
+          zip -r pylux.zip pylux
           # Create artifact-ready directory structure for GitHub Actions
           mkdir -p artifact-upload
-          cp -r PSStream artifact-upload/
+          cp -r pylux artifact-upload/
       
       - name: Upload to Dropbox
         continue-on-error: true
@@ -67,26 +67,26 @@ jobs:
           # Upload file
           curl -X POST https://content.dropboxapi.com/2/files/upload \
             --header "Authorization: Bearer $ACCESS_TOKEN" \
-            --header "Dropbox-API-Arg: {\"path\": \"/PSStream/linux/PSStream.zip\",\"mode\": \"overwrite\",\"autorename\": false}" \
+            --header "Dropbox-API-Arg: {\"path\": \"/pylux/linux/pylux.zip\",\"mode\": \"overwrite\",\"autorename\": false}" \
             --header "Content-Type: application/octet-stream" \
-            --data-binary @chiaki-ng/appimage/PSStream.zip
+            --data-binary @chiaki-ng/appimage/pylux.zip
         
       # Upload traditional AppImage
       - name: Upload AppImage Artifact
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: PSStream.AppImage_x86_64
-          path: chiaki-ng/appimage/PSStream.AppImage
+          name: pylux.AppImage_x86_64
+          path: chiaki-ng/appimage/pylux.AppImage
           if-no-files-found: error
           retention-days: 7
 
-      # Upload PSStream directory (will be zipped by GitHub Actions)
+      # Upload pylux directory (will be zipped by GitHub Actions)
       - name: Upload Steam Portable Linux Artifact
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: PSStream
+          name: pylux
           path: chiaki-ng/appimage/artifact-upload/
           if-no-files-found: error
           retention-days: 7
@@ -98,19 +98,19 @@ jobs:
           echo "## Build Artifacts Created" > build-summary.md
           echo "" >> build-summary.md
           echo "### Traditional Distribution" >> build-summary.md
-          echo "- **AppImage**: \`PSStream.AppImage\`" >> build-summary.md
+          echo "- **AppImage**: \`pylux.AppImage\`" >> build-summary.md
           echo "  - Single file, works on most Linux distributions" >> build-summary.md
           echo "  - Use \`APPIMAGE_EXTRACT_AND_RUN=1\` if Steam has issues" >> build-summary.md
           echo "" >> build-summary.md
           echo "### Steam Distribution (Recommended)" >> build-summary.md
-          echo "- **Portable Directory**: \`PSStream.zip\`" >> build-summary.md
+          echo "- **Portable Directory**: \`pylux.zip\`" >> build-summary.md
           echo "  - Optimized for Steam runtime compatibility" >> build-summary.md
           echo "  - Set executable to: \`linux/launch.sh\`" >> build-summary.md
           echo "  - No launch options needed" >> build-summary.md
           echo "" >> build-summary.md
           echo "### File Sizes" >> build-summary.md
-          ls -lh appimage/PSStream.AppImage >> build-summary.md || true
-          du -sh appimage/PSStream >> build-summary.md || true
+          ls -lh appimage/pylux.AppImage >> build-summary.md || true
+          du -sh appimage/pylux >> build-summary.md || true
           
       - name: Upload build summary
         continue-on-error: true

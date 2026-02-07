@@ -169,8 +169,8 @@ static void MigrateControllerMappings(QSettings *settings)
 
 Settings::Settings(const QString &conf, QObject *parent) : QObject(parent),
 	time_format("yyyy-MM-dd HH:mm:ss t"),
-	settings(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + (conf.isEmpty() ? "/PSStream.conf" : QString("/PSStream-%1.conf").arg(conf)), QSettings::IniFormat),
-	default_settings(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/PSStream.conf", QSettings::IniFormat),
+	settings(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + (conf.isEmpty() ? "/pylux.conf" : QString("/pylux-%1.conf").arg(conf)), QSettings::IniFormat),
+	default_settings(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/pylux.conf", QSettings::IniFormat),
 	placebo_settings(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/pl_render_params.conf", QSettings::IniFormat)
 {
 	settings.setFallbacksEnabled(false);
@@ -277,7 +277,7 @@ void Settings::ImportSettings(QString filepath)
 	}
 	else
 	{
-		QSettings profile_settings(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + QString("/PSStream-%1.conf").arg(profile), QSettings::IniFormat);
+		QSettings profile_settings(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + QString("/pylux-%1.conf").arg(profile), QSettings::IniFormat);
 		profile_settings.clear();
 		SaveRegisteredHosts(&profile_settings);
 		SaveHiddenHosts(&profile_settings);
@@ -2128,14 +2128,14 @@ void Settings::DeleteProfile(QString profile)
 	QString currentProfile = GetCurrentProfile();
 	bool isDeletingCurrent = (currentProfile == profile);
 	
-	QString psstreamDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-	QString psstreamFile = isDefaultProfile ? (psstreamDir + "/PSStream.conf") : (psstreamDir + QString("/PSStream-%1.conf").arg(profile));
+	QString pyluxDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+	QString pyluxFile = isDefaultProfile ? (pyluxDir + "/pylux.conf") : (pyluxDir + QString("/pylux-%1.conf").arg(profile));
 	
-	CHIAKI_LOGI(NULL, "Settings: Clearing data for profile at: %s", psstreamFile.toUtf8().constData());
+	CHIAKI_LOGI(NULL, "Settings: Clearing data for profile at: %s", pyluxFile.toUtf8().constData());
 	
 	// ORIGINAL LOGIC - always clear the data (in separate scope so file gets closed)
 	{
-		QSettings delete_profile(psstreamFile, QSettings::IniFormat);
+		QSettings delete_profile(pyluxFile, QSettings::IniFormat);
 		registered_hosts.clear();
 		manual_hosts.clear();
 		controller_mappings.clear();
@@ -2148,16 +2148,16 @@ void Settings::DeleteProfile(QString profile)
 	
 	// Only delete file and remove from list if NOT default profile
 	if (!isDefaultProfile) {
-		CHIAKI_LOGI(NULL, "Settings: File exists before delete: %s", QFile::exists(psstreamFile) ? "YES" : "NO");
+		CHIAKI_LOGI(NULL, "Settings: File exists before delete: %s", QFile::exists(pyluxFile) ? "YES" : "NO");
 		
-		if (QFile::exists(psstreamFile)) {
-			if (QFile::remove(psstreamFile)) {
-				CHIAKI_LOGI(NULL, "Settings: ✓ Successfully deleted PSStream file: %s", psstreamFile.toUtf8().constData());
+		if (QFile::exists(pyluxFile)) {
+			if (QFile::remove(pyluxFile)) {
+				CHIAKI_LOGI(NULL, "Settings: ✓ Successfully deleted pylux file: %s", pyluxFile.toUtf8().constData());
 			} else {
-				CHIAKI_LOGE(NULL, "Settings: ✗ Failed to delete PSStream file: %s", psstreamFile.toUtf8().constData());
+				CHIAKI_LOGE(NULL, "Settings: ✗ Failed to delete pylux file: %s", pyluxFile.toUtf8().constData());
 			}
 		} else {
-			CHIAKI_LOGW(NULL, "Settings: File not found: %s", psstreamFile.toUtf8().constData());
+			CHIAKI_LOGW(NULL, "Settings: File not found: %s", pyluxFile.toUtf8().constData());
 		}
 		
 		profiles.removeOne(profile);

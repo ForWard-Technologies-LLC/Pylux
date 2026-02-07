@@ -1,6 +1,6 @@
 # Steamworks Integration Module
 
-This module provides isolated Steamworks SDK integration for PSStream.
+This module provides isolated Steamworks SDK integration for pylux.
 
 ## Purpose
 - Provides Steam overlay integration for PSN OAuth workflow

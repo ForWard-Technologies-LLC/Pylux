@@ -13,7 +13,7 @@ DialogView {
     property string qrCode: ""
     property bool isProcessing: false
     property bool isCheckingStatus: false
-    title: qsTr("PSN Login")
+    title: qsTr("Login")
     buttonVisible: false
 
     StackView.onActivated: {
@@ -49,14 +49,14 @@ DialogView {
     }
 
     function createCodeOnServer() {
-        console.log("Creating PSStream code on server:", qrCode);
-        Chiaki.createPSStreamCode(qrCode, function(success, errorMsg) {
+        console.log("Creating pylux code on server:", qrCode);
+        Chiaki.createPyluxCode(qrCode, function(success, errorMsg) {
             if (success) {
-                console.log("PSStream code created successfully on server");
+                console.log("pylux code created successfully on server");
                 // Optionally show success message to user
                 // root.showMessageDialog(qsTr("Success"), qsTr("QR code generated successfully. Scan with your mobile device."));
             } else {
-                console.error("Failed to create PSStream code:", errorMsg);
+                console.error("Failed to create pylux code:", errorMsg);
                 // Show error to user
                 root.showMessageDialog(qsTr("Error"), qsTr("Failed to create login code: %1").arg(errorMsg), () => {});
             }
@@ -66,20 +66,20 @@ DialogView {
     function checkStatus() {
         if (isProcessing || isCheckingStatus) return;
         
-        console.log("Checking PSStream status for code:", qrCode);
+        console.log("Checking pylux status for code:", qrCode);
         isCheckingStatus = true;
         
         // Show status checking message to user
         statusLabel.text = qsTr("Checking login status...");
         statusLabel.visible = true;
         
-        Chiaki.checkPSStreamStatus(qrCode, function(success, errorMsg, npssoToken) {
-            console.log("PSStream API response - success:", success, "error:", errorMsg, "npsso:", npssoToken);
+        Chiaki.checkPyluxStatus(qrCode, function(success, errorMsg, npssoToken) {
+            console.log("pylux API response - success:", success, "error:", errorMsg, "npsso:", npssoToken);
             
             isCheckingStatus = false;
             
             if (success && npssoToken) {
-                console.log("PSStream login successful! Processing npsso token...");
+                console.log("pylux login successful! Processing npsso token...");
                 
                 // Check if we got an npsso token (new v3 flow) or redirect URL (old flow for backwards compatibility)
                 if (npssoToken.startsWith("https://remoteplay.dl.playstation.net/remoteplay/redirect")) {
@@ -110,11 +110,11 @@ DialogView {
                             statusLabel.text = msg;
                         } else {
                             if (ok) {
-                                console.log("PSStream login completed successfully!");
+                                console.log("pylux login completed successfully!");
                                 statusLabel.visible = false;
                                 dialog.accept();
                             } else {
-                                console.error("PSStream login failed:", msg);
+                                console.error("pylux login failed:", msg);
                                 isProcessing = false;
                                 statusLabel.visible = false;
                                 root.showMessageDialog(qsTr("Login Error"), msg, () => {});
@@ -133,7 +133,7 @@ DialogView {
                     statusLabel.visible = false;
                     root.showMessageDialog(qsTr("Sign-in Pending"), qsTr("Code not found. Please complete the sign-in process on your mobile device first."), () => {});
                 } else {
-                    console.error("Failed to check PSStream status:", errorMsg);
+                    console.error("Failed to check pylux status:", errorMsg);
                     statusLabel.visible = false;
                     root.showMessageDialog(qsTr("Error"), qsTr("Failed to check login status: %1").arg(errorMsg), () => {});
                 }
@@ -164,7 +164,7 @@ DialogView {
                 // Show success toast notification
                 root.showToast(
                     qsTr("Login Successful!"), 
-                    qsTr("PSN login completed successfully!"),
+                    qsTr("Login completed successfully!"),
                     "#4CAF50"  // Green color for success
                 );
             }
@@ -173,7 +173,7 @@ DialogView {
                 console.error("QR Login: PSN account ID error:", error);
                 isProcessing = false;
                 statusLabel.visible = false;
-                root.showMessageDialog(qsTr("PSN Login Error"), qsTr("Invalid redirect URL. Please ensure the redirect URL you copied is valid and up to date. Try generating a new QR code."), () => {});
+                root.showMessageDialog(qsTr("Login Error"), qsTr("Invalid redirect URL. Please ensure the redirect URL you copied is valid and up to date. Try generating a new QR code."), () => {});
             }
         }
 
@@ -222,7 +222,7 @@ DialogView {
                             anchors.centerIn: parent
                             width: 320
                             height: 320
-                            source: "https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=" + encodeURIComponent(Chiaki.getPSStreamURL() + "/psstream/?psstream_code=" + dialog.qrCode)
+                            source: "https://api.qrserver.com/v1/create-qr-code/?size=320x320&data=" + encodeURIComponent(Chiaki.getPyluxURL() + "/psstream/?psstream_code=" + dialog.qrCode)
                             fillMode: Image.PreserveAspectFit
                             cache: false
 

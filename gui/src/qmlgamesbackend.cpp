@@ -964,20 +964,20 @@ void QmlGamesBackend::createGameSteamShortcut(const QString &titleId, const QStr
         qCInfo(chiakiGuiGames) << "Running as Flatpak, updated launch options:" << launch_options;
     }
     
-    // If running from extracted PSStream directory, use launch.sh instead of direct executable
+    // If running from extracted pylux directory, use launch.sh instead of direct executable
     // The launch.sh script sets up proper library paths for Steam runtime compatibility
     if (executable != "flatpak" && !executable.endsWith(".AppImage"))
     {
         QFileInfo exeInfo(executable);
         QString exePath = exeInfo.absoluteFilePath();
         
-        // Check if we're running from PSStream/linux/PSStream/usr/bin/chiaki structure
-        // If so, use PSStream/linux/PSStream/launch.sh instead
+        // Check if we're running from pylux/linux/pylux/usr/bin/chiaki structure
+        // If so, use pylux/linux/pylux/launch.sh instead
         if (exePath.contains("/usr/bin/"))
         {
             QDir exeDir(exeInfo.absolutePath());
-            // Go up from usr/bin to usr, then to PSStream (inner directory)
-            // Structure: .../PSStream/linux/PSStream/usr/bin/chiaki -> .../PSStream/linux/PSStream/launch.sh
+            // Go up from usr/bin to usr, then to pylux (inner directory)
+            // Structure: .../pylux/linux/pylux/usr/bin/chiaki -> .../pylux/linux/pylux/launch.sh
             if (exeDir.cdUp() && exeDir.cdUp())
             {
                 QString launchScript = exeDir.absoluteFilePath("launch.sh");

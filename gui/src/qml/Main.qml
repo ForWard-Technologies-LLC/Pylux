@@ -125,7 +125,7 @@ Item {
             Qt.callLater(() => {
                 root.showMessageDialog(
                     qsTr("Ping Too High"),
-                    qsTr("Ping must be less than 80ms to start a cloud session.\n\nTo continue anyway, go to Settings → Cloud and manually select a datacenter for your service (PS5 Library or Cloud Catalog)."),
+                    qsTr("Ping must be less than 80ms to start a cloud session.\n\nTo continue anyway, go to Settings → Cloud and manually select a datacenter for your service (Game Library or Game Catalog)."),
                     () => {
                         Chiaki.showPingTimeoutDialog = false;
                     }
@@ -510,7 +510,7 @@ Item {
                 // Not logged in to PSN - ask if they want to login for automatic setup or manually register
                 root.showConfirmDialog(
                     qsTr("Console Setup"), 
-                    qsTr("Would you like to login to PSN for automatic console setup?\n\nChoose 'Yes' to login to PSN for automatic registration.\nChoose 'No' to manually enter console information."),
+                    qsTr("Would you like to login for automatic console setup?\n\nChoose 'Yes' to login for automatic registration.\nChoose 'No' to manually enter console information."),
                     () => root.showPSNTokenDialog("", false),  // Yes - show PSN login
                     () => showRegistDialog(host, ps5)          // No - show manual registration
                 )
@@ -525,7 +525,7 @@ Item {
                 if(ps5)
                     root.showConfirmDialog(qsTr("Registration Type"), qsTr("Would you like to use automatic registration?"), () => root.autoRegister(true, host, ps5), () => root.autoRegister(false, host, ps5))
                 else
-                    root.showConfirmDialog(qsTr("Registration Type"), qsTr("Would you like to use automatic registration (must be main PS4 console registered to your PSN)?"), () => root.autoRegister(true, host, ps5), () => root.autoRegister(false, host, ps5))
+                    root.showConfirmDialog(qsTr("Registration Type"), qsTr("Would you like to use automatic registration (must be main PS4 console registered to your account)?"), () => root.autoRegister(true, host, ps5), () => root.autoRegister(false, host, ps5))
             }
         }
 

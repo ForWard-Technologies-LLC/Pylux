@@ -42,9 +42,9 @@ DialogView {
     }
     title: {
         if(expired)
-            qsTr("Credentials Expired: Refresh PSN Authentication")
+            qsTr("Credentials Expired: Refresh Authentication")
         else
-            qsTr("PSN Login")
+            qsTr("Login")
     }
     buttonText: qsTr("Connect")
     buttonEnabled: hasNpssoData
@@ -60,7 +60,7 @@ DialogView {
         }
         
         logDialog.open()
-        logArea.text = qsTr("[I] Starting PSN authentication with npsso token...\n");
+        logArea.text = qsTr("[I] Starting authentication with npsso token...\n");
         Chiaki.initPsnAuthV3(npssoTokenValue, function(msg, ok, done) {
             if(ok)
                 Chiaki.settings.remotePlayAsk = false;
@@ -339,7 +339,7 @@ DialogView {
                 columnSpacing: 20
                 Label {
                     id: nativeErrorHeader
-                    text: "Retrieving PSN account ID failed with error: "
+                    text: "Retrieving account ID failed with error: "
                     Layout.fillHeight: true
                     Layout.preferredWidth: 400
                     Layout.leftMargin: 20
@@ -484,7 +484,7 @@ DialogView {
                             }
 
                             Label {
-                                text: qsTr("Click the button below to open the PSN login page in your external browser.")
+                                text: qsTr("Click the button below to open the login page in your external browser.")
                                 wrapMode: Text.Wrap
                                 Layout.fillWidth: true
                                 font.pixelSize: 19
@@ -725,7 +725,7 @@ DialogView {
                 parent: Overlay.overlay
                 x: Math.round((root.width - width) / 2)
                 y: Math.round((root.height - height) / 2)
-                title: qsTr("PSN Authentication")
+                title: qsTr("Authentication")
                 modal: true
                 closePolicy: Popup.NoAutoClose
                 standardButtons: Dialog.Cancel

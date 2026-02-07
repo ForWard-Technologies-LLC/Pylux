@@ -175,7 +175,7 @@ void CloudCatalogBackend::fetchPsnowCatalog(const QJSValue &callback)
     // Check NPSSO token - required for authentication
     QString npsso = getNpSsoToken();
     if (npsso.isEmpty()) {
-        QString errorMsg = "NPSSO token is required for PSNOW catalog. Please login to PSN and enter a valid NPSSO token.";
+        QString errorMsg = "NPSSO token is required for Game Catalog. Please login to PSN and enter a valid NPSSO token.";
         qWarning() << "CloudCatalogBackend:" << errorMsg;
         if (callback.isCallable()) {
             callback.call({false, errorMsg, QJSValue()});
@@ -205,7 +205,7 @@ void CloudCatalogBackend::fetchPsnowOAuthToken()
     QString npsso = getNpSsoToken();
     if (npsso.isEmpty()) {
         psnowState.authInProgress = false;
-        QString errorMsg = "NPSSO token is required for PSNOW catalog. Please login to PSN and enter a valid NPSSO token.";
+        QString errorMsg = "NPSSO token is required for Game Catalog. Please login to PSN and enter a valid NPSSO token.";
         qWarning() << "CloudCatalogBackend:" << errorMsg;
         if (psnowState.callback.isCallable()) {
             psnowState.callback.call({false, errorMsg, QJSValue()});
@@ -2430,7 +2430,7 @@ void CloudCatalogBackend::createCloudSteamShortcut(const QString &gameIdentifier
         qInfo() << "Running as Flatpak, updated launch options:" << launch_options;
     }
     
-    // If running from extracted PSStream directory, use launch.sh instead of direct executable
+    // If running from extracted pylux directory, use launch.sh instead of direct executable
     if (executable != "flatpak" && !executable.endsWith(".AppImage"))
     {
         QFileInfo exeInfo(executable);

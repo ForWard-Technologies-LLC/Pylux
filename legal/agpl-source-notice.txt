@@ -1,5 +1,5 @@
 ================================================================================
-PSStream - Source Code Availability
+pylux - Source Code Availability
 ================================================================================
 
 This software is licensed under the GNU Affero General Public License v3.0

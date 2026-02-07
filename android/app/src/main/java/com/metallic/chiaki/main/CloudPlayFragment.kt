@@ -569,7 +569,7 @@ class CloudPlayFragment : Fragment()
 			}
 			popup.menu.findItem(currentItem)?.isChecked = true
 		} else {
-			// Cloud Catalog: All Games, Favorites
+			// Game Catalog: All Games, Favorites
 			popup.menu.add(0, 0, 0, "Show: All Games")
 			popup.menu.add(0, 1, 1, "Show: Favorites")
 			
@@ -613,7 +613,7 @@ class CloudPlayFragment : Fragment()
 				}
 			}
 		} else {
-			// Cloud Catalog
+			// Game Catalog
 			when (selectedItem) {
 				0 -> {
 					// All Games
@@ -642,7 +642,7 @@ class CloudPlayFragment : Fragment()
 				else -> "Show: All"
 			}
 		} else {
-			// Cloud Catalog
+			// Game Catalog
 			if (preferences.getPsnowFilterFavorites()) "Show: Favorites" else "Show: All"
 		}
 		binding.filterLabelButton.text = text

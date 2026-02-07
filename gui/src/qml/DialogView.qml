@@ -132,7 +132,7 @@ Item {
 
             Item { Layout.fillWidth: true }
 
-            // PSStream logo and branding (right side) - hide when button is visible
+            // pylux logo and branding (right side) - hide when button is visible
             RowLayout {
                 Layout.alignment: Qt.AlignVCenter
                 Layout.maximumWidth: 300
@@ -145,7 +145,7 @@ Item {
                     
                     Label {
                         width: parent.width
-                        text: "PSSTREAM"
+                        text: "PYLUX"
                         font.pixelSize: 18
                         font.weight: Font.Bold
                         font.letterSpacing: 1.5
@@ -155,7 +155,7 @@ Item {
                     }
                     Label {
                         width: parent.width
-                        text: "Pretty Sweet Stream"
+                        text: "Remote Play Client"
                         font.pixelSize: 10
                         font.weight: Font.Light
                         color: Qt.rgba(255, 255, 255, 0.7)

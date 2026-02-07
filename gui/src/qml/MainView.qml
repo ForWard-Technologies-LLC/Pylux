@@ -227,14 +227,14 @@ Pane {
                 Layout.alignment: Qt.AlignVCenter
                 
                 Label {
-                    text: "PSSTREAM"
+                    text: "PYLUX"
                     font.pixelSize: 24
                     font.weight: Font.Bold
                     font.letterSpacing: 2
                     color: "#00d4ff"
                 }
                 Label {
-                    text: "Pretty Sweet Stream"
+                    text: "Remote Play Client"
                     font.pixelSize: 12
                     font.weight: Font.Light
                     color: Qt.rgba(255, 255, 255, 0.7)
@@ -472,7 +472,7 @@ Pane {
                         return qsTr("Update login tokens");
                     }
                     // On remote play tab, show current behavior
-                    return Chiaki.settings.psnAuthToken ? qsTr("Refresh PSN Games") : qsTr("Login to PSN");
+                    return Chiaki.settings.psnAuthToken ? qsTr("Refresh Games") : qsTr("Login");
                 }
                 
                 // Keyboard navigation
@@ -501,7 +501,7 @@ Pane {
                             if (Chiaki.settings.psnAuthToken) {
                                 // Show immediate feedback toast
                                 errorTitleLabel.text = qsTr("Refreshing");
-                                errorTextLabel.text = qsTr("Updating PSN games...");
+                                errorTextLabel.text = qsTr("Updating games...");
                                 errorToast.color = "#2196F3";
                                 errorHideTimer.start();
                                 
@@ -989,7 +989,7 @@ Pane {
                     text: {
                                         let status = "";
                                         if (modelData.duid) {
-                                            status = modelData.discovered ? qsTr("Auto Registration") : qsTr("PSN Remote");
+                                            status = modelData.discovered ? qsTr("Auto Registration") : qsTr("Remote");
                                         } else {
                                             status = modelData.discovered ? qsTr("Discovered") : qsTr("Manual");
                                         }

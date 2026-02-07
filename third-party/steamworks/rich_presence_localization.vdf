@@ -3,8 +3,8 @@
 	"Language"	"english"
 	"Tokens"
 	{
-		"#StatusCloudGame"	"Playing: %GAME% on PSStream"
-		"#StatusRemotePlayGame"	"Remote Play on PSStream"
+		"#StatusCloudGame"	"Playing: %GAME% on pylux"
+		"#StatusRemotePlayGame"	"Remote Play on pylux"
 	}
 }
 

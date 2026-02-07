@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
-Name=PSStream
-Comment=Pretty Sweet Stream
+Name=pylux
+Comment=Remote Play Client
 Exec=chiaki
 Icon=chiaking
 Categories=Game;Network;RemoteAccess;
