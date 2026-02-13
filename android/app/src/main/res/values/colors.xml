@@ -22,4 +22,10 @@
     <color name="fab_background">#4A9EFF</color>
     <color name="search_background">#2A3A4A</color>
     <color name="tab_indicator">#6BB6FF</color>
+    
+    <!-- Mode Switcher -->
+    <color name="mode_switcher_ripple">#336BB6FF</color>
+    
+    <!-- Console Card Colors -->
+    <color name="psn_blue">#2563EB</color>
 </resources>

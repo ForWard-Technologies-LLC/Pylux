@@ -16,20 +16,12 @@
             android:orientation="vertical"
             android:background="?attr/colorPrimary">
 
+            <!-- Cloud tabs moved to MainActivity toolbar -->
             <com.google.android.material.tabs.TabLayout
                 android:id="@+id/cloudTabLayout"
                 android:layout_width="match_parent"
-                android:layout_height="36dp"
-                android:background="?attr/colorPrimary"
-                app:tabMode="fixed"
-                app:tabGravity="fill"
-                app:tabTextColor="#99FFFFFF"
-                app:tabSelectedTextColor="@color/tab_indicator"
-                app:tabIndicatorColor="@color/tab_indicator"
-                app:tabIndicatorHeight="2dp"
-                app:tabPaddingStart="4dp"
-                app:tabPaddingEnd="4dp"
-                app:tabTextAppearance="@style/CloudTabTextAppearance" />
+                android:layout_height="0dp"
+                android:visibility="gone" />
 
             <androidx.appcompat.widget.SearchView
                 android:id="@+id/searchView"
@@ -173,68 +165,12 @@
         android:clipChildren="false">
 
         <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginTop="16dp"
-            android:layout_marginBottom="16dp">
-
-            <com.google.android.material.floatingactionbutton.FloatingActionButton
-                android:id="@+id/refreshButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:src="@android:drawable/ic_popup_sync"
-                app:fabSize="mini"
-                style="@style/AppTheme.FloatingActionButtonSpeedDial"
-                android:layout_marginEnd="16dp" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/refreshLabelButton"
-                style="@style/AppTheme.FloatingActionButtonSpeedDial"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Refresh Games List"
-                android:textStyle="bold"
-                app:rippleColor="@color/floating_action_button_speed_dial_tint"
-                app:cornerRadius="8dp" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:id="@+id/sortOptionLayout"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginBottom="16dp"
-            android:visibility="gone">
-
-            <com.google.android.material.floatingactionbutton.FloatingActionButton
-                android:id="@+id/sortButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:src="@android:drawable/ic_menu_sort_alphabetically"
-                app:fabSize="mini"
-                style="@style/AppTheme.FloatingActionButtonSpeedDial"
-                android:layout_marginEnd="16dp" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/sortLabelButton"
-                style="@style/AppTheme.FloatingActionButtonSpeedDial"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Sort: Recent"
-                android:textStyle="bold"
-                app:rippleColor="@color/floating_action_button_speed_dial_tint"
-                app:cornerRadius="8dp" />
-        </LinearLayout>
-
-        <LinearLayout
             android:id="@+id/filterOptionLayout"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
+            android:layout_marginTop="16dp"
             android:layout_marginBottom="16dp"
             android:visibility="gone">
 
@@ -253,6 +189,62 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="All Games"
+                android:textStyle="bold"
+                app:rippleColor="@color/floating_action_button_speed_dial_tint"
+                app:cornerRadius="8dp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/sortOptionLayout"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="16dp"
+            android:visibility="gone">
+
+            <com.google.android.material.floatingactionbutton.FloatingActionButton
+                android:id="@+id/sortButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:src="@drawable/ic_sort"
+                app:fabSize="mini"
+                style="@style/AppTheme.FloatingActionButtonSpeedDial"
+                android:layout_marginEnd="16dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/sortLabelButton"
+                style="@style/AppTheme.FloatingActionButtonSpeedDial"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Sort: Recent"
+                android:textStyle="bold"
+                app:rippleColor="@color/floating_action_button_speed_dial_tint"
+                app:cornerRadius="8dp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="16dp">
+
+            <com.google.android.material.floatingactionbutton.FloatingActionButton
+                android:id="@+id/refreshButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:src="@android:drawable/ic_popup_sync"
+                app:fabSize="mini"
+                style="@style/AppTheme.FloatingActionButtonSpeedDial"
+                android:layout_marginEnd="16dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/refreshLabelButton"
+                style="@style/AppTheme.FloatingActionButtonSpeedDial"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Refresh Games List"
                 android:textStyle="bold"
                 app:rippleColor="@color/floating_action_button_speed_dial_tint"
                 app:cornerRadius="8dp" />

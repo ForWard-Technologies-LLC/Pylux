@@ -14,6 +14,7 @@ typedef struct android_jni_chiaki_log_t
     ChiakiLog log;
 } AndroidChiakiJNILog;
 
+void log_cb_android(ChiakiLogLevel level, const char *msg, void *user);
 ChiakiErrorCode android_chiaki_file_log_init(ChiakiLog *log, uint32_t level, const char *file);
 void android_chiaki_file_log_fini(ChiakiLog *log);
 

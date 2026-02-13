@@ -81,7 +81,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginEnd="8dp"
                 app:layout_constraintBottom_toBottomOf="parent"
-                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintEnd_toStartOf="@id/disconnectButton"
                 app:singleSelection="true"
                 app:selectionRequired="true"
                 app:checkedButton="@id/display_mode_normal_button">
@@ -112,6 +112,18 @@
                     app:strokeColor="@color/stream_text"/>
 
         </com.google.android.material.button.MaterialButtonToggleGroup>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/disconnectButton"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:text="@string/stream_disconnect_button"
+            android:textColor="@color/stream_text"
+            app:strokeColor="@color/stream_text"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"/>
 
     </androidx.constraintlayout.widget.ConstraintLayout>
 

@@ -95,6 +95,11 @@ class Preferences(context: Context)
 		get() = sharedPreferences.getBoolean(logVerboseKey, false)
 		set(value) { sharedPreferences.edit().putBoolean(logVerboseKey, value).apply() }
 
+	val pipEnabledKey get() = resources.getString(R.string.preferences_pip_enabled_key)
+	var pipEnabled
+		get() = sharedPreferences.getBoolean(pipEnabledKey, true)
+		set(value) { sharedPreferences.edit().putBoolean(pipEnabledKey, value).apply() }
+
 	val swapCrossMoonKey get() = resources.getString(R.string.preferences_swap_cross_moon_key)
 	var swapCrossMoon
 		get() = sharedPreferences.getBoolean(swapCrossMoonKey, false)
@@ -172,6 +177,60 @@ class Preferences(context: Context)
 		tokenManager.clearNpssoToken()
 	}
 
+	// ==========================================================================
+	// PSN Remote Play token storage (for holepunch-based console connections)
+	// These are separate from the NPSSO token used for cloud play
+	// ==========================================================================
+	private val PSN_AUTH_TOKEN_KEY = "psn_rp_auth_token"
+	private val PSN_REFRESH_TOKEN_KEY = "psn_rp_refresh_token"
+	private val PSN_AUTH_TOKEN_EXPIRY_KEY = "psn_rp_auth_token_expiry"
+	private val PSN_ACCOUNT_ID_KEY = "psn_rp_account_id"
+	private val PSN_DUID_KEY = "psn_rp_duid"
+
+	var psnAuthToken: String
+		get() = sharedPreferences.getString(PSN_AUTH_TOKEN_KEY, "") ?: ""
+		set(value) { sharedPreferences.edit().putString(PSN_AUTH_TOKEN_KEY, value).apply() }
+
+	var psnRefreshToken: String
+		get() = sharedPreferences.getString(PSN_REFRESH_TOKEN_KEY, "") ?: ""
+		set(value) { sharedPreferences.edit().putString(PSN_REFRESH_TOKEN_KEY, value).apply() }
+
+	var psnAuthTokenExpiry: Long
+		get() = sharedPreferences.getLong(PSN_AUTH_TOKEN_EXPIRY_KEY, 0L)
+		set(value) { sharedPreferences.edit().putLong(PSN_AUTH_TOKEN_EXPIRY_KEY, value).apply() }
+
+	/** Base64-encoded 8-byte PSN account ID */
+	var psnAccountId: String
+		get() = sharedPreferences.getString(PSN_ACCOUNT_ID_KEY, "") ?: ""
+		set(value) { sharedPreferences.edit().putString(PSN_ACCOUNT_ID_KEY, value).apply() }
+
+	/** Client device DUID for PSN holepunch auth (generated once, reused) */
+	var psnDuid: String
+		get() = sharedPreferences.getString(PSN_DUID_KEY, "") ?: ""
+		set(value) { sharedPreferences.edit().putString(PSN_DUID_KEY, value).apply() }
+
+	val hasPsnRemotePlayTokens: Boolean
+		get() = psnAuthToken.isNotEmpty() && psnRefreshToken.isNotEmpty()
+
+	val isPsnTokenExpired: Boolean
+		get()
+		{
+			val expiry = psnAuthTokenExpiry
+			if(expiry == 0L) return true
+			// Give 60 seconds buffer
+			return System.currentTimeMillis() + 60_000 >= expiry
+		}
+
+	fun clearPsnRemotePlayTokens()
+	{
+		sharedPreferences.edit()
+			.remove(PSN_AUTH_TOKEN_KEY)
+			.remove(PSN_REFRESH_TOKEN_KEY)
+			.remove(PSN_AUTH_TOKEN_EXPIRY_KEY)
+			.remove(PSN_ACCOUNT_ID_KEY)
+			.apply()
+	}
+
 	// Cloud language settings - UNIFIED for both PSNow and PSCloud (matching Qt GetCloudLanguagePSCloud)
 	// Qt uses ONE setting for both PSNow and PSCloud
 	fun getCloudLanguage(): String
@@ -182,6 +241,30 @@ class Preferences(context: Context)
 	fun setCloudLanguage(value: String)
 	{
 		sharedPreferences.edit().putString("cloud_language_pscloud", value).apply()
+	}
+	
+	// Cloud resolution settings (matching Qt GetCloudResolutionPSNOW/SetCloudResolutionPSNOW)
+	val cloudResolutionPsnowKey get() = resources.getString(R.string.preferences_cloud_resolution_psnow_key)
+	fun getCloudResolutionPsnow(): Int
+	{
+		return sharedPreferences.getString(cloudResolutionPsnowKey, "720")?.toIntOrNull() ?: 720
+	}
+	
+	fun setCloudResolutionPsnow(value: Int)
+	{
+		sharedPreferences.edit().putString(cloudResolutionPsnowKey, value.toString()).apply()
+	}
+	
+	// Cloud resolution settings for PSCloud (matching Qt GetCloudResolutionPSCloud/SetCloudResolutionPSCloud)
+	val cloudResolutionPscloudKey get() = resources.getString(R.string.preferences_cloud_resolution_pscloud_key)
+	fun getCloudResolutionPscloud(): Int
+	{
+		return sharedPreferences.getString(cloudResolutionPscloudKey, "720")?.toIntOrNull() ?: 720
+	}
+	
+	fun setCloudResolutionPscloud(value: Int)
+	{
+		sharedPreferences.edit().putString(cloudResolutionPscloudKey, value.toString()).apply()
 	}
 
 	// Cloud datacenter settings (matching Qt GetCloudDatacenterPSNOW/SetCloudDatacenterPSNOW)

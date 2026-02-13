@@ -50,6 +50,21 @@
 #endif
 
 #include <curl/curl.h>
+
+#ifdef __ANDROID__
+// mbedTLS (Android SSL backend) doesn't support CURLOPT_CAPATH or env vars.
+// Intercept all curl_easy_init() calls to set CURLOPT_CAINFO from CHIAKI_CA_BUNDLE env var.
+static inline CURL* _chiaki_android_curl_easy_init(void) {
+    CURL *curl = curl_easy_init();
+    if(curl) {
+        const char *ca_bundle = getenv("CHIAKI_CA_BUNDLE");
+        if(ca_bundle)
+            curl_easy_setopt(curl, CURLOPT_CAINFO, ca_bundle);
+    }
+    return curl;
+}
+#define curl_easy_init() _chiaki_android_curl_easy_init()
+#endif
 #include <json-c/json_object.h>
 #include <json-c/json_tokener.h>
 #include <json-c/json_pointer.h>

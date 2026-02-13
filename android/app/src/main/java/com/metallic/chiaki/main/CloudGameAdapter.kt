@@ -88,29 +88,34 @@ class CloudGameAdapter(
 				if (isFav) R.drawable.ic_star_filled else R.drawable.ic_star_outline
 			)
 
-			// Load game image using Coil with error logging
-			if (game.imageUrl.isEmpty())
-			{
-				Log.w(TAG, "Empty imageUrl for game: ${game.name}")
-				binding.gameImageView.setImageResource(R.drawable.ic_console_simple)
+		// Load game image using Coil with error logging
+		if (game.imageUrl.isEmpty())
+		{
+			Log.w(TAG, "Empty imageUrl for game: ${game.name}")
+			binding.gameImageView.setImageResource(android.R.drawable.ic_menu_gallery)
+			binding.loadingSpinner?.visibility = android.view.View.GONE
+		}
+		else
+		{
+			binding.loadingSpinner?.visibility = android.view.View.VISIBLE
+			binding.gameImageView.load(game.imageUrl) {
+				crossfade(true)
+				listener(
+					onStart = {
+						binding.loadingSpinner?.visibility = android.view.View.VISIBLE
+					},
+					onError = { request, result ->
+						binding.loadingSpinner?.visibility = android.view.View.GONE
+						Log.e(TAG, "Failed to load image for '${game.name}': ${result.throwable.message}")
+						Log.e(TAG, "  URL: ${game.imageUrl}")
+					},
+					onSuccess = { request, result ->
+						binding.loadingSpinner?.visibility = android.view.View.GONE
+						Log.v(TAG, "Successfully loaded image for: ${game.name}")
+					}
+				)
 			}
-			else
-			{
-				binding.gameImageView.load(game.imageUrl) {
-					crossfade(true)
-					placeholder(R.drawable.ic_console_simple)
-					error(R.drawable.ic_console_simple)
-					listener(
-						onError = { request, result ->
-							Log.e(TAG, "Failed to load image for '${game.name}': ${result.throwable.message}")
-							Log.e(TAG, "  URL: ${game.imageUrl}")
-						},
-						onSuccess = { request, result ->
-							Log.v(TAG, "Successfully loaded image for: ${game.name}")
-						}
-					)
-				}
-			}
+		}
 
 			// No focus handling needed - game name is always visible
 

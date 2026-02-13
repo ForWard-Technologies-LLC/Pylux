@@ -79,8 +79,27 @@ data class ConnectInfo(
 	val cloudPsnWrapperType: Int = 0,
 	val cloudMtuIn: Int = 0,
 	val cloudMtuOut: Int = 0,
-	val cloudRttUs: Long = 0L
+	val cloudRttUs: Long = 0L,
+	// PSN Remote Play fields (for holepunch connections)
+	val duid: String? = null,
+	val psnToken: String? = null,
+	val psnAccountId: String? = null, // base64-encoded 8-byte account ID
+	val holepunchSessionPtr: Long = 0L,
+	val autoRegist: Boolean = false // true for PSN auto-registration via holepunch
 ): Parcelable
+
+/** Device info returned by PSN holepunch device listing */
+data class PsnDevice(
+	val type: Int, // 0 = PS4, 1 = PS5
+	val deviceName: String,
+	val deviceUid: ByteArray, // 32 bytes DUID
+	val remoteplayEnabled: Boolean
+)
+{
+	/** Get DUID as hex string */
+	val duidHex: String get() = deviceUid.joinToString("") { "%02x".format(it) }
+	val isPS5: Boolean get() = type == 1
+}
 
 private class ChiakiNative
 {
@@ -91,6 +110,7 @@ private class ChiakiNative
 		{
 			System.loadLibrary("chiaki-jni")
 		}
+		@JvmStatic external fun initNativeSsl(cacheDir: String)
 		@JvmStatic external fun errorCodeToString(value: Int): String
 		@JvmStatic external fun quitReasonToString(value: Int): String
 		@JvmStatic external fun quitReasonIsError(value: Int): Boolean
@@ -109,9 +129,141 @@ private class ChiakiNative
 		@JvmStatic external fun registStart(result: CreateResult, registInfo: RegistInfo, javaLog: ChiakiLog, javaRegist: Regist)
 		@JvmStatic external fun registStop(ptr: Long)
 		@JvmStatic external fun registFree(ptr: Long)
+
+		// Holepunch JNI functions for PSN Remote Play
+		@JvmStatic external fun holepunchListDevices(token: String, consoleType: Int, syncGames: Boolean): Array<PsnDevice>?
+		@JvmStatic external fun holepunchSessionInit(token: String): Long
+		@JvmStatic external fun holepunchSessionCreate(sessionPtr: Long): Int
+		@JvmStatic external fun holepunchSessionCreateOffer(sessionPtr: Long): Int
+		@JvmStatic external fun holepunchSessionStart(sessionPtr: Long, duidBytes: ByteArray, consoleType: Int): Int
+		@JvmStatic external fun holepunchSessionPunchHole(sessionPtr: Long, portType: Int): Int
+		@JvmStatic external fun holepunchUpnpDiscover(sessionPtr: Long): Int
+		@JvmStatic external fun holepunchSessionFini(sessionPtr: Long)
+		@JvmStatic external fun holepunchMainThreadCancel(sessionPtr: Long, stopThread: Boolean)
+		@JvmStatic external fun holepunchGetRegistInfoData1(sessionPtr: Long): ByteArray?
+		@JvmStatic external fun holepunchGetRegistInfoData2(sessionPtr: Long): ByteArray?
+		@JvmStatic external fun holepunchGetRegistInfoCustomData1(sessionPtr: Long): ByteArray?
+		@JvmStatic external fun holepunchGetRegistInfoLocalIp(sessionPtr: Long): String?
 	}
 }
 
+/** Holepunch port types */
+object HolepunchPortType
+{
+	const val CTRL = 0
+	const val DATA = 1
+}
+
+/** Console types for holepunch */
+object HolepunchConsoleType
+{
+	const val PS4 = 0
+	const val PS5 = 1
+}
+
+/**
+ * Kotlin wrapper for a native ChiakiHolepunchSession lifecycle.
+ * Manages the holepunch connection steps for PSN Remote Play.
+ */
+class HolepunchSession(token: String)
+{
+	private var nativePtr: Long = ChiakiNative.holepunchSessionInit(token)
+	val isValid: Boolean get() = nativePtr != 0L
+
+	init
+	{
+		Log.i(TAG, "HolepunchSession init: ptr=$nativePtr")
+		if(nativePtr == 0L)
+			throw CreateError(ErrorCode(-1))
+	}
+
+	fun upnpDiscover(): ErrorCode
+	{
+		Log.i(TAG, "upnpDiscover()")
+		val r = ErrorCode(ChiakiNative.holepunchUpnpDiscover(nativePtr))
+		Log.i(TAG, "upnpDiscover() -> $r (success=${r.isSuccess})")
+		return r
+	}
+
+	fun create(): ErrorCode
+	{
+		Log.i(TAG, "create()")
+		val r = ErrorCode(ChiakiNative.holepunchSessionCreate(nativePtr))
+		Log.i(TAG, "create() -> $r (success=${r.isSuccess})")
+		return r
+	}
+
+	fun createOffer(): ErrorCode
+	{
+		Log.i(TAG, "createOffer()")
+		val r = ErrorCode(ChiakiNative.holepunchSessionCreateOffer(nativePtr))
+		Log.i(TAG, "createOffer() -> $r (success=${r.isSuccess})")
+		return r
+	}
+
+	fun start(duidBytes: ByteArray, consoleType: Int): ErrorCode
+	{
+		Log.i(TAG, "start(duidBytes=${duidBytes.size} bytes, consoleType=$consoleType)")
+		val r = ErrorCode(ChiakiNative.holepunchSessionStart(nativePtr, duidBytes, consoleType))
+		Log.i(TAG, "start() -> $r (success=${r.isSuccess})")
+		return r
+	}
+
+	fun punchHole(portType: Int): ErrorCode
+	{
+		val portName = if(portType == HolepunchPortType.CTRL) "CTRL" else "DATA"
+		Log.i(TAG, "punchHole($portName)")
+		val r = ErrorCode(ChiakiNative.holepunchSessionPunchHole(nativePtr, portType))
+		Log.i(TAG, "punchHole($portName) -> $r (success=${r.isSuccess})")
+		return r
+	}
+
+	fun cancel(stopThread: Boolean = true)
+	{
+		Log.i(TAG, "cancel(stopThread=$stopThread)")
+		if(nativePtr != 0L)
+			ChiakiNative.holepunchMainThreadCancel(nativePtr, stopThread)
+	}
+
+	fun fini()
+	{
+		Log.i(TAG, "fini() ptr=$nativePtr")
+		if(nativePtr != 0L)
+		{
+			ChiakiNative.holepunchSessionFini(nativePtr)
+			nativePtr = 0L
+		}
+	}
+
+	/** Get the native pointer for passing to session creation */
+	fun getPtr(): Long = nativePtr
+
+	companion object
+	{
+		private const val TAG = "HolepunchSession"
+
+		/**
+		 * List PSN devices associated with the account.
+		 * @param token PSN OAuth2 access token
+		 * @param consoleType HolepunchConsoleType.PS4 or PS5
+		 * @param syncGames whether to sync installed games list
+		 * @return list of PsnDevice or null on error
+		 */
+		fun listDevices(token: String, consoleType: Int, syncGames: Boolean = false): List<PsnDevice>?
+		{
+			val typeName = if(consoleType == HolepunchConsoleType.PS5) "PS5" else "PS4"
+			Log.i(TAG, "listDevices(type=$typeName)")
+			val result = ChiakiNative.holepunchListDevices(token, consoleType, syncGames)?.toList()
+			Log.i(TAG, "listDevices(type=$typeName) -> ${result?.size ?: "null"} devices")
+			result?.forEach { d -> Log.i(TAG, "  device: name=${d.deviceName}, duid=${d.duidHex.take(16)}..., remoteplay=${d.remoteplayEnabled}") }
+			return result
+		}
+	}
+}
+
+
+/** Initialize native SSL CA bundle for curl+mbedTLS on Android. Call once at app startup. */
+fun initNativeSsl(cacheDir: String) = ChiakiNative.initNativeSsl(cacheDir)
 
 class ErrorCode(val value: Int)
 {
@@ -328,6 +480,8 @@ object ConnectedEvent: Event()
 data class LoginPinRequestEvent(val pinIncorrect: Boolean): Event()
 data class QuitEvent(val reason: QuitReason, val reasonString: String?): Event()
 data class RumbleEvent(val left: UByte, val right: UByte): Event()
+data class AutoRegistEvent(val host: RegistHost): Event()
+object HolepunchEvent: Event()
 
 class CreateError(val errorCode: ErrorCode): Exception("Failed to create a native object: $errorCode")
 
@@ -386,6 +540,16 @@ class Session(connectInfo: ConnectInfo, logFile: String?, logVerbose: Boolean)
 	private fun eventRumble(left: Int, right: Int)
 	{
 		event(RumbleEvent(left.toUByte(), right.toUByte()))
+	}
+
+	private fun eventRegist(host: RegistHost)
+	{
+		event(AutoRegistEvent(host))
+	}
+
+	private fun eventHolepunch()
+	{
+		event(HolepunchEvent)
 	}
 
 	fun setSurface(surface: Surface?)

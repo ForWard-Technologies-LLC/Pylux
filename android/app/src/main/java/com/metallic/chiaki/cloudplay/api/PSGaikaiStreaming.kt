@@ -1384,8 +1384,16 @@ catch (e: Exception)
 	spec.put("cloudEndpoint", "https://cc.prod.gaikai.com")
 	spec.put("redirectUri", redirectUriUrl)
 		
-		// Video Resolution (common calculation)
-		val resolution = 1080 // TODO: get from settings
+		// Video Resolution (read from settings based on service type)
+		val resolution = if (serviceType == "pscloud")
+		{
+			preferences.getCloudResolutionPscloud()  // PSCloud supports up to 4K
+		}
+		else
+		{
+			preferences.getCloudResolutionPsnow()  // PSNOW supports up to 1080p
+		}
+		
 		val resolutionSetting: String
 		val clientWidth: Int
 		val clientHeight: Int

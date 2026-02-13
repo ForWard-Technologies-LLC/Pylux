@@ -10,8 +10,13 @@
 #include <chiaki/discoveryservice.h>
 #include <chiaki/regist.h>
 #include <chiaki/senkusha.h>
+#include <chiaki/remote/holepunch.h>
+#include <chiaki/base64.h>
 
 #include <string.h>
+#include <stdlib.h>
+#include <dirent.h>
+#include <sys/stat.h>
 #include <linux/in.h>
 #include <linux/in6.h>
 #include <arpa/inet.h>
@@ -79,6 +84,55 @@ static jobject get_kotlin_global_object(JNIEnv *env, const char *id)
 static ChiakiLog global_log;
 JavaVM *global_vm;
 
+// Path to the CA bundle created at startup for curl+mbedTLS
+static char g_ca_bundle_path[512] = {0};
+
+static void android_create_ca_bundle(const char *cache_dir)
+{
+	// mbedTLS (used by curl on Android) requires a single PEM bundle file via CURLOPT_CAINFO.
+	// It does NOT support CURLOPT_CAPATH (directory) or env vars.
+	// Concatenate system CA certs into a single PEM bundle in the app's cache dir.
+	const char *ca_dir = "/system/etc/security/cacerts";
+	snprintf(g_ca_bundle_path, sizeof(g_ca_bundle_path), "%s/ca-bundle.pem", cache_dir);
+
+	// Check if bundle already exists and is non-empty (skip recreation)
+	struct stat st;
+	if(stat(g_ca_bundle_path, &st) == 0 && st.st_size > 10000)
+		return;
+
+	FILE *bundle = fopen(g_ca_bundle_path, "w");
+	if(!bundle)
+		return;
+
+	DIR *dir = opendir(ca_dir);
+	if(!dir)
+	{
+		fclose(bundle);
+		return;
+	}
+
+	struct dirent *entry;
+	char filepath[512];
+	while((entry = readdir(dir)) != NULL)
+	{
+		if(entry->d_name[0] == '.')
+			continue;
+		snprintf(filepath, sizeof(filepath), "%s/%s", ca_dir, entry->d_name);
+		FILE *cert = fopen(filepath, "r");
+		if(!cert)
+			continue;
+		char buf[4096];
+		size_t n;
+		while((n = fread(buf, 1, sizeof(buf), cert)) > 0)
+			fwrite(buf, 1, n, bundle);
+		fwrite("\n", 1, 1, bundle);
+		fclose(cert);
+	}
+	closedir(dir);
+	fclose(bundle);
+}
+
+
 JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *reserved)
 {
 	global_vm = vm;
@@ -102,6 +156,19 @@ JNIEnv *attach_thread_jni()
 
 	CHIAKI_LOGE(&global_log, "Failed to get JNIEnv from JavaVM or attach");
 	return NULL;
+}
+
+JNIEXPORT void JNICALL JNI_FCN(initNativeSsl)(JNIEnv *env, jobject obj, jstring cache_dir_str)
+{
+	const char *cache_dir = E->GetStringUTFChars(env, cache_dir_str, NULL);
+	if(cache_dir)
+	{
+		android_create_ca_bundle(cache_dir);
+		// Set env var so the #define macro in holepunch.c can pick it up
+		setenv("CHIAKI_CA_BUNDLE", g_ca_bundle_path, 1);
+		CHIAKI_LOGI(&global_log, "CA bundle created at: %s", g_ca_bundle_path);
+		E->ReleaseStringUTFChars(env, cache_dir_str, cache_dir);
+	}
 }
 
 JNIEXPORT jstring JNICALL JNI_FCN(errorCodeToString)(JNIEnv *env, jobject obj, jint value)
@@ -138,6 +205,13 @@ typedef struct android_chiaki_session_t
 	jmethodID java_session_event_login_pin_request_meth;
 	jmethodID java_session_event_quit_meth;
 	jmethodID java_session_event_rumble_meth;
+	jmethodID java_session_event_regist_meth;
+	jmethodID java_session_event_holepunch_meth;
+	// Cached class refs for CHIAKI_EVENT_REGIST (FindClass doesn't work from native threads)
+	jclass java_target_class;
+	jmethodID java_target_from_value;
+	jclass java_regist_host_class;
+	jmethodID java_regist_host_ctor;
 	jfieldID java_controller_state_buttons;
 	jfieldID java_controller_state_l2_state;
 	jfieldID java_controller_state_r2_state;
@@ -205,6 +279,36 @@ static void android_chiaki_event_cb(ChiakiEvent *event, void *user)
 							  (jint)event->rumble.left,
 							  (jint)event->rumble.right);
 			break;
+		case CHIAKI_EVENT_REGIST:
+		{
+			// Auto-registration succeeded - pass registered host data to Kotlin
+			// Uses cached class refs (FindClass doesn't work from native-attached threads)
+			ChiakiRegisteredHost *host = &event->host;
+			jobject target_obj = E->CallStaticObjectMethod(env, session->java_target_class,
+				session->java_target_from_value, (jint)host->target);
+
+			jobject regist_host_obj = E->NewObject(env, session->java_regist_host_class,
+				session->java_regist_host_ctor,
+				target_obj,
+				jnistr_from_ascii(env, host->ap_ssid),
+				jnistr_from_ascii(env, host->ap_bssid),
+				jnistr_from_ascii(env, host->ap_key),
+				jnistr_from_ascii(env, host->ap_name),
+				jnibytearray_create(env, host->server_mac, sizeof(host->server_mac)),
+				jnistr_from_ascii(env, host->server_nickname),
+				jnibytearray_create(env, (const uint8_t *)host->rp_regist_key, sizeof(host->rp_regist_key)),
+				(jint)host->rp_key_type,
+				jnibytearray_create(env, host->rp_key, sizeof(host->rp_key)));
+
+			E->CallVoidMethod(env, session->java_session,
+							  session->java_session_event_regist_meth,
+							  regist_host_obj);
+			break;
+		}
+		case CHIAKI_EVENT_HOLEPUNCH:
+			E->CallVoidMethod(env, session->java_session,
+							  session->java_session_event_holepunch_meth);
+			break;
 		default:
 			break;
 	}
@@ -246,25 +350,75 @@ JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject 
 		goto beach;
 	}
 
-	if(E->GetArrayLength(env, regist_key_array) != sizeof(connect_info.regist_key))
-	{
-		CHIAKI_LOGE(log, "Regist Key passed from Java has invalid length");
-		err = CHIAKI_ERR_INVALID_DATA;
-		goto beach;
-	}
-	jbyte *bytes = E->GetByteArrayElements(env, regist_key_array, NULL);
-	memcpy(connect_info.regist_key, bytes, sizeof(connect_info.regist_key));
-	E->ReleaseByteArrayElements(env, regist_key_array, bytes, JNI_ABORT);
+	// PSN Remote Play fields
+	jstring duid_string = E->GetObjectField(env, connect_info_obj, E->GetFieldID(env, connect_info_class, "duid", "Ljava/lang/String;"));
+	jlong holepunch_session_ptr = E->GetLongField(env, connect_info_obj, E->GetFieldID(env, connect_info_class, "holepunchSessionPtr", "J"));
+	jstring psn_account_id_string = E->GetObjectField(env, connect_info_obj, E->GetFieldID(env, connect_info_class, "psnAccountId", "Ljava/lang/String;"));
 
-	if(E->GetArrayLength(env, morning_array) != sizeof(connect_info.morning))
+	bool is_psn_connection = false;
+	if(duid_string)
 	{
-		CHIAKI_LOGE(log, "Morning passed from Java has invalid length");
-		err = CHIAKI_ERR_INVALID_DATA;
-		goto beach;
+		const char *duid_str = E->GetStringUTFChars(env, duid_string, NULL);
+		if(duid_str && strlen(duid_str) > 0)
+		{
+			is_psn_connection = true;
+			CHIAKI_LOGI(log, "JNI: PSN connection mode (duid=%s, holepunch_session=%p)", duid_str, (void *)holepunch_session_ptr);
+		}
+		E->ReleaseStringUTFChars(env, duid_string, duid_str);
 	}
-	bytes = E->GetByteArrayElements(env, morning_array, NULL);
-	memcpy(connect_info.morning, bytes, sizeof(connect_info.morning));
-	E->ReleaseByteArrayElements(env, morning_array, bytes, JNI_ABORT);
+
+	if(is_psn_connection)
+	{
+		// PSN connection: skip regist_key/morning validation, set holepunch session
+		CHIAKI_LOGI(log, "JNI: PSN connection: skipping regist_key/morning validation (using holepunch)");
+		connect_info.holepunch_session = (ChiakiHolepunchSession)holepunch_session_ptr;
+
+		// Parse PSN account ID (base64-encoded)
+		if(psn_account_id_string)
+		{
+			const char *account_id_b64 = E->GetStringUTFChars(env, psn_account_id_string, NULL);
+			if(account_id_b64 && strlen(account_id_b64) > 0)
+			{
+				size_t account_id_len = sizeof(connect_info.psn_account_id);
+				ChiakiErrorCode decode_err = chiaki_base64_decode(account_id_b64, strlen(account_id_b64),
+					connect_info.psn_account_id, &account_id_len);
+				if(decode_err != CHIAKI_ERR_SUCCESS || account_id_len != CHIAKI_PSN_ACCOUNT_ID_SIZE)
+				{
+					CHIAKI_LOGE(log, "JNI: Failed to decode PSN account ID (err=%d, len=%zu)", decode_err, account_id_len);
+				}
+				else
+				{
+					CHIAKI_LOGI(log, "JNI: PSN account ID decoded successfully (%zu bytes)", account_id_len);
+				}
+			}
+			E->ReleaseStringUTFChars(env, psn_account_id_string, account_id_b64);
+		}
+	}
+	else
+	{
+		// Local connection: validate regist_key and morning
+		connect_info.holepunch_session = NULL;
+
+		if(E->GetArrayLength(env, regist_key_array) != sizeof(connect_info.regist_key))
+		{
+			CHIAKI_LOGE(log, "Regist Key passed from Java has invalid length");
+			err = CHIAKI_ERR_INVALID_DATA;
+			goto beach;
+		}
+		jbyte *bytes = E->GetByteArrayElements(env, regist_key_array, NULL);
+		memcpy(connect_info.regist_key, bytes, sizeof(connect_info.regist_key));
+		E->ReleaseByteArrayElements(env, regist_key_array, bytes, JNI_ABORT);
+
+		if(E->GetArrayLength(env, morning_array) != sizeof(connect_info.morning))
+		{
+			CHIAKI_LOGE(log, "Morning passed from Java has invalid length");
+			err = CHIAKI_ERR_INVALID_DATA;
+			goto beach;
+		}
+		bytes = E->GetByteArrayElements(env, morning_array, NULL);
+		memcpy(connect_info.morning, bytes, sizeof(connect_info.morning));
+		E->ReleaseByteArrayElements(env, morning_array, bytes, JNI_ABORT);
+	}
 
 	connect_info.video_profile.width = (unsigned int)E->GetIntField(env, connect_video_profile_obj, E->GetFieldID(env, connect_video_profile_class, "width", "I"));
 	connect_info.video_profile.height = (unsigned int)E->GetIntField(env, connect_video_profile_obj, E->GetFieldID(env, connect_video_profile_class, "height", "I"));
@@ -277,6 +431,10 @@ JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject 
 	connect_info.video_profile.codec = (ChiakiCodec)target_value;
 
 	connect_info.video_profile_auto_downgrade = true;
+
+	// Auto-registration field (for PSN remote registration)
+	jboolean auto_regist = E->GetBooleanField(env, connect_info_obj, E->GetFieldID(env, connect_info_class, "autoRegist", "Z"));
+	connect_info.auto_regist = auto_regist;
 
 	// Cloud streaming fields (optional, null for remote play)
 	jstring service_type_string = E->GetObjectField(env, connect_info_obj, E->GetFieldID(env, connect_info_class, "serviceType", "Ljava/lang/String;"));
@@ -430,6 +588,25 @@ JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject 
 	session->java_session_event_login_pin_request_meth = E->GetMethodID(env, session->java_session_class, "eventLoginPinRequest", "(Z)V");
 	session->java_session_event_quit_meth = E->GetMethodID(env, session->java_session_class, "eventQuit", "(ILjava/lang/String;)V");
 	session->java_session_event_rumble_meth = E->GetMethodID(env, session->java_session_class, "eventRumble", "(II)V");
+	session->java_session_event_regist_meth = E->GetMethodID(env, session->java_session_class, "eventRegist", "(L"BASE_PACKAGE"/RegistHost;)V");
+	session->java_session_event_holepunch_meth = E->GetMethodID(env, session->java_session_class, "eventHolepunch", "()V");
+
+	// Cache class refs for CHIAKI_EVENT_REGIST (FindClass won't work from native threads)
+	session->java_target_class = E->NewGlobalRef(env, E->FindClass(env, BASE_PACKAGE"/Target"));
+	session->java_target_from_value = E->GetStaticMethodID(env, session->java_target_class, "fromValue", "(I)L"BASE_PACKAGE"/Target;");
+	session->java_regist_host_class = E->NewGlobalRef(env, E->FindClass(env, BASE_PACKAGE"/RegistHost"));
+	session->java_regist_host_ctor = E->GetMethodID(env, session->java_regist_host_class, "<init>", "("
+		"L"BASE_PACKAGE"/Target;"
+		"Ljava/lang/String;"
+		"Ljava/lang/String;"
+		"Ljava/lang/String;"
+		"Ljava/lang/String;"
+		"[B"
+		"Ljava/lang/String;"
+		"[B"
+		"I"
+		"[B"
+		")V");
 
 	jclass controller_state_class = E->FindClass(env, BASE_PACKAGE"/ControllerState");
 	session->java_controller_state_buttons = E->GetFieldID(env, controller_state_class, "buttons", "I");
@@ -493,6 +670,8 @@ JNIEXPORT void JNICALL JNI_FCN(sessionFree)(JNIEnv *env, jobject obj, jlong ptr)
 	android_chiaki_audio_output_free(session->audio_output);
 	E->DeleteGlobalRef(env, session->java_session);
 	E->DeleteGlobalRef(env, session->java_session_class);
+	E->DeleteGlobalRef(env, session->java_target_class);
+	E->DeleteGlobalRef(env, session->java_regist_host_class);
 	CHIAKI_LOGI(session->log, "JNI Session has quit");
 	android_chiaki_file_log_fini(session->log);
 	free(session->log);
@@ -947,6 +1126,186 @@ JNIEXPORT void JNICALL JNI_FCN(registFree)(JNIEnv *env, jobject obj, jlong ptr)
 	chiaki_regist_fini(&regist->regist);
 	android_chiaki_regist_fini_partial(env, regist);
 	free(regist);
+}
+
+// ============================================================================
+// Holepunch JNI functions for PSN Remote Play
+// ============================================================================
+
+static uint8_t hex_char_to_nibble(char c)
+{
+	if(c >= '0' && c <= '9') return c - '0';
+	if(c >= 'a' && c <= 'f') return c - 'a' + 10;
+	if(c >= 'A' && c <= 'F') return c - 'A' + 10;
+	return 0;
+}
+
+static void hex_string_to_bytes(const char *hex, uint8_t *out, size_t out_len)
+{
+	for(size_t i = 0; i < out_len; i++)
+	{
+		out[i] = (hex_char_to_nibble(hex[i*2]) << 4) | hex_char_to_nibble(hex[i*2+1]);
+	}
+}
+
+JNIEXPORT jobjectArray JNICALL JNI_FCN(holepunchListDevices)(JNIEnv *env, jobject obj, jstring token_str, jint console_type, jboolean sync_games)
+{
+	const char *token = E->GetStringUTFChars(env, token_str, NULL);
+	if(!token)
+		return NULL;
+
+	ChiakiHolepunchDeviceInfo *devices = NULL;
+	size_t device_count = 0;
+
+	ChiakiLog log;
+	chiaki_log_init(&log, CHIAKI_LOG_ALL, log_cb_android, NULL);
+
+	ChiakiErrorCode err = chiaki_holepunch_list_devices(
+		token, (ChiakiHolepunchConsoleType)console_type, &devices, &device_count, (bool)sync_games, &log);
+
+	E->ReleaseStringUTFChars(env, token_str, token);
+
+	if(err != CHIAKI_ERR_SUCCESS)
+	{
+		CHIAKI_LOGE(&log, "JNI holepunchListDevices failed: %s", chiaki_error_string(err));
+		return NULL;
+	}
+
+	jclass device_class = E->FindClass(env, BASE_PACKAGE"/PsnDevice");
+	jmethodID device_ctor = E->GetMethodID(env, device_class, "<init>", "(ILjava/lang/String;[BZ)V");
+	jobjectArray result = E->NewObjectArray(env, device_count, device_class, NULL);
+
+	for(size_t i = 0; i < device_count; i++)
+	{
+		ChiakiHolepunchDeviceInfo *dev = &devices[i];
+		jstring name = jnistr_from_ascii(env, dev->device_name);
+		jbyteArray uid = jnibytearray_create(env, dev->device_uid, sizeof(dev->device_uid));
+		jobject device_obj = E->NewObject(env, device_class, device_ctor,
+			(jint)dev->type, name, uid, (jboolean)dev->remoteplay_enabled);
+		E->SetObjectArrayElement(env, result, i, device_obj);
+	}
+
+	chiaki_holepunch_free_device_list(&devices);
+	return result;
+}
+
+JNIEXPORT jlong JNICALL JNI_FCN(holepunchSessionInit)(JNIEnv *env, jobject obj, jstring token_str)
+{
+	const char *token = E->GetStringUTFChars(env, token_str, NULL);
+	if(!token)
+		return 0;
+
+	ChiakiLog *log = malloc(sizeof(ChiakiLog));
+	chiaki_log_init(log, CHIAKI_LOG_ALL, log_cb_android, NULL);
+
+	ChiakiHolepunchSession session = chiaki_holepunch_session_init(token, log);
+	E->ReleaseStringUTFChars(env, token_str, token);
+
+	if(!session)
+	{
+		CHIAKI_LOGE(log, "JNI holepunchSessionInit failed");
+		free(log);
+		return 0;
+	}
+
+	return (jlong)session;
+}
+
+JNIEXPORT jint JNICALL JNI_FCN(holepunchSessionCreate)(JNIEnv *env, jobject obj, jlong session_ptr)
+{
+	ChiakiHolepunchSession session = (ChiakiHolepunchSession)session_ptr;
+	if(!session)
+		return CHIAKI_ERR_INVALID_DATA;
+	return (jint)chiaki_holepunch_session_create(session);
+}
+
+JNIEXPORT jint JNICALL JNI_FCN(holepunchSessionCreateOffer)(JNIEnv *env, jobject obj, jlong session_ptr)
+{
+	ChiakiHolepunchSession session = (ChiakiHolepunchSession)session_ptr;
+	if(!session)
+		return CHIAKI_ERR_INVALID_DATA;
+	return (jint)holepunch_session_create_offer(session);
+}
+
+JNIEXPORT jint JNICALL JNI_FCN(holepunchSessionStart)(JNIEnv *env, jobject obj, jlong session_ptr, jbyteArray duid_bytes_arr, jint console_type)
+{
+	ChiakiHolepunchSession session = (ChiakiHolepunchSession)session_ptr;
+	if(!session)
+		return CHIAKI_ERR_INVALID_DATA;
+
+	jsize duid_len = E->GetArrayLength(env, duid_bytes_arr);
+	uint8_t *duid_bytes = (uint8_t *)malloc(duid_len);
+	E->GetByteArrayRegion(env, duid_bytes_arr, 0, duid_len, (jbyte *)duid_bytes);
+
+	ChiakiErrorCode err = chiaki_holepunch_session_start(session, duid_bytes, (ChiakiHolepunchConsoleType)console_type);
+	free(duid_bytes);
+	return (jint)err;
+}
+
+JNIEXPORT jint JNICALL JNI_FCN(holepunchSessionPunchHole)(JNIEnv *env, jobject obj, jlong session_ptr, jint port_type)
+{
+	ChiakiHolepunchSession session = (ChiakiHolepunchSession)session_ptr;
+	if(!session)
+		return CHIAKI_ERR_INVALID_DATA;
+	return (jint)chiaki_holepunch_session_punch_hole(session, (ChiakiHolepunchPortType)port_type);
+}
+
+JNIEXPORT jint JNICALL JNI_FCN(holepunchUpnpDiscover)(JNIEnv *env, jobject obj, jlong session_ptr)
+{
+	ChiakiHolepunchSession session = (ChiakiHolepunchSession)session_ptr;
+	if(!session)
+		return CHIAKI_ERR_INVALID_DATA;
+	return (jint)chiaki_holepunch_upnp_discover(session);
+}
+
+JNIEXPORT void JNICALL JNI_FCN(holepunchSessionFini)(JNIEnv *env, jobject obj, jlong session_ptr)
+{
+	ChiakiHolepunchSession session = (ChiakiHolepunchSession)session_ptr;
+	if(session)
+		chiaki_holepunch_session_fini(session);
+}
+
+JNIEXPORT void JNICALL JNI_FCN(holepunchMainThreadCancel)(JNIEnv *env, jobject obj, jlong session_ptr, jboolean stop_thread)
+{
+	ChiakiHolepunchSession session = (ChiakiHolepunchSession)session_ptr;
+	if(session)
+		chiaki_holepunch_main_thread_cancel(session, (bool)stop_thread);
+}
+
+JNIEXPORT jbyteArray JNICALL JNI_FCN(holepunchGetRegistInfoData1)(JNIEnv *env, jobject obj, jlong session_ptr)
+{
+	ChiakiHolepunchSession session = (ChiakiHolepunchSession)session_ptr;
+	if(!session)
+		return NULL;
+	ChiakiHolepunchRegistInfo info = chiaki_get_regist_info(session);
+	return jnibytearray_create(env, info.data1, sizeof(info.data1));
+}
+
+JNIEXPORT jbyteArray JNICALL JNI_FCN(holepunchGetRegistInfoData2)(JNIEnv *env, jobject obj, jlong session_ptr)
+{
+	ChiakiHolepunchSession session = (ChiakiHolepunchSession)session_ptr;
+	if(!session)
+		return NULL;
+	ChiakiHolepunchRegistInfo info = chiaki_get_regist_info(session);
+	return jnibytearray_create(env, info.data2, sizeof(info.data2));
+}
+
+JNIEXPORT jbyteArray JNICALL JNI_FCN(holepunchGetRegistInfoCustomData1)(JNIEnv *env, jobject obj, jlong session_ptr)
+{
+	ChiakiHolepunchSession session = (ChiakiHolepunchSession)session_ptr;
+	if(!session)
+		return NULL;
+	ChiakiHolepunchRegistInfo info = chiaki_get_regist_info(session);
+	return jnibytearray_create(env, info.custom_data1, sizeof(info.custom_data1));
+}
+
+JNIEXPORT jstring JNICALL JNI_FCN(holepunchGetRegistInfoLocalIp)(JNIEnv *env, jobject obj, jlong session_ptr)
+{
+	ChiakiHolepunchSession session = (ChiakiHolepunchSession)session_ptr;
+	if(!session)
+		return NULL;
+	ChiakiHolepunchRegistInfo info = chiaki_get_regist_info(session);
+	return E->NewStringUTF(env, info.regist_local_ip);
 }
 
 // Datacenter Ping JNI

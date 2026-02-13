@@ -42,7 +42,16 @@ class SettingsRegisteredHostsFragment: AppCompatDialogFragment(), TitleFragment
 		viewModel = ViewModelProvider(this, viewModelFactory { SettingsRegisteredHostsViewModel(getDatabase(context)) })
 			.get(SettingsRegisteredHostsViewModel::class.java)
 
-		val adapter = SettingsRegisteredHostsAdapter()
+		val adapter = SettingsRegisteredHostsAdapter { host ->
+			MaterialAlertDialogBuilder(context)
+				.setMessage(getString(R.string.alert_message_delete_registered_host, host.serverNickname, host.serverMac.toString()))
+				.setPositiveButton(R.string.action_delete) { _, _ ->
+					viewModel.deleteHost(host)
+				}
+				.setNegativeButton(R.string.action_keep, null)
+				.create()
+				.show()
+		}
 		binding.hostsRecyclerView.layoutManager = LinearLayoutManager(context)
 		binding.hostsRecyclerView.adapter = adapter
 		val itemTouchSwipeCallback = object : ItemTouchSwipeCallback(context)

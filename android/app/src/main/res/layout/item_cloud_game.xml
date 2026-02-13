@@ -23,6 +23,13 @@
             android:scaleType="centerCrop"
             android:contentDescription="Game cover image" />
 
+        <ProgressBar
+            android:id="@+id/loadingSpinner"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="center"
+            android:visibility="gone" />
+
         <ImageButton
             android:id="@+id/favoriteButton"
             android:layout_width="32dp"

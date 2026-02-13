@@ -17,10 +17,12 @@ import com.metallic.chiaki.cloudplay.PsnLoginActivity
 import com.metallic.chiaki.cloudplay.repository.CloudGameRepository
 import com.metallic.chiaki.common.LicenseAgreementActivity
 import com.metallic.chiaki.common.Preferences
+import com.metallic.chiaki.common.PsnTokenManager
 import com.metallic.chiaki.common.exportAndShareAllSettings
 import com.metallic.chiaki.common.ext.viewModelFactory
 import com.metallic.chiaki.common.getDatabase
 import com.metallic.chiaki.common.importSettingsFromUri
+import com.metallic.chiaki.discovery.PsnDiscoveryManager
 import io.reactivex.disposables.CompositeDisposable
 import io.reactivex.rxkotlin.addTo
 import kotlinx.coroutines.launch
@@ -160,11 +162,11 @@ class SettingsFragment: PreferenceFragmentCompat(), TitleFragment
 		// View License
 		preferenceScreen.findPreference<Preference>("view_license")?.setOnPreferenceClickListener { viewLicense(); true }
 		
-		// PSN Login
+		// Unified PSN Login (for both cloud streaming and remote play)
 		val psnLoginPreference = preferenceScreen.findPreference<Preference>("psn_login")
 		updatePsnLoginSummary(psnLoginPreference, preferences)
 		psnLoginPreference?.setOnPreferenceClickListener {
-			if (preferences.hasNpssoToken())
+			if (preferences.hasNpssoToken() || preferences.hasPsnRemotePlayTokens)
 			{
 				// User is logged in, show logout option
 				showLogoutDialog(preferences, psnLoginPreference)
@@ -211,6 +213,7 @@ class SettingsFragment: PreferenceFragmentCompat(), TitleFragment
 
 	override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?)
 	{
+		android.util.Log.i("SettingsFragment", "onActivityResult: requestCode=$requestCode, resultCode=$resultCode, hasData=${data != null}")
 		if(requestCode == PICK_SETTINGS_JSON_REQUEST && resultCode == Activity.RESULT_OK)
 		{
 			val activity = activity ?: return
@@ -222,14 +225,45 @@ class SettingsFragment: PreferenceFragmentCompat(), TitleFragment
 		{
 			val context = context ?: return
 			val preferences = Preferences(context)
-			
+			android.util.Log.i("SettingsFragment", "PSN Login result: resultCode=$resultCode")
+
 			when (resultCode)
 			{
 				Activity.RESULT_OK -> {
-					Toast.makeText(context, R.string.psn_login_success, Toast.LENGTH_SHORT).show()
-					// Update the preference summary
-					val psnLoginPreference = preferenceScreen.findPreference<Preference>("psn_login")
-					updatePsnLoginSummary(psnLoginPreference, preferences)
+					// NPSSO token obtained, now exchange for remote play tokens on background thread
+					val npssoFromIntent = data?.getStringExtra(com.metallic.chiaki.cloudplay.PsnLoginActivity.EXTRA_NPSSO_TOKEN) ?: ""
+					val npssoFromPrefs = preferences.getNpssoToken()
+					val npsso = npssoFromIntent.ifEmpty { npssoFromPrefs }
+					android.util.Log.i("SettingsFragment", "NPSSO obtained! fromIntent=${npssoFromIntent.length}, fromPrefs=${npssoFromPrefs.length}, using length=${npsso.length}")
+					
+					if(npsso.isNotEmpty())
+					{
+						Toast.makeText(context, "Setting up PSN login...", Toast.LENGTH_SHORT).show()
+						Thread {
+							val tokenManager = PsnTokenManager(preferences)
+							val exchangeSuccess = tokenManager.exchangeNpssoForTokens(npsso)
+							android.util.Log.i("SettingsFragment", "Token exchange result: $exchangeSuccess, accountId=${preferences.psnAccountId.take(8)}..., tokenExpiry=${preferences.psnAuthTokenExpiry}")
+							activity?.runOnUiThread {
+								if(exchangeSuccess)
+								{
+									Toast.makeText(context, "PSN login successful", Toast.LENGTH_SHORT).show()
+								}
+								else
+								{
+									Toast.makeText(context, "Token exchange failed", Toast.LENGTH_LONG).show()
+								}
+								val pref = preferenceScreen.findPreference<Preference>("psn_login")
+								updatePsnLoginSummary(pref, preferences)
+							}
+						}.start()
+					}
+					else
+					{
+						// Still successful for cloud streaming (NPSSO cookie saved)
+						Toast.makeText(context, R.string.psn_login_success, Toast.LENGTH_SHORT).show()
+						val psnLoginPreference = preferenceScreen.findPreference<Preference>("psn_login")
+						updatePsnLoginSummary(psnLoginPreference, preferences)
+					}
 				}
 				Activity.RESULT_CANCELED -> {
 					// User cancelled login
@@ -249,25 +283,33 @@ class SettingsFragment: PreferenceFragmentCompat(), TitleFragment
 	
 	private fun updatePsnLoginSummary(preference: Preference?, preferences: Preferences)
 	{
-		preference?.summary = if (preferences.hasNpssoToken())
-		{
-			getString(R.string.preferences_psn_login_summary_logged_in)
-		}
-		else
-		{
-			getString(R.string.preferences_psn_login_summary)
+		val hasNpsso = preferences.hasNpssoToken()
+		val hasRemotePlay = preferences.hasPsnRemotePlayTokens
+		
+		preference?.summary = when {
+			hasNpsso && hasRemotePlay -> {
+				val accountId = preferences.psnAccountId
+				if(accountId.isNotEmpty())
+					"Logged in (Account: ${accountId.take(8)}...)"
+				else
+					getString(R.string.preferences_psn_login_summary_logged_in)
+			}
+			hasNpsso -> getString(R.string.preferences_psn_login_summary_logged_in)
+			hasRemotePlay -> "Logged in (Remote Play only)"
+			else -> getString(R.string.preferences_psn_login_summary)
 		}
 	}
-	
+
 	private fun showLogoutDialog(preferences: Preferences, loginPreference: Preference?)
 	{
 		val context = context ?: return
 		androidx.appcompat.app.AlertDialog.Builder(context)
 			.setTitle(R.string.preferences_psn_logout_title)
-			.setMessage(R.string.preferences_psn_logout_message)
+			.setMessage("Are you sure you want to log out? This will clear both cloud streaming and remote play credentials.")
 			.setPositiveButton(R.string.preferences_psn_logout_confirm) { _, _ ->
-				// Clear token
+				// Clear both NPSSO token and remote play tokens
 				preferences.clearNpssoToken()
+				preferences.clearPsnRemotePlayTokens()
 				
 				// Clear cached cloud game data
 				lifecycleScope.launch {

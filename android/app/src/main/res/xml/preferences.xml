@@ -6,6 +6,12 @@
         app:key="category_general"
         app:title="@string/preferences_category_title_general">
         <Preference
+            app:key="psn_login"
+            app:title="@string/preferences_psn_login_title"
+            app:summary="@string/preferences_psn_login_summary"
+            app:icon="@drawable/ic_console_simple"/>
+
+        <Preference
             app:key="registered_hosts"
             tools:summary="@string/preferences_registered_hosts_summary"
             app:summary=" "
@@ -49,6 +55,13 @@
             app:title="@string/preferences_logs_title"
             app:fragment="com.metallic.chiaki.settings.SettingsLogsFragment"
             app:icon="@drawable/ic_log"/>
+
+        <SwitchPreference
+            app:key="@string/preferences_pip_enabled_key"
+            app:title="@string/preferences_pip_enabled_title"
+            app:summary="@string/preferences_pip_enabled_summary"
+            app:defaultValue="true"
+            app:icon="@drawable/ic_resolution"/>
     </PreferenceCategory>
 
     <PreferenceCategory
@@ -79,13 +92,40 @@
     </PreferenceCategory>
 
     <PreferenceCategory
-        app:key="category_cloud"
-        app:title="@string/preferences_category_title_cloud">
-        <Preference
-            app:key="psn_login"
-            app:title="@string/preferences_psn_login_title"
-            app:summary="@string/preferences_psn_login_summary"
-            app:icon="@drawable/ic_console_simple"/>
+        app:key="category_game_library"
+        app:title="@string/preferences_category_title_game_library">
+        
+        <ListPreference
+            app:key="@string/preferences_cloud_resolution_pscloud_key"
+            app:title="@string/preferences_cloud_resolution_pscloud_title"
+            app:summary="%s"
+            app:entries="@array/cloud_resolution_pscloud_entries"
+            app:entryValues="@array/cloud_resolution_pscloud_values"
+            app:defaultValue="720"
+            app:icon="@drawable/ic_resolution"/>
+        
+        <ListPreference
+            app:key="@string/preferences_cloud_datacenter_pscloud_key"
+            app:title="@string/preferences_cloud_datacenter_pscloud_title"
+            app:summary="%s"
+            app:entries="@array/cloud_datacenter_entries"
+            app:entryValues="@array/cloud_datacenter_values"
+            app:defaultValue="Auto"
+            app:icon="@drawable/ic_bitrate"/>
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        app:key="category_game_catalog"
+        app:title="@string/preferences_category_title_game_catalog">
+        
+        <ListPreference
+            app:key="@string/preferences_cloud_resolution_psnow_key"
+            app:title="@string/preferences_cloud_resolution_psnow_title"
+            app:summary="%s"
+            app:entries="@array/cloud_resolution_psnow_entries"
+            app:entryValues="@array/cloud_resolution_psnow_values"
+            app:defaultValue="720"
+            app:icon="@drawable/ic_resolution"/>
         
         <ListPreference
             app:key="@string/preferences_cloud_datacenter_psnow_key"
@@ -95,15 +135,6 @@
             app:entryValues="@array/cloud_datacenter_values"
             app:defaultValue="Auto"
             app:icon="@drawable/ic_bitrate"/>
-        
-        <ListPreference
-            app:key="@string/preferences_cloud_datacenter_pscloud_key"
-            app:title="@string/preferences_cloud_datacenter_pscloud_title"
-            app:summary="%s"
-            app:entries="@array/cloud_datacenter_entries"
-            app:entryValues="@array/cloud_datacenter_values"
-            app:defaultValue="Auto"
-            app:icon="@drawable/ic_gamepad"/>
     </PreferenceCategory>
 
     <PreferenceCategory

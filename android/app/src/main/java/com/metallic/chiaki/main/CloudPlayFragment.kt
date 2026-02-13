@@ -39,6 +39,10 @@ class CloudPlayFragment : Fragment()
 	private lateinit var binding: FragmentCloudPlayBinding
 	private lateinit var adapter: CloudGameAdapter
 	private lateinit var preferences: Preferences
+
+	/** Cloud sub-tabs hosted in the activity's toolbar (between the two pill islands) */
+	private val cloudTabLayout: com.google.android.material.tabs.TabLayout
+		get() = (requireActivity() as MainActivity).getCloudSubTabs()
 	
 	// Sort state: 0 = Default, 1 = A->Z, 2 = Z->A
 	private var sortState: Int = 0
@@ -208,7 +212,7 @@ class CloudPlayFragment : Fragment()
 		val currentSection = viewModel.getCurrentSection()
 		if (currentSection == "pscloud")
 		{
-			binding.cloudTabLayout.selectTab(binding.cloudTabLayout.getTabAt(1))
+			cloudTabLayout.selectTab(cloudTabLayout.getTabAt(1))
 			adapter.showOwnershipBadge = true
 			binding.sortOptionLayout.visibility = android.view.View.VISIBLE
 			binding.filterOptionLayout.visibility = android.view.View.VISIBLE
@@ -228,7 +232,7 @@ class CloudPlayFragment : Fragment()
 		}
 		else
 		{
-			binding.cloudTabLayout.selectTab(binding.cloudTabLayout.getTabAt(0))
+			cloudTabLayout.selectTab(cloudTabLayout.getTabAt(0))
 			adapter.showOwnershipBadge = false
 			binding.sortOptionLayout.visibility = android.view.View.VISIBLE
 			binding.filterOptionLayout.visibility = android.view.View.VISIBLE
@@ -373,10 +377,10 @@ class CloudPlayFragment : Fragment()
 	
 	private fun setupCloudTabs()
 	{
-		binding.cloudTabLayout.addTab(binding.cloudTabLayout.newTab().setText("Catalog"))
-		binding.cloudTabLayout.addTab(binding.cloudTabLayout.newTab().setText("Library"))
+		cloudTabLayout.addTab(cloudTabLayout.newTab().setText("Catalog"))
+		cloudTabLayout.addTab(cloudTabLayout.newTab().setText("Library"))
 		
-		binding.cloudTabLayout.addOnTabSelectedListener(object : com.google.android.material.tabs.TabLayout.OnTabSelectedListener
+		cloudTabLayout.addOnTabSelectedListener(object : com.google.android.material.tabs.TabLayout.OnTabSelectedListener
 		{
 			override fun onTabSelected(tab: com.google.android.material.tabs.TabLayout.Tab?)
 			{
@@ -1284,12 +1288,56 @@ class CloudPlayFragment : Fragment()
 		
 		Log.i("CloudPlayFragment", "  Codec: ${if (codec == com.metallic.chiaki.lib.Codec.CODEC_H265) "H.265/HEVC" else "H.264"}")
 		
-		// Get video profile from preferences (use default for now)
-		val videoProfile = com.metallic.chiaki.lib.ConnectVideoProfile.preset(
-			com.metallic.chiaki.lib.VideoResolutionPreset.RES_720P,
-			com.metallic.chiaki.lib.VideoFPSPreset.FPS_60,
-			codec
-		)
+		// Get resolution from preferences based on service type
+		val resolutionValue = if (session.serviceType == "pscloud")
+		{
+			preferences.getCloudResolutionPscloud()
+		}
+		else
+		{
+			preferences.getCloudResolutionPsnow()
+		}
+		
+		Log.i("CloudPlayFragment", "  Resolution: ${resolutionValue}p")
+		
+		// Create video profile based on resolution with higher bitrates for cloud streaming
+		val videoProfile = when (resolutionValue) {
+			720 -> com.metallic.chiaki.lib.ConnectVideoProfile(
+				width = 1280,
+				height = 720,
+				maxFPS = 60,
+				bitrate = 20000,  // 20 Mbps for 720p
+				codec = codec
+			)
+			1080 -> com.metallic.chiaki.lib.ConnectVideoProfile(
+				width = 1920,
+				height = 1080,
+				maxFPS = 60,
+				bitrate = 20000,  // 20 Mbps for 1080p
+				codec = codec
+			)
+			1440 -> com.metallic.chiaki.lib.ConnectVideoProfile(
+				width = 2560,
+				height = 1440,
+				maxFPS = 60,
+				bitrate = 30000,  // 30 Mbps for 1440p
+				codec = codec
+			)
+			2160 -> com.metallic.chiaki.lib.ConnectVideoProfile(
+				width = 3840,
+				height = 2160,
+				maxFPS = 60,
+				bitrate = 50000,  // 50 Mbps for 4K
+				codec = codec
+			)
+			else -> com.metallic.chiaki.lib.ConnectVideoProfile(
+				width = 1280,
+				height = 720,
+				maxFPS = 60,
+				bitrate = 20000,  // 20 Mbps default
+				codec = codec
+			)
+		}
 		
 		// Create ConnectInfo with cloud parameters
 		val connectInfo = com.metallic.chiaki.lib.ConnectInfo(

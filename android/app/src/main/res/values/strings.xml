@@ -20,6 +20,7 @@
     <string name="action_connect_cancel_connect">Cancel</string>
     <string name="action_quit_session">Quit</string>
     <string name="action_login_pin_connect">Connect</string>
+    <string name="stream_disconnect_button">Disconnect</string>
     <string name="action_settings">Settings</string>
     <string name="action_discover">Discover Consoles Automatically</string>
     <string name="display_host_host">Address: %s</string>
@@ -68,7 +69,7 @@
     <string name="hint_add_manual_regist_host">Registered Console</string>
     <string name="add_manual_regist_on_connect">Register on first Connection</string>
     <string name="preferences_category_title_general">General</string>
-    <string name="preferences_category_title_stream">Stream</string>
+    <string name="preferences_category_title_stream">Remote Play Settings</string>
     <string name="preferences_category_title_export">Export</string>
     <string name="preferences_registered_hosts_title">Registered Consoles</string>
     <string name="preferences_logs_title">Session Logs</string>
@@ -96,6 +97,8 @@
     <string name="preferences_bitrate_auto">Auto (%d)</string>
     <string name="preferences_codec_title_h264">H264</string>
     <string name="preferences_codec_title_h265">H265 (Gen 5 only)</string>
+    <string name="preferences_pip_enabled_title">Picture-in-Picture</string>
+    <string name="preferences_pip_enabled_summary">Enable PiP mode when minimizing during streaming (Android 8.0+)</string>
     <string name="preferences_swap_cross_moon_title">Swap Cross/Moon and Box/Pyramid Buttons</string>
     <string name="preferences_swap_cross_moon_summary">Swap face buttons if default mapping is incorrect (e.g. for 8BitDo controllers)</string>
     <string name="preferences_rumble_enabled_title">Rumble</string>
@@ -114,17 +117,27 @@
     <string name="display_hosts_empty_discovery_off_info">No consoles added yet.\nEnable Discovery to automatically find consoles on your local network.</string>
     <string name="display_hosts_empty_discovery_on_info">No consoles added or discovered.</string>
     <string name="preferences_category_title_cloud">Cloud Streaming</string>
-    <string name="preferences_psn_login_title">Login</string>
-    <string name="preferences_psn_login_summary">Not logged in - Tap to login</string>
-    <string name="preferences_psn_login_summary_logged_in">Logged in - Tap to logout</string>
+    <string name="preferences_psn_login_title">Account</string>
+    <string name="preferences_psn_login_summary">Not logged in - Tap to sign in</string>
+    <string name="preferences_psn_login_summary_logged_in">Tap to sign out</string>
     <string name="preferences_psn_logout_title">Logout</string>
     <string name="preferences_psn_logout_message">Are you sure you want to logout?</string>
     <string name="preferences_psn_logout_confirm">Logout</string>
     <string name="preferences_psn_logout_success">Logged out successfully</string>
-    <string name="preferences_cloud_datacenter_psnow_title">Catalog Datacenter</string>
-    <string name="preferences_cloud_datacenter_psnow_summary">Select a specific datacenter or use Auto for best ping</string>
-    <string name="preferences_cloud_datacenter_pscloud_title">Library Datacenter</string>
+    
+    <!-- Game Library (PSCloud) Settings - supports up to 4K -->
+    <string name="preferences_category_title_game_library">Cloud Game Library</string>
+    <string name="preferences_cloud_resolution_pscloud_title">Resolution</string>
+    <string name="preferences_cloud_resolution_pscloud_summary">Streaming resolution for Game Library (up to 4K)</string>
+    <string name="preferences_cloud_datacenter_pscloud_title">Datacenter</string>
     <string name="preferences_cloud_datacenter_pscloud_summary">Select a specific datacenter or use Auto for best ping</string>
+    
+    <!-- Game Catalog (PSNOW) Settings - up to 1080p -->
+    <string name="preferences_category_title_game_catalog">Cloud Game Catalog</string>
+    <string name="preferences_cloud_resolution_psnow_title">Resolution</string>
+    <string name="preferences_cloud_resolution_psnow_summary">Streaming resolution for Game Catalog</string>
+    <string name="preferences_cloud_datacenter_psnow_title">Datacenter</string>
+    <string name="preferences_cloud_datacenter_psnow_summary">Select a specific datacenter or use Auto for best ping</string>
     
     <!-- PSN Login -->
     <string name="psn_login_title">Login</string>
@@ -155,6 +168,30 @@
     <string-array name="cloud_datacenter_values">
         <item>Auto</item>
     </string-array>
+    
+    <!-- Resolution options for Game Catalog (PSNOW) - up to 1080p -->
+    <string-array name="cloud_resolution_psnow_entries">
+        <item>720p (1280x720)</item>
+        <item>1080p (1920x1080)</item>
+    </string-array>
+    <string-array name="cloud_resolution_psnow_values">
+        <item>720</item>
+        <item>1080</item>
+    </string-array>
+    
+    <!-- Resolution options for Game Library (PSCloud) - up to 4K -->
+    <string-array name="cloud_resolution_pscloud_entries">
+        <item>720p (1280x720)</item>
+        <item>1080p (1920x1080)</item>
+        <item>1440p (2560x1440)</item>
+        <item>2160p (3840x2160) - 4K</item>
+    </string-array>
+    <string-array name="cloud_resolution_pscloud_values">
+        <item>720</item>
+        <item>1080</item>
+        <item>1440</item>
+        <item>2160</item>
+    </string-array>
 
     <!-- Don't localize these -->
     <string name="preferences_discovery_enabled_key">discovery_enabled</string>
@@ -175,4 +212,7 @@
     <string name="preferences_cloud_datacenters_json_psnow_key">cloud_datacenters_json_psnow</string>
     <string name="preferences_cloud_datacenter_pscloud_key">cloud_datacenter_pscloud</string>
     <string name="preferences_cloud_datacenters_json_pscloud_key">cloud_datacenters_json_pscloud</string>
+    <string name="preferences_cloud_resolution_psnow_key">cloud_resolution_psnow</string>
+    <string name="preferences_cloud_resolution_pscloud_key">cloud_resolution_pscloud</string>
+    <string name="preferences_pip_enabled_key">pip_enabled</string>
 </resources>

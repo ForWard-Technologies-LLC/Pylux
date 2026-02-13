@@ -40,8 +40,9 @@
             android:name="com.metallic.chiaki.stream.StreamActivity"
             android:exported="false"
             android:theme="@style/StreamTheme"
-            android:configChanges="keyboard|keyboardHidden|orientation|screenSize"
-            android:screenOrientation="userLandscape"/>
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize"
+            android:screenOrientation="userLandscape"
+            android:supportsPictureInPicture="true"/>
 
         <activity
             android:name="com.metallic.chiaki.settings.SettingsActivity"

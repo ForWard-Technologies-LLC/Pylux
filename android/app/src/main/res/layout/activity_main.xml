@@ -12,13 +12,14 @@
         android:id="@+id/appBarLayout"
         android:layout_height="wrap_content"
         android:layout_width="match_parent"
-        android:background="?attr/colorPrimary">
+        android:background="@color/primary_dark"
+        android:elevation="0dp">
 
         <com.google.android.material.appbar.MaterialToolbar
             android:id="@+id/toolbar"
             android:layout_height="?attr/actionBarSize"
             android:layout_width="match_parent"
-            android:background="?attr/colorPrimary"
+            android:background="@android:color/transparent"
             android:elevation="0dp"
             android:minHeight="?attr/actionBarSize"
             android:contentInsetStartWithNavigation="0dp"
@@ -29,59 +30,141 @@
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:orientation="horizontal"
-                android:gravity="center_vertical">
+                android:gravity="center_vertical"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp">
 
-                <!-- WiFi Discovery Icon (Remote Play) -->
-                <ImageView
-                    android:id="@+id/wifiIcon"
-                    android:layout_width="?attr/actionBarSize"
-                    android:layout_height="?attr/actionBarSize"
-                    android:padding="12dp"
-                    android:src="@drawable/ic_discover_off"
-                    android:contentDescription="@string/action_discover"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:tint="#FFFFFF" />
+                <!-- Left Island: Mode Switcher -->
+                <LinearLayout
+                    android:id="@+id/modeIsland"
+                    android:layout_width="wrap_content"
+                    android:layout_height="46dp"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:background="@drawable/icon_island_background"
+                    android:paddingStart="3dp"
+                    android:paddingEnd="3dp">
 
-                <!-- Search Icon (Cloud Play) -->
-                <ImageView
-                    android:id="@+id/searchIcon"
-                    android:layout_width="?attr/actionBarSize"
-                    android:layout_height="?attr/actionBarSize"
-                    android:padding="12dp"
-                    android:src="@android:drawable/ic_menu_search"
-                    android:contentDescription="Search"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:tint="#FFFFFF"
-                    android:visibility="gone" />
+                    <!-- FrameLayout wraps icon so we can show a circular highlight behind it -->
+                    <FrameLayout
+                        android:layout_width="44dp"
+                        android:layout_height="40dp"
+                        android:layout_margin="0dp">
+                        <ImageView
+                            android:id="@+id/remotePlayIcon"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:padding="8dp"
+                            android:src="@drawable/ic_gamepad_modern"
+                            android:contentDescription="Remote Play"
+                            android:background="@drawable/icon_island_selected" />
+                    </FrameLayout>
 
-                <!-- Main Tabs in Center -->
-                <com.google.android.material.tabs.TabLayout
-                    android:id="@+id/tabLayout"
+                    <FrameLayout
+                        android:layout_width="44dp"
+                        android:layout_height="40dp"
+                        android:layout_margin="0dp">
+                        <ImageView
+                            android:id="@+id/cloudPlayIcon"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:padding="8dp"
+                            android:src="@drawable/ic_cloud"
+                            android:contentDescription="Cloud Play"
+                            android:background="@android:color/transparent" />
+                    </FrameLayout>
+
+                </LinearLayout>
+
+                <!-- Center spacer (always present to push pills apart) -->
+                <FrameLayout
                     android:layout_width="0dp"
                     android:layout_weight="1"
-                    android:layout_height="match_parent"
-                    android:layout_gravity="center"
-                    android:background="@android:color/transparent"
-                    app:tabMode="fixed"
-                    app:tabGravity="center"
-                    app:tabTextColor="#99FFFFFF"
-                    app:tabSelectedTextColor="@color/tab_indicator"
-                    app:tabIndicatorColor="@color/tab_indicator"
-                    app:tabIndicatorHeight="2dp"
-                    app:tabPaddingStart="12dp"
-                    app:tabPaddingEnd="12dp"
-                    app:tabTextAppearance="@style/TabTextAppearance" />
+                    android:layout_height="match_parent">
 
-                <!-- Settings Icon on Right -->
-                <ImageView
-                    android:id="@+id/settingsIcon"
-                    android:layout_width="?attr/actionBarSize"
-                    android:layout_height="?attr/actionBarSize"
-                    android:padding="12dp"
-                    android:src="@drawable/ic_settings"
-                    android:contentDescription="@string/action_settings"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:tint="#FFFFFF" />
+                    <!-- App name (shown on Remote Play page) -->
+                    <TextView
+                        android:id="@+id/appTitle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center"
+                        android:text="@string/app_name"
+                        android:textSize="20sp"
+                        android:textColor="#FFFFFF"
+                        android:fontFamily="sans-serif-black"
+                        android:letterSpacing="0.2"
+                        android:shadowColor="#60B0E0FF"
+                        android:shadowDx="0"
+                        android:shadowDy="0"
+                        android:shadowRadius="20"
+                        android:textStyle="bold" />
+
+                    <!-- Cloud Play sub-tabs (shown only on Cloud Play page) -->
+                    <com.google.android.material.tabs.TabLayout
+                        android:id="@+id/cloudSubTabs"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:layout_marginStart="8dp"
+                        android:layout_marginEnd="8dp"
+                        android:background="@android:color/transparent"
+                        app:tabMode="fixed"
+                        app:tabGravity="center"
+                        app:tabTextColor="#66FFFFFF"
+                        app:tabSelectedTextColor="#FFFFFF"
+                        app:tabIndicatorColor="@color/tab_indicator"
+                        app:tabIndicatorHeight="2dp"
+                        app:tabTextAppearance="@style/CloudTabTextAppearance"
+                        app:tabIndicatorFullWidth="false"
+                        android:visibility="gone" />
+
+                </FrameLayout>
+
+                <!-- Right Island: Action Icons -->
+                <LinearLayout
+                    android:id="@+id/actionIsland"
+                    android:layout_width="wrap_content"
+                    android:layout_height="46dp"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:background="@drawable/icon_island_background"
+                    android:paddingStart="3dp"
+                    android:paddingEnd="3dp">
+
+                    <!-- WiFi Discovery Icon (Remote Play) -->
+                    <ImageView
+                        android:id="@+id/wifiIcon"
+                        android:layout_width="44dp"
+                        android:layout_height="40dp"
+                        android:padding="8dp"
+                        android:src="@drawable/ic_discover_off"
+                        android:contentDescription="@string/action_discover"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:tint="#CCFFFFFF" />
+
+                    <!-- Search Icon (Cloud Play) -->
+                    <ImageView
+                        android:id="@+id/searchIcon"
+                        android:layout_width="44dp"
+                        android:layout_height="40dp"
+                        android:padding="8dp"
+                        android:src="@android:drawable/ic_menu_search"
+                        android:contentDescription="Search"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:tint="#CCFFFFFF"
+                        android:visibility="gone" />
+
+                    <!-- Settings Icon -->
+                    <ImageView
+                        android:id="@+id/settingsIcon"
+                        android:layout_width="44dp"
+                        android:layout_height="40dp"
+                        android:padding="8dp"
+                        android:src="@drawable/ic_settings"
+                        android:contentDescription="@string/action_settings"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:tint="#CCFFFFFF" />
+
+                </LinearLayout>
 
             </LinearLayout>
 
