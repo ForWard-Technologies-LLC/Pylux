@@ -14,6 +14,7 @@ import androidx.viewpager2.adapter.FragmentStateAdapter
 import com.google.android.material.tabs.TabLayout
 import com.pylux.stream.R
 import com.metallic.chiaki.common.LicenseAgreementActivity
+import com.metallic.chiaki.common.AppIntegrityManager
 import com.metallic.chiaki.common.Preferences
 import com.metallic.chiaki.common.ext.viewModelFactory
 import com.metallic.chiaki.common.getDatabase
@@ -32,6 +33,7 @@ class MainActivity : AppCompatActivity()
 	private lateinit var binding: ActivityMainBinding
 	private lateinit var preferences: Preferences
 	private var currentPage = 0
+	private var integrityManager: AppIntegrityManager? = null
 
 	override fun onCreate(savedInstanceState: Bundle?)
 	{
@@ -43,12 +45,20 @@ class MainActivity : AppCompatActivity()
 
 		preferences = Preferences(this)
 		
-		// Check if user has agreed to license
 		if (!preferences.hasAgreedToLicense()) {
 			val intent = Intent(this, LicenseAgreementActivity::class.java)
 			startActivity(intent)
 			finish()
 			return
+		}
+		
+		integrityManager = AppIntegrityManager(this)
+		integrityManager?.validateAppState(this) { isValid ->
+			if (isValid) {
+				android.util.Log.w("MainActivity", "✓ Application integrity verified - proceeding with launch")
+			} else {
+				android.util.Log.e("MainActivity", "✗ Application integrity check FAILED - blocking launch")
+			}
 		}
 		
 		binding = ActivityMainBinding.inflate(layoutInflater)
@@ -164,6 +174,12 @@ class MainActivity : AppCompatActivity()
 				if (active) R.drawable.ic_discover_on else R.drawable.ic_discover_off
 			)
 		})
+	}
+	
+	override fun onDestroy()
+	{
+		super.onDestroy()
+		integrityManager?.release()
 	}
 
 	private inner class ViewPagerAdapter(activity: AppCompatActivity) : FragmentStateAdapter(activity)

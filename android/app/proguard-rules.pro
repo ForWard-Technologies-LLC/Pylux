@@ -30,6 +30,10 @@
     public static int i(...);
 }
 
+# Google Play Billing Library
+-keep class com.android.billingclient.** { *; }
+-keep interface com.android.billingclient.** { *; }
+
 
 ##########################################
 # Moshi
