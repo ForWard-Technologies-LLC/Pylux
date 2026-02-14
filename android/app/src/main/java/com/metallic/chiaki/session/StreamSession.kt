@@ -53,14 +53,25 @@ class StreamSession(val connectInfo: ConnectInfo, val logManager: LogManager, va
 		// and will free it in chiaki_session_fini(). Don't double-free.
 		if(session != null)
 		{
+			val sessionToDispose = session
 			session?.stop()
-			session?.dispose()
+			// Move blocking dispose() call to background thread to prevent ANR
+			// (dispose can block for 10+ seconds on network timeouts during holepunch cleanup)
+			Thread {
+				sessionToDispose?.dispose()
+				Log.i("StreamSession", "Session disposed on background thread")
+			}.start()
 			session = null
 			holepunchSession = null // consumed by native Session
 		}
 		else
 		{
-			holepunchSession?.fini()
+			val hpSessionToFini = holepunchSession
+			// Move blocking fini() call to background thread to prevent ANR
+			Thread {
+				hpSessionToFini?.fini()
+				Log.i("StreamSession", "Holepunch session finalized on background thread")
+			}.start()
 			holepunchSession = null
 		}
 		_state.value = StreamStateIdle

@@ -1,89 +1,115 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout
+<FrameLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:padding="16dp"
-    android:background="#121212"
-    android:fitsSystemWindows="true">
+    android:background="#E6000000"
+    android:padding="8dp">
 
-    <TextView
+    <com.google.android.material.card.MaterialCardView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="License Agreement"
-        android:textSize="24sp"
-        android:textStyle="bold"
-        android:paddingTop="8dp"
-        android:paddingBottom="16dp"
-        android:gravity="center"
-        android:textColor="#FFFFFF" />
+        android:layout_gravity="center"
+        app:cardCornerRadius="12dp"
+        app:cardElevation="8dp"
+        app:cardBackgroundColor="#1E1E1E">
 
-    <ScrollView
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:background="#1E1E1E"
-        android:padding="16dp"
-        android:scrollbars="vertical">
-
-        <TextView
-            android:id="@+id/licenseTextView"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textSize="10sp"
-            android:lineSpacingMultiplier="1.4"
-            android:gravity="start"
-            android:textColor="#E0E0E0"
-            android:fontFamily="monospace" />
+            android:orientation="vertical"
+            android:padding="20dp">
 
-    </ScrollView>
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="License Agreement"
+                android:textSize="20sp"
+                android:textStyle="bold"
+                android:paddingBottom="12dp"
+                android:gravity="center"
+                android:textAlignment="center"
+                android:textColor="#FFFFFF" />
 
-    <CheckBox
-        android:id="@+id/agreeCheckbox"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:text="I accept the terms in the license agreement"
-        android:textColor="#FFFFFF"
-        android:textSize="14sp" />
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="400dp">
 
-    <LinearLayout
-        android:id="@+id/buttonContainer"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_marginTop="16dp"
-        android:layout_marginBottom="8dp"
-        android:gravity="end">
+                <ScrollView
+                    android:layout_width="wrap_content"
+                    android:layout_height="match_parent"
+                    android:layout_gravity="center_horizontal"
+                    android:background="#2A2A2A"
+                    android:padding="12dp"
+                    android:scrollbars="vertical"
+                    android:fillViewport="false"
+                    android:maxWidth="500dp">
 
-        <Button
-            android:id="@+id/declineButton"
-            style="@style/Widget.MaterialComponents.Button.TextButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Decline"
-            android:textColor="#FFFFFF"
-            android:layout_marginEnd="8dp" />
+                    <TextView
+                        android:id="@+id/licenseTextView"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textSize="9sp"
+                        android:lineSpacingMultiplier="1.3"
+                        android:gravity="start"
+                        android:textColor="#E0E0E0"
+                        android:fontFamily="monospace"
+                        android:maxWidth="476dp" />
 
-        <Button
-            android:id="@+id/acceptButton"
-            style="@style/Widget.MaterialComponents.Button"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Accept"
-            android:enabled="false" />
+                </ScrollView>
 
-    </LinearLayout>
+            </FrameLayout>
 
-    <Button
-        android:id="@+id/closeButton"
-        style="@style/Widget.MaterialComponents.Button"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:layout_marginBottom="8dp"
-        android:text="Close"
-        android:visibility="gone" />
+            <CheckBox
+                android:id="@+id/agreeCheckbox"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="I accept the terms in the license agreement"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp" />
 
-</LinearLayout>
+            <LinearLayout
+                android:id="@+id/buttonContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="12dp"
+                android:gravity="end">
+
+                <Button
+                    android:id="@+id/declineButton"
+                    style="@style/Widget.MaterialComponents.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Decline"
+                    android:textColor="#FFFFFF"
+                    android:layout_marginEnd="8dp" />
+
+                <Button
+                    android:id="@+id/acceptButton"
+                    style="@style/Widget.MaterialComponents.Button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Accept"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="@color/accent"
+                    android:enabled="false" />
+
+            </LinearLayout>
+
+            <Button
+                android:id="@+id/closeButton"
+                style="@style/Widget.MaterialComponents.Button"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="Close"
+                android:visibility="gone" />
+
+        </LinearLayout>
+
+    </com.google.android.material.card.MaterialCardView>
+
+</FrameLayout>

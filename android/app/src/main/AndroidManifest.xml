@@ -75,7 +75,7 @@
         <activity
             android:name="com.metallic.chiaki.common.LicenseAgreementActivity"
             android:exported="false"
-            android:theme="@style/AppTheme"
+            android:theme="@style/LicenseAgreementDialog"
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize"
             android:launchMode="singleTop" />
     </application>

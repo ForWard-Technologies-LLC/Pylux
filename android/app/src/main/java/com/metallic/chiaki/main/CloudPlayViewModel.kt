@@ -69,6 +69,7 @@ class CloudPlayViewModel(
 				Log.i(TAG, "Fetching PSNow catalog (forceRefresh=$forceRefresh)")
 				
 				val npssoToken = preferences.getNpssoToken()
+				
 				when (val result = repository.fetchPsnowCatalog(npssoToken, forceRefresh))
 				{
 					is PsnResult.Success ->

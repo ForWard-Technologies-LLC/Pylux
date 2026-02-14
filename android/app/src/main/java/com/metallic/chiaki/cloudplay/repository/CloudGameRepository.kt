@@ -201,7 +201,8 @@ class CloudGameRepository(
 			
 			if (!cacheFile.exists())
 			{
-				Log.d(TAG, "No cache file found: $cacheFileName")
+				Log.d(TAG, "No cache file found: $cacheFileName at ${cacheFile.absolutePath}")
+				Log.d(TAG, "Cache directory exists: ${cacheDir.exists()}, contents: ${cacheDir.listFiles()?.map { it.name }}")
 				return null
 			}
 			
@@ -209,7 +210,8 @@ class CloudGameRepository(
 			val cacheAge = System.currentTimeMillis() - cacheFile.lastModified()
 			if (cacheAge > CACHE_DURATION_MS)
 			{
-				Log.d(TAG, "Cache expired (age: ${cacheAge / 1000}s)")
+				Log.d(TAG, "Cache expired (age: ${cacheAge / 1000}s, max: ${CACHE_DURATION_MS / 1000}s)")
+				cacheFile.delete()
 				return null
 			}
 			
@@ -274,11 +276,12 @@ class CloudGameRepository(
 			val cacheFile = File(cacheDir, cacheFileName)
 			cacheFile.writeText(jsonArray.toString())
 			
-			Log.i(TAG, "Cached ${games.size} games to: $cacheFileName")
+			Log.i(TAG, "Cached ${games.size} games to: ${cacheFile.absolutePath}")
+			Log.d(TAG, "Cache file size: ${cacheFile.length()} bytes, lastModified: ${cacheFile.lastModified()}")
 		}
 		catch (e: Exception)
 		{
-			Log.w(TAG, "Error caching games to $cacheFileName", e)
+			Log.e(TAG, "Error caching games to $cacheFileName", e)
 		}
 	}
 	

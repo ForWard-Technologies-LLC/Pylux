@@ -21,7 +21,7 @@ Write-Host ""
 
 # Try to find Java from Android Studio or system
 $javaPaths = @(
-    "C:\Program Files\Android\Android Studio1\jbr",  # User's Java 21 location
+    "C:\Program Files\Android\Android Studio2\jbr",  # User's Java 21 location
     "$env:LOCALAPPDATA\Android\Android Studio\jbr",
     "C:\Program Files\Android\Android Studio\jbr",
     "$env:ProgramFiles\Android\Android Studio\jbr",
@@ -695,42 +695,51 @@ if ($buildSucceeded) {
             Write-Host ""
             Write-Host "Launching app..." -ForegroundColor Cyan
             
-            # Check for connected devices - fix regex to match properly (USB and network devices)
+            # Check for connected devices - collect serials so we can target one when multiple are attached
             Write-Host "Checking for connected devices..." -ForegroundColor Yellow
             $devices = & $adb devices 2>&1
-            $deviceConnected = $false
+            $deviceSerials = @()
             foreach ($line in $devices) {
-                # Match both USB devices (alphanumeric) and network devices (IP:port)
-                if ($line -match "^\S+\s+device\s*$") {
-                    $deviceConnected = $true
-                    Write-Host "Device found: $line" -ForegroundColor Green
-                    break
+                if ($line -match "^\s*(\S+)\s+device\s*$") {
+                    $deviceSerials += $Matches[1]
+                }
+            }
+            $deviceConnected = ($deviceSerials.Count -gt 0)
+            if ($deviceConnected) {
+                $targetDevice = $deviceSerials[0]
+                if ($deviceSerials.Count -gt 1) {
+                    Write-Host "Multiple devices attached; using: $targetDevice" -ForegroundColor Yellow
+                } else {
+                    Write-Host "Device found: $targetDevice" -ForegroundColor Green
                 }
             }
             
             if ($deviceConnected) {
-                # Install APK first
+                # Install APK first (use -s to target one device; avoids "more than one device" failure)
                 Write-Host "Installing APK to device..." -ForegroundColor Yellow
-                # Use -t flag for debug builds (test-only APKs)
-                if ($BuildType -eq "debug") {
-                    & $adb install -r -t $apkPath 2>&1 | Out-Null
+                $installErr = $ErrorActionPreference
+                $ErrorActionPreference = 'SilentlyContinue'
+                $installOut = if ($BuildType -eq "debug") {
+                    & $adb -s $targetDevice install -r -t $apkPath 2>&1
                 } else {
-                    & $adb install -r $apkPath 2>&1 | Out-Null
+                    & $adb -s $targetDevice install -r $apkPath 2>&1
                 }
-                if ($LASTEXITCODE -eq 0) {
+                $ErrorActionPreference = $installErr
+                $installOut | Write-Host
+                if ($LASTEXITCODE -eq 0 -and $installOut -notmatch "Failure|Error|failed") {
                     Write-Host "APK installed successfully!" -ForegroundColor Green
-                    
                     # Now launch the app
-                Write-Host "Launching app..." -ForegroundColor Yellow
-                & $adb shell am start -n com.pylux.stream/com.metallic.chiaki.main.MainActivity 2>&1 | Out-Null
-                if ($LASTEXITCODE -eq 0) {
-                    Write-Host "App launched successfully!" -ForegroundColor Green
-                } else {
-                    Write-Host "[WARN] Failed to launch app (exit code: $LASTEXITCODE)" -ForegroundColor Yellow
+                    Write-Host "Launching app..." -ForegroundColor Yellow
+                    $launchOut = & $adb -s $targetDevice shell am start -n com.pylux.stream/com.metallic.chiaki.main.MainActivity 2>&1
+                    $launchOut | Write-Host
+                    if ($LASTEXITCODE -eq 0) {
+                        Write-Host "App launched successfully!" -ForegroundColor Green
+                    } else {
+                        Write-Host "[WARN] Failed to launch app (exit code: $LASTEXITCODE)" -ForegroundColor Yellow
                     }
                 } else {
                     Write-Host "[WARN] Failed to install APK (exit code: $LASTEXITCODE)" -ForegroundColor Yellow
-                    $manualInstallCmd = if ($BuildType -eq "debug") { "adb install -r -t" } else { "adb install -r" }
+                    $manualInstallCmd = if ($BuildType -eq "debug") { "adb -s $targetDevice install -r -t" } else { "adb -s $targetDevice install -r" }
                     Write-Host "       Try manually installing: $manualInstallCmd $apkPath" -ForegroundColor Yellow
                 }
             } else {

@@ -18,6 +18,8 @@ import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.appbar.MaterialToolbar
 import com.pylux.stream.R
 import com.metallic.chiaki.common.SecureTokenManager
+import com.metallic.chiaki.common.Preferences
+import com.metallic.chiaki.common.PsnTokenManager
 import kotlinx.coroutines.*
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -333,17 +335,36 @@ class PsnLoginActivity : AppCompatActivity()
 	
 	private fun onLoginSuccess(token: String)
 	{
-		// Save token securely
+		// Save NPSSO token securely
 		tokenManager.saveNpssoToken(token)
 		
-		// Return success
-		val resultIntent = Intent().apply {
-			putExtra(EXTRA_NPSSO_TOKEN, token)
-		}
-		setResult(RESULT_LOGIN_SUCCESS, resultIntent)
+		// Show progress and exchange for Remote Play tokens on background thread (matches Qt app flow)
+		Toast.makeText(this, "Setting up PSN (Cloud + Remote Play)...", Toast.LENGTH_SHORT).show()
 		
-		Toast.makeText(this, getString(R.string.psn_login_success), Toast.LENGTH_SHORT).show()
-		finish()
+		Thread {
+			val preferences = Preferences(this)
+			val psnTokenManager = PsnTokenManager(preferences)
+			val exchangeSuccess = psnTokenManager.exchangeNpssoForTokens(token)
+			
+			runOnUiThread {
+				if(exchangeSuccess)
+				{
+					Log.i(TAG, "PSN login complete: NPSSO + Remote Play tokens saved")
+				}
+				else
+				{
+					Log.w(TAG, "PSN login: NPSSO saved, but Remote Play token exchange failed")
+				}
+				
+				// Return success (NPSSO is saved; RP tokens saved if exchange succeeded)
+				val resultIntent = Intent().apply {
+					putExtra(EXTRA_NPSSO_TOKEN, token)
+				}
+				setResult(RESULT_LOGIN_SUCCESS, resultIntent)
+				Toast.makeText(this, getString(R.string.psn_login_success), Toast.LENGTH_SHORT).show()
+				finish()
+			}
+		}.start()
 	}
 	
 	override fun onDestroy()

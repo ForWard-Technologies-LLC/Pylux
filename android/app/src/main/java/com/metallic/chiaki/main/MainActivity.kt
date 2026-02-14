@@ -79,6 +79,8 @@ class MainActivity : AppCompatActivity()
 	{
 		val adapter = ViewPagerAdapter(this)
 		binding.viewPager.adapter = adapter
+		// Keep both pages in memory to prevent unnecessary fragment recreation
+		binding.viewPager.offscreenPageLimit = 1
 
 		// Mode icon click handlers
 		binding.remotePlayIcon.setOnClickListener {

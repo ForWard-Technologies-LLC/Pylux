@@ -125,13 +125,19 @@ class PSKamajiSession(
 			Log.i(TAG, "Entitlement ID: $entitlementId")
 			Log.i(TAG, "Platform: $platform")
 			
-			SessionResult(true, "Success", entitlementId!!, platform)
-		}
-		catch (e: Exception)
-		{
-			Log.e(TAG, "Kamaji session error", e)
-			SessionResult(false, "Exception: ${e.message}")
-		}
+		SessionResult(true, "Success", entitlementId!!, platform)
+	}
+	catch (e: PsPlusSubscriptionException)
+	{
+		// Re-throw subscription exceptions so they bubble up to UI
+		Log.e(TAG, "Kamaji session PS Plus subscription error", e)
+		throw e
+	}
+	catch (e: Exception)
+	{
+		Log.e(TAG, "Kamaji session error", e)
+		SessionResult(false, "Exception: ${e.message}")
+	}
 	}
 	
 	/**
@@ -527,16 +533,17 @@ class PSKamajiSession(
 				return true
 			}
 			
-			// User doesn't have entitlement (404), try to acquire it
-			Log.i(TAG, "Kamaji Step 0.5e.2 - Entitlement not found (404), will attempt to acquire")
-			
-			// Step 0.5e.3: Checkout preview
-			val previewOk = step0_5e3_CheckoutPreview(sessionId)
-			if (!previewOk)
-			{
-				return false
-			}
-			Log.i(TAG, "✓ Step 0.5e.3 complete - Game is free, proceeding to checkout")
+		// User doesn't have entitlement (404), try to acquire it
+		Log.i(TAG, "Kamaji Step 0.5e.2 - Entitlement not found (404), will attempt to acquire")
+		
+		// Step 0.5e.3: Checkout preview
+		// Throws PsPlusSubscriptionException if user doesn't have required subscription
+		val previewOk = step0_5e3_CheckoutPreview(sessionId)
+		if (!previewOk)
+		{
+			return false
+		}
+		Log.i(TAG, "✓ Step 0.5e.3 complete - Game is free, proceeding to checkout")
 			
 			// Step 0.5e.4: Complete checkout
 			val checkoutOk = step0_5e4_CheckoutBuynow(sessionId)
@@ -544,16 +551,22 @@ class PSKamajiSession(
 			{
 				return false
 			}
-			Log.i(TAG, "✓ Step 0.5e.4 complete - Entitlement successfully acquired!")
-			
-			return true
-		}
-		catch (e: Exception)
-		{
-			Log.e(TAG, "Step 0.5e error", e)
-			return false
-		}
+		Log.i(TAG, "✓ Step 0.5e.4 complete - Entitlement successfully acquired!")
+		
+		return true
 	}
+	catch (e: PsPlusSubscriptionException)
+	{
+		// Re-throw subscription exceptions so they bubble up to UI
+		Log.e(TAG, "Step 0.5e subscription error", e)
+		throw e
+	}
+	catch (e: Exception)
+	{
+		Log.e(TAG, "Step 0.5e error", e)
+		return false
+	}
+}
 	
 	/**
 	 * Step 0.5e.1: Get Commerce OAuth token
@@ -756,27 +769,53 @@ class PSKamajiSession(
 				)
 			)
 			
-			Log.d(TAG, "Step 0.5e.3 Response: ${response.statusCode}")
+		Log.d(TAG, "Step 0.5e.3 Response: ${response.statusCode}")
+		
+		// Parse response to check for API errors first
+		try
+		{
+			val json = JSONObject(response.body)
+			val header = json.getJSONObject("header")
+			val statusCode = header.optString("status_code")
 			
-			if (response.statusCode != 200)
+			// Check API status code - non-zero indicates subscription/entitlement issue
+			// Matches Qt: pskamajisession.cpp lines 934-944
+			if (statusCode != "0x0000")
 			{
-				Log.e(TAG, "Step 0.5e.3 failed: ${response.statusCode}")
-				Log.e(TAG, "Response body: ${response.body}")
-				return false
+				val message = header.optString("message_key", "Unknown error")
+				Log.e(TAG, "Preview failed with API status: $statusCode")
+				Log.e(TAG, "Message: $message")
+				// Checkout preview errors indicate PS Plus Premium subscription required
+				throw PsPlusSubscriptionException("PlayStation Plus Premium subscription is required to stream this game")
 			}
-			
-			// Parse response
-			try
-			{
-				val json = JSONObject(response.body)
-				val header = json.getJSONObject("header")
-				val statusCode = header.optString("status_code")
-				
-				if (statusCode != "0x0000")
-				{
-					Log.e(TAG, "Preview failed with status: $statusCode")
-					return false
-				}
+		}
+		catch (e: PsPlusSubscriptionException)
+		{
+			// Re-throw subscription exceptions
+			throw e
+		}
+		catch (e: Exception)
+		{
+			Log.e(TAG, "Failed to parse preview response", e)
+			// If we can't parse, fall through to HTTP status check
+		}
+		
+		// Check HTTP status code
+		// Matches Qt: pskamajisession.cpp lines 948-953
+		if (response.statusCode != 200)
+		{
+			Log.e(TAG, "Step 0.5e.3 failed with HTTP status: ${response.statusCode}")
+			Log.e(TAG, "Response body: ${response.body}")
+			// Checkout preview HTTP errors indicate PS Plus Premium subscription issue
+			throw PsPlusSubscriptionException("PlayStation Plus Premium subscription is required to stream this game")
+		}
+		
+		// Parse successful response
+		try
+		{
+			val json = JSONObject(response.body)
+			val header = json.getJSONObject("header")
+			val statusCode = header.optString("status_code")
 				
 			val data = json.getJSONObject("data")
 			// Qt lines 988-991: Parse cart.total_price_value (integer)
@@ -811,15 +850,21 @@ class PSKamajiSession(
 			catch (e: Exception)
 			{
 				Log.e(TAG, "Failed to parse preview response", e)
-				return false
-			}
-		}
-		catch (e: Exception)
-		{
-			Log.e(TAG, "Step 0.5e.3 error", e)
 			return false
 		}
 	}
+	catch (e: PsPlusSubscriptionException)
+	{
+		// Re-throw subscription exceptions so they bubble up to UI
+		Log.e(TAG, "Step 0.5e.3 subscription error", e)
+		throw e
+	}
+	catch (e: Exception)
+	{
+		Log.e(TAG, "Step 0.5e.3 error", e)
+		return false
+	}
+}
 	
 	/**
 	 * Step 0.5e.4: Complete checkout to acquire entitlement

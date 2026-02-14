@@ -102,7 +102,8 @@ class CloudPlayFragment : Fragment()
 		// Load saved sort state
 		sortState = preferences.getCloudSortState()
 		
-		viewModel = ViewModelProvider(this, viewModelFactory {
+		// Scope ViewModel to activity so it survives tab switches and maintains cache
+		viewModel = ViewModelProvider(requireActivity(), viewModelFactory {
 			CloudPlayViewModel(requireContext(), preferences)
 		}).get(CloudPlayViewModel::class.java)
 
@@ -292,7 +293,8 @@ class CloudPlayFragment : Fragment()
 	override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
 		super.onConfigurationChanged(newConfig)
 		// Update grid layout on orientation change
-		val spanCount = if (newConfig.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) 5 else 2
+		// Calculate span count based on new screen dimensions
+		val spanCount = calculateSpanCount()
 		
 		// Save current scroll position
 		val layoutManager = binding.gamesRecyclerView.layoutManager as? GridLayoutManager
@@ -678,9 +680,22 @@ class CloudPlayFragment : Fragment()
 			isFavorite = { productId -> preferences.isFavoriteGame(productId) }
 		)
 		binding.gamesRecyclerView.adapter = adapter
-		// Use 5 columns in landscape, 2 in portrait
-		val spanCount = if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) 5 else 2
+		// Calculate span count based on screen width for responsive grid
+		val spanCount = calculateSpanCount()
 		binding.gamesRecyclerView.layoutManager = GridLayoutManager(requireContext(), spanCount)
+	}
+	
+	/**
+	 * Calculate the number of columns based on screen width
+	 * Aim for cards that are around 180dp wide for bigger cards
+	 */
+	private fun calculateSpanCount(): Int {
+		val displayMetrics = resources.displayMetrics
+		val screenWidthDp = displayMetrics.widthPixels / displayMetrics.density
+		val cardWidthDp = 180 // Target card width in dp (bigger cards)
+		val spanCount = (screenWidthDp / cardWidthDp).toInt()
+		// Ensure at least 2 columns, maximum 4 columns for bigger cards
+		return spanCount.coerceIn(2, 4)
 	}
 	
 	private fun onGameFavoriteToggled(game: CloudGame, isFavorite: Boolean)
@@ -1211,7 +1226,7 @@ class CloudPlayFragment : Fragment()
 	{
 		MaterialAlertDialogBuilder(requireContext())
 			.setTitle("PlayStation Plus Required")
-			.setMessage("You need an active PlayStation Plus Premium subscription to stream games from the cloud.")
+			.setMessage("You need an active PlayStation Plus Premium subscription to stream games from the cloud, or this service may not be available in your region.")
 			.setPositiveButton("OK", null)
 			.show()
 	}

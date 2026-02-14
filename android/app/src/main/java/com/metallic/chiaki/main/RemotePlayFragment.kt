@@ -17,6 +17,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.pylux.stream.R
 import com.metallic.chiaki.common.*
 import com.metallic.chiaki.common.ext.putRevealExtra
+import com.metallic.chiaki.common.PsnTokenManager
 import com.metallic.chiaki.common.ext.viewModelFactory
 import com.pylux.stream.databinding.FragmentRemotePlayBinding
 import com.metallic.chiaki.lib.ConnectInfo
@@ -170,11 +171,32 @@ class RemotePlayFragment : Fragment()
 			Toast.makeText(requireContext(), "Refreshing consoles list...", Toast.LENGTH_SHORT).show()
 			viewModel.refreshPsnHosts()
 			expandFloatingActionButton(false)
+			return
 		}
-		else
+		// Have NPSSO (e.g. signed in via Cloud Play) but no Remote Play tokens yet – exchange now
+		if(prefs.hasNpssoToken())
 		{
-			Toast.makeText(requireContext(), "Please log in to PSN first (Settings)", Toast.LENGTH_LONG).show()
+			Toast.makeText(requireContext(), "Setting up PSN for Remote Play...", Toast.LENGTH_SHORT).show()
+			expandFloatingActionButton(false)
+			Thread {
+				val tokenManager = PsnTokenManager(prefs)
+				val npsso = prefs.getNpssoToken()
+				val ok = tokenManager.exchangeNpssoForTokens(npsso)
+				activity?.runOnUiThread {
+					if(ok)
+					{
+						Toast.makeText(requireContext(), "Refreshing consoles list...", Toast.LENGTH_SHORT).show()
+						viewModel.refreshPsnHosts()
+					}
+					else
+					{
+						Toast.makeText(requireContext(), "Token exchange failed. Try logging in again in Settings.", Toast.LENGTH_LONG).show()
+					}
+				}
+			}.start()
+			return
 		}
+		Toast.makeText(requireContext(), "Please log in to PSN first (Settings or Cloud Play)", Toast.LENGTH_LONG).show()
 	}
 
 	private fun hostTriggered(host: DisplayHost)

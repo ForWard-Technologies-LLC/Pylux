@@ -230,40 +230,11 @@ class SettingsFragment: PreferenceFragmentCompat(), TitleFragment
 			when (resultCode)
 			{
 				Activity.RESULT_OK -> {
-					// NPSSO token obtained, now exchange for remote play tokens on background thread
-					val npssoFromIntent = data?.getStringExtra(com.metallic.chiaki.cloudplay.PsnLoginActivity.EXTRA_NPSSO_TOKEN) ?: ""
-					val npssoFromPrefs = preferences.getNpssoToken()
-					val npsso = npssoFromIntent.ifEmpty { npssoFromPrefs }
-					android.util.Log.i("SettingsFragment", "NPSSO obtained! fromIntent=${npssoFromIntent.length}, fromPrefs=${npssoFromPrefs.length}, using length=${npsso.length}")
-					
-					if(npsso.isNotEmpty())
-					{
-						Toast.makeText(context, "Setting up PSN login...", Toast.LENGTH_SHORT).show()
-						Thread {
-							val tokenManager = PsnTokenManager(preferences)
-							val exchangeSuccess = tokenManager.exchangeNpssoForTokens(npsso)
-							android.util.Log.i("SettingsFragment", "Token exchange result: $exchangeSuccess, accountId=${preferences.psnAccountId.take(8)}..., tokenExpiry=${preferences.psnAuthTokenExpiry}")
-							activity?.runOnUiThread {
-								if(exchangeSuccess)
-								{
-									Toast.makeText(context, "PSN login successful", Toast.LENGTH_SHORT).show()
-								}
-								else
-								{
-									Toast.makeText(context, "Token exchange failed", Toast.LENGTH_LONG).show()
-								}
-								val pref = preferenceScreen.findPreference<Preference>("psn_login")
-								updatePsnLoginSummary(pref, preferences)
-							}
-						}.start()
-					}
-					else
-					{
-						// Still successful for cloud streaming (NPSSO cookie saved)
-						Toast.makeText(context, R.string.psn_login_success, Toast.LENGTH_SHORT).show()
-						val psnLoginPreference = preferenceScreen.findPreference<Preference>("psn_login")
-						updatePsnLoginSummary(psnLoginPreference, preferences)
-					}
+					// PsnLoginActivity already exchanged for Remote Play tokens (unified flow)
+					android.util.Log.i("SettingsFragment", "PSN login successful (NPSSO + Remote Play tokens saved)")
+					Toast.makeText(context, R.string.psn_login_success, Toast.LENGTH_SHORT).show()
+					val psnLoginPreference = preferenceScreen.findPreference<Preference>("psn_login")
+					updatePsnLoginSummary(psnLoginPreference, preferences)
 				}
 				Activity.RESULT_CANCELED -> {
 					// User cancelled login

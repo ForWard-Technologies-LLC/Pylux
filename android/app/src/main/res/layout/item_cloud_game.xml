@@ -12,15 +12,15 @@
     android:focusableInTouchMode="false"
     android:foreground="?android:attr/selectableItemBackground">
 
-    <FrameLayout
+    <com.metallic.chiaki.common.SquareFrameLayout
         android:layout_width="match_parent"
-        android:layout_height="@dimen/cloud_game_image_height">
+        android:layout_height="wrap_content">
 
         <ImageView
             android:id="@+id/gameImageView"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:scaleType="centerCrop"
+            android:scaleType="fitCenter"
             android:contentDescription="Game cover image" />
 
         <ProgressBar
@@ -106,7 +106,7 @@
 
         </LinearLayout>
 
-    </FrameLayout>
+    </com.metallic.chiaki.common.SquareFrameLayout>
 
 </com.google.android.material.card.MaterialCardView>
 
