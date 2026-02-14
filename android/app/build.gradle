@@ -31,7 +31,7 @@ android {
         applicationId "com.pylux.stream"
         minSdk 24
         targetSdk 35
-        versionCode 11
+        versionCode 12
         versionName chiakiVersion
         ndk {
             // For local development: arm64-v8a only
