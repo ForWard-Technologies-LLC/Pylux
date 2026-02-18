@@ -69,12 +69,18 @@ class CloudPlayFragment : Fragment()
 		}
 		
 		// Re-check login status when returning to fragment
-		// This ensures that if user logged out in settings, we show the login screen
+		// This ensures proper UI state whether user logged in/out
 		if (!preferences.hasNpssoToken()) {
 			Log.i("CloudPlayFragment", "onResume: No token found, showing login state")
 			viewModel.clearCache()
 			viewModel.clearGames()
 			showLoginRequiredState()
+		} else {
+			// Token exists - check if we need to load catalog (e.g., user just logged in from another tab)
+			if (adapter.itemCount == 0 && binding.loginButton.visibility == View.VISIBLE) {
+				Log.i("CloudPlayFragment", "onResume: Token found and login screen showing, loading catalog")
+				validateTokenAndLoadCatalog()
+			}
 		}
 	}
 

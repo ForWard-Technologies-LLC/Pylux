@@ -34,6 +34,12 @@ import androidx.appcompat.app.AlertDialog
 
 class RemotePlayFragment : Fragment()
 {
+	companion object
+	{
+		private const val TAG = "RemotePlayFragment"
+		private const val REQUEST_PSN_LOGIN = 1
+	}
+
 	private lateinit var viewModel: MainViewModel
 	private lateinit var binding: FragmentRemotePlayBinding
 
@@ -58,6 +64,41 @@ class RemotePlayFragment : Fragment()
 		setupFloatingActionButton()
 		setupRecyclerView()
 		observeViewModel()
+		updateRefreshButtonText()
+	}
+
+	override fun onResume()
+	{
+		super.onResume()
+		updateRefreshButtonText()
+	}
+
+	override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?)
+	{
+		super.onActivityResult(requestCode, resultCode, data)
+		if (requestCode == REQUEST_PSN_LOGIN && resultCode == android.app.Activity.RESULT_OK)
+		{
+			updateRefreshButtonText()
+			Toast.makeText(requireContext(), "PSN login successful", Toast.LENGTH_SHORT).show()
+		}
+	}
+
+	private fun launchPsnLogin()
+	{
+		val intent = Intent(requireContext(), com.metallic.chiaki.cloudplay.PsnLoginActivity::class.java)
+		startActivityForResult(intent, REQUEST_PSN_LOGIN)
+	}
+
+	private fun updateRefreshButtonText()
+	{
+		val prefs = Preferences(requireContext())
+		val isLoggedIn = prefs.hasPsnRemotePlayTokens || prefs.hasNpssoToken()
+		
+		binding.refreshPsnLabelButton.text = if (isLoggedIn) {
+			"Refresh Consoles"
+		} else {
+			"Login to Add Consoles"
+		}
 	}
 
 	private fun setupFloatingActionButton()
@@ -115,11 +156,6 @@ class RemotePlayFragment : Fragment()
 		Log.i(TAG, "onStart: hasPsnTokens=$hasPsnTokens")
 		if(hasPsnTokens)
 			viewModel.refreshPsnHosts()
-	}
-
-	companion object
-	{
-		private const val TAG = "RemotePlayFragment"
 	}
 
 	override fun onStop()
@@ -187,6 +223,7 @@ class RemotePlayFragment : Fragment()
 					{
 						Toast.makeText(requireContext(), "Refreshing consoles list...", Toast.LENGTH_SHORT).show()
 						viewModel.refreshPsnHosts()
+						updateRefreshButtonText()
 					}
 					else
 					{
@@ -196,7 +233,17 @@ class RemotePlayFragment : Fragment()
 			}.start()
 			return
 		}
-		Toast.makeText(requireContext(), "Please log in to PSN first (Settings or Cloud Play)", Toast.LENGTH_LONG).show()
+		// Not logged in - show login dialog
+		expandFloatingActionButton(false)
+		MaterialAlertDialogBuilder(requireContext())
+			.setTitle("PSN Login Required")
+			.setMessage("Login to automatically discover and add your PS5 consoles.")
+			.setPositiveButton("Login") { _, _ ->
+				launchPsnLogin()
+			}
+			.setNegativeButton("Cancel", null)
+			.create()
+			.show()
 	}
 
 	private fun hostTriggered(host: DisplayHost)
@@ -249,22 +296,19 @@ class RemotePlayFragment : Fragment()
 
 			if(!isPsnLoggedIn)
 			{
-				// Not logged in to PSN - ask if they want to login or do manual registration
-				// Matches Qt: onRegistDialogRequested when !isPsnLoggedIn
-				MaterialAlertDialogBuilder(requireContext())
-					.setTitle("Console Setup")
-					.setMessage("Would you like to login for automatic console setup?\n\nChoose 'Yes' to login for automatic registration.\nChoose 'No' to manually enter console information.")
-					.setPositiveButton("Yes") { _, _ ->
-						// Launch Settings for PSN login
-						Intent(requireContext(), com.metallic.chiaki.settings.SettingsActivity::class.java).also {
-							startActivity(it)
-						}
-					}
-					.setNegativeButton("No") { _, _ ->
-						launchManualRegistration(host)
-					}
-					.create()
-					.show()
+		// Not logged in to PSN - ask if they want to login or do manual registration
+		// Matches Qt: onRegistDialogRequested when !isPsnLoggedIn
+		MaterialAlertDialogBuilder(requireContext())
+			.setTitle("Console Setup")
+			.setMessage("Login for automatic console setup or enter console information manually.")
+			.setPositiveButton("Login") { _, _ ->
+				launchPsnLogin()
+			}
+			.setNegativeButton("Manual") { _, _ ->
+				launchManualRegistration(host)
+			}
+			.create()
+			.show()
 			}
 			else if(duid != null)
 			{
