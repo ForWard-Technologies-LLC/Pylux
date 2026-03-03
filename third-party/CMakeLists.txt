@@ -66,16 +66,23 @@ if (NOT CHIAKI_IS_SWITCH)
 		set(CURL_DISABLE_INSTALL ON)
 		set(HTTP_ONLY ON)
 		set(ENABLE_WEBSOCKETS ON)
-		if(ANDROID AND CHIAKI_LIB_ENABLE_MBEDTLS)
-			# Android: Use mbedTLS for curl SSL support (same SSL backend as Chiaki)
-			# This is required for HTTPS endpoints and WSS (WebSocket Secure)
+		if(IOS)
+			# iOS: Use Apple's native Secure Transport for curl SSL.
+			# This uses the iOS system trust store (managed by Apple, auto-updated via
+			# iOS security patches). No bundled CA cert file needed.
+			# Note: chiaki-lib still uses mbedTLS for its own crypto (AES/SHA), which
+			# is completely separate from curl's SSL backend.
+			set(CURL_USE_SECTRANSP ON CACHE BOOL "Use Secure Transport for curl on iOS" FORCE)
+			set(CURL_USE_LIBSSH2 OFF CACHE BOOL "Disable libssh2" FORCE)
+		elseif(ANDROID AND CHIAKI_LIB_ENABLE_MBEDTLS)
+			# Android: Use mbedTLS for curl SSL (no native SSL API available from C).
+			# Requires CA cert bundle set via CHIAKI_CA_BUNDLE env var at runtime.
 			set(CURL_USE_MBEDTLS ON CACHE BOOL "Use mbedTLS for curl" FORCE)
+			set(CURL_USE_LIBSSH2 OFF CACHE BOOL "Disable libssh2" FORCE)
 			# mbedTLS was fetched via FetchContent in root CMakeLists.txt before this
 			# Set include/library paths for curl to find mbedTLS
-			# FindMbedTLS.cmake needs actual file paths, not target names
 			if(mbedtls_SOURCE_DIR AND mbedtls_BINARY_DIR)
 				set(MBEDTLS_INCLUDE_DIR "${mbedtls_SOURCE_DIR}/include" CACHE PATH "mbedTLS include directory" FORCE)
-				# Point to where the libraries WILL be built
 				set(MBEDTLS_LIBRARY "${mbedtls_BINARY_DIR}/library/libmbedtls.a" CACHE FILEPATH "mbedtls library" FORCE)
 				set(MBEDX509_LIBRARY "${mbedtls_BINARY_DIR}/library/libmbedx509.a" CACHE FILEPATH "mbedx509 library" FORCE)
 				set(MBEDCRYPTO_LIBRARY "${mbedtls_BINARY_DIR}/library/libmbedcrypto.a" CACHE FILEPATH "mbedcrypto library" FORCE)
@@ -109,10 +116,10 @@ if(CHIAKI_ENABLE_STEAMWORKS)
 	add_subdirectory(steamworks)
 endif()
 
-if(ANDROID)
+if(ANDROID OR IOS)
 	##################
-	# json-c for Android (using FetchContent for proper build integration)
-	# Always built for Android since RUDP is always enabled
+	# json-c for Android/iOS (using FetchContent for proper build integration)
+	# Always built since RUDP is always enabled for mobile
 	##################
 	include(FetchContent)
 	

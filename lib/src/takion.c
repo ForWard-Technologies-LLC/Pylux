@@ -1,4 +1,4 @@
-﻿#include "chiaki/feedback.h"
+#include "chiaki/feedback.h"
 #include <chiaki/takion.h>
 #include <chiaki/congestioncontrol.h>
 #include <chiaki/random.h>
@@ -12,8 +12,11 @@
 #include <string.h>
 #include <assert.h>
 
-#ifdef __APPLE__
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#if TARGET_OS_OSX
 #include <CoreServices/CoreServices.h>
+#endif
 #endif
 
 #ifdef _WIN32
@@ -280,13 +283,17 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, Chiaki
 			goto error_sock;
 		}
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && TARGET_OS_OSX
+		// macOS < 11 doesn't support IP_DONTFRAG
 		SInt32 majorVersion;
 		Gestalt(gestaltSystemVersionMajor, &majorVersion);
 		if(majorVersion < 11)
 		{
 			mac_dontfrag = false;
 		}
+#elif defined(__APPLE__)
+		// iOS/tvOS/watchOS always support IP_DONTFRAG
+		mac_dontfrag = true;
 #endif
 		if(info->ip_dontfrag)
 		{
@@ -369,13 +376,17 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, Chiaki
 		}
 		if(info->ip_dontfrag)
 		{
-#if defined(__APPLE__)
+#if defined(__APPLE__) && TARGET_OS_OSX
+			// macOS < 11 doesn't support IP_DONTFRAG
 			SInt32 majorVersion;
 			Gestalt(gestaltSystemVersionMajor, &majorVersion);
 			if(majorVersion < 11)
 			{
 				mac_dontfrag = false;
 			}
+#elif defined(__APPLE__)
+			// iOS/tvOS/watchOS always support IP_DONTFRAG
+			mac_dontfrag = true;
 #endif
 #if defined(_WIN32)
 			const DWORD dontfragment_val = 1;

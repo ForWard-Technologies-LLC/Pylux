@@ -38,6 +38,7 @@ option(CHIAKI_ENABLE_TESTS "Enable tests for Chiaki" ON)
 option(CHIAKI_ENABLE_CLI "Enable CLI for Chiaki" ON)
 option(CHIAKI_ENABLE_GUI "Enable Qt GUI" ON)
 option(CHIAKI_ENABLE_ANDROID "Enable Android (Use only as part of the Gradle Project)" OFF)
+option(CHIAKI_ENABLE_IOS "Enable iOS build (lib only, use from ios/ folder)" OFF)
 option(CHIAKI_ENABLE_BOREALIS "Enable Borealis GUI (For Nintendo Switch or PC)" OFF)
 tri_option(CHIAKI_ENABLE_SETSU "Enable libsetsu for touchpad input from controller" AUTO)
 tri_option(CHIAKI_ENABLE_STEAMDECK_NATIVE "Enable sdeck for native gyro and haptic feedback from Steam Deck" ON)
@@ -78,6 +79,23 @@ set(CPACK_DEBIAN_PACKAGE_SECTION "games")
 include(CPack)
 
 set(CHIAKI_IS_SWITCH ${NSWITCH})
+
+if(CHIAKI_ENABLE_IOS)
+	set(IOS TRUE)
+	set(CHIAKI_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+	set(CHIAKI_ENABLE_CLI OFF CACHE BOOL "" FORCE)
+	set(CHIAKI_ENABLE_GUI OFF CACHE BOOL "" FORCE)
+	set(CHIAKI_ENABLE_BOREALIS OFF CACHE BOOL "" FORCE)
+	set(CHIAKI_ENABLE_SETSU OFF CACHE STRING "" FORCE)
+	set(CHIAKI_ENABLE_FFMPEG_DECODER OFF CACHE STRING "" FORCE)
+	set(CHIAKI_ENABLE_PI_DECODER OFF CACHE STRING "" FORCE)
+	set(CHIAKI_ENABLE_STEAMDECK_NATIVE OFF CACHE STRING "" FORCE)
+	set(CHIAKI_ENABLE_STEAM_SHORTCUT OFF CACHE BOOL "" FORCE)
+	set(CHIAKI_ENABLE_RUDP ON CACHE STRING "" FORCE)
+	set(CHIAKI_LIB_ENABLE_MBEDTLS ON CACHE BOOL "" FORCE)
+	set(CHIAKI_LIB_MBEDTLS_EXTERNAL_PROJECT ON CACHE BOOL "" FORCE)
+	message(STATUS "iOS build: lib only, mbedTLS, RUDP enabled")
+endif()
 
 if(APPLE)
 	if(CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL "arm64")
@@ -162,9 +180,9 @@ if(CHIAKI_LIB_ENABLE_MBEDTLS)
 		set(ENABLE_TESTING CACHE INTERNAL OFF)
 		set(ENABLE_PROGRAMS CACHE INTERNAL OFF)
 		set(USE_SHARED_MBEDTLS_LIBRARY CACHE INTERNAL OFF)
-		# Android: Disable PSA crypto to avoid crypto_sizes.h generation issues
+		# Android/iOS: Disable PSA crypto to avoid crypto_sizes.h generation issues
 		# (Switch and other platforms can keep PSA enabled if needed)
-		if(ANDROID)
+		if(ANDROID OR IOS)
 			set(MBEDTLS_PSA_CRYPTO_C OFF CACHE BOOL "Disable PSA Crypto API" FORCE)
 		endif()
 		FetchContent_Declare(
@@ -173,9 +191,10 @@ if(CHIAKI_LIB_ENABLE_MBEDTLS)
 			GIT_TAG 8b3f26a5ac38d4fdccbc5c5366229f3e01dafcc0 # v2.28.0
 			GIT_PROGRESS TRUE
 		)
-		if(ANDROID)
-			# Android: Use manual FetchContent approach to inject compiler flags before building mbedTLS
-			# This is needed to suppress documentation warnings that NDK r28+ treats as errors
+		if(ANDROID OR IOS)
+			# Android/iOS: Use manual FetchContent approach to inject compiler flags before building mbedTLS
+			# Android: NDK r28+ treats documentation warnings as errors
+			# iOS: Xcode clang treats -Wunused-but-set-variable as error with mbedTLS's -Werror
 			FetchContent_GetProperties(mbedtls)
 			if(NOT mbedtls_POPULATED)
 				FetchContent_Populate(mbedtls)
@@ -185,8 +204,8 @@ if(CHIAKI_LIB_ENABLE_MBEDTLS)
 				# Override CMAKE_C_FLAGS and CMAKE_CXX_FLAGS for mbedTLS build
 				set(CMAKE_C_FLAGS_BACKUP "${CMAKE_C_FLAGS}")
 				set(CMAKE_CXX_FLAGS_BACKUP "${CMAKE_CXX_FLAGS}")
-				set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-documentation -Wno-unused-but-set-variable -Wno-error=documentation")
-				set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-documentation -Wno-unused-but-set-variable -Wno-error=documentation")
+				set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-documentation -Wno-unused-but-set-variable -Wno-error=documentation -Wno-error=unused-but-set-variable")
+				set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-documentation -Wno-unused-but-set-variable -Wno-error=documentation -Wno-error=unused-but-set-variable")
 			endif()
 			# Configure mbedTLS as a subdirectory so we can control its build
 			add_subdirectory(${mbedtls_SOURCE_DIR} ${mbedtls_BINARY_DIR})
