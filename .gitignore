@@ -47,3 +47,8 @@ chiaki-ng-Win/
 chiaki_fastbuild_logs.txt
 .temp/
 host/
+
+# Xcode user-specific files
+xcuserdata/
+*.xcuserstate
+*.xcuserdatad
