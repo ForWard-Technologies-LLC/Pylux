@@ -90,6 +90,11 @@ set(SOURCE_FILES
 		src/remote/rudp.c
 		src/remote/rudpsendbuffer.c)
 
+if(IOS)
+	list(APPEND HEADER_FILES include/chiaki/ios_bridge_helpers.h)
+	list(APPEND SOURCE_FILES src/ios_bridge_helpers.c)
+endif()
+
 if(CHIAKI_ENABLE_FFMPEG_DECODER)
 	list(APPEND HEADER_FILES include/chiaki/ffmpegdecoder.h)
 	list(APPEND SOURCE_FILES src/ffmpegdecoder.c)
@@ -130,6 +135,9 @@ endif()
 
 if(APPLE)
 	target_link_libraries(chiaki-lib "-framework CoreServices")
+	if(IOS)
+		target_link_libraries(chiaki-lib "-framework Security" "-framework Foundation")
+	endif()
 endif()
 
 target_include_directories(chiaki-lib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
@@ -137,9 +145,9 @@ target_include_directories(chiaki-lib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/includ
 find_package(Threads REQUIRED)
 target_link_libraries(chiaki-lib Threads::Threads)
 
-if(ANDROID)
+if(ANDROID OR IOS)
 	# json-c and miniupnpc built via FetchContent in third-party/CMakeLists.txt
-	# RUDP is always enabled on Android
+	# RUDP is always enabled on Android/iOS
 	# Link against targets created by FetchContent
 	# json-c target is named "json-c" when BUILD_SHARED_LIBS=OFF (which we set)
 	target_link_libraries(chiaki-lib json-c)

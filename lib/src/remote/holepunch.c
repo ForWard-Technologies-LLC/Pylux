@@ -51,10 +51,11 @@
 
 #include <curl/curl.h>
 
-#ifdef __ANDROID__
-// mbedTLS (Android SSL backend) doesn't support CURLOPT_CAPATH or env vars.
+#ifdef CHIAKI_LIB_ENABLE_MBEDTLS
+// mbedTLS doesn't use the system trust store, so we must set CURLOPT_CAINFO explicitly.
 // Intercept all curl_easy_init() calls to set CURLOPT_CAINFO from CHIAKI_CA_BUNDLE env var.
-static inline CURL* _chiaki_android_curl_easy_init(void) {
+// Applies to Android, iOS, and any other platform using mbedTLS as the SSL backend.
+static inline CURL* _chiaki_mbedtls_curl_easy_init(void) {
     CURL *curl = curl_easy_init();
     if(curl) {
         const char *ca_bundle = getenv("CHIAKI_CA_BUNDLE");
@@ -63,7 +64,7 @@ static inline CURL* _chiaki_android_curl_easy_init(void) {
     }
     return curl;
 }
-#define curl_easy_init() _chiaki_android_curl_easy_init()
+#define curl_easy_init() _chiaki_mbedtls_curl_easy_init()
 #endif
 #include <json-c/json_object.h>
 #include <json-c/json_tokener.h>
@@ -684,7 +685,6 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_list_devices(
     }
     CHIAKI_LOGV(log, console_type == CHIAKI_HOLEPUNCH_CONSOLE_TYPE_PS5 ? "PS5 devices: ": "PS4 devices: ");
     const char *json_str = json_object_to_json_string_ext(clients, JSON_C_TO_STRING_PRETTY);
-    // CHIAKI_LOGV(log, "chiaki_holepunch_list_devices: retrieved devices \n%s", json_str);
     
     // Log the full JSON response for systemData visibility
     // const char *full_json_str = json_object_to_json_string_ext(json, JSON_C_TO_STRING_PRETTY);
@@ -1811,6 +1811,19 @@ offer_cleanup:
 
 CHIAKI_EXPORT void chiaki_holepunch_session_fini(Session* session)
 {
+    // CRITICAL FIX: Always stop and join the websocket thread, even if ws_open is false!
+    // The thread is created in chiaki_holepunch_session_create() but only joined if ws_open==true.
+    // If the session exits before ws fully opens (e.g., auto-regist), the thread keeps running
+    // and causes memory corruption when we free resources below.
+    CHIAKI_LOGI(session->log, "chiaki_holepunch_session_fini: Stopping websocket thread (ws_open=%d)...", session->ws_open);
+    
+    // Signal websocket thread to stop
+    chiaki_mutex_lock(&session->stop_mutex);
+    session->ws_thread_should_stop = true;
+    chiaki_mutex_unlock(&session->stop_mutex);
+    chiaki_stop_pipe_stop(&session->select_pipe);
+    
+    // Delete session from PSN server if websocket was successfully opened
     if(session->ws_open)
     {
         ChiakiErrorCode err = deleteSession(session);
@@ -1850,12 +1863,12 @@ CHIAKI_EXPORT void chiaki_holepunch_session_fini(Session* session)
             }
             clear_notification(session, notif);
         }
-        chiaki_mutex_lock(&session->stop_mutex);
-        session->ws_thread_should_stop = true;
-        chiaki_mutex_unlock(&session->stop_mutex);
-        chiaki_stop_pipe_stop(&session->select_pipe);
-        chiaki_thread_join(&session->ws_thread, NULL);
     }
+    
+    // ALWAYS join the websocket thread (moved outside ws_open check)
+    CHIAKI_LOGI(session->log, "chiaki_holepunch_session_fini: Joining websocket thread...");
+    chiaki_thread_join(&session->ws_thread, NULL);
+    CHIAKI_LOGI(session->log, "chiaki_holepunch_session_fini: Websocket thread joined");
     if(session->gw.data)
     {
         if(session->local_port_ctrl != 0)
@@ -1872,8 +1885,14 @@ CHIAKI_EXPORT void chiaki_holepunch_session_fini(Session* session)
             else
                 CHIAKI_LOGE(session->log, "Couldn't delete UPNP local port data mapping"); 
         }
+        // CRITICAL: Must call FreeUPNPUrls to free internal strings before freeing the structure
+        // The miniupnpc library allocates strings inside UPNPUrls that must be freed properly
+        if(session->gw.urls)
+        {
+            FreeUPNPUrls(session->gw.urls);
+            free(session->gw.urls);
+        }
         free(session->gw.data);
-        free(session->gw.urls);
     }
     if (session->oauth_header)
         free(session->oauth_header);
@@ -2221,9 +2240,19 @@ static void* websocket_thread_func(void *user) {
     res = curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
     if(res != CURLE_OK)
         CHIAKI_LOGW(session->log, "websocket_thread_func: CURL setopt CURLOPT_FAILONERROR failed with CURL error %s", curl_easy_strerror(res));
+    // IMPORTANT: Keep total timeout at 0 (infinite) for long-lived websocket connection
+    // but set low speed timeout to detect stalls and check stop signal on iOS/macOS
     res = curl_easy_setopt(curl, CURLOPT_TIMEOUT, 0L);
     if(res != CURLE_OK)
         CHIAKI_LOGW(session->log, "websocket_thread_func: CURL setopt CURLOPT_TIMEOUT failed with CURL error %s", curl_easy_strerror(res));
+    // Set low speed limit: if transfer speed drops below 1 byte/sec for 5 seconds, timeout
+    // This allows curl_ws_recv to periodically return CURLE_OPERATION_TIMEDOUT so we can check stop signal
+    res = curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1L);
+    if(res != CURLE_OK)
+        CHIAKI_LOGW(session->log, "websocket_thread_func: CURL setopt CURLOPT_LOW_SPEED_LIMIT failed with CURL error %s", curl_easy_strerror(res));
+    res = curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 5L);
+    if(res != CURLE_OK)
+        CHIAKI_LOGW(session->log, "websocket_thread_func: CURL setopt CURLOPT_LOW_SPEED_TIME failed with CURL error %s", curl_easy_strerror(res));
     res = curl_easy_setopt(curl, CURLOPT_URL, ws_url);
     if(res != CURLE_OK)
         CHIAKI_LOGW(session->log, "websocket_thread_func: CURL setopt CURLOPT_URL failed with CURL error %s", curl_easy_strerror(res));
@@ -2332,7 +2361,14 @@ static void* websocket_thread_func(void *user) {
                 }
                 else
                     continue;
-            } else
+            }
+            else if (res == CURLE_OPERATION_TIMEDOUT)
+            {
+                // Low speed timeout - just check stop signal and continue
+                CHIAKI_LOGV(session->log, "websocket_thread_func: Low speed timeout (no data for 5s), continuing...");
+                continue;
+            }
+            else
             {
                 CHIAKI_LOGE(session->log, "websocket_thread_func: Receiving WebSocket frame failed with CURL error %s", curl_easy_strerror(res));
                 goto cleanup_json;
@@ -2419,12 +2455,15 @@ static void* websocket_thread_func(void *user) {
                 }
                 session_message_free(msg);
             }
+            // Save type before enqueue: once enqueued another thread may
+            // dequeue and free the notification before we read from it.
+            int notif_type_saved = notif->type;
             ChiakiErrorCode mutex_err = chiaki_mutex_lock(&session->notif_mutex);
             assert(mutex_err == CHIAKI_ERR_SUCCESS);
             enqueueNq(session->ws_notification_queue, notif);
             chiaki_cond_signal(&session->notif_cond);
             chiaki_mutex_unlock(&session->notif_mutex);
-            if (notif->type == NOTIFICATION_TYPE_SESSION_DELETED)
+            if (notif_type_saved == NOTIFICATION_TYPE_SESSION_DELETED)
             {
                 CHIAKI_LOGI(session->log, "websocket_thread_func: Holepunch session was deleted on PSN server, exiting....");
                 goto cleanup_json;
