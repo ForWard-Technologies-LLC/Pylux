@@ -1,5 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="oval">
-    <solid android:color="#3D5068" />
-</shape>
+<!-- Selected icon background with stronger Pylux blue glow (matching iOS) -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Blue glow shadow (outer) - moderate -->
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="20dp" />
+            <solid android:color="#35009FE3" />
+        </shape>
+    </item>
+    
+    <!-- Selected background with border (inset to create glow effect) -->
+    <item
+        android:top="2dp"
+        android:bottom="2dp"
+        android:left="2dp"
+        android:right="2dp">
+        <shape android:shape="rectangle">
+            <corners android:radius="18dp" />
+            <solid android:color="#15009FE3" />
+            <stroke
+                android:width="1dp"
+                android:color="#50009FE3" />
+        </shape>
+    </item>
+</layer-list>

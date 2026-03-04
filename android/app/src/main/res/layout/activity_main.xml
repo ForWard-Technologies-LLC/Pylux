@@ -12,7 +12,7 @@
         android:id="@+id/appBarLayout"
         android:layout_height="wrap_content"
         android:layout_width="match_parent"
-        android:background="@color/primary_dark"
+        android:background="@color/toolbar_bg"
         android:elevation="0dp">
 
         <com.google.android.material.appbar.MaterialToolbar
@@ -26,11 +26,9 @@
             android:contentInsetEnd="0dp"
             android:theme="@style/AppTheme.Toolbar">
 
-            <LinearLayout
+            <RelativeLayout
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
                 android:paddingStart="12dp"
                 android:paddingEnd="12dp">
 
@@ -39,6 +37,8 @@
                     android:id="@+id/modeIsland"
                     android:layout_width="wrap_content"
                     android:layout_height="46dp"
+                    android:layout_alignParentStart="true"
+                    android:layout_centerVertical="true"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
                     android:background="@drawable/icon_island_background"
@@ -76,54 +76,23 @@
 
                 </LinearLayout>
 
-                <!-- Center spacer (always present to push pills apart) -->
-                <FrameLayout
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:layout_height="match_parent">
-
-                    <!-- App name (shown on Remote Play page) -->
-                    <TextView
-                        android:id="@+id/appTitle"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_gravity="center"
-                        android:text="@string/app_name"
-                        android:textSize="20sp"
-                        android:textColor="#FFFFFF"
-                        android:fontFamily="sans-serif-black"
-                        android:letterSpacing="0.2"
-                        android:shadowColor="#60B0E0FF"
-                        android:shadowDx="0"
-                        android:shadowDy="0"
-                        android:shadowRadius="20"
-                        android:textStyle="bold" />
-
-                    <!-- Cloud Play sub-tabs (shown only on Cloud Play page) -->
-                    <com.google.android.material.tabs.TabLayout
-                        android:id="@+id/cloudSubTabs"
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent"
-                        android:layout_marginStart="8dp"
-                        android:layout_marginEnd="8dp"
-                        android:background="@android:color/transparent"
-                        app:tabMode="fixed"
-                        app:tabGravity="center"
-                        app:tabTextColor="#66FFFFFF"
-                        app:tabSelectedTextColor="#FFFFFF"
-                        app:tabIndicatorColor="@color/tab_indicator"
-                        app:tabIndicatorHeight="2dp"
-                        app:tabTextAppearance="@style/CloudTabTextAppearance"
-                        app:tabIndicatorFullWidth="false"
-                        android:visibility="gone" />
-
-                </FrameLayout>
+                <!-- Center: Pylux logo - absolutely centered -->
+                <ImageView
+                    android:id="@+id/appTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="22dp"
+                    android:layout_centerInParent="true"
+                    android:src="@drawable/pylux_logo"
+                    android:adjustViewBounds="true"
+                    android:contentDescription="@string/app_name" />
 
                 <!-- Right Island: Action Icons -->
                 <LinearLayout
                     android:id="@+id/actionIsland"
                     android:layout_width="wrap_content"
                     android:layout_height="46dp"
+                    android:layout_alignParentEnd="true"
+                    android:layout_centerVertical="true"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
                     android:background="@drawable/icon_island_background"
@@ -141,18 +110,6 @@
                         android:background="?attr/selectableItemBackgroundBorderless"
                         android:tint="#CCFFFFFF" />
 
-                    <!-- Search Icon (Cloud Play) -->
-                    <ImageView
-                        android:id="@+id/searchIcon"
-                        android:layout_width="44dp"
-                        android:layout_height="40dp"
-                        android:padding="8dp"
-                        android:src="@android:drawable/ic_menu_search"
-                        android:contentDescription="Search"
-                        android:background="?attr/selectableItemBackgroundBorderless"
-                        android:tint="#CCFFFFFF"
-                        android:visibility="gone" />
-
                     <!-- Settings Icon -->
                     <ImageView
                         android:id="@+id/settingsIcon"
@@ -166,7 +123,7 @@
 
                 </LinearLayout>
 
-            </LinearLayout>
+            </RelativeLayout>
 
         </com.google.android.material.appbar.MaterialToolbar>
 

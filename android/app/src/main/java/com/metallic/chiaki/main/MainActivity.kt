@@ -25,8 +25,8 @@ class MainActivity : AppCompatActivity()
 {
 	companion object
 	{
-		private const val ICON_SELECTED = 0xFFFFFFFF.toInt()
-		private const val ICON_UNSELECTED = 0x55FFFFFF
+		private const val ICON_SELECTED = 0xFF009FE3.toInt()  // Pylux blue
+		private const val ICON_UNSELECTED = 0xFFFFFFFF.toInt() // Solid white
 	}
 
 	private lateinit var viewModel: MainViewModel
@@ -116,12 +116,6 @@ class MainActivity : AppCompatActivity()
 			viewModel.discoveryManager.active = !(viewModel.discoveryActive.value ?: false)
 		}
 		
-		// Search toggle (Cloud Play)
-		binding.searchIcon.setOnClickListener {
-			val fragment = supportFragmentManager.findFragmentByTag("f${binding.viewPager.currentItem}") as? CloudPlayFragment
-			fragment?.toggleSearch()
-		}
-		
 		// Settings
 		binding.settingsIcon.setOnClickListener {
 			Intent(this, SettingsActivity::class.java).also {
@@ -151,21 +145,10 @@ class MainActivity : AppCompatActivity()
 
 	private fun updateActionIcons()
 	{
-		if (currentPage == 0) {
-			binding.wifiIcon.visibility = View.VISIBLE
-			binding.searchIcon.visibility = View.GONE
-			binding.cloudSubTabs.visibility = View.GONE
-			binding.appTitle.visibility = View.VISIBLE
-		} else {
-			binding.wifiIcon.visibility = View.GONE
-			binding.searchIcon.visibility = View.VISIBLE
-			binding.cloudSubTabs.visibility = View.VISIBLE
-			binding.appTitle.visibility = View.GONE
-		}
+		// Pylux logo always visible, WiFi icon only on Remote Play
+		binding.appTitle.visibility = View.VISIBLE
+		binding.wifiIcon.visibility = if (currentPage == 0) View.VISIBLE else View.GONE
 	}
-
-	/** Provides the cloud sub-tabs TabLayout for CloudPlayFragment to use */
-	fun getCloudSubTabs(): TabLayout = binding.cloudSubTabs
 
 	private fun observeViewModel()
 	{
