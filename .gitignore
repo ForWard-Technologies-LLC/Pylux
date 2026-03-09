@@ -4,7 +4,9 @@
 build
 cmake-build-*
 /build_*
-/build-*
+/build-arm64
+/build-x86_64
+/build-output
 /debug
 /Debug
 /release
@@ -47,3 +49,8 @@ chiaki-ng-Win/
 chiaki_fastbuild_logs.txt
 .temp/
 host/
+
+# Xcode user-specific files
+xcuserdata/
+*.xcuserstate
+*.xcuserdatad

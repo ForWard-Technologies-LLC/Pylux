@@ -99,13 +99,12 @@ QmlMainWindow::QmlMainWindow(const StreamSessionConnectInfo &connect_info, Steam
     init(connect_info.settings, false, steamworks);
     backend->createSession(connect_info);
 
+    if (connect_info.fullscreen || connect_info.zoom || connect_info.stretch)
+        fullscreenTime();
     if (connect_info.zoom)
         setVideoMode(VideoMode::Zoom);
     else if (connect_info.stretch)
         setVideoMode(VideoMode::Stretch);
-
-    if (connect_info.fullscreen || connect_info.zoom || connect_info.stretch)
-        fullscreenTime();
 
     connect(session, &StreamSession::SessionQuit, qGuiApp, &QGuiApplication::quit);
 }
@@ -593,6 +592,16 @@ void QmlMainWindow::init(Settings *settings, bool exit_app_on_stream_exit, Steam
     update_timer->setSingleShot(true);
     connect(update_timer, &QTimer::timeout, this, &QmlMainWindow::update);
 
+    geometry_save_timer = new QTimer(this);
+    geometry_save_timer->setSingleShot(true);
+    geometry_save_timer->setInterval(500);
+    connect(geometry_save_timer, &QTimer::timeout, this, [this]() {
+        if(!session && isWindowAdjustable())
+            this->settings->SetGeometry(geometry());
+        else if(session && this->settings->GetWindowType() == WindowType::AdjustableResolution && isStreamWindowAdjustable())
+            this->settings->SetStreamGeometry(geometry());
+    });
+
     QMetaObject::invokeMethod(quick_render, &QQuickRenderControl::initialize);
 
     QTimer *dropped_frames_timer = new QTimer(this);
@@ -725,7 +734,32 @@ void QmlMainWindow::createSwapchain()
 #elif defined(Q_OS_MACOS)
     VkMetalSurfaceCreateInfoEXT surfaceInfo = {};
     surfaceInfo.sType = VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT;
-    surfaceInfo.pLayer = static_cast<const CAMetalLayer*>(reinterpret_cast<void*(*)(id, SEL)>(objc_msgSend)(reinterpret_cast<id>(winId()), sel_registerName("layer")));
+    
+    // Qt 6.10+ wraps CAMetalLayer in QContainerLayer - extract the real layer
+    typedef id (*SendFunc)(id, SEL);
+    typedef unsigned long (*CountFunc)(id, SEL);
+    typedef id (*IndexFunc)(id, SEL, unsigned long);
+    
+    id nsView = reinterpret_cast<id>(winId());
+    id layer = ((SendFunc)objc_msgSend)(nsView, sel_registerName("layer"));
+    void *metalLayer = layer;
+    
+    // Check if it's QContainerLayer and extract the actual metal layer
+    const char *className = object_getClassName(layer);
+    if (strcmp(className, "QContainerLayer") == 0) {
+        // Get sublayers array
+        id sublayers = ((SendFunc)objc_msgSend)(layer, sel_registerName("sublayers"));
+        if (sublayers) {
+            // Get count
+            unsigned long count = ((CountFunc)objc_msgSend)(sublayers, sel_registerName("count"));
+            // Get first sublayer if it exists (the actual CAMetalLayer)
+            if (count > 0) {
+                metalLayer = ((IndexFunc)objc_msgSend)(sublayers, sel_registerName("objectAtIndexedSubscript:"), 0UL);
+            }
+        }
+    }
+    
+    surfaceInfo.pLayer = static_cast<const CAMetalLayer*>(metalLayer);
     err = vk_funcs.vkCreateMetalSurfaceEXT(placebo_vk_inst->instance, &surfaceInfo, nullptr, &surface);
 #elif defined(Q_OS_WIN32)
     VkWin32SurfaceCreateInfoKHR surfaceInfo = {};
@@ -1232,16 +1266,10 @@ bool QmlMainWindow::event(QEvent *event)
             QMetaObject::invokeMethod(quick_render, std::bind(&QmlMainWindow::destroySwapchain, this), Qt::BlockingQueuedConnection);
         break;
     case QEvent::Move:
-        if(!session && isWindowAdjustable())
-            settings->SetGeometry(geometry());
-        else if(session && settings->GetWindowType() == WindowType::AdjustableResolution && isStreamWindowAdjustable())
-            settings->SetStreamGeometry(geometry());
+        geometry_save_timer->start();
         break;
     case QEvent::Resize:
-        if(!session && isWindowAdjustable())
-            settings->SetGeometry(geometry());
-        else if(session && settings->GetWindowType() == WindowType::AdjustableResolution && isStreamWindowAdjustable())
-            settings->SetStreamGeometry(geometry());
+        geometry_save_timer->start();
         if (isExposed())
             updateSwapchain();
         break;

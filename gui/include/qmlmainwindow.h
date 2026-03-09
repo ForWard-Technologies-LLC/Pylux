@@ -180,6 +180,7 @@ private:
     VkSemaphore quick_sem = VK_NULL_HANDLE;
     uint64_t quick_sem_value = 0;
     QTimer *update_timer = {};
+    QTimer *geometry_save_timer = {};
     bool quick_frame = false;
     bool quick_need_sync = false;
     std::atomic<bool> quick_need_render = {false};

@@ -470,18 +470,12 @@ Item {
             view.releaseInput();
         }
 
-        Canvas {
+        Rectangle {
             anchors.fill: parent
-            onWidthChanged: requestPaint()
-            onHeightChanged: requestPaint()
-            onPaint: {
-                let ctx = getContext("2d");
-                let gradient = ctx.createLinearGradient(0, 0, 0, height);
-                gradient.addColorStop(0.0, Qt.rgba(0.0, 0.0, 0.0, 0.0));
-                gradient.addColorStop(0.7, Qt.rgba(0.5, 0.5, 0.5, 0.7));
-                gradient.addColorStop(1.0, Qt.rgba(0.5, 0.5, 0.5, 0.9));
-                ctx.fillStyle = gradient;
-                ctx.fillRect(0, 0, width, height);
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: Qt.rgba(0.0, 0.0, 0.0, 0.0) }
+                GradientStop { position: 0.7; color: Qt.rgba(0.5, 0.5, 0.5, 0.7) }
+                GradientStop { position: 1.0; color: Qt.rgba(0.5, 0.5, 0.5, 0.9) }
             }
         }
 

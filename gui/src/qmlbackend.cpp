@@ -416,18 +416,18 @@ QmlBackend::QmlBackend(Settings *settings, QmlMainWindow *window, SteamworksWrap
             qCInfo(chiakiGui) << "QmlBackend: Cloud sync instance available, enabled:" << cloudSync->isEnabled();
             
             if (cloudSync->isEnabled()) {
-                qCInfo(chiakiGui) << "QmlBackend: Syncing from Steam Cloud before PSN token refresh...";
-                int downloadedCount = cloudSync->syncAllProfilesFromCloud();
-                if (downloadedCount > 0) {
-                    QString title = tr("Steam Cloud Sync");
-                    QString message = downloadedCount == 1 
-                        ? tr("Downloaded 1 profile from Steam Cloud") 
-                        : tr("Downloaded %1 profiles from Steam Cloud").arg(downloadedCount);
-                    // Delay emission until after QML is loaded, show for 5 seconds
-                    QTimer::singleShot(100, this, [this, title, message]() {
+                qCInfo(chiakiGui) << "QmlBackend: Scheduling Steam Cloud sync (async)...";
+                QTimer::singleShot(0, this, [this, cloudSync]() {
+                    qCInfo(chiakiGui) << "QmlBackend: Syncing from Steam Cloud...";
+                    int downloadedCount = cloudSync->syncAllProfilesFromCloud();
+                    if (downloadedCount > 0) {
+                        QString title = tr("Steam Cloud Sync");
+                        QString message = downloadedCount == 1 
+                            ? tr("Downloaded 1 profile from Steam Cloud") 
+                            : tr("Downloaded %1 profiles from Steam Cloud").arg(downloadedCount);
                         emit error(title, message, 5000);
-                    });
-                }
+                    }
+                });
             }
         } else {
             qCWarning(chiakiGui) << "QmlBackend: Cloud sync instance is NULL!";
