@@ -4,7 +4,8 @@ package com.metallic.chiaki.stream
 
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
-import android.app.AlertDialog
+import androidx.appcompat.app.AlertDialog
+import com.metallic.chiaki.common.ext.alertDialogBuilder
 import android.app.PictureInPictureParams
 import android.content.res.Configuration
 import android.graphics.Matrix
@@ -18,7 +19,7 @@ import androidx.core.view.isGone
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.*
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
+
 import com.pylux.stream.R
 import com.metallic.chiaki.common.Preferences
 import com.metallic.chiaki.common.ext.viewModelFactory
@@ -393,7 +394,7 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 					{
 						dialog?.dismiss()
 						val reasonStr = state.reasonString
-						val dialog = MaterialAlertDialogBuilder(this)
+						val dialog = alertDialogBuilder()
 							.setMessage(getString(R.string.alert_message_session_quit, state.reason.toString())
 									+ (if(reasonStr != null) "\n$reasonStr" else ""))
 							.setPositiveButton(R.string.action_reconnect) { _, _ ->
@@ -422,7 +423,7 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 				if(dialogContents != CreateErrorDialog)
 				{
 					dialog?.dismiss()
-					val dialog = MaterialAlertDialogBuilder(this)
+					val dialog = alertDialogBuilder()
 						.setMessage(getString(R.string.alert_message_session_create_error, state.error.errorCode.toString()))
 						.setOnDismissListener {
 							dialog = null
@@ -444,7 +445,7 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 					val view = layoutInflater.inflate(R.layout.dialog_login_pin, null)
 					val pinEditText = view.findViewById<EditText>(R.id.pinEditText)
 
-					val dialog = MaterialAlertDialogBuilder(this)
+					val dialog = alertDialogBuilder()
 						.setMessage(
 							if(state.pinIncorrect)
 								R.string.alert_message_login_pin_request_incorrect

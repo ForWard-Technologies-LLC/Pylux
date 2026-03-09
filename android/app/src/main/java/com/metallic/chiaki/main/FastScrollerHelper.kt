@@ -2,6 +2,11 @@
 
 package com.metallic.chiaki.main
 
+import android.app.UiModeManager
+import android.content.Context
+import android.content.res.Configuration
+import android.os.Handler
+import android.os.Looper
 import android.view.MotionEvent
 import android.view.View
 import android.widget.TextView
@@ -13,6 +18,7 @@ import com.metallic.chiaki.cloudplay.model.CloudGame
  * Helper class to manage fast scrolling functionality for a RecyclerView.
  * Attaches a touch listener to a wide touch zone on the right side of the screen.
  * Dragging anywhere in the zone scrolls the list and moves the visible thumb.
+ * On TV (D-pad navigation), the scroller is hidden since users navigate with D-pad.
  */
 class FastScrollerHelper(
 	private val recyclerView: RecyclerView,
@@ -23,13 +29,47 @@ class FastScrollerHelper(
 	private val adapter: CloudGameAdapter,
 	private val gamesProvider: () -> List<CloudGame>
 ) {
+	private val isTv: Boolean by lazy {
+		val uiModeManager = recyclerView.context.getSystemService(Context.UI_MODE_SERVICE) as UiModeManager
+		uiModeManager.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
+	}
 	private var isDragging = false
-	
+	private val idleHandler = Handler(Looper.getMainLooper())
+	private val idleRunnable = Runnable {
+		adapter.isScrollingFast = false
+		// Reload images for visible cards that got a placeholder during fast scroll.
+		// Debounced so rapid key presses don't trigger a rebind mid-navigation (which drops focus).
+		val lm = recyclerView.layoutManager as? GridLayoutManager ?: return@Runnable
+		val first = lm.findFirstVisibleItemPosition()
+		val last = lm.findLastVisibleItemPosition()
+		if (first >= 0 && last >= first) {
+			adapter.notifyItemRangeChanged(first, last - first + 1, PAYLOAD_RELOAD_IMAGE)
+		}
+	}
+
 	private val scrollListener = object : RecyclerView.OnScrollListener() {
 		override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
 			when (newState) {
-				RecyclerView.SCROLL_STATE_SETTLING -> setFastScrolling(true)
-				RecyclerView.SCROLL_STATE_IDLE -> setFastScrolling(false)
+				RecyclerView.SCROLL_STATE_DRAGGING,
+				RecyclerView.SCROLL_STATE_SETTLING -> {
+					idleHandler.removeCallbacks(idleRunnable)
+					adapter.isScrollingFast = true
+					// Transfer focus from the focused card to the RecyclerView itself.
+					// This prevents Android from auto-focusing the header when the
+					// focused card view is recycled off-screen during scroll.
+					if (recyclerView.focusedChild != null) {
+						recyclerView.isFocusableInTouchMode = true
+						recyclerView.descendantFocusability = android.view.ViewGroup.FOCUS_BEFORE_DESCENDANTS
+						recyclerView.requestFocus()
+					}
+				}
+				RecyclerView.SCROLL_STATE_IDLE -> {
+					// Restore normal descendant focus so D-pad can navigate into cards again.
+					recyclerView.descendantFocusability = android.view.ViewGroup.FOCUS_AFTER_DESCENDANTS
+					// Debounce the image reload so rapid key presses don't rebind mid-navigation.
+					idleHandler.removeCallbacks(idleRunnable)
+					idleHandler.postDelayed(idleRunnable, 250)
+				}
 			}
 		}
 		
@@ -41,18 +81,11 @@ class FastScrollerHelper(
 	}
 	
 	private fun setFastScrolling(fast: Boolean) {
-		if (adapter.isScrollingFast == fast) return
 		adapter.isScrollingFast = fast
-		if (!fast) {
-			recyclerView.post {
-				val lm = recyclerView.layoutManager as? GridLayoutManager ?: return@post
-				val first = lm.findFirstVisibleItemPosition()
-				val last = lm.findLastVisibleItemPosition()
-				if (first >= 0 && last >= first) {
-					adapter.notifyItemRangeChanged(first, last - first + 1)
-				}
-			}
-		}
+	}
+
+	companion object {
+		const val PAYLOAD_RELOAD_IMAGE = "reload_image"
 	}
 	
 	fun setup() {
@@ -62,6 +95,7 @@ class FastScrollerHelper(
 	}
 	
 	fun cleanup() {
+		idleHandler.removeCallbacks(idleRunnable)
 		recyclerView.removeOnScrollListener(scrollListener)
 		touchZone.setOnTouchListener(null)
 	}
@@ -70,7 +104,7 @@ class FastScrollerHelper(
 		val gameCount = gamesProvider().size
 		gameCountText.text = "$gameCount ${if (gameCount == 1) "game" else "games"}"
 		gameCountText.visibility = if (gameCount > 0) View.VISIBLE else View.GONE
-		val show = gameCount > 10
+		val show = !isTv && gameCount > 10
 		thumbView.visibility = if (show) View.VISIBLE else View.GONE
 		touchZone.visibility = if (show) View.VISIBLE else View.GONE
 	}

@@ -10,7 +10,6 @@
         <item name="android:navigationBarColor">?attr/colorPrimarySurface</item>
         <item name="materialAlertDialogTheme">@style/AppTheme.AlertDialog</item>
         <item name="alertDialogTheme">@style/AppTheme.AlertDialog.NonMaterial</item>
-
         <item name="android:windowActivityTransitions">true</item>
     </style>
 
@@ -73,7 +72,7 @@
         <item name="android:windowActivityTransitions">true</item>
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
 
-        -<item name="materialAlertDialogTheme">@style/AppTheme.AlertDialog</item>
+        <item name="materialAlertDialogTheme">@style/AppTheme.AlertDialog</item>
     </style>
 
     <style name="MageTheme.Translucent" parent="MageTheme">

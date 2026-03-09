@@ -4,20 +4,33 @@ package com.metallic.chiaki.main
 
 import android.app.Activity
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Color
 import android.os.Bundle
 import android.util.Log
+import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.widget.SearchView
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.EncodeHintType
+import com.google.zxing.qrcode.QRCodeWriter
+import com.metallic.chiaki.common.ext.enableFocusableInTouchModeForTv
+import com.metallic.chiaki.common.ext.isTv
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import coil.load
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.metallic.chiaki.common.ext.alertDialogBuilder
 import com.pylux.stream.R
 import com.metallic.chiaki.cloudplay.PsnLoginActivity
 import com.metallic.chiaki.cloudplay.api.CloudStreamingBackend
@@ -138,6 +151,18 @@ class CloudPlayFragment : Fragment()
 		binding.loginButton.setOnClickListener {
 			launchPsnLogin()
 		}
+		if (requireContext().isTv()) {
+			binding.loginButton.onFocusChangeListener = View.OnFocusChangeListener { v, hasFocus ->
+				v.foreground = if (hasFocus)
+					android.graphics.drawable.GradientDrawable().apply {
+						shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+						cornerRadius = 24f
+						setColor(0x33FFD700.toInt())
+						setStroke(3, 0xCCFFD700.toInt())
+					}
+				else null
+			}
+		}
 	}
 	
 	private fun checkLoginStatus()
@@ -162,7 +187,7 @@ class CloudPlayFragment : Fragment()
 	
 	private fun showLoginPrompt()
 	{
-		MaterialAlertDialogBuilder(requireContext())
+		requireContext().alertDialogBuilder()
 			.setTitle(R.string.psn_login_required_title)
 			.setMessage(R.string.psn_login_prompt_message)
 			.setPositiveButton(R.string.psn_login_button) { _, _ ->
@@ -315,22 +340,20 @@ class CloudPlayFragment : Fragment()
 		isSearchExpanded = !isSearchExpanded
 		
 		if (isSearchExpanded) {
-			// Expand search bar
 			binding.searchView.visibility = android.view.View.VISIBLE
 			binding.searchView.layoutParams = binding.searchView.layoutParams.apply {
 				height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 			}
 			binding.searchView.requestFocus()
-			// Show keyboard
-			val imm = requireContext().getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
-			imm.showSoftInput(binding.searchView, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
-			// Update icon
+			// Only force-show the soft keyboard on touch devices; TV uses D-pad to type
+			if (!isTv()) {
+				val imm = requireContext().getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+				imm.showSoftInput(binding.searchView, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+			}
 			binding.headerSearchButton.setColorFilter(resources.getColor(android.R.color.white, null))
 			binding.headerSearchButton.alpha = 1.0f
 		} else {
-			// Collapse search bar
 			collapseSearchBar()
-			// Reset icon
 			binding.headerSearchButton.setColorFilter(resources.getColor(android.R.color.white, null))
 			binding.headerSearchButton.alpha = 0.45f
 		}
@@ -359,7 +382,7 @@ class CloudPlayFragment : Fragment()
 		binding.searchView.layoutParams = binding.searchView.layoutParams.apply {
 			height = 0
 		}
-		binding.searchView.setQuery("", false)
+		// Do NOT clear the query - keep the search filter active so the list stays filtered
 		binding.searchView.clearFocus()
 		// Hide keyboard
 		val imm = requireContext().getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
@@ -403,14 +426,35 @@ class CloudPlayFragment : Fragment()
 		binding.headerRefreshButton.setOnClickListener {
 			refreshCurrentSection()
 		}
+
+		if (requireContext().isTv()) {
+			binding.root.enableFocusableInTouchModeForTv(requireContext())
+			fun highlightButton(v: View, hasFocus: Boolean) {
+				if (hasFocus) {
+					v.background = android.graphics.drawable.GradientDrawable().apply {
+						shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+						cornerRadius = 24f
+						setColor(0x30FFD700.toInt())
+						setStroke(2, 0xCCFFD700.toInt())
+					}
+				} else {
+					v.background = null
+				}
+			}
+			val focusHighlight = View.OnFocusChangeListener { v, hasFocus -> highlightButton(v, hasFocus) }
+			binding.catalogTabButton.onFocusChangeListener = focusHighlight
+			binding.libraryTabButton.onFocusChangeListener = focusHighlight
+			binding.ownedToggleButton.onFocusChangeListener = focusHighlight
+			binding.headerFavoritesButton.onFocusChangeListener = focusHighlight
+			binding.headerSortButton.onFocusChangeListener = focusHighlight
+			binding.headerSearchButton.onFocusChangeListener = focusHighlight
+			binding.headerRefreshButton.onFocusChangeListener = focusHighlight
+		}
 		
 		// Initialize icon colors
 		updateHeaderIconColors()
-		
-		// Start with Catalog selected
-		selectCatalogTab()
 	}
-	
+
 	private fun updateHeaderIconColors()
 	{
 		val whiteTranslucent = resources.getColor(android.R.color.white, null)
@@ -582,7 +626,7 @@ class CloudPlayFragment : Fragment()
 			else -> arrayOf("Recent", "Name: A → Z", "Name: Z → A")
 		}
 		
-		MaterialAlertDialogBuilder(requireContext())
+		requireContext().alertDialogBuilder()
 			.setTitle("Sort")
 			.setSingleChoiceItems(sortOptions, sortState) { dialog, which ->
 				applySortState(which)
@@ -844,9 +888,10 @@ class CloudPlayFragment : Fragment()
 		binding.gamesRecyclerView.adapter = adapter
 		binding.gamesRecyclerView.setHasFixedSize(true)
 		binding.gamesRecyclerView.setItemViewCacheSize(20)
+		binding.gamesRecyclerView.descendantFocusability = android.view.ViewGroup.FOCUS_AFTER_DESCENDANTS
 		val spanCount = calculateSpanCount()
 		binding.gamesRecyclerView.layoutManager = GridLayoutManager(requireContext(), spanCount)
-		
+
 		// Setup fast scroller
 		setupFastScroller()
 	}
@@ -874,6 +919,11 @@ class CloudPlayFragment : Fragment()
 	 * Calculate the number of columns based on screen width
 	 * Aim for cards that are around 180dp wide for bigger cards
 	 */
+	private fun isTv(): Boolean {
+		val uiModeManager = requireContext().getSystemService(android.content.Context.UI_MODE_SERVICE) as android.app.UiModeManager
+		return uiModeManager.currentModeType == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
+	}
+
 	private fun calculateSpanCount(): Int {
 		val displayMetrics = resources.displayMetrics
 		val screenWidthDp = displayMetrics.widthPixels / displayMetrics.density
@@ -1027,7 +1077,7 @@ class CloudPlayFragment : Fragment()
 		showLoginRequiredState()
 		
 		// Then show authentication error dialog
-		MaterialAlertDialogBuilder(requireContext())
+		requireContext().alertDialogBuilder()
 			.setTitle(getString(R.string.psn_login_required_title))
 			.setMessage(getString(R.string.psn_login_session_expired_message))
 			.setPositiveButton(R.string.psn_login_button) { _, _ ->
@@ -1040,7 +1090,7 @@ class CloudPlayFragment : Fragment()
 	
 	private fun handleNetworkError(error: CloudError.NetworkError)
 	{
-		MaterialAlertDialogBuilder(requireContext())
+		requireContext().alertDialogBuilder()
 			.setTitle(R.string.error_network_title)
 			.setMessage(error.message)
 			.setPositiveButton(R.string.action_retry) { _, _ ->
@@ -1053,7 +1103,7 @@ class CloudPlayFragment : Fragment()
 	
 	private fun handleGeneralError(error: CloudError.GeneralError)
 	{
-		MaterialAlertDialogBuilder(requireContext())
+		requireContext().alertDialogBuilder()
 			.setTitle(R.string.error)
 			.setMessage(error.message)
 			.setPositiveButton(R.string.action_ok, null)
@@ -1086,23 +1136,84 @@ class CloudPlayFragment : Fragment()
 		if (game.conceptUrl.isEmpty())
 		{
 			Log.e(TAG, "Missing concept URL for: ${game.name}")
-			MaterialAlertDialogBuilder(requireContext())
+			requireContext().alertDialogBuilder()
 				.setTitle("Add to Library")
 				.setMessage("Unable to add this game to your library. The game URL is not available.")
 				.setPositiveButton("OK", null)
 				.show()
 			return
 		}
-		
-		MaterialAlertDialogBuilder(requireContext())
-			.setTitle("Add to Library")
-			.setMessage("This game needs to be added to your library before you can stream it.\n\nAfter adding the game, press the Refresh Games button to update your list.")
-			.setPositiveButton("Add Now") { _, _ ->
-				// Open concept URL in external browser
-				openUrlInBrowser(game.conceptUrl)
+
+		if (requireContext().isTv()) {
+			showAddToLibraryQrDialog(game)
+		} else {
+			requireContext().alertDialogBuilder()
+				.setTitle("Add to Library")
+				.setMessage("This game needs to be added to your library before you can stream it.\n\nAfter adding the game, press the Refresh Games button to update your list.")
+				.setPositiveButton("Add Now") { _, _ ->
+					openUrlInBrowser(game.conceptUrl)
+				}
+				.setNegativeButton("Cancel", null)
+				.show()
+		}
+	}
+
+	private fun showAddToLibraryQrDialog(game: CloudGame)
+	{
+		val ctx = requireContext()
+		val qrBitmap = generateQrCode(game.conceptUrl, 512)
+
+		val dp = ctx.resources.displayMetrics.density
+		fun Int.dp() = (this * dp).toInt()
+
+		val layout = LinearLayout(ctx).apply {
+			orientation = LinearLayout.VERTICAL
+			gravity = Gravity.CENTER_HORIZONTAL
+			setPadding(32.dp(), 16.dp(), 32.dp(), 8.dp())
+		}
+
+		val message = TextView(ctx).apply {
+			text = "Scan this QR code on your phone or tablet to add \"${game.name}\" to your PlayStation library.\n\nAfter adding the game, press Refresh Games."
+			textSize = 18f
+			setTextColor(Color.WHITE)
+			gravity = Gravity.CENTER
+			layoutParams = LinearLayout.LayoutParams(
+				LinearLayout.LayoutParams.MATCH_PARENT,
+				LinearLayout.LayoutParams.WRAP_CONTENT
+			).apply { bottomMargin = 24.dp() }
+		}
+
+		val qrImage = ImageView(ctx).apply {
+			setImageBitmap(qrBitmap)
+			scaleType = ImageView.ScaleType.FIT_CENTER
+			layoutParams = LinearLayout.LayoutParams(320.dp(), 320.dp()).apply {
+				gravity = Gravity.CENTER_HORIZONTAL
 			}
-			.setNegativeButton("Cancel", null)
+		}
+
+		layout.addView(message)
+		layout.addView(qrImage)
+
+		val scroll = ScrollView(ctx).apply { addView(layout) }
+
+		ctx.alertDialogBuilder()
+			.setTitle("Add to Library")
+			.setView(scroll)
+			.setPositiveButton("Done", null)
 			.show()
+	}
+
+	private fun generateQrCode(content: String, size: Int): Bitmap
+	{
+		val hints = mapOf(EncodeHintType.MARGIN to 1)
+		val bitMatrix = QRCodeWriter().encode(content, BarcodeFormat.QR_CODE, size, size, hints)
+		val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+		for (x in 0 until size) {
+			for (y in 0 until size) {
+				bitmap.setPixel(x, y, if (bitMatrix[x, y]) Color.BLACK else Color.WHITE)
+			}
+		}
+		return bitmap
 	}
 	
 	/**
@@ -1170,7 +1281,7 @@ class CloudPlayFragment : Fragment()
 				allocationProgressDialog?.dismiss()
 			}
 			
-			allocationProgressDialog = MaterialAlertDialogBuilder(requireContext())
+			allocationProgressDialog = requireContext().alertDialogBuilder()
 				.setView(dialogView)
 				.setCancelable(false)
 				.create()
@@ -1330,7 +1441,7 @@ class CloudPlayFragment : Fragment()
 	 */
 	private fun showPsPlusSubscriptionErrorDialog()
 	{
-		MaterialAlertDialogBuilder(requireContext())
+		requireContext().alertDialogBuilder()
 			.setTitle("PlayStation Plus Required")
 			.setMessage("You need an active PlayStation Plus Premium subscription to stream games from the cloud, or this service may not be available in your region.")
 			.setPositiveButton("OK", null)
@@ -1342,7 +1453,7 @@ class CloudPlayFragment : Fragment()
 	 */
 	private fun showAccountPrivacySettingsErrorDialog(upgradeUrl: String)
 	{
-		MaterialAlertDialogBuilder(requireContext())
+		requireContext().alertDialogBuilder()
 			.setTitle("Account Settings Update Required")
 			.setMessage("Your account privacy settings need to be updated to use cloud streaming.\n\nUpgrade URL: $upgradeUrl")
 			.setPositiveButton("OK", null)
@@ -1354,7 +1465,7 @@ class CloudPlayFragment : Fragment()
 	 */
 	private fun showPingTimeoutErrorDialog()
 	{
-		MaterialAlertDialogBuilder(requireContext())
+		requireContext().alertDialogBuilder()
 			.setTitle("Ping Too High")
 			.setMessage("Ping must be less than 80ms to start a cloud session.\n\nTo continue anyway, go to Settings → Cloud and manually select a datacenter for your service (PSNow Catalog).")
 			.setPositiveButton("OK", null)
@@ -1366,7 +1477,7 @@ class CloudPlayFragment : Fragment()
 	 */
 	private fun showAuthorizationFailedDialog()
 	{
-		MaterialAlertDialogBuilder(requireContext())
+		requireContext().alertDialogBuilder()
 			.setTitle("Authorization Failed")
 			.setMessage("Failed to authorize your PlayStation Network account. Please check your NPSSO token and try again.")
 			.setPositiveButton("OK", null)
@@ -1378,7 +1489,7 @@ class CloudPlayFragment : Fragment()
 	 */
 	private fun showError(title: String, message: String)
 	{
-		MaterialAlertDialogBuilder(requireContext())
+		requireContext().alertDialogBuilder()
 			.setTitle(title)
 			.setMessage(message)
 			.setPositiveButton("OK", null)

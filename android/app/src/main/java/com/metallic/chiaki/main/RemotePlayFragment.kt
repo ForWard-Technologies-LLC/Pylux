@@ -13,7 +13,9 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.metallic.chiaki.common.ext.alertDialogBuilder
+import com.metallic.chiaki.common.ext.enableFocusableInTouchModeForTv
+import com.metallic.chiaki.common.ext.isTv
 import com.pylux.stream.R
 import com.metallic.chiaki.common.*
 import com.metallic.chiaki.common.ext.putRevealExtra
@@ -118,6 +120,37 @@ class RemotePlayFragment : Fragment()
 
 		binding.registerButton.setOnClickListener { showRegistration() }
 		binding.registerLabelButton.setOnClickListener { showRegistration() }
+
+		if (requireContext().isTv()) {
+			binding.root.enableFocusableInTouchModeForTv(requireContext())
+			val fabFocus = View.OnFocusChangeListener { v, hasFocus ->
+				v.foreground = if (hasFocus)
+					android.graphics.drawable.GradientDrawable().apply {
+						shape = android.graphics.drawable.GradientDrawable.OVAL
+						setColor(0x33FFD700.toInt())
+						setStroke(3, 0xCCFFD700.toInt())
+					}
+				else null
+			}
+			binding.floatingActionButton.onFocusChangeListener = fabFocus
+			binding.refreshPsnButton.onFocusChangeListener = fabFocus
+			binding.registerButton.onFocusChangeListener = fabFocus
+			binding.addManualButton.onFocusChangeListener = fabFocus
+
+			val labelFocus = View.OnFocusChangeListener { v, hasFocus ->
+				v.foreground = if (hasFocus)
+					android.graphics.drawable.GradientDrawable().apply {
+						shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+						cornerRadius = 16f
+						setColor(0x33FFD700.toInt())
+						setStroke(3, 0xCCFFD700.toInt())
+					}
+				else null
+			}
+			binding.refreshPsnLabelButton.onFocusChangeListener = labelFocus
+			binding.registerLabelButton.onFocusChangeListener = labelFocus
+			binding.addManualLabelButton.onFocusChangeListener = labelFocus
+		}
 	}
 
 	private fun setupRecyclerView()
@@ -235,7 +268,7 @@ class RemotePlayFragment : Fragment()
 		}
 		// Not logged in - show login dialog
 		expandFloatingActionButton(false)
-		MaterialAlertDialogBuilder(requireContext())
+		requireContext().alertDialogBuilder()
 			.setTitle("PSN Login Required")
 			.setMessage("Login to automatically discover and add your PS5 consoles.")
 			.setPositiveButton("Login") { _, _ ->
@@ -270,7 +303,7 @@ class RemotePlayFragment : Fragment()
 
 			if(host is DiscoveredDisplayHost && host.discoveredHost.state == DiscoveryHost.State.STANDBY)
 			{
-				MaterialAlertDialogBuilder(requireContext())
+				requireContext().alertDialogBuilder()
 					.setMessage(R.string.alert_message_standby_wakeup)
 					.setPositiveButton(R.string.action_wakeup) { _, _ ->
 						wakeupHost(host)
@@ -298,7 +331,7 @@ class RemotePlayFragment : Fragment()
 			{
 		// Not logged in to PSN - ask if they want to login or do manual registration
 		// Matches Qt: onRegistDialogRequested when !isPsnLoggedIn
-		MaterialAlertDialogBuilder(requireContext())
+		requireContext().alertDialogBuilder()
 			.setTitle("Console Setup")
 			.setMessage("Login for automatic console setup or enter console information manually.")
 			.setPositiveButton("Login") { _, _ ->
@@ -320,7 +353,7 @@ class RemotePlayFragment : Fragment()
 				else
 					"Would you like to use automatic registration (must be main PS4 console registered to your account)?"
 
-				MaterialAlertDialogBuilder(requireContext())
+				requireContext().alertDialogBuilder()
 					.setTitle("Registration Type")
 					.setMessage(message)
 					.setPositiveButton("Automatic") { _, _ ->
@@ -386,7 +419,7 @@ class RemotePlayFragment : Fragment()
 		)
 		autoRegistration = registration
 
-		dialog = MaterialAlertDialogBuilder(ctx)
+		dialog = ctx.alertDialogBuilder()
 			.setTitle("Registering $hostName")
 			.setView(layout)
 			.setNegativeButton("Cancel") { _, _ ->
@@ -430,7 +463,7 @@ class RemotePlayFragment : Fragment()
 		if(!prefs.hasPsnRemotePlayTokens)
 		{
 			Log.w(TAG, "No PSN tokens available, showing login prompt")
-			MaterialAlertDialogBuilder(requireContext())
+			requireContext().alertDialogBuilder()
 				.setTitle("PSN Login Required")
 				.setMessage("You need to log in with your PSN account to connect to consoles over the internet. Please log in from Settings or the Cloud Play tab.")
 				.setPositiveButton(android.R.string.ok, null)
@@ -468,7 +501,7 @@ class RemotePlayFragment : Fragment()
 			else
 				"Would you like to use automatic registration (must be main PS4 console registered to your account)?"
 
-			MaterialAlertDialogBuilder(requireContext())
+			requireContext().alertDialogBuilder()
 				.setTitle("Registration Type")
 				.setMessage(message)
 				.setPositiveButton("Automatic") { _, _ ->
@@ -509,7 +542,7 @@ class RemotePlayFragment : Fragment()
 	{
 		if(host !is ManualDisplayHost)
 			return
-		MaterialAlertDialogBuilder(requireContext())
+		requireContext().alertDialogBuilder()
 			.setMessage(getString(R.string.alert_message_delete_manual_host, host.manualHost.host))
 			.setPositiveButton(R.string.action_delete) { _, _ ->
 				viewModel.deleteManualHost(host.manualHost)

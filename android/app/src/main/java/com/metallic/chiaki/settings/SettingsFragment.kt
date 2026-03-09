@@ -12,6 +12,7 @@ import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.preference.*
+import com.metallic.chiaki.common.ext.alertDialogBuilder
 import com.pylux.stream.R
 import com.metallic.chiaki.cloudplay.PsnLoginActivity
 import com.metallic.chiaki.cloudplay.repository.CloudGameRepository
@@ -274,7 +275,7 @@ class SettingsFragment: PreferenceFragmentCompat(), TitleFragment
 	private fun showLogoutDialog(preferences: Preferences, loginPreference: Preference?)
 	{
 		val context = context ?: return
-		androidx.appcompat.app.AlertDialog.Builder(context)
+		context.alertDialogBuilder()
 			.setTitle(R.string.preferences_psn_logout_title)
 			.setMessage("Are you sure you want to log out? This will clear both cloud streaming and remote play credentials.")
 			.setPositiveButton(R.string.preferences_psn_logout_confirm) { _, _ ->
@@ -296,8 +297,8 @@ class SettingsFragment: PreferenceFragmentCompat(), TitleFragment
 				updatePsnLoginSummary(loginPreference, preferences)
 				Toast.makeText(context, R.string.preferences_psn_logout_success, Toast.LENGTH_SHORT).show()
 			}
-			.setNegativeButton(R.string.action_cancel, null)
-			.show()
+		.setNegativeButton(R.string.action_cancel, null)
+		.show()
 	}
 
 	/**

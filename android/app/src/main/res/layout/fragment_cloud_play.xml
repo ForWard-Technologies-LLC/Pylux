@@ -35,58 +35,55 @@
                     android:gravity="center_vertical">
 
                     <!-- Catalog tab -->
-                    <com.google.android.material.button.MaterialButton
+                    <TextView
                         android:id="@+id/catalogTabButton"
                         android:layout_width="wrap_content"
                         android:layout_height="32dp"
                         android:text="Catalog"
                         android:textSize="13sp"
-                        android:textAllCaps="false"
-                        android:paddingHorizontal="10dp"
+                        android:textColor="#FFFFFF"
+                        android:gravity="center"
+                        android:paddingHorizontal="12dp"
                         android:paddingVertical="0dp"
-                        android:minWidth="0dp"
-                        android:minHeight="0dp"
-                        android:insetTop="0dp"
-                        android:insetBottom="0dp"
-                        style="@style/Widget.Material3.Button.TextButton"
-                        app:cornerRadius="16dp" />
+                        android:focusable="true"
+
+                        android:clickable="true"
+                        android:background="@android:color/transparent" />
 
                     <!-- Library tab -->
-                    <com.google.android.material.button.MaterialButton
+                    <TextView
                         android:id="@+id/libraryTabButton"
                         android:layout_width="wrap_content"
                         android:layout_height="32dp"
                         android:text="Library"
                         android:textSize="13sp"
-                        android:textAllCaps="false"
-                        android:paddingHorizontal="10dp"
+                        android:textColor="#FFFFFF"
+                        android:gravity="center"
+                        android:paddingHorizontal="12dp"
                         android:paddingVertical="0dp"
-                        android:minWidth="0dp"
-                        android:minHeight="0dp"
-                        android:insetTop="0dp"
-                        android:insetBottom="0dp"
-                        android:layout_marginStart="4dp"
-                        style="@style/Widget.Material3.Button.TextButton"
-                        app:cornerRadius="16dp" />
+                        android:layout_marginStart="2dp"
+                        android:focusable="true"
+
+                        android:clickable="true"
+                        android:background="@android:color/transparent" />
 
                     <!-- All/Owned toggle (Library only) -->
-                    <com.google.android.material.button.MaterialButton
+                    <TextView
                         android:id="@+id/ownedToggleButton"
                         android:layout_width="wrap_content"
                         android:layout_height="26dp"
                         android:text="All"
                         android:textSize="11sp"
-                        android:textAllCaps="false"
-                        android:paddingHorizontal="7dp"
+                        android:textColor="#FFFFFF"
+                        android:gravity="center"
+                        android:paddingHorizontal="8dp"
                         android:paddingVertical="0dp"
-                        android:minWidth="0dp"
-                        android:minHeight="0dp"
-                        android:insetTop="0dp"
-                        android:insetBottom="0dp"
                         android:layout_marginStart="4dp"
                         android:visibility="gone"
-                        style="@style/Widget.Material3.Button.TextButton"
-                        app:cornerRadius="13dp" />
+                        android:focusable="true"
+
+                        android:clickable="true"
+                        android:background="@android:color/transparent" />
 
                 </LinearLayout>
 
@@ -99,45 +96,53 @@
                     <!-- Favorites filter -->
                     <ImageButton
                         android:id="@+id/headerFavoritesButton"
-                        android:layout_width="28dp"
-                        android:layout_height="28dp"
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
                         android:src="@drawable/ic_star_outline"
-                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:background="@drawable/secondary_header_button_bg"
                         android:contentDescription="Favorites"
                         android:scaleType="centerInside"
+                        android:focusable="true"
+
                         android:padding="4dp" />
 
                     <!-- Sort menu -->
                     <ImageButton
                         android:id="@+id/headerSortButton"
-                        android:layout_width="28dp"
-                        android:layout_height="28dp"
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
                         android:src="@drawable/ic_sort"
-                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:background="@drawable/secondary_header_button_bg"
                         android:contentDescription="Sort"
                         android:scaleType="centerInside"
+                        android:focusable="true"
+
                         android:padding="4dp" />
 
                     <!-- Search toggle -->
                     <ImageButton
                         android:id="@+id/headerSearchButton"
-                        android:layout_width="28dp"
-                        android:layout_height="28dp"
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
                         android:src="@android:drawable/ic_menu_search"
-                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:background="@drawable/secondary_header_button_bg"
                         android:contentDescription="Search"
                         android:scaleType="centerInside"
+                        android:focusable="true"
+
                         android:padding="4dp" />
 
                     <!-- Refresh -->
                     <ImageButton
                         android:id="@+id/headerRefreshButton"
-                        android:layout_width="28dp"
-                        android:layout_height="28dp"
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
                         android:src="@drawable/ic_refresh"
-                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:background="@drawable/secondary_header_button_bg"
                         android:contentDescription="Refresh"
                         android:scaleType="centerInside"
+                        android:focusable="true"
+
                         android:padding="4dp" />
 
                 </LinearLayout>
@@ -297,7 +302,9 @@
                     android:layout_marginTop="24dp"
                     android:text="@string/psn_login_button"
                     android:paddingStart="32dp"
-                    android:paddingEnd="32dp" />
+                    android:paddingEnd="32dp"
+                    android:focusable="true"
+ />
 
             </LinearLayout>
 

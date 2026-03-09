@@ -5,7 +5,7 @@ package com.metallic.chiaki.common
 import android.app.Activity
 import android.content.Context
 import android.util.Log
-import androidx.appcompat.app.AlertDialog
+import com.metallic.chiaki.common.ext.alertDialogBuilder
 import com.android.billingclient.api.*
 import com.pylux.stream.BuildConfig
 import kotlinx.coroutines.*
@@ -221,7 +221,7 @@ class AppIntegrityManager(private val context: Context)
 	private fun showValidationFailureDialog(activity: Activity)
 	{
 		activity.runOnUiThread {
-			AlertDialog.Builder(activity)
+			activity.alertDialogBuilder()
 				.setTitle("Verification Required")
 				.setMessage("Unable to verify application source. Please ensure you have an active internet connection and the app was installed from an official source.")
 				.setPositiveButton("Retry") { _, _ ->

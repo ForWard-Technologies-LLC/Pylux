@@ -10,6 +10,8 @@ import coil.load
 import coil.request.CachePolicy
 import com.pylux.stream.R
 import com.metallic.chiaki.cloudplay.model.CloudGame
+import com.metallic.chiaki.common.ext.enableFocusableInTouchModeForTv
+import com.metallic.chiaki.common.ext.isTv
 import com.pylux.stream.databinding.ItemCloudGameBinding
 
 class CloudGameAdapter(
@@ -45,12 +47,25 @@ class CloudGameAdapter(
 			parent,
 			false
 		)
+		if (parent.context.isTv()) {
+			binding.root.enableFocusableInTouchModeForTv(parent.context)
+		}
 		return CloudGameViewHolder(binding)
 	}
 
 	override fun onBindViewHolder(holder: CloudGameViewHolder, position: Int)
 	{
 		holder.bind(games[position])
+	}
+
+	override fun onBindViewHolder(holder: CloudGameViewHolder, position: Int, payloads: MutableList<Any>)
+	{
+		if (payloads.contains(FastScrollerHelper.PAYLOAD_RELOAD_IMAGE)) {
+			// Only reload the image — don't rebind the whole card (avoids flash)
+			holder.reloadImage(games[position])
+		} else {
+			super.onBindViewHolder(holder, position, payloads)
+		}
 	}
 
 	override fun onViewRecycled(holder: CloudGameViewHolder)
@@ -68,6 +83,18 @@ class CloudGameAdapter(
 		fun cancelImage()
 		{
 			binding.gameImageView.dispose()
+		}
+
+		fun reloadImage(game: CloudGame)
+		{
+			if (game.imageUrl.isNotEmpty()) {
+				binding.gameImageView.load(game.imageUrl) {
+					memoryCachePolicy(CachePolicy.ENABLED)
+					diskCachePolicy(CachePolicy.ENABLED)
+					networkCachePolicy(CachePolicy.ENABLED)
+					crossfade(false)
+				}
+			}
 		}
 
 		fun bind(game: CloudGame)
@@ -102,18 +129,16 @@ class CloudGameAdapter(
 			{
 				binding.gameImageView.setImageResource(android.R.drawable.ic_menu_gallery)
 			}
-			else if (isScrollingFast)
-			{
-				binding.gameImageView.load(game.imageUrl) {
-					memoryCachePolicy(CachePolicy.ENABLED)
-					diskCachePolicy(CachePolicy.DISABLED)
-					networkCachePolicy(CachePolicy.DISABLED)
-				}
-			}
 			else
 			{
+				// During fast scroll: only serve from memory cache (no network/disk I/O).
+				// This prevents OOM from hundreds of concurrent image loads while flinging.
+				// No crossfade to prevent flash when recycled views rebind.
 				binding.gameImageView.load(game.imageUrl) {
-					crossfade(true)
+					memoryCachePolicy(CachePolicy.ENABLED)
+					diskCachePolicy(if (isScrollingFast) CachePolicy.DISABLED else CachePolicy.ENABLED)
+					networkCachePolicy(if (isScrollingFast) CachePolicy.DISABLED else CachePolicy.ENABLED)
+					crossfade(false)
 				}
 			}
 
@@ -121,12 +146,18 @@ class CloudGameAdapter(
 				onGameClick(game)
 			}
 
-			binding.favoriteButton.setOnClickListener {
+			val toggleFavorite = {
 				val newFavoriteState = !isFavorite(game.productId)
 				onFavoriteClick(game, newFavoriteState)
 				binding.favoriteButton.setImageResource(
 					if (newFavoriteState) R.drawable.ic_star_filled else R.drawable.ic_star_outline
 				)
+			}
+
+			binding.favoriteButton.setOnClickListener { toggleFavorite() }
+			binding.root.setOnLongClickListener {
+				toggleFavorite()
+				true
 			}
 		}
 	}

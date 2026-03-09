@@ -3,7 +3,9 @@
 package com.metallic.chiaki.cloudplay
 
 import android.app.Activity
+import android.app.UiModeManager
 import android.content.Intent
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -11,10 +13,12 @@ import android.os.Looper
 import android.util.Log
 import android.view.View
 import android.widget.Button
+import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import coil.load
 import com.google.android.material.appbar.MaterialToolbar
 import com.pylux.stream.R
 import com.metallic.chiaki.common.SecureTokenManager
@@ -43,13 +47,24 @@ class PsnLoginActivity : AppCompatActivity()
 		const val RESULT_LOGIN_FAILED = 3
 	}
 	
+	// Phone UI
 	private lateinit var codeTextView: TextView
 	private lateinit var statusTextView: TextView
 	private lateinit var progressBar: ProgressBar
 	private lateinit var openBrowserButton: Button
 	private lateinit var checkStatusButton: Button
 	private lateinit var cancelButton: Button
+
+	// TV UI
+	private lateinit var tvCodeTextView: TextView
+	private lateinit var tvStatusTextView: TextView
+	private lateinit var tvProgressBar: ProgressBar
+	private lateinit var tvCheckStatusButton: Button
+	private lateinit var tvCancelButton: Button
+	private lateinit var qrCodeImage: ImageView
+
 	private lateinit var tokenManager: SecureTokenManager
+	private var isOnTv: Boolean = false
 	
 	private var loginCode: String = ""
 	private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -61,7 +76,8 @@ class PsnLoginActivity : AppCompatActivity()
 		setContentView(R.layout.activity_psn_login)
 		
 		tokenManager = SecureTokenManager(this)
-		
+		isOnTv = (getSystemService(UI_MODE_SERVICE) as UiModeManager).currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
+
 		// Setup toolbar
 		val toolbar = findViewById<MaterialToolbar>(R.id.toolbar)
 		setSupportActionBar(toolbar)
@@ -71,31 +87,58 @@ class PsnLoginActivity : AppCompatActivity()
 			title = getString(R.string.psn_login_title)
 		}
 		toolbar.setNavigationOnClickListener {
-			// User cancelled login
 			setResult(RESULT_LOGIN_CANCELLED)
 			finish()
 		}
-		
-		// Find views
-		codeTextView = findViewById(R.id.loginCodeText)
-		statusTextView = findViewById(R.id.statusText)
-		progressBar = findViewById(R.id.progress_bar)
-		openBrowserButton = findViewById(R.id.openBrowserButton)
-		checkStatusButton = findViewById(R.id.checkStatusButton)
-		cancelButton = findViewById(R.id.cancelButton)
-		
-		// Setup buttons
-		openBrowserButton.setOnClickListener {
-			openPyluxInBrowser()
-		}
-		
-		checkStatusButton.setOnClickListener {
-			checkTokenStatus()
-		}
-		
-		cancelButton.setOnClickListener {
-			setResult(RESULT_LOGIN_CANCELLED)
-			finish()
+
+		if (isOnTv) {
+			// Show TV layout, hide phone layout
+			findViewById<View>(R.id.phoneModeLayout).visibility = View.GONE
+			findViewById<View>(R.id.tvModeLayout).visibility = View.VISIBLE
+
+			tvCodeTextView = findViewById(R.id.tvLoginCodeText)
+			tvStatusTextView = findViewById(R.id.tvStatusText)
+			tvProgressBar = findViewById(R.id.tvProgressBar)
+			tvCheckStatusButton = findViewById(R.id.tvCheckStatusButton)
+			tvCancelButton = findViewById(R.id.tvCancelButton)
+			qrCodeImage = findViewById(R.id.qrCodeImage)
+
+			tvCheckStatusButton.setOnClickListener { checkTokenStatus() }
+			tvCancelButton.setOnClickListener {
+				setResult(RESULT_LOGIN_CANCELLED)
+				finish()
+			}
+
+			// Yellow focus highlights for TV D-pad navigation
+			val tvFocusHighlight = View.OnFocusChangeListener { v, hasFocus ->
+				v.foreground = if (hasFocus)
+					android.graphics.drawable.GradientDrawable().apply {
+						shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+						cornerRadius = 24f
+						setColor(0x33FFD700.toInt())
+						setStroke(3, 0xCCFFD700.toInt())
+					}
+				else null
+			}
+			tvCheckStatusButton.onFocusChangeListener = tvFocusHighlight
+			tvCancelButton.onFocusChangeListener = tvFocusHighlight
+
+			tvCancelButton.requestFocusFromTouch()
+		} else {
+			// Phone layout
+			codeTextView = findViewById(R.id.loginCodeText)
+			statusTextView = findViewById(R.id.statusText)
+			progressBar = findViewById(R.id.progress_bar)
+			openBrowserButton = findViewById(R.id.openBrowserButton)
+			checkStatusButton = findViewById(R.id.checkStatusButton)
+			cancelButton = findViewById(R.id.cancelButton)
+
+			openBrowserButton.setOnClickListener { openPyluxInBrowser() }
+			checkStatusButton.setOnClickListener { checkTokenStatus() }
+			cancelButton.setOnClickListener {
+				setResult(RESULT_LOGIN_CANCELLED)
+				finish()
+			}
 		}
 		
 		// Start login flow
@@ -104,29 +147,50 @@ class PsnLoginActivity : AppCompatActivity()
 	
 	private fun startLogin()
 	{
-		// Generate random 6-character alphanumeric code
-		val chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // Exclude similar looking chars (I,1,O,0)
+		val chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 		loginCode = (1..6).map { chars.random() }.joinToString("")
-		codeTextView.text = loginCode
-		
+
+		if (isOnTv) {
+			tvCodeTextView.text = loginCode
+			loadQrCode(loginCode)
+		} else {
+			codeTextView.text = loginCode
+		}
+
 		Log.i(TAG, "Generated login code: $loginCode")
-		
-		// Create code on xbgamestream server
+
 		scope.launch {
 			val success = createPyluxCode(loginCode)
-			if (success)
-			{
-				Log.i(TAG, "Code created successfully on xbgamestream")
-				statusTextView.text = getString(R.string.psn_login_code_ready)
-				openBrowserButton.isEnabled = true
-				checkStatusButton.isEnabled = true
+			if (success) {
+				if (isOnTv) {
+					tvStatusTextView.text = getString(R.string.psn_login_code_ready)
+					tvProgressBar.visibility = View.GONE
+					tvCheckStatusButton.isEnabled = true
+					tvCheckStatusButton.requestFocusFromTouch()
+				} else {
+					statusTextView.text = getString(R.string.psn_login_code_ready)
+					openBrowserButton.isEnabled = true
+					checkStatusButton.isEnabled = true
+				}
+			} else {
+				val errorMsg = getString(R.string.psn_login_server_error)
+				if (isOnTv) {
+					tvStatusTextView.text = errorMsg
+					tvProgressBar.visibility = View.GONE
+				} else {
+					statusTextView.text = errorMsg
+					openBrowserButton.isEnabled = false
+				}
 			}
-			else
-			{
-				Log.e(TAG, "Failed to create code on xbgamestream")
-				statusTextView.text = getString(R.string.psn_login_server_error)
-				openBrowserButton.isEnabled = false
-			}
+		}
+	}
+
+	private fun loadQrCode(code: String)
+	{
+		val loginUrl = "$PYLUX_URL/psstream/?psstream_code=$code"
+		val qrUrl = "https://api.qrserver.com/v1/create-qr-code/?size=440x440&data=${Uri.encode(loginUrl)}"
+		qrCodeImage.load(qrUrl) {
+			crossfade(true)
 		}
 	}
 	
@@ -187,30 +251,39 @@ class PsnLoginActivity : AppCompatActivity()
 	 */
 	private fun checkTokenStatus()
 	{
-		checkStatusButton.isEnabled = false
-		progressBar.visibility = View.VISIBLE
-		statusTextView.text = getString(R.string.psn_login_checking_status)
-		
+		if (isOnTv) {
+			tvCheckStatusButton.isEnabled = false
+			tvProgressBar.visibility = View.VISIBLE
+			tvStatusTextView.text = getString(R.string.psn_login_checking_status)
+		} else {
+			checkStatusButton.isEnabled = false
+			progressBar.visibility = View.VISIBLE
+			statusTextView.text = getString(R.string.psn_login_checking_status)
+		}
+
 		scope.launch {
 			val token = checkPyluxStatus(loginCode)
-			
-			progressBar.visibility = View.GONE
-			checkStatusButton.isEnabled = true
-			
-			if (token != null)
-			{
+
+			if (isOnTv) {
+				tvProgressBar.visibility = View.GONE
+				tvCheckStatusButton.isEnabled = true
+				tvCheckStatusButton.requestFocusFromTouch()
+			} else {
+				progressBar.visibility = View.GONE
+				checkStatusButton.isEnabled = true
+			}
+
+			if (token != null) {
 				Log.i(TAG, "NPSSO token received from xbgamestream")
 				onLoginSuccess(token)
-			}
-			else
-			{
-				// Token not ready yet
-				statusTextView.text = getString(R.string.psn_login_not_complete)
-				Toast.makeText(
-					this@PsnLoginActivity,
-					R.string.psn_login_not_complete_toast,
-					Toast.LENGTH_SHORT
-				).show()
+			} else {
+				val msg = getString(R.string.psn_login_not_complete)
+				if (isOnTv) {
+					tvStatusTextView.text = msg
+				} else {
+					statusTextView.text = msg
+				}
+				Toast.makeText(this@PsnLoginActivity, R.string.psn_login_not_complete_toast, Toast.LENGTH_SHORT).show()
 			}
 		}
 	}

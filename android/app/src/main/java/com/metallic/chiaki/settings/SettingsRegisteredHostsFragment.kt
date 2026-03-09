@@ -15,7 +15,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.metallic.chiaki.common.ext.alertDialogBuilder
 import com.pylux.stream.R
 import com.metallic.chiaki.common.ext.putRevealExtra
 import com.metallic.chiaki.common.ext.viewModelFactory
@@ -43,7 +43,7 @@ class SettingsRegisteredHostsFragment: AppCompatDialogFragment(), TitleFragment
 			.get(SettingsRegisteredHostsViewModel::class.java)
 
 		val adapter = SettingsRegisteredHostsAdapter { host ->
-			MaterialAlertDialogBuilder(context)
+			context.alertDialogBuilder()
 				.setMessage(getString(R.string.alert_message_delete_registered_host, host.serverNickname, host.serverMac.toString()))
 				.setPositiveButton(R.string.action_delete) { _, _ ->
 					viewModel.deleteHost(host)
@@ -60,7 +60,7 @@ class SettingsRegisteredHostsFragment: AppCompatDialogFragment(), TitleFragment
 			{
 				val pos = viewHolder.adapterPosition
 				val host = viewModel.registeredHosts.value?.getOrNull(pos) ?: return
-				MaterialAlertDialogBuilder(viewHolder.itemView.context)
+				viewHolder.itemView.context.alertDialogBuilder()
 					.setMessage(getString(R.string.alert_message_delete_registered_host, host.serverNickname, host.serverMac.toString()))
 					.setPositiveButton(R.string.action_delete) { _, _ ->
 						viewModel.deleteHost(host)

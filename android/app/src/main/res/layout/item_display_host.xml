@@ -13,6 +13,8 @@
     android:layout_marginBottom="4dp"
     app:cardElevation="4dp"
     app:strokeWidth="0dp"
+    android:focusable="true"
+    android:clickable="true"
     android:foreground="?android:attr/selectableItemBackground">
 
     <androidx.constraintlayout.widget.ConstraintLayout

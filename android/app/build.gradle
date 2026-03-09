@@ -168,4 +168,5 @@ dependencies {
     
     // Google Play Billing Library for license verification
     implementation 'com.android.billingclient:billing-ktx:7.1.1'
+    implementation 'com.google.zxing:core:3.5.3'
 }

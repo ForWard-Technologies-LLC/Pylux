@@ -18,6 +18,8 @@ import com.metallic.chiaki.common.DisplayHost
 import com.metallic.chiaki.common.ManualDisplayHost
 import com.metallic.chiaki.common.PsnDisplayHost
 import com.metallic.chiaki.common.ext.inflate
+import com.metallic.chiaki.common.ext.enableFocusableInTouchModeForTv
+import com.metallic.chiaki.common.ext.isTv
 import com.pylux.stream.databinding.ItemDisplayHostBinding
 import com.metallic.chiaki.lib.DiscoveryHost
 
@@ -161,6 +163,24 @@ class DisplayHostRecyclerViewAdapter(
 				}
 			)
 			it.root.setOnClickListener { clickCallback(host) }
+
+		if (context.isTv()) {
+			it.root.enableFocusableInTouchModeForTv(context)
+			it.root.onFocusChangeListener = View.OnFocusChangeListener { _, hasFocus ->
+				if (hasFocus) {
+					it.root.strokeWidth = 4
+					it.root.strokeColor = android.graphics.Color.parseColor("#FFFFD700")
+					it.root.foreground = android.graphics.drawable.GradientDrawable().apply {
+						shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+						cornerRadius = 40f
+						setColor(0x22FFD700.toInt())
+					}
+				} else {
+					it.root.strokeWidth = 0
+					it.root.foreground = null
+				}
+			}
+		}
 
 			val canWakeup = host.registeredHost != null
 			val canEditDelete = host is ManualDisplayHost
