@@ -88,6 +88,17 @@ typedef struct chiaki_connect_info_t
 	chiaki_socket_t *rudp_sock;
 	uint8_t psn_account_id[CHIAKI_PSN_ACCOUNT_ID_SIZE];
 	double packet_loss_max;
+	// Streaming service type (REMOTE_PLAY/PSNOW/PSCLOUD)
+	ChiakiServiceType service_type;
+	const char *cloud_launch_spec; // pre-encoded launch spec JSON (base64)
+	const char *cloud_handshake_key; // pre-encoded handshake key (base64)
+	const char *cloud_session_id; // session ID from Gaikai
+	uint16_t cloud_port; // port for cloud streaming connection (0 if not cloud mode)
+	uint8_t cloud_psn_wrapper_type; // PSN wrapper type (last octet of private IP)
+	// NOTE: service_type replaces cloud_mode + cloud_service_type
+	uint32_t cloud_mtu_in; // MTU in from ping results (0 if not set, will use default)
+	uint32_t cloud_mtu_out; // MTU out from ping results (0 if not set, will use default)
+	uint64_t cloud_rtt_us; // RTT in microseconds from ping results (0 if not set, will use default)
 } ChiakiConnectInfo;
 
 
@@ -200,6 +211,9 @@ typedef bool (*ChiakiVideoSampleCallback)(uint8_t *buf, size_t buf_size, int32_t
 
 
 
+// WARNING: iOS ABI mismatch — do NOT access fields of this struct directly from
+// Xcode-compiled code (.m/.mm). Use the bridge helpers in <chiaki/ios_bridge_helpers.h>.
+// See that header for full explanation.
 typedef struct chiaki_session_t
 {
 	struct
@@ -230,6 +244,13 @@ typedef struct chiaki_session_t
 	uint64_t rtt_us;
 	bool dontfrag;
 	ChiakiECDH ecdh;
+	// Streaming service type (REMOTE_PLAY/PSNOW/PSCLOUD)
+	ChiakiServiceType service_type;
+	const char *cloud_launch_spec; // pre-encoded launch spec JSON (base64)
+	const char *cloud_handshake_key; // pre-encoded handshake key (base64)
+	uint16_t cloud_port; // port for cloud streaming connection (0 if not cloud mode)
+	uint8_t cloud_psn_wrapper_type; // PSN wrapper type (last octet of private IP)
+	// NOTE: service_type replaces cloud_mode + cloud_service_type
 
 	ChiakiQuitReason quit_reason;
 	char *quit_reason_str; // additional reason string from remote

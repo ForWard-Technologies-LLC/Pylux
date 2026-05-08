@@ -203,7 +203,7 @@ static void discovery_service_ping(ChiakiDiscoveryService *service)
 		service->options.send_host = NULL;
 	}
 
-	CHIAKI_LOGV(service->log, "Discovery Service sending ping");
+	//CHIAKI_LOGV(service->log, "Discovery Service sending ping");
 	ChiakiDiscoveryPacket packet = { 0 };
 	bool send_extra_broadcast = false;
 	packet.cmd = CHIAKI_DISCOVERY_CMD_SRCH;
@@ -238,7 +238,7 @@ static void discovery_service_ping(ChiakiDiscoveryService *service)
 				if (!inet_ntop(((struct sockaddr_in *)(&service->options.broadcast_addrs[i]))->sin_family, &(((struct sockaddr_in *)(&service->options.broadcast_addrs[i]))->sin_addr), addr_string, sizeof(addr_string)))
 					CHIAKI_LOGE(service->log, "Discovery Service error with inet_ntop");
 				else
-					CHIAKI_LOGV(service->log, "Discovery Service pinged %s", addr_string);
+					; //CHIAKI_LOGV(service->log, "Discovery Service pinged %s", addr_string);
 			}
 		}
 	}
@@ -314,7 +314,7 @@ static void discovery_service_host_received(ChiakiDiscoveryHost *host, void *use
 		chiaki_mutex_unlock(&service->state_mutex);
 		return;
 	}
-	CHIAKI_LOGV(service->log, "Discovery Service Received host with id %s", host->host_id);
+	// CHIAKI_LOGV(service->log, "Discovery Service Received host with id %s", host->host_id);
 
 	bool change = false;
 

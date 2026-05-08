@@ -13,6 +13,51 @@ Item {
     property bool sessionError: false
     property bool sessionLoading: true
     property list<Item> restoreFocusItems
+    property bool controllerOverlayShown: false // Track if overlay has been shown this session
+    
+    // Computed property: are we launching a game directly?
+    // For remote play: check titleId
+    // For cloud play: check cloudStreaming.gameImageUrl and sessionLoading
+    property bool launchingGame: {
+        if (!Chiaki.settings.showGameImageDuringLaunch) {
+            return false;
+        }
+        // Remote play: check for titleId
+        if (Chiaki.session !== null 
+            && Chiaki.session.titleId !== undefined 
+            && Chiaki.session.titleId !== null
+            && Chiaki.session.titleId !== "") {
+            return true;
+        }
+        // Cloud play: check for gameImageUrl and sessionLoading
+        if (sessionLoading
+            && Chiaki.cloudStreaming !== null
+            && Chiaki.cloudStreaming.gameImageUrl !== undefined
+            && Chiaki.cloudStreaming.gameImageUrl !== null
+            && Chiaki.cloudStreaming.gameImageUrl !== "") {
+            return true;
+        }
+        return false;
+    }
+    
+    // Watch for game launch to mute audio temporarily (REMOTE PLAY ONLY, not cloud play)
+    onLaunchingGameChanged: {
+        if (launchingGame && Chiaki.session) {
+            // Only mute for remote play (when titleId is set), NOT for cloud play
+            // Check if this is remote play by checking for titleId
+            var isRemotePlay = Chiaki.session.titleId !== undefined 
+                               && Chiaki.session.titleId !== null 
+                               && Chiaki.session.titleId !== "";
+            if (isRemotePlay) {
+                // Mute session audio for remote play game launch (doesn't persist to settings)
+                console.log("Remote play game launch detected: Muting audio (volume set to 0)");
+                Chiaki.session.SetAudioVolume(0);
+            } else {
+                // Cloud play: do NOT mute audio
+                console.log("Cloud play game launch detected: NOT muting audio (volume stays at", Chiaki.settings.audioVolume + ")");
+            }
+        }
+    }
 
     function grabInput(item) {
         Chiaki.window.grabInput();
@@ -31,12 +76,106 @@ Item {
     StackView.onActivating: Chiaki.window.keepVideo = true
     StackView.onDeactivated: Chiaki.window.keepVideo = false
 
+    Component.onCompleted: {
+        if (Chiaki.session) {
+            Chiaki.session.GameLaunchCompleted.connect(function() {
+                // Hide game background and stop loading indicator
+                gameBackgroundLoader.active = false;
+                sessionLoading = false;
+                
+                // Restore audio volume from settings (doesn't modify persisted settings)
+                console.log("Remote play: Restoring audio volume to", Chiaki.settings.audioVolume);
+                Chiaki.session.SetAudioVolume(Chiaki.settings.audioVolume);
+                
+                // Show controller overlay after a brief delay (only first time)
+                if (!controllerOverlayShown && !Chiaki.settings.controllerOverlayShown) {
+                    controllerOverlayTimer.start();
+                }
+            });
+        }
+    }
+    
+    // Timer to show controller overlay after stream starts
+    Timer {
+        id: controllerOverlayTimer
+        interval: 800 // Short delay after video appears
+        repeat: false
+        onTriggered: {
+            if (!controllerOverlayShown && !sessionError) {
+                controllerOverlayLoader.active = true;
+            }
+        }
+    }
+
+    // Black background for game image feature (only when launching game)
+    Rectangle {
+        anchors.fill: parent
+        color: "black"
+        opacity: {
+            if (sessionError || (Chiaki.settings.audioVideoDisabled & 0x02))
+                return 1.0;
+            // Show black background only when launching game
+            if (sessionLoading && launchingGame)
+                return 1.0;
+            return 0.0;
+        }
+        visible: opacity > 0
+        z: 0
+        Behavior on opacity { NumberAnimation { duration: 250 } }
+    }
+
+    // Game background image - independent overlay, stays until GameLauncher completes
+    // z: 0 to be above black background but behind menu (menuView will be z: 1)
+    Loader {
+        id: gameBackgroundLoader
+        anchors.fill: parent
+        z: 0
+        active: launchingGame
+        
+        sourceComponent: Component {
+            Item {
+                anchors.fill: parent
+                
+                Image {
+                    id: gameImage
+                    anchors.centerIn: parent
+                    width: parent.width
+                    height: parent.height
+                    source: {
+                        // For cloud play: use cloudStreaming.gameImageUrl
+                        if (Chiaki.cloudStreaming !== null
+                            && Chiaki.cloudStreaming.gameImageUrl !== undefined
+                            && Chiaki.cloudStreaming.gameImageUrl !== null
+                            && Chiaki.cloudStreaming.gameImageUrl !== "") {
+                            return Chiaki.cloudStreaming.gameImageUrl;
+                        }
+                        // For remote play: use titleId
+                        if (Chiaki.session && Chiaki.session.titleId) {
+                            return ChiakiGames.getGameImage(Chiaki.session.titleId, "landscape");
+                        }
+                        return "";
+                    }
+                    fillMode: Image.PreserveAspectFit
+                    cache: false
+                    
+                    // Dark overlay for spinner visibility
+                    Rectangle {
+                        anchors.fill: parent
+                        color: "black"
+                        opacity: 0.4
+                    }
+                }
+            }
+        }
+    }
+
     Rectangle {
         id: loadingView
         anchors.fill: parent
-        color: "black"
+        color: "transparent"
         opacity: sessionError || sessionLoading || (Chiaki.settings.audioVideoDisabled & 0x02) ? 1.0 : 0.0
         visible: opacity
+        z: 2
 
         Behavior on opacity { NumberAnimation { duration: 250 } }
 
@@ -47,6 +186,7 @@ Item {
                 right: parent.right
                 bottom: parent.bottom
             }
+            z: 3
 
             BusyIndicator {
                 id: spinner
@@ -62,7 +202,14 @@ Item {
                     horizontalCenter: spinner.horizontalCenter
                     topMargin: 30
                 }
+                horizontalAlignment: Text.AlignHCenter
+                font.pixelSize: 20
                 text: {
+                    // Show allocation progress if available
+                    if (Chiaki.cloudStreaming && Chiaki.cloudStreaming.allocationProgress) {
+                        return Chiaki.cloudStreaming.allocationProgress
+                    }
+                    // Otherwise show instructions when launching game
                     if(Chiaki.settings.dpadTouchEnabled)
                     {
                         if(Chiaki.settings.audioVideoDisabled == 0x01)
@@ -78,7 +225,7 @@ Item {
                             qsTr("Press %1 to open stream menu").arg(Chiaki.controllers.length ? Chiaki.settings.stringForStreamMenuShortcut() : "Ctrl+O")
                     }
                 }
-                visible: sessionLoading
+                visible: sessionLoading && (text !== "" || launchingGame)
             }
 
             Label {
@@ -107,6 +254,7 @@ Item {
 
             Label {
                 id: errorTitleLabel
+                objectName: "errorTitleLabel"
                 anchors {
                     bottom: spinner.top
                     horizontalCenter: spinner.horizontalCenter
@@ -120,6 +268,7 @@ Item {
 
             Label {
                 id: errorTextLabel
+                objectName: "errorTextLabel"
                 anchors {
                     top: errorTitleLabel.bottom
                     horizontalCenter: errorTitleLabel.horizontalCenter
@@ -297,6 +446,7 @@ Item {
         opacity: 0.0
         visible: opacity
         enabled: visible
+        z: 1  // Ensure menu is above game background image
         onVisibleChanged: {
             if (visible)
                 view.grabInput(closeButton);
@@ -320,18 +470,12 @@ Item {
             view.releaseInput();
         }
 
-        Canvas {
+        Rectangle {
             anchors.fill: parent
-            onWidthChanged: requestPaint()
-            onHeightChanged: requestPaint()
-            onPaint: {
-                let ctx = getContext("2d");
-                let gradient = ctx.createLinearGradient(0, 0, 0, height);
-                gradient.addColorStop(0.0, Qt.rgba(0.0, 0.0, 0.0, 0.0));
-                gradient.addColorStop(0.7, Qt.rgba(0.5, 0.5, 0.5, 0.7));
-                gradient.addColorStop(1.0, Qt.rgba(0.5, 0.5, 0.5, 0.9));
-                ctx.fillStyle = gradient;
-                ctx.fillRect(0, 0, width, height);
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: Qt.rgba(0.0, 0.0, 0.0, 0.0) }
+                GradientStop { position: 0.7; color: Qt.rgba(0.5, 0.5, 0.5, 0.7) }
+                GradientStop { position: 1.0; color: Qt.rgba(0.5, 0.5, 0.5, 0.9) }
             }
         }
 
@@ -679,6 +823,7 @@ Item {
     Popup {
         id: sessionStopDialog
         property int closeAction: 0
+        property bool isCloudSession: Chiaki.session && Chiaki.session.isCloudStreaming
         parent: Overlay.overlay
         x: Math.round((root.width - width) / 2)
         y: Math.round((root.height - height) / 2)
@@ -689,8 +834,18 @@ Item {
         }
         onClosed: {
             view.releaseInput();
-            if (closeAction)
-                Chiaki.stopSession(closeAction == 1);
+            if (isCloudSession) {
+                // For cloud sessions, only close if "Yes" was clicked (closeAction == 1)
+                // "No" means don't close (closeAction == 2), so do nothing
+                if (closeAction == 1) {
+                    Chiaki.stopSession(false);
+                }
+            } else {
+                // For remote play, both buttons close the session, but with different sleep settings
+                if (closeAction) {
+                    Chiaki.stopSession(closeAction == 1);
+                }
+            }
         }
 
         ColumnLayout {
@@ -704,7 +859,9 @@ Item {
             Label {
                 Layout.topMargin: 10
                 Layout.alignment: Qt.AlignCenter
-                text: qsTr("Do you want the Console to go into sleep mode?")
+                text: sessionStopDialog.isCloudSession 
+                    ? qsTr("Are you sure you want to close the session?")
+                    : qsTr("Do you want the Console to go into sleep mode?")
                 font.pixelSize: 20
             }
 
@@ -714,18 +871,18 @@ Item {
                 spacing: 30
 
                 Button {
-                    id: sleepButton
+                    id: confirmButton
                     Layout.preferredWidth: 200
                     Layout.minimumHeight: 80
                     Layout.maximumHeight: 80
-                    text: qsTr("Sleep")
+                    text: sessionStopDialog.isCloudSession ? qsTr("Yes") : qsTr("Sleep")
                     font.pixelSize: 24
                     Material.roundedScale: Material.SmallScale
                     Material.background: activeFocus ? parent.Material.accent : undefined
-                    KeyNavigation.right: noButton
+                    KeyNavigation.right: cancelButton
                     Keys.onReturnPressed: clicked()
                     Keys.onEscapePressed: sessionStopDialog.close()
-                    onVisibleChanged: if (visible) view.grabInput(sleepButton)
+                    onVisibleChanged: if (visible) view.grabInput(confirmButton)
                     onClicked: {
                         sessionStopDialog.closeAction = 1;
                         sessionStopDialog.close();
@@ -733,7 +890,7 @@ Item {
                 }
 
                 Button {
-                    id: noButton
+                    id: cancelButton
                     Layout.preferredWidth: 200
                     Layout.minimumHeight: 80
                     Layout.maximumHeight: 80
@@ -741,7 +898,7 @@ Item {
                     font.pixelSize: 24
                     Material.roundedScale: Material.SmallScale
                     Material.background: activeFocus ? parent.Material.accent : undefined
-                    KeyNavigation.left: sleepButton
+                    KeyNavigation.left: confirmButton
                     Keys.onReturnPressed: clicked()
                     Keys.onEscapePressed: sessionStopDialog.close()
                     onClicked: {
@@ -784,10 +941,44 @@ Item {
             }
         }
     }
+    
+    // Controller overlay - only loaded when needed, completely destroyed when dismissed
+    Loader {
+        id: controllerOverlayLoader
+        anchors.fill: parent
+        active: false
+        z: 1000 // High z-index to appear above everything
+        
+        sourceComponent: Component {
+            ControllerOverlay {
+                id: controllerOverlay
+                anchors.fill: parent
+                active: true
+                
+                onDismissed: {
+                    view.controllerOverlayShown = true;
+                    Chiaki.settings.controllerOverlayShown = true; // Mark as shown permanently
+                    controllerOverlayLoader.active = false; // Completely destroy the overlay
+                    view.releaseInput();
+                }
+                
+                Component.onCompleted: {
+                    view.grabInput(controllerOverlay);
+                }
+            }
+        }
+    }
 
     Timer {
         id: closeTimer
+        objectName: "closeTimer"
         interval: 2000
+        onTriggered: root.showMainView()
+    }
+
+    Timer {
+        id: errorHideTimerOAuth
+        interval: 10000
         onTriggered: root.showMainView()
     }
 
@@ -796,6 +987,8 @@ Item {
 
         function onSessionChanged() {
             if (!Chiaki.session) {
+                DonationManager.cancelScheduledOffer();
+                DonationManager.flushStreamTime();
                 if (errorTitleLabel.text)
                     closeTimer.start();
                 else
@@ -804,11 +997,43 @@ Item {
         }
 
         function onSessionError(title, text) {
+            DonationManager.cancelScheduledOffer();
+            DonationManager.flushStreamTime();
             sessionError = true;
             sessionLoading = false;
+            
+            // Clear game background image on error (same as remote play)
+            gameBackgroundLoader.active = false;
+            if (Chiaki.cloudStreaming && Chiaki.cloudStreaming.gameImageUrl) {
+                Chiaki.cloudStreaming.gameImageUrl = "";
+            }
+            
             errorTitleLabel.text = title;
             errorTextLabel.text = text;
-            closeTimer.start();
+            
+            // Check if it's an OAuth error for longer toast duration
+            let isOAuthError = text && (text.includes("OAuth") || text.includes("authorization"));
+            
+            // Show toast for OAuth errors (10 seconds) or regular errors (2 seconds)
+            let mainComp = root;
+            while (mainComp && !mainComp.showToast) {
+                mainComp = mainComp.parent;
+            }
+            if (mainComp && mainComp.showToast) {
+                if (isOAuthError) {
+                    // Show toast for 10 seconds for OAuth errors
+                    mainComp.showToast(title, text, "#F44336");
+                    // Use a custom timer for 10 seconds instead of closeTimer
+                    Qt.callLater(() => {
+                        errorHideTimerOAuth.interval = 10000;
+                        errorHideTimerOAuth.restart();
+                    });
+                } else {
+                    closeTimer.start();
+                }
+            } else {
+                closeTimer.start();
+            }
         }
 
         function onSessionPinDialogRequested() {
@@ -830,8 +1055,38 @@ Item {
         target: Chiaki.window
 
         function onHasVideoChanged() {
-            if (Chiaki.window.hasVideo)
-                sessionLoading = false;
+            if (Chiaki.window.hasVideo) {
+                // For cloud play: clear image and hide game background when video appears
+                // (same as GameLaunchCompleted for remote play)
+                if (Chiaki.cloudStreaming && Chiaki.cloudStreaming.gameImageUrl) {
+                    // Hide game background and stop loading indicator (same as remote play)
+                    gameBackgroundLoader.active = false;
+                    sessionLoading = false;
+                    
+                    // Clear the image URL to release resources
+                    Chiaki.cloudStreaming.gameImageUrl = "";
+                    
+                    // Note: Cloud play audio is never muted, so no volume restoration needed here
+                    // (Volume restoration only happens in GameLaunchCompleted for remote play)
+                    
+                    // Show controller overlay after a brief delay (only first time)
+                    if (!controllerOverlayShown && !Chiaki.settings.controllerOverlayShown) {
+                        controllerOverlayTimer.start();
+                    }
+                    return;
+                }
+                
+                // If not launching a game directly, stop loading when video appears
+                // If launching a game, keep loading until GameLaunchCompleted
+                if (!launchingGame) {
+                    sessionLoading = false;
+                    
+                    // Show controller overlay after a brief delay (for non-game launch, only first time)
+                    if (!controllerOverlayShown && !Chiaki.settings.controllerOverlayShown) {
+                        controllerOverlayTimer.start();
+                    }
+                }
+            }
         }
 
         function onMenuRequested() {
@@ -842,10 +1097,19 @@ Item {
     }
     Connections {
         target: Chiaki.session
+        enabled: Chiaki.session !== null
 
         function onConnectedChanged() {
+            // If video is disabled, stop loading immediately
+            // Otherwise, keep loading until GameLaunchCompleted (if launching a game) or hasVideo (if not)
             if (Chiaki.settings.audioVideoDisabled & 0x02)
                 sessionLoading = false;
+
+            if (Chiaki.session && Chiaki.session.connected) {
+                DonationManager.markConnected();
+                DonationManager.scheduleOfferIfEligible();
+            }
         }
     }
+
 }

@@ -15,12 +15,12 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.metallic.chiaki.R
+import com.metallic.chiaki.common.ext.alertDialogBuilder
+import com.pylux.stream.R
 import com.metallic.chiaki.common.ext.putRevealExtra
 import com.metallic.chiaki.common.ext.viewModelFactory
 import com.metallic.chiaki.common.getDatabase
-import com.metallic.chiaki.databinding.FragmentSettingsRegisteredHostsBinding
+import com.pylux.stream.databinding.FragmentSettingsRegisteredHostsBinding
 import com.metallic.chiaki.regist.RegistActivity
 
 class SettingsRegisteredHostsFragment: AppCompatDialogFragment(), TitleFragment
@@ -42,7 +42,16 @@ class SettingsRegisteredHostsFragment: AppCompatDialogFragment(), TitleFragment
 		viewModel = ViewModelProvider(this, viewModelFactory { SettingsRegisteredHostsViewModel(getDatabase(context)) })
 			.get(SettingsRegisteredHostsViewModel::class.java)
 
-		val adapter = SettingsRegisteredHostsAdapter()
+		val adapter = SettingsRegisteredHostsAdapter { host ->
+			context.alertDialogBuilder()
+				.setMessage(getString(R.string.alert_message_delete_registered_host, host.serverNickname, host.serverMac.toString()))
+				.setPositiveButton(R.string.action_delete) { _, _ ->
+					viewModel.deleteHost(host)
+				}
+				.setNegativeButton(R.string.action_keep, null)
+				.create()
+				.show()
+		}
 		binding.hostsRecyclerView.layoutManager = LinearLayoutManager(context)
 		binding.hostsRecyclerView.adapter = adapter
 		val itemTouchSwipeCallback = object : ItemTouchSwipeCallback(context)
@@ -51,7 +60,7 @@ class SettingsRegisteredHostsFragment: AppCompatDialogFragment(), TitleFragment
 			{
 				val pos = viewHolder.adapterPosition
 				val host = viewModel.registeredHosts.value?.getOrNull(pos) ?: return
-				MaterialAlertDialogBuilder(viewHolder.itemView.context)
+				viewHolder.itemView.context.alertDialogBuilder()
 					.setMessage(getString(R.string.alert_message_delete_registered_host, host.serverNickname, host.serverMac.toString()))
 					.setPositiveButton(R.string.action_delete) { _, _ ->
 						viewModel.deleteHost(host)

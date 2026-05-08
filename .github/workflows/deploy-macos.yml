@@ -1,0 +1,406 @@
+# Deploy macOS (App Store)
+#
+# Architecture: Universal (arm64 + x86_64) — built in parallel, merged with lipomerge
+# Output: Signed .pkg uploaded to App Store Connect via Fastlane
+#   release/beta → upload only (manual submit)
+#   master       → upload and auto-submit for review
+#
+# Required secrets (macOS-specific):
+#   MACOS_APPSTORE_INSTALLER_P12_BASE64      - base64 of "3rd Party Mac Developer Installer" .p12
+#   MACOS_APPSTORE_INSTALLER_P12_PASSWORD    - password for installer .p12
+#   MACOS_APPSTORE_PROVISIONING_PROFILE_BASE64 - base64 of Mac App Store .provisionprofile
+#
+# Reused from iOS workflow:
+#   IOS_CERTIFICATE_P12_BASE64              - base64 of "Apple Distribution" .p12 (signs the .app)
+#   IOS_CERTIFICATE_PASSWORD                - password for distribution .p12
+#   APP_STORE_CONNECT_API_KEY_KEY_ID        - App Store Connect API key ID
+#   APP_STORE_CONNECT_API_KEY_ISSUER_ID     - App Store Connect API issuer ID
+#   APP_STORE_CONNECT_API_KEY_KEY_BASE64    - base64 of .p8 key file
+
+name: Deploy macOS (App Store)
+
+on:
+  workflow_dispatch:
+  workflow_call:
+    outputs:
+      chiaki_version:
+        description: Pylux version from CMakeLists.txt
+        value: ${{ jobs.create-appstore-pkg.outputs.chiaki_version }}
+      testflight_join_url:
+        description: Public TestFlight join link for external testers (Mac)
+        value: ${{ jobs.create-appstore-pkg.outputs.testflight_join_url }}
+      macos_upload_succeeded:
+        description: Whether the App Store Connect upload step succeeded
+        value: ${{ jobs.create-appstore-pkg.outputs.macos_upload_succeeded }}
+
+concurrency:
+  group: build-macos-appstore-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  APPSTORE_CMAKE_FLAGS: >-
+    -DCHIAKI_ENABLE_CLI=OFF
+    -DCHIAKI_ENABLE_STEAMDECK_NATIVE=OFF
+    -DCHIAKI_ENABLE_STEAMWORKS=OFF
+    -DCHIAKI_ENABLE_STEAM_SHORTCUT=OFF
+    -DCHIAKI_ENABLE_GUI_WEBENGINE=OFF
+    -DCHIAKI_IS_MAC_APPSTORE=ON
+
+jobs:
+  build-appstore:
+    name: Build ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: ARM64
+            runner: macos-26
+            brew_prefix: /opt/homebrew
+            cmake_arch: arm64
+          - arch: x86_64
+            runner: macos-26-intel
+            brew_prefix: /usr/local
+            cmake_arch: x86_64
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Extract Pylux version
+        id: pylux_version
+        uses: ./.github/actions/extract-version
+
+      - name: Set macOS bundle build number from Pylux semver
+        run: |
+          BN="${{ steps.pylux_version.outputs.semver_build_id }}"
+          echo "PYLUX_MACOS_BUILD_NUMBER=$BN" >> "$GITHUB_ENV"
+          echo "PYLUX_MACOS_BUILD_NUMBER=$BN (CFBundleVersion; MAJOR*10000+MINOR*100+PATCH)"
+
+      - name: Install build dependencies
+        run: |
+          ${{ matrix.arch == 'ARM64' && 'brew uninstall pkgconfig || true' || '' }}
+          brew install ${{ matrix.arch == 'x86_64' && '--force' || '' }} \
+            qt@6 ffmpeg pkgconfig opus openssl cmake ninja nasm sdl2 \
+            protobuf@29 speexdsp libplacebo wget python-setuptools json-c miniupnpc \
+            ${{ matrix.arch == 'x86_64' && '|| true' || '' }}
+          pip3 install --user --break-system-packages 'protobuf>=5,<6'
+          brew link qt@6 --overwrite 2>/dev/null || true
+
+      - name: Configure and build
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake_arch }} \
+            ${{ env.APPSTORE_CMAKE_FLAGS }} \
+            -DCMAKE_PREFIX_PATH="${{ matrix.brew_prefix }}/opt/openssl@3;${{ matrix.brew_prefix }}/opt/qt@6;${{ matrix.brew_prefix }}/opt/protobuf@29" \
+            "-DPYLUX_MACOS_BUILD_NUMBER=${PYLUX_MACOS_BUILD_NUMBER}"
+
+          export CPATH="${{ matrix.brew_prefix }}/opt/ffmpeg/include"
+          cmake --build build --config Release --clean-first --target chiaki
+
+      - name: Deploy app bundle
+        run: |
+          QT_BIN="${{ matrix.brew_prefix }}/opt/qt@6/bin"
+
+          # Match scripts/build-macos.sh: macdeployqt follows QML imports, not CMake. Only add
+          # qtwebengine_import.qml if chiaki links QtWebEngineQuick (CHIAKI_ENABLE_GUI_WEBENGINE=ON).
+          _CHIAKI_BIN="build/gui/chiaki.app/Contents/MacOS/chiaki"
+          if otool -L "$_CHIAKI_BIN" 2>/dev/null | grep -q 'QtWebEngineQuick'; then
+            if [ "${{ matrix.arch }}" = 'ARM64' ]; then
+              echo "import QtWebEngine; WebEngineView {}" > gui/src/qml/qtwebengine_import.qml
+            else
+              cp scripts/qtwebengine_import.qml gui/src/qml/ 2>/dev/null || \
+                echo "import QtWebEngine; WebEngineView {}" > gui/src/qml/qtwebengine_import.qml
+            fi
+          else
+            rm -f gui/src/qml/qtwebengine_import.qml
+          fi
+
+          "$QT_BIN/macdeployqt" build/gui/chiaki.app \
+            -qmldir="$PWD/gui/src/qml" \
+            -libpath="${{ matrix.brew_prefix }}/lib"
+
+          mkdir -p build/gui/chiaki.app/Contents/Resources/vulkan/icd.d
+          wget -q "https://github.com/KhronosGroup/MoltenVK/releases/download/v1.2.9/MoltenVK-macos.tar" -O /tmp/MoltenVK-macos.tar
+          tar xf /tmp/MoltenVK-macos.tar -C /tmp
+          cp /tmp/MoltenVK/MoltenVK/dylib/macOS/* build/gui/chiaki.app/Contents/Resources/vulkan/icd.d/
+
+          "$QT_BIN/macdeployqt" build/gui/chiaki.app \
+            -qmldir="$PWD/gui/src/qml" \
+            -libpath="${{ matrix.brew_prefix }}/lib"
+
+          if [[ -d build/gui/chiaki.app/Contents/Frameworks/QtWebEngineCore.framework/Helpers/QtWebEngineProcess.app ]]; then
+            ln -s ../../../../../../../Frameworks \
+              build/gui/chiaki.app/Contents/Frameworks/QtWebEngineCore.framework/Helpers/QtWebEngineProcess.app/Contents
+          fi
+
+          ln -sf libvulkan.1.dylib build/gui/chiaki.app/Contents/Frameworks/vulkan 2>/dev/null || true
+
+      - name: Create tarball for PKG job (cache, not workflow artifact)
+        run: |
+          cd build/gui
+          mv chiaki.app Pylux.app
+          tar -czf Pylux-${{ matrix.arch }}.tar.gz Pylux.app
+          mv "Pylux-${{ matrix.arch }}.tar.gz" "$GITHUB_WORKSPACE/"
+
+      - name: Save bundle for merge job
+        uses: actions/cache/save@v4
+        with:
+          key: pylux-appstore-${{ github.run_id }}-${{ matrix.cmake_arch }}
+          path: Pylux-${{ matrix.arch }}.tar.gz
+
+  create-appstore-pkg:
+    name: Create universal PKG and deploy
+    runs-on: macos-26
+    needs: build-appstore
+    timeout-minutes: 120
+    outputs:
+      chiaki_version: ${{ steps.extract_version.outputs.version }}
+      testflight_join_url: ${{ steps.release_metadata.outputs.testflight_join_url }}
+      macos_upload_succeeded: ${{ steps.upload_appstore.outcome == 'success' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version
+        id: extract_version
+        uses: ./.github/actions/extract-version
+
+      - name: Release metadata outputs
+        id: release_metadata
+        if: always()
+        run: |
+          echo "testflight_join_url=https://testflight.apple.com/join/V8pv6cXK" >> "$GITHUB_OUTPUT"
+
+      - name: Install lipomerge
+        run: |
+          pip3 install --user --break-system-packages \
+            https://github.com/faaxm/lipo-dir-merge/archive/refs/heads/master.zip
+
+      - name: Restore ARM64 app bundle
+        uses: actions/cache/restore@v4
+        with:
+          key: pylux-appstore-${{ github.run_id }}-arm64
+          path: Pylux-ARM64.tar.gz
+          fail-on-cache-miss: true
+
+      - name: Restore x86_64 app bundle
+        uses: actions/cache/restore@v4
+        with:
+          key: pylux-appstore-${{ github.run_id }}-x86_64
+          path: Pylux-x86_64.tar.gz
+          fail-on-cache-miss: true
+
+      - name: Create universal bundle
+        run: |
+          tar -xzf Pylux-ARM64.tar.gz
+          mv Pylux.app Pylux-arm64.app
+
+          tar -xzf Pylux-x86_64.tar.gz
+          mv Pylux.app Pylux-x86_64.app
+
+          echo "=== Merging ARM64 and x86_64 app bundles ==="
+          python3 -m lipomerge Pylux-arm64.app Pylux-x86_64.app Pylux.app
+
+          echo ""
+          echo "=== Verification ==="
+          lipo -info Pylux.app/Contents/MacOS/chiaki
+          lipo -info Pylux.app/Contents/Frameworks/QtCore.framework/Versions/A/QtCore || true
+
+      - name: Import Apple Distribution certificate
+        env:
+          P12_BASE64: ${{ secrets.IOS_CERTIFICATE_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+        run: |
+          if [ -z "$P12_BASE64" ]; then
+            echo "::error::IOS_CERTIFICATE_P12_BASE64 secret is not set"
+            exit 1
+          fi
+          KEYCHAIN_PATH="$RUNNER_TEMP/macos-signing.keychain-db"
+          KEYCHAIN_PW="$(openssl rand -hex 16)"
+          echo "::add-mask::$KEYCHAIN_PW"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+          echo "KEYCHAIN_PW=$KEYCHAIN_PW" >> "$GITHUB_ENV"
+
+          security create-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN_PATH"
+
+          CERT_PATH="$RUNNER_TEMP/dist-cert.p12"
+          echo "$P12_BASE64" > "$RUNNER_TEMP/dist-cert.b64"
+          base64 -D -i "$RUNNER_TEMP/dist-cert.b64" -o "$CERT_PATH"
+          rm -f "$RUNNER_TEMP/dist-cert.b64"
+          security import "$CERT_PATH" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          rm -f "$CERT_PATH"
+
+      - name: Import Installer certificate
+        env:
+          P12_BASE64: ${{ secrets.MACOS_APPSTORE_INSTALLER_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.MACOS_APPSTORE_INSTALLER_P12_PASSWORD }}
+        run: |
+          if [ -z "$P12_BASE64" ]; then
+            echo "::error::MACOS_APPSTORE_INSTALLER_P12_BASE64 secret is not set"
+            exit 1
+          fi
+          CERT_PATH="$RUNNER_TEMP/installer-cert.p12"
+          echo "$P12_BASE64" > "$RUNNER_TEMP/installer-cert.b64"
+          base64 -D -i "$RUNNER_TEMP/installer-cert.b64" -o "$CERT_PATH"
+          rm -f "$RUNNER_TEMP/installer-cert.b64"
+          security import "$CERT_PATH" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "${{ env.KEYCHAIN_PATH }}"
+          rm -f "$CERT_PATH"
+
+          security set-key-partition-list -S apple-tool:,apple: -k "${{ env.KEYCHAIN_PW }}" "${{ env.KEYCHAIN_PATH }}"
+          security list-keychain -d user -s "${{ env.KEYCHAIN_PATH }}" login.keychain-db
+
+      - name: Install provisioning profile
+        env:
+          PROFILE_BASE64: ${{ secrets.MACOS_APPSTORE_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          if [ -z "$PROFILE_BASE64" ]; then
+            echo "::error::MACOS_APPSTORE_PROVISIONING_PROFILE_BASE64 secret is not set"
+            exit 1
+          fi
+          PROFILE_PATH="$RUNNER_TEMP/appstore.provisionprofile"
+          echo "$PROFILE_BASE64" > "$RUNNER_TEMP/profile.b64"
+          base64 -D -i "$RUNNER_TEMP/profile.b64" -o "$PROFILE_PATH"
+          rm -f "$RUNNER_TEMP/profile.b64"
+
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          security cms -D -i "$PROFILE_PATH" > "$RUNNER_TEMP/profile.plist" 2>/dev/null
+          UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" "$RUNNER_TEMP/profile.plist")
+          PROFILE_APP_ID=$(/usr/libexec/PlistBuddy -c "Print Entitlements:com.apple.application-identifier" "$RUNNER_TEMP/profile.plist")
+          PROFILE_TEAM=$(/usr/libexec/PlistBuddy -c "Print Entitlements:com.apple.developer.team-identifier" "$RUNNER_TEMP/profile.plist")
+          cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/${UUID}.provisionprofile"
+          echo "PROVISIONING_PROFILE_PATH=$PROFILE_PATH" >> "$GITHUB_ENV"
+          echo "PROFILE_APP_ID=$PROFILE_APP_ID" >> "$GITHUB_ENV"
+          echo "PROFILE_TEAM=$PROFILE_TEAM" >> "$GITHUB_ENV"
+          echo "Installed provisioning profile: $UUID (App ID: $PROFILE_APP_ID)"
+
+      - name: Merge entitlements with provisioning profile
+        run: |
+          ENTITLEMENTS="macos/appstore/entitlements.plist"
+          MERGED="$RUNNER_TEMP/merged-entitlements.plist"
+          cp "$ENTITLEMENTS" "$MERGED"
+
+          /usr/libexec/PlistBuddy -c "Delete :com.apple.application-identifier" "$MERGED" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Delete :com.apple.developer.team-identifier" "$MERGED" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :com.apple.application-identifier string '${{ env.PROFILE_APP_ID }}'" "$MERGED"
+          /usr/libexec/PlistBuddy -c "Add :com.apple.developer.team-identifier string '${{ env.PROFILE_TEAM }}'" "$MERGED"
+          echo "MERGED_ENTITLEMENTS=$MERGED" >> "$GITHUB_ENV"
+
+      - name: Embed profile and sign app bundle
+        run: |
+          APP="Pylux.app"
+          SIGN_ID="Apple Distribution"
+          ENTITLEMENTS="${{ env.MERGED_ENTITLEMENTS }}"
+
+          cp "${{ env.PROVISIONING_PROFILE_PATH }}" "$APP/Contents/embedded.provisionprofile"
+
+          for dylib in "$APP/Contents/Resources/vulkan/icd.d"/*.dylib; do
+            [ -f "$dylib" ] && codesign --force --timestamp --options runtime --sign "$SIGN_ID" "$dylib"
+          done
+
+          if [[ -d "$APP/Contents/Frameworks/QtWebEngineCore.framework/Helpers/QtWebEngineProcess.app" ]]; then
+            codesign --force --timestamp --options runtime --deep --sign "$SIGN_ID" \
+              "$APP/Contents/Frameworks/QtWebEngineCore.framework/Versions/A/Helpers/QtWebEngineProcess.app"
+          fi
+
+          for fwk in "$APP/Contents/Frameworks"/*.framework; do
+            [ -d "$fwk" ] || continue
+            fwk_name=$(basename "$fwk" .framework)
+            [ -f "$fwk/Versions/A/$fwk_name" ] && \
+              codesign --force --timestamp --options runtime --sign "$SIGN_ID" "$fwk/Versions/A/$fwk_name"
+          done
+          for fwk in "$APP/Contents/Frameworks"/*.framework; do
+            [ -d "$fwk" ] && codesign --force --timestamp --options runtime --sign "$SIGN_ID" "$fwk"
+          done
+
+          if [ -d "$APP/Contents/PlugIns" ]; then
+            find "$APP/Contents/PlugIns" -name "*.dylib" -type f -exec \
+              codesign --force --timestamp --options runtime --sign "$SIGN_ID" {} \;
+          fi
+
+          find "$APP/Contents/Frameworks" -maxdepth 1 -name "*.dylib" -type f -exec \
+            codesign --force --timestamp --options runtime --sign "$SIGN_ID" {} \;
+
+          codesign --force --timestamp --options runtime --sign "$SIGN_ID" "$APP/Contents/MacOS/chiaki"
+
+          codesign --force --timestamp --options runtime \
+            --entitlements "$ENTITLEMENTS" \
+            --sign "$SIGN_ID" "$APP"
+
+          codesign --verify --verbose=2 "$APP"
+
+      - name: Create signed installer package
+        run: |
+          PKG_OUT="Pylux-appstore.pkg"
+          productbuild --component Pylux.app /Applications \
+            --sign "3rd Party Mac Developer Installer" \
+            "$PKG_OUT"
+
+          echo "PKG_PATH=$PWD/$PKG_OUT" >> "$GITHUB_ENV"
+          echo "Signed PKG: $PKG_OUT"
+
+      - name: Write App Store Connect API key
+        env:
+          ASC_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_KEY_BASE64 }}
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_KEY_ID }}
+        run: |
+          if [ -z "$ASC_KEY_BASE64" ] || [ -z "$ASC_KEY_ID" ]; then
+            echo "::error::App Store Connect API key secrets are not set"
+            exit 1
+          fi
+          KEY_DIR="$RUNNER_TEMP/asc-keys"
+          mkdir -p "$KEY_DIR"
+          echo "$ASC_KEY_BASE64" > "$RUNNER_TEMP/key.b64"
+          base64 -D -i "$RUNNER_TEMP/key.b64" -o "$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8"
+          rm -f "$RUNNER_TEMP/key.b64"
+          echo "APP_STORE_CONNECT_API_KEY_KEY_FILEPATH=$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8" >> "$GITHUB_ENV"
+
+      - name: Upload to App Store Connect
+        id: upload_appstore
+        working-directory: macos
+        env:
+          APP_STORE_CONNECT_API_KEY_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_KEY_ID }}
+          APP_STORE_CONNECT_API_KEY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
+          PYLUX_SUBMIT_FOR_REVIEW: ${{ github.ref_name == 'master' && 'true' || 'false' }}
+          PYLUX_TESTFLIGHT_EXTERNAL_BETA: ${{ github.ref_name == 'release/beta' && 'true' || 'false' }}
+        run: |
+          brew install fastlane
+          export PYLUX_PKG_PATH="${{ env.PKG_PATH }}"
+          fastlane upload_pylux_pkg
+
+      - name: Deployment summary
+        if: always()
+        run: |
+          {
+            echo "## Pylux macOS — v${CHIAKI_VERSION:-?}"
+            echo ""
+            if [ "${{ steps.upload_appstore.outcome }}" = "success" ]; then
+              if [ "${{ github.ref_name }}" = "master" ]; then
+                echo "Submitted for Mac App Store review. Once approved, download here:"
+                echo ""
+                echo "**[Download on the Mac App Store](https://apps.apple.com/us/app/pylux-remote-play/id6761292658)**"
+                echo ""
+                echo "> If recently submitted, allow a few days for Apple review before it appears."
+              else
+                echo "Beta build uploaded to TestFlight for Mac."
+                echo ""
+                echo "**[Join TestFlight beta](https://testflight.apple.com/join/V8pv6cXK)**"
+                echo ""
+                echo "1. Install [TestFlight](https://apps.apple.com/app/apple-testflight/id899247664) on your Mac if you haven't already."
+                echo "2. Open the join link above and accept the invite."
+                echo "3. Install Pylux from TestFlight. New builds may take a short time to pass Beta App Review before appearing."
+              fi
+            else
+              echo "Upload did not complete (outcome: **${{ steps.upload_appstore.outcome }}**). Check the logs above for details."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          security delete-keychain "${{ env.KEYCHAIN_PATH }}" 2>/dev/null || true

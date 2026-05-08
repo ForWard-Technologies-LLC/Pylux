@@ -1,0 +1,669 @@
+# Build macOS Universal Binary
+# Without secrets: builds with ad-hoc signing (Gatekeeper may warn on download).
+# With secrets: Developer ID signing + notarization (no Gatekeeper on download).
+#
+# Notarization is split to save macOS minutes: submit without --wait, then a cheap
+# ubuntu-latest sleep, then a short macOS job runs notarytool wait + stapler + Dropbox.
+#
+# Required secrets for signing + notarization:
+#   MACOS_CERTIFICATE_P12_BASE64 - base64 of .p12 (export from Keychain)
+#   MACOS_CERTIFICATE_PASSWORD   - password for .p12
+#   APPLE_ID                     - Apple ID email
+#   APPLE_APP_SPECIFIC_PASSWORD  - from appleid.apple.com
+#   APPLE_TEAM_ID                - e.g. KG7LUU8FX7
+
+name: Build macOS Universal Binary
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+env:
+  CHIAKI_ENABLE_STEAMWORKS: "OFF"
+
+jobs:
+  check-cache:
+    name: Check if builds can be skipped
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      arm64-cache-key: ${{ steps.cache-keys.outputs.arm64 }}
+      x86_64-cache-key: ${{ steps.cache-keys.outputs.x86_64 }}
+      skip-builds: ${{ steps.check-caches.outputs.skip }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      
+      - name: Generate cache keys
+        id: cache-keys
+        run: |
+          SOURCE_HASH="${{ hashFiles('**/*.cpp', '**/*.h', '**/*.c', '**/*.mm', '**/CMakeLists.txt', 'gui/**/*.qml', 'gui/**/*.ui', 'scripts/**', 'third-party/steamworks/**') }}"
+          echo "arm64=macOS-app-arm64-${SOURCE_HASH}" >> $GITHUB_OUTPUT
+          echo "x86_64=macOS-app-x86_64-${SOURCE_HASH}" >> $GITHUB_OUTPUT
+      
+      - name: Check if caches exist
+        id: check-caches
+        run: |
+          # Use gh CLI to check if both caches exist
+          ARM64_EXISTS=$(gh cache list --key "${{ steps.cache-keys.outputs.arm64 }}" --json key -q 'length' || echo "0")
+          X86_64_EXISTS=$(gh cache list --key "${{ steps.cache-keys.outputs.x86_64 }}" --json key -q 'length' || echo "0")
+          
+          if [[ "$ARM64_EXISTS" -gt 0 && "$X86_64_EXISTS" -gt 0 ]]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "✅ Both ARM64 and x86_64 caches exist - builds will be SKIPPED (0 minutes)"
+            echo "   ARM64 cache: ${{ steps.cache-keys.outputs.arm64 }}"
+            echo "   x86_64 cache: ${{ steps.cache-keys.outputs.x86_64 }}"
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "❌ Cache miss - full builds will run (~20 minutes)"
+            echo "   ARM64 exists: $([[ "$ARM64_EXISTS" -gt 0 ]] && echo "✓" || echo "✗")"
+            echo "   x86_64 exists: $([[ "$X86_64_EXISTS" -gt 0 ]] && echo "✓" || echo "✗")"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+
+  restore-cached-builds:
+    name: Restore Cached ${{ matrix.arch }} Build
+    needs: check-cache
+    if: needs.check-cache.outputs.skip-builds == 'true'
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - arch: ARM64
+            runner: macos-14
+            cache_suffix: arm64
+          - arch: x86_64
+            runner: macos-15-intel
+            cache_suffix: x86_64
+    steps:
+      - name: Restore ${{ matrix.arch }} app bundle from cache
+        uses: actions/cache/restore@v4
+        with:
+          path: build/gui/chiaki.app
+          key: ${{ needs.check-cache.outputs[format('{0}-cache-key', matrix.cache_suffix)] }}
+          fail-on-cache-miss: true
+      
+      - name: Create tarball to preserve symlinks
+        run: |
+          cd build/gui
+          mv chiaki.app Pylux.app
+          tar -czf Pylux-${{ matrix.arch }}.tar.gz Pylux.app
+      
+      - name: Upload ${{ matrix.arch }} artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pylux-${{ matrix.cache_suffix }}-app
+          path: build/gui/Pylux-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+  build-macos:
+    name: Build macOS ${{ matrix.arch }}
+    needs: check-cache
+    if: needs.check-cache.outputs.skip-builds == 'false'
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: ARM64
+            runner: macos-14
+            brew_prefix: /opt/homebrew
+            cache_suffix: arm64
+          - arch: x86_64
+            runner: macos-15-intel
+            brew_prefix: /usr/local
+            cache_suffix: x86_64
+    
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Cache Homebrew packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/Homebrew
+            ${{ matrix.brew_prefix }}/Cellar
+            ${{ matrix.brew_prefix }}/opt
+            ${{ matrix.brew_prefix }}/lib/pkgconfig
+          key: ${{ runner.os }}-brew-${{ matrix.cache_suffix }}-${{ hashFiles('.github/workflows/build-macos-universal.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-brew-${{ matrix.cache_suffix }}-
+
+      - name: Cache Built App Bundle
+        id: cache-app-bundle
+        uses: actions/cache@v4
+        with:
+          path: build/gui/chiaki.app
+          key: ${{ needs.check-cache.outputs[format('{0}-cache-key', matrix.cache_suffix)] }}
+          restore-keys: |
+            ${{ runner.os }}-app-${{ matrix.cache_suffix }}-
+
+      - name: Check Cache Status
+        run: |
+          if [[ "${{ steps.cache-app-bundle.outputs.cache-hit }}" == "true" ]]; then
+            echo "✓ Using cached ${{ matrix.arch }} app bundle - skipping build"
+          else
+            echo "✗ No cache found - will build ${{ matrix.arch }} from scratch"
+          fi
+
+      - name: Install protobuf
+        if: steps.cache-app-bundle.outputs.cache-hit != 'true'
+        run: |
+          pip3 install --user 'protobuf>=5,<6' --break-system-packages
+      
+      - name: Install brew dependencies
+        if: steps.cache-app-bundle.outputs.cache-hit != 'true'
+        run: |
+          ${{ matrix.arch == 'ARM64' && 'brew uninstall pkgconfig || true' || '' }}
+          brew install ${{ matrix.arch == 'x86_64' && '--force' || '' }} qt@6 ffmpeg pkgconfig opus openssl cmake ninja nasm sdl2 protobuf@29 speexdsp libplacebo wget python-setuptools json-c miniupnpc ${{ matrix.arch == 'x86_64' && '|| true' || '' }}
+
+      - name: Configure Pylux
+        if: steps.cache-app-bundle.outputs.cache-hit != 'true'
+        run: |
+          cmake -S . -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DCHIAKI_ENABLE_CLI=OFF -DCHIAKI_ENABLE_STEAMDECK_NATIVE=OFF -DCHIAKI_ENABLE_STEAM_SHORTCUT=OFF -DCHIAKI_ENABLE_STEAMWORKS=${{ env.CHIAKI_ENABLE_STEAMWORKS }} -DCMAKE_PREFIX_PATH="$(brew --prefix);$(brew --prefix)/opt/openssl@3;$(brew --prefix)/opt/qt@6;$(brew --prefix)/opt/protobuf@29"
+
+      - name: Build Pylux
+        if: steps.cache-app-bundle.outputs.cache-hit != 'true'
+        run: |
+          export CPATH=$(brew --prefix)/opt/ffmpeg/include
+          cmake --build build --config Release --clean-first --target chiaki
+
+      - name: Deploy ${{ matrix.arch }} App Bundle
+        if: steps.cache-app-bundle.outputs.cache-hit != 'true'
+        run: |
+          # Copy qtwebengine_import.qml (upstream uses cp for x86_64, echo for arm64)
+          if [ "${{ matrix.arch }}" = "ARM64" ]; then
+            echo "import QtWebEngine; WebEngineView {}" > "$PWD/gui/src/qml/qtwebengine_import.qml"
+          else
+            cp scripts/qtwebengine_import.qml gui/src/qml/
+          fi
+          
+          # First macdeployqt pass
+          $(brew --prefix)/opt/qt@6/bin/macdeployqt build/gui/chiaki.app -qmldir="$PWD/gui/src/qml" -libpath=$(brew --prefix)/lib
+          
+          # Install MoltenVK
+          mkdir -p build/gui/chiaki.app/Contents/Resources/vulkan/icd.d
+          wget https://github.com/KhronosGroup/MoltenVK/releases/download/v1.2.9/MoltenVK-macos.tar && tar xf MoltenVK-macos.tar
+          cp MoltenVK/MoltenVK/dylib/macOS/* build/gui/chiaki.app/Contents/Resources/vulkan/icd.d
+          
+          # Second macdeployqt pass
+          $(brew --prefix)/opt/qt@6/bin/macdeployqt build/gui/chiaki.app -qmldir="$PWD/gui/src/qml" -libpath=$(brew --prefix)/lib
+          
+          # QtWebEngineCore symlinks
+          if [[ -d build/gui/chiaki.app/Contents/Frameworks/QtWebEngineCore.framework/Helpers/QtWebEngineProcess.app ]]; then
+            ln -s ../../../../../../../Frameworks build/gui/chiaki.app/Contents/Frameworks/QtWebEngineCore.framework/Helpers/QtWebEngineProcess.app/Contents
+          fi
+          
+          # Create vulkan symlink
+          ln -s libvulkan.1.dylib build/gui/chiaki.app/Contents/Frameworks/vulkan
+          
+          if [ "${{ env.CHIAKI_ENABLE_STEAMWORKS }}" = "ON" ]; then
+            # Bundle Steamworks library (already universal)
+            mkdir -p build/gui/chiaki.app/Contents/Frameworks
+            cp third-party/steamworks/steamworks_sdk/redistributable_bin/osx/libsteam_api.dylib build/gui/chiaki.app/Contents/Frameworks/
+            install_name_tool -id "@rpath/libsteam_api.dylib" build/gui/chiaki.app/Contents/Frameworks/libsteam_api.dylib
+            
+            # Fix executable's link to libsteam_api.dylib to use @rpath instead of @loader_path
+            install_name_tool -change "@loader_path/libsteam_api.dylib" "@rpath/libsteam_api.dylib" build/gui/chiaki.app/Contents/MacOS/chiaki
+          fi
+
+      - name: Create tarball to preserve symlinks
+        run: |
+          cd build/gui
+          mv chiaki.app Pylux.app
+          tar -czf Pylux-${{ matrix.arch }}.tar.gz Pylux.app
+      
+      - name: Upload ${{ matrix.arch }} App Bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: pylux-${{ matrix.cache_suffix }}-app
+          path: build/gui/Pylux-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+  create-universal-bundle:
+    name: Create Universal Bundle and Upload to Dropbox
+    runs-on: macos-14
+    needs: [check-cache, restore-cached-builds, build-macos]
+    if: always() && !cancelled() && !failure()
+    outputs:
+      submission_id: ${{ steps.export_submission.outputs.submission_id }}
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install lipomerge
+        run: |
+          pip3 install --user --break-system-packages https://github.com/faaxm/lipo-dir-merge/archive/refs/heads/master.zip
+
+      - name: Download ARM64 App Bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: pylux-arm64-app
+          path: ./
+
+      - name: Download x86_64 App Bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: pylux-x86_64-app
+          path: ./
+      
+      - name: Extract tarballs (preserves symlinks)
+        run: |
+          echo "=== Extracting ARM64 app bundle ==="
+          tar -xzf Pylux-arm64.tar.gz
+          mv Pylux.app Pylux-arm64.app
+          
+          echo "=== Extracting x86_64 app bundle ==="
+          tar -xzf Pylux-x86_64.tar.gz
+          mv Pylux.app Pylux-x86_64.app
+          
+          echo "=== Verifying symlinks preserved ==="
+          ls -la Pylux-arm64.app/Contents/Frameworks/QtQuickTimeline.framework/
+          echo ""
+          ls -la Pylux-x86_64.app/Contents/Frameworks/QtQuickTimeline.framework/
+
+      - name: Create Universal Bundle
+        run: |
+          # Use lipomerge to recursively merge ALL Mach-O binaries (executables, dylibs, frameworks)
+          # This tool walks both directory trees and merges every matching binary with lipo
+          echo "=== Merging ARM64 and x86_64 app bundles using lipomerge ==="
+          python3 -m lipomerge Pylux-arm64.app Pylux-x86_64.app Pylux.app
+          
+          echo ""
+          echo "=== Verification ==="
+          echo "Main executable:"
+          lipo -info Pylux.app/Contents/MacOS/chiaki
+          
+          echo "Sample Qt framework:"
+          lipo -info Pylux.app/Contents/Frameworks/QtCore.framework/Versions/A/QtCore || true
+
+      # secrets.* cannot be used in step `if:` (GitHub rejects it). Guard in the script instead.
+      - name: Import code signing certificate
+        env:
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          KEYCHAIN_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          if [ -z "$MACOS_CERTIFICATE_P12_BASE64" ]; then
+            echo "MACOS_CERTIFICATE_P12_BASE64 not set — skipping Developer ID import (ad-hoc build)"
+            exit 0
+          fi
+          CERTIFICATE_PATH=$RUNNER_TEMP/build_certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          echo -n "$MACOS_CERTIFICATE_P12_BASE64" | base64 --decode -o $CERTIFICATE_PATH
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security import $CERTIFICATE_PATH -P "$KEYCHAIN_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+          echo "IDENTITY=$(security find-identity -v -p codesigning $KEYCHAIN_PATH | grep 'Developer ID Application' | head -1 | sed -E 's/.*"(.*)"/\1/')" >> $GITHUB_ENV
+
+      - name: Sign and Package
+        env:
+          SIGN_ID: ${{ env.IDENTITY == '' && '-' || env.IDENTITY }}
+        run: |
+          # Use Developer ID if certificate was imported, else ad-hoc
+          if [ -z "${{ env.IDENTITY }}" ]; then
+            SIGN_ID="-"
+            echo "=== No certificate imported - using ad-hoc signing ==="
+          else
+            SIGN_ID="${{ env.IDENTITY }}"
+            echo "=== Signing with Developer ID: $SIGN_ID ==="
+          fi
+          
+          # Sign inside-out with hardened runtime + secure timestamp (required for notarization; matches scripts/build-macos.sh)
+          
+          echo "=== Signing MoltenVK dylibs ==="
+          for dylib in Pylux.app/Contents/Resources/vulkan/icd.d/*.dylib; do
+            [ -f "$dylib" ] && codesign --force --timestamp --options runtime --sign "$SIGN_ID" "$dylib"
+          done
+          
+          echo ""
+          echo "=== Signing QtWebEngineProcess helper app ==="
+          if [[ -d Pylux.app/Contents/Frameworks/QtWebEngineCore.framework/Helpers/QtWebEngineProcess.app ]]; then
+            codesign --force --timestamp --options runtime --deep --sign "$SIGN_ID" Pylux.app/Contents/Frameworks/QtWebEngineCore.framework/Versions/A/Helpers/QtWebEngineProcess.app
+          fi
+          
+          echo ""
+          echo "=== Signing framework executables ==="
+          for fwk in Pylux.app/Contents/Frameworks/*.framework; do
+            fwk_name=$(basename "$fwk" .framework)
+            if [ -f "$fwk/Versions/A/$fwk_name" ]; then
+              codesign --force --timestamp --options runtime --sign "$SIGN_ID" "$fwk/Versions/A/$fwk_name"
+            fi
+          done
+          
+          echo ""
+          echo "=== Signing framework bundles ==="
+          for fwk in Pylux.app/Contents/Frameworks/*.framework; do
+            codesign --force --timestamp --options runtime --sign "$SIGN_ID" "$fwk"
+          done
+          
+          echo ""
+          echo "=== Signing plugin dylibs ==="
+          if [ -d Pylux.app/Contents/PlugIns ]; then
+            find Pylux.app/Contents/PlugIns -name "*.dylib" -type f -exec codesign --force --timestamp --options runtime --sign "$SIGN_ID" {} \;
+          fi
+          
+          echo ""
+          echo "=== Signing standalone dylibs ==="
+          find Pylux.app/Contents/Frameworks -maxdepth 1 -name "*.dylib" -type f -exec codesign --force --timestamp --options runtime --sign "$SIGN_ID" {} \;
+          
+          echo ""
+          echo "=== Signing main executable ==="
+          codesign --force --timestamp --options runtime --sign "$SIGN_ID" Pylux.app/Contents/MacOS/chiaki
+          
+          echo ""
+          echo "=== Signing app bundle ==="
+          codesign --force --timestamp --options runtime --entitlements gui/entitlements.xml --sign "$SIGN_ID" Pylux.app
+          
+          echo ""
+          echo "✅ All code signing complete"
+          
+          # Create DMG
+          echo ""
+          echo "=== Creating DMG ==="
+          hdiutil create -srcfolder Pylux.app Pylux-universal.dmg
+          codesign --force --timestamp --options runtime --sign "$SIGN_ID" Pylux-universal.dmg
+          
+          # Rename for release
+          cp Pylux-universal.dmg Pylux-macos_universal-Release.dmg
+          
+          echo "✅ Universal DMG ready: Pylux-macos_universal-Release.dmg"
+
+      # Submit only — do not --wait here (frees this macOS runner while Apple processes).
+      # notarize-wait-delay (ubuntu) + notarize-staple-and-upload (macOS) finish the job.
+      - name: Submit for notarization (no wait)
+        id: notary_submit
+        if: env.IDENTITY != ''
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -z "$APPLE_ID" ] || [ -z "$APPLE_APP_SPECIFIC_PASSWORD" ] || [ -z "$APPLE_TEAM_ID" ]; then
+            echo "Apple notary secrets not fully configured — skipping notarization submit"
+            echo "submission_id=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "=== Submitting for notarization (not waiting on this runner) ==="
+          set -euo pipefail
+          SUBMIT_JSON=$(mktemp)
+          xcrun notarytool submit Pylux-macos_universal-Release.dmg \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --no-wait \
+            -f json \
+            --no-progress \
+            > "$SUBMIT_JSON"
+          SUBMISSION_ID=$(jq -r '.id // empty' "$SUBMIT_JSON")
+          if [ -z "$SUBMISSION_ID" ]; then
+            echo "::error::Could not parse submission id from notarytool JSON"
+            cat "$SUBMIT_JSON" || true
+            exit 1
+          fi
+          echo "submission_id=$SUBMISSION_ID" >> "$GITHUB_OUTPUT"
+          echo "Submission id: $SUBMISSION_ID"
+          tar -czf Pylux-app-staple.tar.gz Pylux.app
+
+      - name: Upload notarization payload for staple job
+        if: success() && steps.notary_submit.outputs.submission_id != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: pylux-notarize-payload
+          path: |
+            Pylux-macos_universal-Release.dmg
+            Pylux-app-staple.tar.gz
+          if-no-files-found: error
+          retention-days: 2
+
+      - name: Export submission id for downstream jobs
+        id: export_submission
+        if: always()
+        run: |
+          SID="${{ steps.notary_submit.outputs.submission_id }}"
+          echo "submission_id=$SID" >> "$GITHUB_OUTPUT"
+
+      # Use always(): default step if is success() — without it, this never runs after a failed submit.
+      - name: Upload to Dropbox (ad-hoc, no Apple secrets, or notary submit failed)
+        if: always() && (steps.notary_submit.outcome == 'skipped' || steps.notary_submit.outcome == 'failure' || (steps.notary_submit.outcome == 'success' && steps.notary_submit.outputs.submission_id == ''))
+        continue-on-error: true
+        env:
+          DROPBOX_REFRESH_TOKEN: ${{ secrets.DROPBOX_REFRESH_TOKEN }}
+          DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
+          DROPBOX_APP_SECRET: ${{ secrets.DROPBOX_APP_SECRET }}
+        run: |
+          # Get short-lived access token from refresh token
+          ACCESS_TOKEN=$(curl -s https://api.dropbox.com/oauth2/token \
+            -d refresh_token=$DROPBOX_REFRESH_TOKEN \
+            -d grant_type=refresh_token \
+            -d client_id=$DROPBOX_APP_KEY \
+            -d client_secret=$DROPBOX_APP_SECRET \
+            | jq -r '.access_token')
+          
+          # Upload large DMG file using chunked upload session (supports files >150MB)
+          FILE="Pylux-macos_universal-Release.dmg"
+          CHUNK_SIZE=$((100 * 1024 * 1024))  # 100MB chunks
+          FILE_SIZE=$(stat -f%z "$FILE")
+          DROPBOX_PATH="/pylux/macos/Pylux-macos_universal-Release.dmg"
+          
+          echo "Uploading $FILE ($FILE_SIZE bytes) in chunks of $CHUNK_SIZE bytes..."
+          
+          # Start upload session
+          SESSION_ID=$(curl -s -X POST https://content.dropboxapi.com/2/files/upload_session/start \
+            --header "Authorization: Bearer $ACCESS_TOKEN" \
+            --header "Content-Type: application/octet-stream" \
+            | jq -r '.session_id')
+          
+          echo "Session started: $SESSION_ID"
+          
+          # Upload file in chunks
+          OFFSET=0
+          while [ $OFFSET -lt $FILE_SIZE ]; do
+            # Calculate chunk size for this iteration
+            REMAINING=$((FILE_SIZE - OFFSET))
+            if [ $REMAINING -lt $CHUNK_SIZE ]; then
+              CURRENT_CHUNK_SIZE=$REMAINING
+            else
+              CURRENT_CHUNK_SIZE=$CHUNK_SIZE
+            fi
+            
+            echo "Uploading chunk at offset $OFFSET (size: $CURRENT_CHUNK_SIZE bytes)..."
+            
+            # Extract and upload chunk (using tail+head for much faster extraction than dd bs=1)
+            tail -c +$((OFFSET + 1)) "$FILE" | head -c $CURRENT_CHUNK_SIZE | \
+            curl -s -X POST https://content.dropboxapi.com/2/files/upload_session/append_v2 \
+              --header "Authorization: Bearer $ACCESS_TOKEN" \
+              --header "Content-Type: application/octet-stream" \
+              --header "Dropbox-API-Arg: {\"cursor\": {\"session_id\": \"$SESSION_ID\", \"offset\": $OFFSET}}" \
+              --data-binary @-
+            
+            OFFSET=$((OFFSET + CURRENT_CHUNK_SIZE))
+          done
+          
+          # Finish upload session
+          echo "Finalizing upload..."
+          curl -X POST https://content.dropboxapi.com/2/files/upload_session/finish \
+            --header "Authorization: Bearer $ACCESS_TOKEN" \
+            --header "Content-Type: application/octet-stream" \
+            --header "Dropbox-API-Arg: {\"cursor\": {\"session_id\": \"$SESSION_ID\", \"offset\": $FILE_SIZE}, \"commit\": {\"path\": \"$DROPBOX_PATH\", \"mode\": \"overwrite\", \"autorename\": false}}" \
+            --data-binary ''
+          
+          echo "Upload complete!"
+
+  # Bill ubuntu minutes (~1x) instead of macOS (~10x) for a fixed delay before polling Apple.
+  notarize-wait-delay:
+    name: Wait before notary poll (Linux)
+    runs-on: ubuntu-latest
+    needs: create-universal-bundle
+    if: needs.create-universal-bundle.outputs.submission_id != ''
+    outputs:
+      submission_id: ${{ steps.pass_id.outputs.submission_id }}
+    steps:
+      - name: Sleep (cheap runner — adjust duration as needed)
+        run: |
+          echo "Waiting 10 minutes before macOS job polls notarytool (saves macOS billing for this window)."
+          sleep 600
+
+      - name: Pass submission id to staple job
+        id: pass_id
+        run: echo "submission_id=${{ needs.create-universal-bundle.outputs.submission_id }}" >> "$GITHUB_OUTPUT"
+
+  # Short macOS job: wait for Apple, staple, upload stapled DMG to Dropbox.
+  notarize-staple-and-upload:
+    name: Staple notarized build and upload
+    runs-on: macos-14
+    needs: notarize-wait-delay
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: pylux-notarize-payload
+          path: .
+
+      - name: Extract app bundle
+        run: tar -xzf Pylux-app-staple.tar.gz
+
+      - name: Wait for Apple then staple
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          SUB="${{ needs.notarize-wait-delay.outputs.submission_id }}"
+          echo "Polling notary for $SUB (timeout 2h on this macOS runner)..."
+          xcrun notarytool wait "$SUB" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --timeout 2h
+          xcrun stapler staple Pylux-macos_universal-Release.dmg
+          xcrun stapler staple Pylux.app
+          echo "✅ Stapling complete"
+
+      - name: Upload stapled DMG to Dropbox
+        continue-on-error: true
+        env:
+          DROPBOX_REFRESH_TOKEN: ${{ secrets.DROPBOX_REFRESH_TOKEN }}
+          DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
+          DROPBOX_APP_SECRET: ${{ secrets.DROPBOX_APP_SECRET }}
+        run: |
+          ACCESS_TOKEN=$(curl -s https://api.dropbox.com/oauth2/token \
+            -d refresh_token=$DROPBOX_REFRESH_TOKEN \
+            -d grant_type=refresh_token \
+            -d client_id=$DROPBOX_APP_KEY \
+            -d client_secret=$DROPBOX_APP_SECRET \
+            | jq -r '.access_token')
+
+          FILE="Pylux-macos_universal-Release.dmg"
+          CHUNK_SIZE=$((100 * 1024 * 1024))
+          FILE_SIZE=$(stat -f%z "$FILE")
+          DROPBOX_PATH="/pylux/macos/Pylux-macos_universal-Release.dmg"
+
+          echo "Uploading stapled $FILE ($FILE_SIZE bytes)..."
+
+          SESSION_ID=$(curl -s -X POST https://content.dropboxapi.com/2/files/upload_session/start \
+            --header "Authorization: Bearer $ACCESS_TOKEN" \
+            --header "Content-Type: application/octet-stream" \
+            | jq -r '.session_id')
+
+          OFFSET=0
+          while [ $OFFSET -lt $FILE_SIZE ]; do
+            REMAINING=$((FILE_SIZE - OFFSET))
+            if [ $REMAINING -lt $CHUNK_SIZE ]; then
+              CURRENT_CHUNK_SIZE=$REMAINING
+            else
+              CURRENT_CHUNK_SIZE=$CHUNK_SIZE
+            fi
+            tail -c +$((OFFSET + 1)) "$FILE" | head -c $CURRENT_CHUNK_SIZE | \
+            curl -s -X POST https://content.dropboxapi.com/2/files/upload_session/append_v2 \
+              --header "Authorization: Bearer $ACCESS_TOKEN" \
+              --header "Content-Type: application/octet-stream" \
+              --header "Dropbox-API-Arg: {\"cursor\": {\"session_id\": \"$SESSION_ID\", \"offset\": $OFFSET}}" \
+              --data-binary @-
+            OFFSET=$((OFFSET + CURRENT_CHUNK_SIZE))
+          done
+
+          curl -X POST https://content.dropboxapi.com/2/files/upload_session/finish \
+            --header "Authorization: Bearer $ACCESS_TOKEN" \
+            --header "Content-Type: application/octet-stream" \
+            --header "Dropbox-API-Arg: {\"cursor\": {\"session_id\": \"$SESSION_ID\", \"offset\": $FILE_SIZE}, \"commit\": {\"path\": \"$DROPBOX_PATH\", \"mode\": \"overwrite\", \"autorename\": false}}" \
+            --data-binary ''
+
+          echo "Upload complete (stapled build)."
+
+  cleanup-old-caches:
+    name: Cleanup Old Caches
+    runs-on: ubuntu-latest
+    needs: create-universal-bundle
+    if: always()
+    permissions:
+      actions: write
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Cleanup old caches
+        run: |
+          # Current Homebrew cache keys based on workflow file hash
+          WORKFLOW_HASH="${{ hashFiles('.github/workflows/build-macos-universal.yml') }}"
+          CURRENT_ARM64_KEY="${{ runner.os }}-brew-arm64-${WORKFLOW_HASH}"
+          CURRENT_X86_KEY="${{ runner.os }}-brew-x86_64-${WORKFLOW_HASH}"
+          
+          echo "=== Cleaning Homebrew Caches ==="
+          echo "Current Homebrew cache keys to keep:"
+          echo "  ARM64: $CURRENT_ARM64_KEY"
+          echo "  x86_64: $CURRENT_X86_KEY"
+          echo ""
+          
+          # Delete old ARM64 Homebrew caches
+          echo "Cleaning ARM64 Homebrew caches..."
+          gh cache list -R ${{ github.repository }} --key "macOS-brew-arm64-" --json key --jq '.[].key' | while read -r cache_key; do
+            if [[ "$cache_key" != "$CURRENT_ARM64_KEY" ]]; then
+              echo "  Deleting: $cache_key"
+              gh cache delete "$cache_key" -R ${{ github.repository }} --confirm || true
+            fi
+          done
+          
+          # Delete old x86_64 Homebrew caches
+          echo "Cleaning x86_64 Homebrew caches..."
+          gh cache list -R ${{ github.repository }} --key "macOS-brew-x86_64-" --json key --jq '.[].key' | while read -r cache_key; do
+            if [[ "$cache_key" != "$CURRENT_X86_KEY" ]]; then
+              echo "  Deleting: $cache_key"
+              gh cache delete "$cache_key" -R ${{ github.repository }} --confirm || true
+            fi
+          done
+          
+          echo ""
+          echo "=== Cleaning App Bundle Caches ==="
+          echo "Keeping only the most recent app bundle for each architecture..."
+          
+          # Keep only the most recent ARM64 app bundle cache
+          echo "Cleaning ARM64 app bundle caches..."
+          gh cache list -R ${{ github.repository }} --key "macOS-app-arm64-" --json key --jq '.[].key' | tail -n +2 | while read -r cache_key; do
+            echo "  Deleting old: $cache_key"
+            gh cache delete "$cache_key" -R ${{ github.repository }} --confirm || true
+          done
+          
+          # Keep only the most recent x86_64 app bundle cache
+          echo "Cleaning x86_64 app bundle caches..."
+          gh cache list -R ${{ github.repository }} --key "macOS-app-x86_64-" --json key --jq '.[].key' | tail -n +2 | while read -r cache_key; do
+            echo "  Deleting old: $cache_key"
+            gh cache delete "$cache_key" -R ${{ github.repository }} --confirm || true
+          done
+          
+          echo ""
+          echo "Cache cleanup completed!"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true

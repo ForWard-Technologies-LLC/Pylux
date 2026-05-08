@@ -1,0 +1,440 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <com.google.android.material.appbar.AppBarLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="?attr/colorPrimary">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <!-- Secondary header bar matching iOS cloudSubTabs -->
+            <LinearLayout
+                android:id="@+id/cloudSubHeader"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="@color/toolbar_bg"
+                android:paddingHorizontal="10dp"
+                android:paddingVertical="6dp">
+
+                <!-- Left side: Section tabs + All/Owned toggle -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <!-- Catalog tab -->
+                    <TextView
+                        android:id="@+id/catalogTabButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="32dp"
+                        android:text="Catalog"
+                        android:textSize="13sp"
+                        android:textColor="#FFFFFF"
+                        android:gravity="center"
+                        android:paddingHorizontal="12dp"
+                        android:paddingVertical="0dp"
+                        android:focusable="true"
+
+                        android:clickable="true"
+                        android:background="@android:color/transparent" />
+
+                    <!-- Library tab -->
+                    <TextView
+                        android:id="@+id/libraryTabButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="32dp"
+                        android:text="Library"
+                        android:textSize="13sp"
+                        android:textColor="#FFFFFF"
+                        android:gravity="center"
+                        android:paddingHorizontal="12dp"
+                        android:paddingVertical="0dp"
+                        android:layout_marginStart="2dp"
+                        android:focusable="true"
+
+                        android:clickable="true"
+                        android:background="@android:color/transparent" />
+
+                    <!-- All/Owned toggle (Library only) -->
+                    <TextView
+                        android:id="@+id/ownedToggleButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="26dp"
+                        android:text="All"
+                        android:textSize="11sp"
+                        android:textColor="#FFFFFF"
+                        android:gravity="center"
+                        android:paddingHorizontal="8dp"
+                        android:paddingVertical="0dp"
+                        android:layout_marginStart="4dp"
+                        android:visibility="gone"
+                        android:focusable="true"
+
+                        android:clickable="true"
+                        android:background="@android:color/transparent" />
+
+                </LinearLayout>
+
+                <!-- Right side: Icon buttons -->
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <!-- Favorites filter -->
+                    <ImageButton
+                        android:id="@+id/headerFavoritesButton"
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
+                        android:src="@drawable/ic_star_outline"
+                        android:background="@drawable/secondary_header_button_bg"
+                        android:contentDescription="Favorites"
+                        android:scaleType="centerInside"
+                        android:focusable="true"
+
+                        android:padding="4dp" />
+
+                    <!-- Sort menu -->
+                    <ImageButton
+                        android:id="@+id/headerSortButton"
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
+                        android:src="@drawable/ic_sort"
+                        android:background="@drawable/secondary_header_button_bg"
+                        android:contentDescription="Sort"
+                        android:scaleType="centerInside"
+                        android:focusable="true"
+
+                        android:padding="4dp" />
+
+                    <!-- Search toggle -->
+                    <ImageButton
+                        android:id="@+id/headerSearchButton"
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
+                        android:src="@android:drawable/ic_menu_search"
+                        android:background="@drawable/secondary_header_button_bg"
+                        android:contentDescription="Search"
+                        android:scaleType="centerInside"
+                        android:focusable="true"
+
+                        android:padding="4dp" />
+
+                    <!-- Refresh -->
+                    <ImageButton
+                        android:id="@+id/headerRefreshButton"
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
+                        android:src="@drawable/ic_refresh"
+                        android:background="@drawable/secondary_header_button_bg"
+                        android:contentDescription="Refresh"
+                        android:scaleType="centerInside"
+                        android:focusable="true"
+
+                        android:padding="4dp" />
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <!-- Search bar (shown when search button tapped) -->
+            <androidx.appcompat.widget.SearchView
+                android:id="@+id/searchView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginHorizontal="12dp"
+                android:layout_marginVertical="8dp"
+                android:background="@drawable/search_background"
+                android:visibility="gone"
+                app:iconifiedByDefault="false"
+                app:queryHint="Search games..."
+                app:queryBackground="@null" />
+
+        </LinearLayout>
+
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:layout_behavior="@string/appbar_scrolling_view_behavior">
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/gamesRecyclerView"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:paddingTop="36dp"
+                android:paddingBottom="8dp"
+                android:clipToPadding="false"
+                android:descendantFocusability="afterDescendants"
+                android:focusable="true" />
+
+            <!-- Game Count (scrolls with list via clipToPadding) -->
+            <TextView
+                android:id="@+id/gameCountText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top|start"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp"
+                android:textSize="12sp"
+                android:textColor="#4DFFFFFF"
+                android:fontFamily="sans-serif-medium"
+                android:text="0 games"
+                android:visibility="gone" />
+
+            <!-- Fast Scroller touch zone (wide invisible area on right side) -->
+            <View
+                android:id="@+id/fastScrollerTouchZone"
+                android:layout_width="48dp"
+                android:layout_height="match_parent"
+                android:layout_gravity="end|top"
+                android:visibility="gone" />
+
+            <!-- Fast Scroller (visual thumb indicator) -->
+            <View
+                android:id="@+id/fastScrollerThumb"
+                android:layout_width="12dp"
+                android:layout_height="50dp"
+                android:layout_gravity="end|top"
+                android:layout_marginEnd="4dp"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/fast_scroller_thumb_bg"
+                android:visibility="gone" />
+
+            <!-- Section Indicator (shows current letter while scrolling) -->
+            <TextView
+                android:id="@+id/sectionIndicator"
+                android:layout_width="80dp"
+                android:layout_height="80dp"
+                android:layout_gravity="center"
+                android:gravity="center"
+                android:textSize="48sp"
+                android:textStyle="bold"
+                android:textColor="@android:color/white"
+                android:background="@drawable/section_indicator_bg"
+                android:elevation="8dp"
+                android:visibility="gone" />
+
+            <LinearLayout
+                android:id="@+id/emptyStateLayout"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:orientation="vertical"
+                android:gravity="center_horizontal"
+                android:visibility="gone">
+
+                <ImageView
+                    android:layout_width="64dp"
+                    android:layout_height="64dp"
+                    android:src="@drawable/ic_console_simple"
+                    android:alpha="0.5" />
+
+                <com.google.android.material.textview.MaterialTextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:text="No games found"
+                    android:textSize="16sp"
+                    android:textColor="?android:textColorSecondary" />
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/loginRequiredLayout"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:orientation="vertical"
+                android:gravity="center_horizontal"
+                android:padding="24dp"
+                android:visibility="gone">
+
+                <ImageView
+                    android:layout_width="96dp"
+                    android:layout_height="96dp"
+                    android:src="@drawable/ic_console_simple"
+                    android:alpha="0.6" />
+
+                <com.google.android.material.textview.MaterialTextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:text="@string/psn_login_required_title"
+                    android:textSize="18sp"
+                    android:textStyle="bold"
+                    android:textColor="?android:textColorPrimary" />
+
+                <com.google.android.material.textview.MaterialTextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/psn_login_required_message"
+                    android:textSize="14sp"
+                    android:textColor="?android:textColorSecondary"
+                    android:textAlignment="center" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/loginButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    android:text="@string/psn_login_button"
+                    android:paddingStart="32dp"
+                    android:paddingEnd="32dp"
+                    android:focusable="true"
+ />
+
+            </LinearLayout>
+
+            <ProgressBar
+                android:id="@+id/progressBar"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:visibility="gone" />
+
+        </FrameLayout>
+
+    </FrameLayout>
+
+    <FrameLayout
+        android:id="@+id/settingsDialBackground"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#44000000"
+        android:visibility="gone"
+        android:clickable="true"
+        app:layout_behavior="com.metallic.chiaki.main.FloatingActionButtonBackgroundBehavior"/>
+
+    <LinearLayout
+        android:id="@+id/settingsDial"
+        android:layout_gravity="top|start"
+        android:visibility="invisible"
+        app:layout_anchor="@id/settingsFab"
+        app:layout_anchorGravity="top|start"
+        android:orientation="vertical"
+        android:layout_marginLeft="20dp"
+        android:layout_height="wrap_content"
+        android:layout_width="wrap_content"
+        app:layout_behavior="com.metallic.chiaki.main.FloatingActionButtonSpeedDialBehavior"
+        android:gravity="left"
+        android:clipChildren="false">
+
+        <LinearLayout
+            android:id="@+id/filterOptionLayout"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="16dp"
+            android:visibility="gone">
+
+            <com.google.android.material.floatingactionbutton.FloatingActionButton
+                android:id="@+id/filterButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:src="@drawable/ic_gamepad"
+                app:fabSize="mini"
+                style="@style/AppTheme.FloatingActionButtonSpeedDial"
+                android:layout_marginEnd="16dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/filterLabelButton"
+                style="@style/AppTheme.FloatingActionButtonSpeedDial"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="All Games"
+                android:textStyle="bold"
+                app:rippleColor="@color/floating_action_button_speed_dial_tint"
+                app:cornerRadius="8dp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/sortOptionLayout"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="16dp"
+            android:visibility="gone">
+
+            <com.google.android.material.floatingactionbutton.FloatingActionButton
+                android:id="@+id/sortButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:src="@drawable/ic_sort"
+                app:fabSize="mini"
+                style="@style/AppTheme.FloatingActionButtonSpeedDial"
+                android:layout_marginEnd="16dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/sortLabelButton"
+                style="@style/AppTheme.FloatingActionButtonSpeedDial"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Sort: Recent"
+                android:textStyle="bold"
+                app:rippleColor="@color/floating_action_button_speed_dial_tint"
+                app:cornerRadius="8dp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="16dp">
+
+            <com.google.android.material.floatingactionbutton.FloatingActionButton
+                android:id="@+id/refreshButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:src="@android:drawable/ic_popup_sync"
+                app:fabSize="mini"
+                style="@style/AppTheme.FloatingActionButtonSpeedDial"
+                android:layout_marginEnd="16dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/refreshLabelButton"
+                style="@style/AppTheme.FloatingActionButtonSpeedDial"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Refresh Games List"
+                android:textStyle="bold"
+                app:rippleColor="@color/floating_action_button_speed_dial_tint"
+                app:cornerRadius="8dp" />
+        </LinearLayout>
+
+    </LinearLayout>
+
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/settingsFab"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:visibility="gone" />
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>
+

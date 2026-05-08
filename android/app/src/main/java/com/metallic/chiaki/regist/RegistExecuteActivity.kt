@@ -11,12 +11,12 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModelProvider
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.metallic.chiaki.R
+import com.metallic.chiaki.common.ext.alertDialogBuilder
+import com.pylux.stream.R
 import com.metallic.chiaki.common.MacAddress
 import com.metallic.chiaki.common.ext.viewModelFactory
 import com.metallic.chiaki.common.getDatabase
-import com.metallic.chiaki.databinding.ActivityRegistExecuteBinding
+import com.pylux.stream.databinding.ActivityRegistExecuteBinding
 import com.metallic.chiaki.lib.RegistInfo
 import kotlin.math.max
 
@@ -118,7 +118,7 @@ class RegistExecuteActivity: AppCompatActivity()
 
 		val macStr = viewModel.host?.serverMac?.let { MacAddress(it).toString() } ?: ""
 
-		dialog = MaterialAlertDialogBuilder(this)
+		dialog = alertDialogBuilder()
 			.setMessage(getString(R.string.alert_regist_duplicate, macStr))
 			.setNegativeButton(R.string.action_regist_discard) { _, _ ->  }
 			.setPositiveButton(R.string.action_regist_overwrite) { _, _ ->

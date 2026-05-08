@@ -3,6 +3,31 @@ cmake_minimum_required(VERSION 3.10)
 
 project(chiaki)
 
+# Fix for 16 KB page size compatibility (required for Android devices with 16 KB pages)
+# This ensures ELF LOAD segments are aligned to 16 KB boundaries for shared libraries
+# Note: Static libraries don't need this - they're archived, not linked
+# With NDK r28+ and ANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON, alignment should be automatic
+if(ANDROID)
+    # NDK r28+ treats warnings as errors. Disable problematic warnings for external libraries like mbedTLS
+    # Use -Wno-error= to make specific warnings non-fatal even if -Werror is present
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-error=documentation -Wno-error=unused-but-set-variable")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=documentation -Wno-error=unused-but-set-variable")
+    
+    # For 16KB alignment: NDK r28+ should handle this automatically with ANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON
+    # However, we explicitly add the flag as a backup to ensure alignment
+    # Check if flag is already present (NDK may add it automatically)
+    string(REGEX MATCH "max-page-size" _has_max_page_size "${CMAKE_SHARED_LINKER_FLAGS}")
+    if(NOT _has_max_page_size)
+        set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,max-page-size=16384")
+    endif()
+    string(REGEX MATCH "max-page-size" _has_max_page_size_exe "${CMAKE_EXE_LINKER_FLAGS}")
+    if(NOT _has_max_page_size_exe)
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-z,max-page-size=16384")
+    endif()
+    unset(_has_max_page_size)
+    unset(_has_max_page_size_exe)
+endif()
+
 # Like option(), but the value can also be AUTO
 macro(tri_option name desc default)
     set("${name}" "${default}" CACHE STRING "${desc}")
@@ -13,6 +38,7 @@ option(CHIAKI_ENABLE_TESTS "Enable tests for Chiaki" ON)
 option(CHIAKI_ENABLE_CLI "Enable CLI for Chiaki" ON)
 option(CHIAKI_ENABLE_GUI "Enable Qt GUI" ON)
 option(CHIAKI_ENABLE_ANDROID "Enable Android (Use only as part of the Gradle Project)" OFF)
+option(CHIAKI_ENABLE_IOS "Enable iOS build (lib only, use from ios/ folder)" OFF)
 option(CHIAKI_ENABLE_BOREALIS "Enable Borealis GUI (For Nintendo Switch or PC)" OFF)
 tri_option(CHIAKI_ENABLE_SETSU "Enable libsetsu for touchpad input from controller" AUTO)
 tri_option(CHIAKI_ENABLE_STEAMDECK_NATIVE "Enable sdeck for native gyro and haptic feedback from Steam Deck" ON)
@@ -32,17 +58,32 @@ option(CHIAKI_LIB_OPENSSL_EXTERNAL_PROJECT "Use OpenSSL as CMake external projec
 option(CHIAKI_GUI_ENABLE_SDL_GAMECONTROLLER "Use SDL Gamecontroller for Input" ON)
 option(CHIAKI_CLI_ARGP_STANDALONE "Search for standalone argp lib for CLI" OFF)
 option(CHIAKI_ENABLE_STEAM_SHORTCUT "Add ability to create Steam shortcut" ON)
+# Qt WebEngine in GUI: same switch for all platforms; Linux builds force OFF (historically no WebEngine link there).
+option(CHIAKI_ENABLE_GUI_WEBENGINE "Link Qt WebEngineQuick in GUI (PSN can use external browser when OFF)" ON)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+	set(CHIAKI_ENABLE_GUI_WEBENGINE OFF CACHE BOOL "" FORCE)
+endif()
+option(CHIAKI_ENABLE_STEAMWORKS "Enable Steamworks SDK integration for Steam overlay" OFF)
+option(CHIAKI_IS_MAC_APPSTORE "Build for Mac App Store (disables Stripe donation prompt, enables future macOS IAP)" OFF)
 tri_option(CHIAKI_USE_SYSTEM_JERASURE "Use system-provided jerasure instead of submodule" AUTO)
 tri_option(CHIAKI_USE_SYSTEM_NANOPB "Use system-provided nanopb instead of submodule" AUTO)
 tri_option(CHIAKI_USE_SYSTEM_CURL "Use system-provided curl instead of submodule. Has to be built with experimental WebSocket support!" OFF)
 
-set(CHIAKI_VERSION_MAJOR 1)
-set(CHIAKI_VERSION_MINOR 9)
-set(CHIAKI_VERSION_PATCH 8)
+# Pylux semver — single source for packaging (Android, iOS CI archive, macOS App Store bundle, etc.).
+# ios/Pylux.xcodeproj uses MARKETING_VERSION=0.0.0 and CURRENT_PROJECT_VERSION=0 only as local placeholders;
+# CI injects real values from the CHIAKI_VERSION_* lines below at archive time (.github/workflows/deploy-ios.yml).
+set(CHIAKI_VERSION_MAJOR 2)
+set(CHIAKI_VERSION_MINOR 10)
+set(CHIAKI_VERSION_PATCH 18)
 set(CHIAKI_VERSION ${CHIAKI_VERSION_MAJOR}.${CHIAKI_VERSION_MINOR}.${CHIAKI_VERSION_PATCH})
 
-set(CPACK_PACKAGE_NAME "chiaki-ng")
-set(CPACK_PACKAGE_DESCRIPTION "Open Source PlayStation Remote Play client for Linux, Mac, and Windows")
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/lib/include/chiaki/version.h.in"
+    "${CMAKE_CURRENT_SOURCE_DIR}/lib/include/chiaki/version.h"
+)
+
+set(CPACK_PACKAGE_NAME "pylux")
+set(CPACK_PACKAGE_DESCRIPTION "Remote Play Client")
 set(CPACK_PACKAGE_VERSION_MAJOR ${CHIAKI_VERSION_MAJOR})
 set(CPACK_PACKAGE_VERSION_MINOR ${CHIAKI_VERSION_MINOR})
 set(CPACK_PACKAGE_VERSION_PATCH ${CHIAKI_VERSION_PATCH})
@@ -52,6 +93,23 @@ set(CPACK_DEBIAN_PACKAGE_SECTION "games")
 include(CPack)
 
 set(CHIAKI_IS_SWITCH ${NSWITCH})
+
+if(CHIAKI_ENABLE_IOS)
+	set(IOS TRUE)
+	set(CHIAKI_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+	set(CHIAKI_ENABLE_CLI OFF CACHE BOOL "" FORCE)
+	set(CHIAKI_ENABLE_GUI OFF CACHE BOOL "" FORCE)
+	set(CHIAKI_ENABLE_BOREALIS OFF CACHE BOOL "" FORCE)
+	set(CHIAKI_ENABLE_SETSU OFF CACHE STRING "" FORCE)
+	set(CHIAKI_ENABLE_FFMPEG_DECODER OFF CACHE STRING "" FORCE)
+	set(CHIAKI_ENABLE_PI_DECODER OFF CACHE STRING "" FORCE)
+	set(CHIAKI_ENABLE_STEAMDECK_NATIVE OFF CACHE STRING "" FORCE)
+	set(CHIAKI_ENABLE_STEAM_SHORTCUT OFF CACHE BOOL "" FORCE)
+	set(CHIAKI_ENABLE_RUDP ON CACHE STRING "" FORCE)
+	set(CHIAKI_LIB_ENABLE_MBEDTLS ON CACHE BOOL "" FORCE)
+	set(CHIAKI_LIB_MBEDTLS_EXTERNAL_PROJECT ON CACHE BOOL "" FORCE)
+	message(STATUS "iOS build: lib only, mbedTLS, RUDP enabled")
+endif()
 
 if(APPLE)
 	if(CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL "arm64")
@@ -121,14 +179,13 @@ if(CHIAKI_USE_SYSTEM_NANOPB)
 	endif()
 endif()
 
-add_subdirectory(third-party)
-
 add_definitions(-DCHIAKI_VERSION_MAJOR=${CHIAKI_VERSION_MAJOR} -DCHIAKI_VERSION_MINOR=${CHIAKI_VERSION_MINOR} -DCHIAKI_VERSION_PATCH=${CHIAKI_VERSION_PATCH} -DCHIAKI_VERSION=\"${CHIAKI_VERSION}\")
 
 if(CHIAKI_LIB_OPENSSL_EXTERNAL_PROJECT)
 	include(OpenSSLExternalProject)
 endif()
 
+# mbedTLS must be fetched BEFORE third-party so curl can use it for SSL
 if(CHIAKI_LIB_ENABLE_MBEDTLS)
 	add_definitions(-DCHIAKI_LIB_ENABLE_MBEDTLS)
 	if(CHIAKI_LIB_MBEDTLS_EXTERNAL_PROJECT)
@@ -137,15 +194,47 @@ if(CHIAKI_LIB_ENABLE_MBEDTLS)
 		set(ENABLE_TESTING CACHE INTERNAL OFF)
 		set(ENABLE_PROGRAMS CACHE INTERNAL OFF)
 		set(USE_SHARED_MBEDTLS_LIBRARY CACHE INTERNAL OFF)
+		# Android/iOS: Disable PSA crypto to avoid crypto_sizes.h generation issues
+		# (Switch and other platforms can keep PSA enabled if needed)
+		if(ANDROID OR IOS)
+			set(MBEDTLS_PSA_CRYPTO_C OFF CACHE BOOL "Disable PSA Crypto API" FORCE)
+		endif()
 		FetchContent_Declare(
 			mbedtls
 			GIT_REPOSITORY https://github.com/Mbed-TLS/mbedtls.git
 			GIT_TAG 8b3f26a5ac38d4fdccbc5c5366229f3e01dafcc0 # v2.28.0
 			GIT_PROGRESS TRUE
 		)
-		FetchContent_MakeAvailable(mbedtls)
+		if(ANDROID OR IOS)
+			# Android/iOS: Use manual FetchContent approach to inject compiler flags before building mbedTLS
+			# Android: NDK r28+ treats documentation warnings as errors
+			# iOS: Xcode clang treats -Wunused-but-set-variable as error with mbedTLS's -Werror
+			FetchContent_GetProperties(mbedtls)
+			if(NOT mbedtls_POPULATED)
+				FetchContent_Populate(mbedtls)
+				# Set flags that will be used when mbedTLS configures itself
+				set(ENABLE_TESTING OFF CACHE BOOL "Enable mbedTLS testing" FORCE)
+				set(ENABLE_PROGRAMS OFF CACHE BOOL "Enable mbedTLS programs" FORCE)
+				# Override CMAKE_C_FLAGS and CMAKE_CXX_FLAGS for mbedTLS build
+				set(CMAKE_C_FLAGS_BACKUP "${CMAKE_C_FLAGS}")
+				set(CMAKE_CXX_FLAGS_BACKUP "${CMAKE_CXX_FLAGS}")
+				set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-documentation -Wno-unused-but-set-variable -Wno-error=documentation -Wno-error=unused-but-set-variable")
+				set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-documentation -Wno-unused-but-set-variable -Wno-error=documentation -Wno-error=unused-but-set-variable")
+			endif()
+			# Configure mbedTLS as a subdirectory so we can control its build
+			add_subdirectory(${mbedtls_SOURCE_DIR} ${mbedtls_BINARY_DIR})
+			# Restore original flags
+			set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS_BACKUP}")
+			set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_BACKUP}")
+		else()
+			# Non-Android platforms: Use standard FetchContent approach
+			FetchContent_MakeAvailable(mbedtls)
+		endif()
 	endif()
 endif()
+
+# third-party must come after mbedTLS so curl can use mbedTLS for SSL
+add_subdirectory(third-party)
 
 if(CHIAKI_ENABLE_STEAM_SHORTCUT)
 	message(STATUS "Steam shortcut enabled")
@@ -197,7 +286,7 @@ if(CHIAKI_ENABLE_CLI)
 	add_subdirectory(cli)
 endif()
 
-if(CHIAKI_ENABLE_STEAMDECK_NATIVE)
+if(CHIAKI_ENABLE_STEAMDECK_NATIVE AND NOT ANDROID)
 	find_package(HIDAPI QUIET)
 	find_package(PkgConfig REQUIRED)
 	pkg_search_module(FFTW REQUIRED fftw3 IMPORTED_TARGET)

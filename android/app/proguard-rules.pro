@@ -23,6 +23,17 @@
 -dontobfuscate
 -keep class com.metallic.chiaki.** { *; }
 
+# Strip verbose/debug/info log calls in release builds (zero runtime cost)
+-assumenosideeffects class android.util.Log {
+    public static int v(...);
+    public static int d(...);
+    public static int i(...);
+}
+
+# Google Play Billing Library
+-keep class com.android.billingclient.** { *; }
+-keep interface com.android.billingclient.** { *; }
+
 
 ##########################################
 # Moshi

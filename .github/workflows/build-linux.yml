@@ -1,0 +1,115 @@
+# Build Linux (x86_64)
+# Output: AppImage + portable zip published to Dropbox.
+
+name: Build Linux
+
+on:
+  workflow_dispatch:
+  workflow_call:
+    outputs:
+      zip_url:
+        description: Dropbox direct URL for rolling zip (pylux-latest or pylux-beta-latest on release/beta)
+        value: ${{ jobs.build.outputs.zip_url }}
+      appimage_url:
+        description: Dropbox direct URL for rolling AppImage (pylux-latest or pylux-beta-latest on release/beta)
+        value: ${{ jobs.build.outputs.appimage_url }}
+      chiaki_version:
+        description: Pylux version from CMakeLists.txt
+        value: ${{ jobs.build.outputs.chiaki_version }}
+
+concurrency:
+  group: build-linux-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Pylux Linux x86_64
+    runs-on: ubuntu-latest
+    outputs:
+      zip_url: ${{ steps.zip.outputs.url }}
+      appimage_url: ${{ steps.appimage.outputs.url }}
+      chiaki_version: ${{ steps.extract_version.outputs.version }}
+    steps:
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get -y install podman zip jq
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          path: pylux
+
+      - name: Add QmlWebEngine import
+        working-directory: pylux
+        run: cp scripts/qtwebengine_import.qml gui/src/qml/
+
+      - name: Build in container
+        working-directory: pylux
+        run: |
+          podman run --rm \
+            -v "$PWD:/build/chiaki" \
+            -w "/build/chiaki" \
+            --device /dev/fuse \
+            --cap-add SYS_ADMIN \
+            -t docker.io/streetpea/chiaki-ng-builder:qt6.9 \
+            /bin/bash -c "sudo -E scripts/build-appimage.sh /build/appdir"
+
+      - name: Package portable zip
+        working-directory: pylux/appimage
+        run: zip -r pylux.zip pylux
+
+      - name: Extract version
+        id: extract_version
+        uses: ./pylux/.github/actions/extract-version
+        with:
+          cmakelists: pylux/CMakeLists.txt
+
+      - name: Publish portable zip
+        id: zip
+        uses: ./pylux/.github/actions/dropbox-publish
+        with:
+          file: pylux/appimage/pylux.zip
+          latest-path: /pylux/linux/pylux${{ github.ref_name == 'release/beta' && '-beta' || '' }}-latest.zip
+          versioned-path: /pylux/linux/pylux-${{ env.CHIAKI_VERSION }}.zip
+          refresh-token: ${{ secrets.DROPBOX_REFRESH_TOKEN }}
+          app-key: ${{ secrets.DROPBOX_APP_KEY }}
+          app-secret: ${{ secrets.DROPBOX_APP_SECRET }}
+
+      - name: Publish AppImage
+        id: appimage
+        uses: ./pylux/.github/actions/dropbox-publish
+        with:
+          file: pylux/appimage/pylux.AppImage
+          latest-path: /pylux/linux/pylux${{ github.ref_name == 'release/beta' && '-beta' || '' }}-latest.AppImage
+          versioned-path: /pylux/linux/pylux-${{ env.CHIAKI_VERSION }}.AppImage
+          refresh-token: ${{ secrets.DROPBOX_REFRESH_TOKEN }}
+          app-key: ${{ secrets.DROPBOX_APP_KEY }}
+          app-secret: ${{ secrets.DROPBOX_APP_SECRET }}
+
+      - name: Build summary
+        if: always()
+        working-directory: pylux/appimage
+        run: |
+          ZIP_SIZE=$(ls -lh pylux.zip 2>/dev/null | awk '{print $5}')
+          AI_SIZE=$(ls -lh pylux.AppImage 2>/dev/null | awk '{print $5}')
+          if [ "${{ github.ref_name }}" = "release/beta" ]; then
+            ROLLING_LABEL="rolling (beta: pylux-beta-latest.*)"
+            ZIP_NAME="pylux-beta-latest.zip"
+            AI_NAME="pylux-beta-latest.AppImage"
+          else
+            ROLLING_LABEL="rolling (stable: pylux-latest.*)"
+            ZIP_NAME="pylux-latest.zip"
+            AI_NAME="pylux-latest.AppImage"
+          fi
+          {
+            echo "## Pylux Linux — v${CHIAKI_VERSION}"
+            echo ""
+            echo "| Artifact | Size | Download (${ROLLING_LABEL}) | Versioned archive |"
+            echo "| --- | --- | --- | --- |"
+            echo "| Portable zip | ${ZIP_SIZE:-?} | [${ZIP_NAME}](${{ steps.zip.outputs.url }}) | \`/pylux/linux/pylux-${CHIAKI_VERSION}.zip\` |"
+            echo "| AppImage     | ${AI_SIZE:-?}  | [${AI_NAME}](${{ steps.appimage.outputs.url }}) | \`/pylux/linux/pylux-${CHIAKI_VERSION}.AppImage\` |"
+            echo ""
+            echo "### How to use"
+            echo "- **Portable zip** — unzip and run \`linux/launch.sh\` (recommended for Steam)."
+            echo "- **AppImage** — make executable and run. Set \`APPIMAGE_EXTRACT_AND_RUN=1\` if Steam misbehaves."
+          } >> "$GITHUB_STEP_SUMMARY"

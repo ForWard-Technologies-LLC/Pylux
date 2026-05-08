@@ -24,6 +24,8 @@
 extern "C" {
 #endif
 
+// NOTE: Takion protocol selection is derived from ChiakiServiceType; there is no separate protocol enum.
+
 typedef enum chiaki_takion_message_data_type_t {
 	CHIAKI_TAKION_MESSAGE_DATA_TYPE_PROTOBUF = 0,
 	CHIAKI_TAKION_MESSAGE_DATA_TYPE_RUMBLE = 7,
@@ -117,6 +119,9 @@ typedef struct chiaki_takion_connect_info_t
 	bool enable_dualsense;
 	uint8_t protocol_version;
 	bool close_socket; // close socket when finishing takion
+	ChiakiServiceType service_type; // REMOTE_PLAY / PSNOW / PSCLOUD (single source of truth)
+	uint8_t psn_wrapper_type; // PSN wrapper type for Cloud Play (last octet of private IP)
+	bool is_ping_handshake; // true if this takion connection is for ping handshake (senkusha), false for normal streaming
 } ChiakiTakionConnectInfo;
 
 
@@ -124,6 +129,9 @@ typedef struct chiaki_takion_t
 {
 	ChiakiLog *log;
 	uint8_t version;
+	ChiakiServiceType service_type; // REMOTE_PLAY / PSNOW / PSCLOUD (single source of truth)
+	uint8_t psn_wrapper_type; // PSN wrapper type for Cloud Play (last octet of private IP)
+	bool is_ping_handshake; // true if this takion connection is for ping handshake (senkusha), false for normal streaming
 
 	// Whether or not audio or video is disabled from further processing beyond basic ack
 	ChiakiDisableAudioVideo disable_audio_video;
@@ -192,7 +200,7 @@ static inline void chiaki_takion_set_crypt(ChiakiTakion *takion, ChiakiGKCrypt *
 	takion->gkcrypt_remote = gkcrypt_remote;
 }
 
-CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_packet_mac(ChiakiGKCrypt *crypt, uint8_t *buf, size_t buf_size, uint64_t key_pos, uint8_t *mac_out, uint8_t *mac_old_out);
+CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_packet_mac(ChiakiGKCrypt *crypt, uint8_t *buf, size_t buf_size, uint64_t key_pos, uint8_t *mac_out, uint8_t *mac_old_out, bool has_psn_wrapper);
 
 /**
  * Get a new key pos and advance by data_size.

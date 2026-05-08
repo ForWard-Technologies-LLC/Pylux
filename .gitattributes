@@ -1,2 +1,6 @@
+# Normalize line endings to LF for all text files
+* text=auto eol=lf
+
+# Linguist overrides
 /test/*.inl linguist-generated=true
 /lib/*.h linguist-language=C

@@ -3,9 +3,13 @@
     <file>qtquickcontrols2.conf</file>
     <file>Main.qml</file>
     <file>MainView.qml</file>
+    <file>CleanBlueBackground.qml</file>
     <file>StreamView.qml</file>
+    <file>ControllerOverlay.qml</file>
     <file>ConfirmDialog.qml</file>
     <file>RemindDialog.qml</file>
+    <file>MessageDialog.qml</file>
+    <file>AccountPrivacyDialog.qml</file>
     <file>DialogView.qml</file>
     <file>ManualHostDialog.qml</file>
     <file>RegistDialog.qml</file>
@@ -18,14 +22,27 @@
     <file>ConsolePinDialog.qml</file>
     <file>PSNLoginDialog.qml</file>
     <file>PSNTokenDialog.qml</file>
+    <file>QRLoginDialog.qml</file>
     <file>ControllerMappingDialog.qml</file>
+    <file>ConsoleSetupWalkthrough.qml</file>
     <file>AutoConnectView.qml</file>
     <file>PsnView.qml</file>
+    <file>GamesView.qml</file>
+    <file>GameCard.qml</file>
+    <file>CloudPlayView.qml</file>
+    <file>CloudGameCard.qml</file>
+    <file>TrophyListDialog.qml</file>
+    <file>GameShortcutDialog.qml</file>
+    <file>QRCodeDialog.qml</file>
+    <file>DonationPromptDialog.qml</file>
+    <file alias="donation_prompt_phrases.json">../../../shared/donation_prompt_phrases.json</file>
     <file>controls/Button.qml</file>
     <file>controls/CheckBox.qml</file>
     <file>controls/ComboBox.qml</file>
     <file>controls/RadioButton.qml</file>
     <file>controls/Slider.qml</file>
     <file>controls/TextField.qml</file>
+    <file>controls/SmartFlickable.qml</file>
+
   </qresource>
 </RCC>

@@ -1,0 +1,234 @@
+name: Upload Source Code for AGPL Compliance
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - release/dev
+jobs:
+  upload-source:
+    name: Upload Source Code to Dropbox
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+          fetch-depth: 0  # Full history for proper git info
+
+      - name: Install formatting tools
+        run: |
+          # Install clang-format for C/C++ formatting
+          sudo apt-get update
+          sudo apt-get install -y clang-format
+          
+          # Install qmlformat from Qt6 (if available) or use Python-based formatter
+          # Try to install qmlformat via pip or use Qt6 tools
+          pip install qmllint || echo "qmllint not available via pip, will use alternative method"
+          
+          # Verify installations
+          clang-format --version || echo "clang-format check failed"
+          python3 -c "import qmllint" 2>/dev/null && echo "qmllint available" || echo "qmllint not available"
+
+      - name: Format QML files
+        run: |
+          echo "Formatting QML files and removing comments..."
+          
+          # Find all QML files and format them (remove comments and clean up)
+          find . -name "*.qml" -type f ! -path "./.git/*" ! -path "./build*/*" ! -path "./appimage/*" | while read qml_file; do
+            echo "Processing: $qml_file"
+            python3 -c "import re; import sys; filename = sys.argv[1]; content = open(filename, 'r', encoding='utf-8').read(); content = re.sub(r'//.*?$', '', content, flags=re.MULTILINE); content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL); content = re.sub(r'\n{3,}', '\n\n', content); content = re.sub(r'[ \t]+$', '', content, flags=re.MULTILINE); open(filename, 'w', encoding='utf-8').write(content.strip() + '\n'); print(f'Formatted: {filename}')" "$qml_file"
+          done
+          
+          echo "QML formatting complete"
+
+      - name: Format C/C++ files
+        run: |
+          echo "Formatting C/C++ files and headers..."
+          
+          # Create a basic .clang-format config if it doesn't exist
+          if [ ! -f .clang-format ]; then
+            printf '%s\n' \
+              'Language: Cpp' \
+              'BasedOnStyle: LLVM' \
+              'IndentWidth: 4' \
+              'TabWidth: 4' \
+              'UseTab: Never' \
+              'ColumnLimit: 120' \
+              'AllowShortIfStatementsOnASingleLine: false' \
+              'AllowShortLoopsOnASingleLine: false' \
+              'AllowShortFunctionsOnASingleLine: None' \
+              'BreakBeforeBraces: Attach' > .clang-format
+          fi
+          
+          # Find all C/C++ files and headers, remove comments, then format
+          find . -type f \( -name "*.c" -o -name "*.cpp" -o -name "*.h" -o -name "*.hpp" \) \
+            ! -path "./.git/*" \
+            ! -path "./build*/*" \
+            ! -path "./appimage/*" \
+            ! -path "./third-party/*" \
+            ! -path "./switch/borealis/library/lib/extern/*" \
+            ! -path "./switch/borealis/library/include/borealis/extern/*" \
+            | while read cpp_file; do
+              echo "Processing: $cpp_file"
+              # Remove comments (both // and /* */ style) using Python
+              python3 -c "import re; import sys; filename = sys.argv[1]; content = open(filename, 'r', encoding='utf-8').read(); content = re.sub(r'//.*?$', '', content, flags=re.MULTILINE); content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL); content = re.sub(r'\n{3,}', '\n\n', content); content = re.sub(r'[ \t]+$', '', content, flags=re.MULTILINE); open(filename, 'w', encoding='utf-8').write(content.strip() + '\n')" "$cpp_file"
+              # Then format with clang-format
+              clang-format -i -style=file "$cpp_file" || echo "Warning: Failed to format $cpp_file"
+            done
+          
+          echo "C/C++ formatting complete"
+
+      - name: Create source code archive
+        run: |
+          # Get build information for metadata
+          GIT_HASH=$(git rev-parse HEAD)
+          GIT_SHORT_HASH=$(git rev-parse --short HEAD)
+          BUILD_DATE=$(date +%Y%m%d-%H%M%S)
+          
+          # Use static filename so Dropbox link never changes
+          ARCHIVE_NAME="pylux-source-latest.tar.gz"
+          
+          # Note: Archive contents will have prefix "pylux-source/" from --transform
+          
+          echo "Creating source archive: ${ARCHIVE_NAME}"
+          echo "Git commit: ${GIT_HASH}"
+          echo "Build date: ${BUILD_DATE}"
+          
+          # Use git ls-files to respect .gitignore (gets tracked files, excluding ignored ones)
+          # Then filter out additional patterns and fastbuild.bat
+          # This combines .gitignore exclusions with our explicit exclusions
+          # Use git ls-files to respect .gitignore (already excludes ignored files)
+          # Then filter out additional explicit exclusions and fastbuild.bat
+          # This combines .gitignore exclusions with our explicit exclusions
+          git ls-files | \
+            grep -v "^fastbuild\.bat$" | \
+            grep -v "^\.github" | \
+            grep -v "^build" | \
+            grep -v "^appimage" | \
+            grep -v "^build-output" | \
+            grep -v "\.AppImage$" | \
+            grep -v "\.zip$" | \
+            grep -v "\.tar\.gz$" | \
+            grep -v "^node_modules" | \
+            grep -v "\.pyc$" | \
+            grep -v "^__pycache__" | \
+            grep -v "^\.gradle" | \
+            grep -v "^chiaki-build-env" | \
+            grep -v "\.md$" | \
+            tar -czf "/tmp/${ARCHIVE_NAME}" \
+              --files-from=- \
+              --transform "s,^,pylux-source/,"
+          
+          # Move archive to current directory for upload
+          mv "/tmp/${ARCHIVE_NAME}" .
+          
+          # Save metadata for later steps
+          echo "ARCHIVE_NAME=${ARCHIVE_NAME}" >> $GITHUB_ENV
+          echo "GIT_HASH=${GIT_HASH}" >> $GITHUB_ENV
+          echo "GIT_SHORT_HASH=${GIT_SHORT_HASH}" >> $GITHUB_ENV
+          echo "BUILD_DATE=${BUILD_DATE}" >> $GITHUB_ENV
+          
+          # Show archive info
+          ls -lh "${ARCHIVE_NAME}"
+          echo "Archive size: $(du -h ${ARCHIVE_NAME} | cut -f1)"
+
+      - name: Upload to Dropbox
+        env:
+          DROPBOX_REFRESH_TOKEN: ${{ secrets.DROPBOX_REFRESH_TOKEN }}
+          DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
+          DROPBOX_APP_SECRET: ${{ secrets.DROPBOX_APP_SECRET }}
+        run: |
+          # Get short-lived access token from refresh token
+          echo "Getting Dropbox access token..."
+          ACCESS_TOKEN=$(curl -s https://api.dropbox.com/oauth2/token \
+            -d refresh_token=$DROPBOX_REFRESH_TOKEN \
+            -d grant_type=refresh_token \
+            -d client_id=$DROPBOX_APP_KEY \
+            -d client_secret=$DROPBOX_APP_SECRET \
+            | jq -r '.access_token')
+          
+          if [ -z "$ACCESS_TOKEN" ] || [ "$ACCESS_TOKEN" = "null" ]; then
+            echo "Error: Failed to get Dropbox access token"
+            exit 1
+          fi
+          
+          # Upload source code archive
+          echo "Uploading ${ARCHIVE_NAME} to Dropbox..."
+          UPLOAD_RESPONSE=$(curl -s -X POST https://content.dropboxapi.com/2/files/upload \
+            --header "Authorization: Bearer $ACCESS_TOKEN" \
+            --header "Dropbox-API-Arg: {\"path\": \"/pylux/sources/${ARCHIVE_NAME}\",\"mode\": \"overwrite\",\"autorename\": false}" \
+            --header "Content-Type: application/octet-stream" \
+            --data-binary @"${ARCHIVE_NAME}")
+          
+          echo "Upload response: ${UPLOAD_RESPONSE}"
+          
+          # Check for errors
+          if echo "${UPLOAD_RESPONSE}" | jq -e '.error' > /dev/null 2>&1; then
+            echo "Error uploading to Dropbox:"
+            echo "${UPLOAD_RESPONSE}" | jq '.'
+            exit 1
+          fi
+          
+          echo "✓ Source code uploaded successfully to Dropbox"
+          
+          # Try to create a shared link (may already exist)
+          echo "Creating shared link..."
+          SHARE_RESPONSE=$(curl -s -X POST https://api.dropboxapi.com/2/sharing/create_shared_link_with_settings \
+            --header "Authorization: Bearer $ACCESS_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data "{\"path\": \"/pylux/sources/${ARCHIVE_NAME}\",\"settings\":{\"requested_visibility\":\"public\"}}")
+          
+          # Extract share URL (may fail if link already exists, which is fine)
+          SHARE_URL=$(echo "${SHARE_RESPONSE}" | jq -r '.url // empty' 2>/dev/null || echo "")
+          
+          if [ -n "$SHARE_URL" ]; then
+            # Convert to direct download link
+            DOWNLOAD_URL="${SHARE_URL//dl=0/dl=1}"
+            echo "✓ Share link created: ${DOWNLOAD_URL}"
+            echo "DOWNLOAD_URL=${DOWNLOAD_URL}" >> $GITHUB_ENV
+          else
+            echo "Note: Could not create new share link (may already exist)"
+          fi
+
+      - name: Create build info
+        run: |
+          cat > source-upload-info.txt << EOF
+          ================================================================================
+          pylux - Source Code Upload
+          ================================================================================
+          
+          Archive: ${ARCHIVE_NAME}
+          Git Commit: ${GIT_HASH}
+          Build Date: ${BUILD_DATE}
+          Branch/Tag: ${GITHUB_REF_NAME}
+          
+          The source code has been uploaded to Dropbox at:
+            /pylux/sources/${ARCHIVE_NAME}
+          
+          This archive will be referenced in binary distributions to comply with
+          the GNU Affero General Public License v3.0 (AGPL-3.0) requirements.
+          
+          ================================================================================
+          EOF
+          
+          cat source-upload-info.txt
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-upload-info
+          path: source-upload-info.txt
+          retention-days: 90
+
+      - name: Summary
+        run: |
+          echo "## Source Code Upload Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Archive**: \`${ARCHIVE_NAME}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit**: \`${GIT_SHORT_HASH}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Date**: ${BUILD_DATE}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Source code has been uploaded to Dropbox for AGPL compliance." >> $GITHUB_STEP_SUMMARY
+

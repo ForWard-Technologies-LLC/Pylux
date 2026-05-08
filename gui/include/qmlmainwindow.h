@@ -34,6 +34,7 @@ Q_DECLARE_LOGGING_CATEGORY(chiakiGui);
 class Settings;
 class StreamSession;
 class QmlBackend;
+class SteamworksWrapper;  // Always forward-declare for pointer parameters
 
 class QmlMainWindow : public QWindow
 {
@@ -62,8 +63,9 @@ public:
     };
     Q_ENUM(VideoPreset);
 
-    QmlMainWindow(Settings *settings,  bool exit_app_on_stream_exit = false);
-    QmlMainWindow(const StreamSessionConnectInfo &connect_info);
+    QmlMainWindow(Settings *settings,  bool exit_app_on_stream_exit = false, SteamworksWrapper *steamworks = nullptr);
+    QmlMainWindow(const StreamSessionConnectInfo &connect_info, SteamworksWrapper *steamworks = nullptr);
+    QmlMainWindow(Settings *settings, const QString &serviceType, const QString &gameIdentifier, bool exit_app_on_stream_exit = true, SteamworksWrapper *steamworks = nullptr);
     ~QmlMainWindow();
     void updateWindowType(WindowType type);
     void setSettings(Settings *new_settings);
@@ -102,6 +104,7 @@ public:
     void updatePlacebo();
     void show();
     void presentFrame(AVFrame *frame, int32_t frames_lost);
+    void startCloudStreaming(const QString &serviceType, const QString &gameIdentifier);
 
     AVBufferRef *vulkanHwDeviceCtx();
 
@@ -116,7 +119,7 @@ signals:
     void directStreamChanged();
 
 private:
-    void init(Settings *settings, bool exit_app_on_stream_exit = false);
+    void init(Settings *settings, bool exit_app_on_stream_exit = false, SteamworksWrapper *steamworks = nullptr);
     void update();
     void scheduleUpdate();
     void createSwapchain();
@@ -177,6 +180,7 @@ private:
     VkSemaphore quick_sem = VK_NULL_HANDLE;
     uint64_t quick_sem_value = 0;
     QTimer *update_timer = {};
+    QTimer *geometry_save_timer = {};
     bool quick_frame = false;
     bool quick_need_sync = false;
     std::atomic<bool> quick_need_render = {false};

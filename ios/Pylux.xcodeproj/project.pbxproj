@@ -1,0 +1,636 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A1000001 /* PyluxApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000011 /* PyluxApp.swift */; };
+		A1000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000012 /* ContentView.swift */; };
+		A1000003 /* ChiakiBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = A1000013 /* ChiakiBridge.m */; };
+		A1000004 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1000014 /* Assets.xcassets */; };
+		A1000005 /* ChiakiSessionBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = A1000017 /* ChiakiSessionBridge.m */; };
+		A1000006 /* StreamVideoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000019 /* StreamVideoView.swift */; };
+		A1000007 /* VideoDecoder.m in Sources */ = {isa = PBXBuildFile; fileRef = A1000021 /* VideoDecoder.m */; };
+		A1000008 /* SessionEventReceiver.m in Sources */ = {isa = PBXBuildFile; fileRef = A1000023 /* SessionEventReceiver.m */; };
+		A1000009 /* StreamSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000025 /* StreamSession.swift */; };
+		A1000010 /* StreamState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000026 /* StreamState.swift */; };
+		A1000028 /* StreamInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000027 /* StreamInput.swift */; };
+		A1000037 /* StreamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000035 /* StreamView.swift */; };
+		A1000038 /* ConnectInfoEntryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000036 /* ConnectInfoEntryView.swift */; };
+		A1000110 /* DiscoveryBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = A1000101 /* DiscoveryBridge.m */; };
+		A1000111 /* RegistBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = A1000103 /* RegistBridge.m */; };
+		A1000112 /* HostModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000104 /* HostModels.swift */; };
+		A1000113 /* HostCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000105 /* HostCardView.swift */; };
+		A1000114 /* RemotePlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000106 /* RemotePlayView.swift */; };
+		A1000115 /* RegistrationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000107 /* RegistrationView.swift */; };
+		A1000116 /* ManualHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000108 /* ManualHostView.swift */; };
+		A1000117 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000109 /* SettingsView.swift */; };
+		A1000121 /* HolepunchBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = A1000119 /* HolepunchBridge.m */; };
+		A1000122 /* PsnTokenManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000120 /* PsnTokenManager.swift */; };
+		A1000126 /* AutoRegistrationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000125 /* AutoRegistrationView.swift */; };
+		A1000128 /* SecureStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000127 /* SecureStore.swift */; };
+		A1000129 /* PyluxLoginService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000130 /* PyluxLoginService.swift */; };
+		A1000131 /* LoginWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000132 /* LoginWebView.swift */; };
+		A1000140 /* ChiakiAudioOutputIOS.m in Sources */ = {isa = PBXBuildFile; fileRef = A1000142 /* ChiakiAudioOutputIOS.m */; };
+		A1000145 /* PyluxAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000146 /* PyluxAppDelegate.swift */; };
+		A1000147 /* StreamTouchControlsOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000148 /* StreamTouchControlsOverlay.swift */; };
+		A1000151 /* StreamRumbleFeedback.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000152 /* StreamRumbleFeedback.swift */; };
+		A1000163 /* ControlSVGPathParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000164 /* ControlSVGPathParser.swift */; };
+		A1000165 /* StreamTouchControlsTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000166 /* StreamTouchControlsTypes.swift */; };
+		A1000167 /* StreamTouchControlsStickDPad.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000168 /* StreamTouchControlsStickDPad.swift */; };
+		A1000169 /* StreamTouchControlsButtonViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000170 /* StreamTouchControlsButtonViews.swift */; };
+		A1000171 /* StreamTouchControlsTouchpadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000172 /* StreamTouchControlsTouchpadView.swift */; };
+		A1000173 /* StreamTouchControlsContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000174 /* StreamTouchControlsContainerView.swift */; };
+		A1000180 /* ChiakiDatacenterPing.m in Sources */ = {isa = PBXBuildFile; fileRef = A1000182 /* ChiakiDatacenterPing.m */; };
+		A1000192 /* PyluxChiakiLog.m in Sources */ = {isa = PBXBuildFile; fileRef = A1000191 /* PyluxChiakiLog.m */; };
+		A1000201 /* PictureInPictureManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000200 /* PictureInPictureManager.swift */; };
+		A3000011 /* CloudModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000001 /* CloudModels.swift */; };
+		A3000012 /* CloudHttpClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000002 /* CloudHttpClient.swift */; };
+		A3000013 /* PSGaikaiStreaming.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000003 /* PSGaikaiStreaming.swift */; };
+		A3000014 /* PSKamajiSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000004 /* PSKamajiSession.swift */; };
+		A3000015 /* CloudStreamingBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000005 /* CloudStreamingBackend.swift */; };
+		A3000016 /* CloudCatalogService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000006 /* CloudCatalogService.swift */; };
+		A3000017 /* CloudPlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000007 /* CloudPlayView.swift */; };
+		A4000011 /* DonationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4000001 /* DonationStore.swift */; };
+		A4000012 /* DonationPhrasePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4000002 /* DonationPhrasePicker.swift */; };
+		A4000013 /* DonationPromptCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4000003 /* DonationPromptCoordinator.swift */; };
+		A4000014 /* DonationPaywallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4000004 /* DonationPaywallView.swift */; };
+		A4000015 /* donation_prompt_phrases.json in Resources */ = {isa = PBXBuildFile; fileRef = A4000005 /* donation_prompt_phrases.json */; };
+		A5000011 /* agpl_license.txt in Resources */ = {isa = PBXBuildFile; fileRef = A5000001 /* agpl_license.txt */; };
+		A5000012 /* disclaimer.txt in Resources */ = {isa = PBXBuildFile; fileRef = A5000002 /* disclaimer.txt */; };
+		A5000013 /* LicenseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5000003 /* LicenseView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A1000000 /* Pylux.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Pylux.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1000011 /* PyluxApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PyluxApp.swift; sourceTree = "<group>"; };
+		A1000012 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		A1000013 /* ChiakiBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ChiakiBridge.m; sourceTree = "<group>"; };
+		A1000014 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A1000015 /* Pylux.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Pylux.entitlements; sourceTree = "<group>"; };
+		A1000016 /* ChiakiBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ChiakiBridge.h; sourceTree = "<group>"; };
+		A1000017 /* ChiakiSessionBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ChiakiSessionBridge.m; sourceTree = "<group>"; };
+		A1000018 /* ChiakiSessionBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ChiakiSessionBridge.h; sourceTree = "<group>"; };
+		A1000019 /* StreamVideoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamVideoView.swift; sourceTree = "<group>"; };
+		A1000021 /* VideoDecoder.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = VideoDecoder.m; sourceTree = "<group>"; };
+		A1000022 /* VideoDecoder.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VideoDecoder.h; sourceTree = "<group>"; };
+		A1000023 /* SessionEventReceiver.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = SessionEventReceiver.m; sourceTree = "<group>"; };
+		A1000024 /* SessionEventReceiver.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SessionEventReceiver.h; sourceTree = "<group>"; };
+		A1000025 /* StreamSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamSession.swift; sourceTree = "<group>"; };
+		A1000026 /* StreamState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamState.swift; sourceTree = "<group>"; };
+		A1000027 /* StreamInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamInput.swift; sourceTree = "<group>"; };
+		A1000035 /* StreamView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamView.swift; sourceTree = "<group>"; };
+		A1000036 /* ConnectInfoEntryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectInfoEntryView.swift; sourceTree = "<group>"; };
+		A1000100 /* DiscoveryBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = DiscoveryBridge.h; sourceTree = "<group>"; };
+		A1000101 /* DiscoveryBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = DiscoveryBridge.m; sourceTree = "<group>"; };
+		A1000102 /* RegistBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RegistBridge.h; sourceTree = "<group>"; };
+		A1000103 /* RegistBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = RegistBridge.m; sourceTree = "<group>"; };
+		A1000104 /* HostModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostModels.swift; sourceTree = "<group>"; };
+		A1000105 /* HostCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostCardView.swift; sourceTree = "<group>"; };
+		A1000106 /* RemotePlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemotePlayView.swift; sourceTree = "<group>"; };
+		A1000107 /* RegistrationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegistrationView.swift; sourceTree = "<group>"; };
+		A1000108 /* ManualHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualHostView.swift; sourceTree = "<group>"; };
+		A1000109 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		A1000118 /* HolepunchBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = HolepunchBridge.h; sourceTree = "<group>"; };
+		A1000119 /* HolepunchBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = HolepunchBridge.m; sourceTree = "<group>"; };
+		A1000120 /* PsnTokenManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PsnTokenManager.swift; sourceTree = "<group>"; };
+		A1000125 /* AutoRegistrationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoRegistrationView.swift; sourceTree = "<group>"; };
+		A1000127 /* SecureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureStore.swift; sourceTree = "<group>"; };
+		A1000130 /* PyluxLoginService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PyluxLoginService.swift; sourceTree = "<group>"; };
+		A1000132 /* LoginWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginWebView.swift; sourceTree = "<group>"; };
+		A1000141 /* ChiakiAudioOutputIOS.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ChiakiAudioOutputIOS.h; sourceTree = "<group>"; };
+		A1000142 /* ChiakiAudioOutputIOS.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ChiakiAudioOutputIOS.m; sourceTree = "<group>"; };
+		A1000146 /* PyluxAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PyluxAppDelegate.swift; sourceTree = "<group>"; };
+		A1000148 /* StreamTouchControlsOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamTouchControlsOverlay.swift; sourceTree = "<group>"; };
+		A1000152 /* StreamRumbleFeedback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamRumbleFeedback.swift; sourceTree = "<group>"; };
+		A1000164 /* ControlSVGPathParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlSVGPathParser.swift; sourceTree = "<group>"; };
+		A1000166 /* StreamTouchControlsTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamTouchControlsTypes.swift; sourceTree = "<group>"; };
+		A1000168 /* StreamTouchControlsStickDPad.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamTouchControlsStickDPad.swift; sourceTree = "<group>"; };
+		A1000170 /* StreamTouchControlsButtonViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamTouchControlsButtonViews.swift; sourceTree = "<group>"; };
+		A1000172 /* StreamTouchControlsTouchpadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamTouchControlsTouchpadView.swift; sourceTree = "<group>"; };
+		A1000174 /* StreamTouchControlsContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamTouchControlsContainerView.swift; sourceTree = "<group>"; };
+		A1000181 /* ChiakiDatacenterPing.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ChiakiDatacenterPing.h; sourceTree = "<group>"; };
+		A1000182 /* ChiakiDatacenterPing.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ChiakiDatacenterPing.m; sourceTree = "<group>"; };
+		A1000190 /* PyluxChiakiLog.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PyluxChiakiLog.h; sourceTree = "<group>"; };
+		A1000191 /* PyluxChiakiLog.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PyluxChiakiLog.m; sourceTree = "<group>"; };
+		A1000200 /* PictureInPictureManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PictureInPictureManager.swift; sourceTree = "<group>"; };
+		A3000001 /* CloudModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudModels.swift; sourceTree = "<group>"; };
+		A3000002 /* CloudHttpClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudHttpClient.swift; sourceTree = "<group>"; };
+		A3000003 /* PSGaikaiStreaming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PSGaikaiStreaming.swift; sourceTree = "<group>"; };
+		A3000004 /* PSKamajiSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PSKamajiSession.swift; sourceTree = "<group>"; };
+		A3000005 /* CloudStreamingBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudStreamingBackend.swift; sourceTree = "<group>"; };
+		A3000006 /* CloudCatalogService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudCatalogService.swift; sourceTree = "<group>"; };
+		A3000007 /* CloudPlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudPlayView.swift; sourceTree = "<group>"; };
+		A4000001 /* DonationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DonationStore.swift; sourceTree = "<group>"; };
+		A4000002 /* DonationPhrasePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DonationPhrasePicker.swift; sourceTree = "<group>"; };
+		A4000003 /* DonationPromptCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DonationPromptCoordinator.swift; sourceTree = "<group>"; };
+		A4000004 /* DonationPaywallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DonationPaywallView.swift; sourceTree = "<group>"; };
+		A4000005 /* donation_prompt_phrases.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = donation_prompt_phrases.json; path = ../shared/donation_prompt_phrases.json; sourceTree = SOURCE_ROOT; };
+		A4000007 /* DonationProducts.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = DonationProducts.storekit; sourceTree = "<group>"; };
+		A5000001 /* agpl_license.txt */ = {isa = PBXFileReference; lastKnownFileType = text; name = agpl_license.txt; path = ../gui/res/license/agpl_license.txt; sourceTree = SOURCE_ROOT; };
+		A5000002 /* disclaimer.txt */ = {isa = PBXFileReference; lastKnownFileType = text; name = disclaimer.txt; path = ../gui/res/license/disclaimer.txt; sourceTree = SOURCE_ROOT; };
+		A5000003 /* LicenseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A1000020 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A1000030 = {
+			isa = PBXGroup;
+			children = (
+				A1000031 /* Pylux */,
+				A1000033 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A1000031 /* Pylux */ = {
+			isa = PBXGroup;
+			children = (
+				A2000001 /* App */,
+				A2000002 /* Bridge */,
+				A4000006 /* Donation */,
+				A2000003 /* Models */,
+				A2000004 /* Services */,
+				A2000005 /* Views */,
+				A1000014 /* Assets.xcassets */,
+				A1000015 /* Pylux.entitlements */,
+				A4000005 /* donation_prompt_phrases.json */,
+				A5000001 /* agpl_license.txt */,
+				A5000002 /* disclaimer.txt */,
+			);
+			path = Pylux;
+			sourceTree = "<group>";
+		};
+		A1000033 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A1000000 /* Pylux.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A2000001 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				A1000011 /* PyluxApp.swift */,
+				A1000146 /* PyluxAppDelegate.swift */,
+				A1000012 /* ContentView.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		A2000002 /* Bridge */ = {
+			isa = PBXGroup;
+			children = (
+				A1000016 /* ChiakiBridge.h */,
+				A1000013 /* ChiakiBridge.m */,
+				A1000018 /* ChiakiSessionBridge.h */,
+				A1000017 /* ChiakiSessionBridge.m */,
+				A1000141 /* ChiakiAudioOutputIOS.h */,
+				A1000142 /* ChiakiAudioOutputIOS.m */,
+				A1000181 /* ChiakiDatacenterPing.h */,
+				A1000182 /* ChiakiDatacenterPing.m */,
+				A1000190 /* PyluxChiakiLog.h */,
+				A1000191 /* PyluxChiakiLog.m */,
+				A1000100 /* DiscoveryBridge.h */,
+				A1000101 /* DiscoveryBridge.m */,
+				A1000118 /* HolepunchBridge.h */,
+				A1000119 /* HolepunchBridge.m */,
+				A1000102 /* RegistBridge.h */,
+				A1000103 /* RegistBridge.m */,
+				A1000024 /* SessionEventReceiver.h */,
+				A1000023 /* SessionEventReceiver.m */,
+				A1000022 /* VideoDecoder.h */,
+				A1000021 /* VideoDecoder.m */,
+			);
+			path = Bridge;
+			sourceTree = "<group>";
+		};
+		A2000003 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				A3000001 /* CloudModels.swift */,
+				A1000104 /* HostModels.swift */,
+				A1000026 /* StreamState.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		A2000004 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				A3000006 /* CloudCatalogService.swift */,
+				A3000002 /* CloudHttpClient.swift */,
+				A3000005 /* CloudStreamingBackend.swift */,
+				A3000003 /* PSGaikaiStreaming.swift */,
+				A3000004 /* PSKamajiSession.swift */,
+				A1000200 /* PictureInPictureManager.swift */,
+				A1000120 /* PsnTokenManager.swift */,
+				A1000130 /* PyluxLoginService.swift */,
+				A1000127 /* SecureStore.swift */,
+				A1000025 /* StreamSession.swift */,
+				A1000027 /* StreamInput.swift */,
+				A1000152 /* StreamRumbleFeedback.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		A2000005 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				A1000125 /* AutoRegistrationView.swift */,
+				A3000007 /* CloudPlayView.swift */,
+				A1000036 /* ConnectInfoEntryView.swift */,
+				A1000105 /* HostCardView.swift */,
+				A1000108 /* ManualHostView.swift */,
+				A1000107 /* RegistrationView.swift */,
+				A1000106 /* RemotePlayView.swift */,
+				A1000109 /* SettingsView.swift */,
+				A5000003 /* LicenseView.swift */,
+				A1000132 /* LoginWebView.swift */,
+				A1000035 /* StreamView.swift */,
+				A1000148 /* StreamTouchControlsOverlay.swift */,
+				A1000174 /* StreamTouchControlsContainerView.swift */,
+				A1000170 /* StreamTouchControlsButtonViews.swift */,
+				A1000168 /* StreamTouchControlsStickDPad.swift */,
+				A1000166 /* StreamTouchControlsTypes.swift */,
+				A1000172 /* StreamTouchControlsTouchpadView.swift */,
+				A1000164 /* ControlSVGPathParser.swift */,
+				A1000019 /* StreamVideoView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		A4000006 /* Donation */ = {
+			isa = PBXGroup;
+			children = (
+				A4000001 /* DonationStore.swift */,
+				A4000002 /* DonationPhrasePicker.swift */,
+				A4000003 /* DonationPromptCoordinator.swift */,
+				A4000004 /* DonationPaywallView.swift */,
+				A4000007 /* DonationProducts.storekit */,
+			);
+			path = Donation;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A1000040 /* Pylux */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A1000050 /* Build configuration list for PBXNativeTarget "Pylux" */;
+			buildPhases = (
+				A1000041 /* Sources */,
+				A1000020 /* Frameworks */,
+				A1000042 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Pylux;
+			productName = Pylux;
+			productReference = A1000000 /* Pylux.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A1000060 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1500;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					A1000040 = {
+						CreatedOnToolsVersion = 15.0;
+					};
+				};
+			};
+			buildConfigurationList = A1000061 /* Build configuration list for PBXProject "Pylux" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A1000030;
+			productRefGroup = A1000033 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A1000040 /* Pylux */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A1000042 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1000004 /* Assets.xcassets in Resources */,
+				A4000015 /* donation_prompt_phrases.json in Resources */,
+				A5000011 /* agpl_license.txt in Resources */,
+				A5000012 /* disclaimer.txt in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A1000041 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1000001 /* PyluxApp.swift in Sources */,
+				A1000145 /* PyluxAppDelegate.swift in Sources */,
+				A1000002 /* ContentView.swift in Sources */,
+				A1000006 /* StreamVideoView.swift in Sources */,
+				A1000003 /* ChiakiBridge.m in Sources */,
+				A1000192 /* PyluxChiakiLog.m in Sources */,
+				A1000005 /* ChiakiSessionBridge.m in Sources */,
+				A1000140 /* ChiakiAudioOutputIOS.m in Sources */,
+				A1000180 /* ChiakiDatacenterPing.m in Sources */,
+				A1000007 /* VideoDecoder.m in Sources */,
+				A1000008 /* SessionEventReceiver.m in Sources */,
+				A1000201 /* PictureInPictureManager.swift in Sources */,
+				A1000009 /* StreamSession.swift in Sources */,
+				A1000010 /* StreamState.swift in Sources */,
+				A1000028 /* StreamInput.swift in Sources */,
+				A1000151 /* StreamRumbleFeedback.swift in Sources */,
+				A1000037 /* StreamView.swift in Sources */,
+				A1000147 /* StreamTouchControlsOverlay.swift in Sources */,
+				A1000165 /* StreamTouchControlsTypes.swift in Sources */,
+				A1000167 /* StreamTouchControlsStickDPad.swift in Sources */,
+				A1000169 /* StreamTouchControlsButtonViews.swift in Sources */,
+				A1000171 /* StreamTouchControlsTouchpadView.swift in Sources */,
+				A1000173 /* StreamTouchControlsContainerView.swift in Sources */,
+				A1000163 /* ControlSVGPathParser.swift in Sources */,
+				A1000038 /* ConnectInfoEntryView.swift in Sources */,
+				A1000110 /* DiscoveryBridge.m in Sources */,
+				A1000111 /* RegistBridge.m in Sources */,
+				A1000112 /* HostModels.swift in Sources */,
+				A1000113 /* HostCardView.swift in Sources */,
+				A1000114 /* RemotePlayView.swift in Sources */,
+				A1000115 /* RegistrationView.swift in Sources */,
+				A1000116 /* ManualHostView.swift in Sources */,
+				A1000117 /* SettingsView.swift in Sources */,
+				A5000013 /* LicenseView.swift in Sources */,
+				A1000131 /* LoginWebView.swift in Sources */,
+				A1000121 /* HolepunchBridge.m in Sources */,
+				A1000122 /* PsnTokenManager.swift in Sources */,
+				A1000129 /* PyluxLoginService.swift in Sources */,
+				A1000128 /* SecureStore.swift in Sources */,
+				A1000126 /* AutoRegistrationView.swift in Sources */,
+				A3000011 /* CloudModels.swift in Sources */,
+				A3000012 /* CloudHttpClient.swift in Sources */,
+				A3000013 /* PSGaikaiStreaming.swift in Sources */,
+				A3000014 /* PSKamajiSession.swift in Sources */,
+				A3000015 /* CloudStreamingBackend.swift in Sources */,
+				A3000016 /* CloudCatalogService.swift in Sources */,
+				A3000017 /* CloudPlayView.swift in Sources */,
+				A4000011 /* DonationStore.swift in Sources */,
+				A4000012 /* DonationPhrasePicker.swift in Sources */,
+				A4000013 /* DonationPromptCoordinator.swift in Sources */,
+				A4000014 /* DonationPaywallView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		A1000070 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		A1000071 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_OPTIMIZATION_LEVEL = s;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		A1000072 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				/* Pylux: MARKETING_VERSION=0.0.0 and CURRENT_PROJECT_VERSION=0 are placeholders only. Real values are CHIAKI_VERSION_* in repo root CMakeLists.txt, injected at CI archive time via .github/workflows/deploy-ios.yml (xcodebuild MARKETING_VERSION / CURRENT_PROJECT_VERSION). */
+				CURRENT_PROJECT_VERSION = 0;
+				DEVELOPMENT_TEAM = KG7LUU8FX7;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/../lib/include",
+					"$(SRCROOT)/build-iphonesimulator/parent/lib/include",
+					"$(SRCROOT)/build-iphoneos/parent/lib/include",
+				);
+				"HEADER_SEARCH_PATHS[sdk=iphoneos*]" = (
+					"$(SRCROOT)/../lib/include",
+					"$(SRCROOT)/build-iphoneos/parent/lib/include",
+				);
+				"HEADER_SEARCH_PATHS[sdk=iphonesimulator*]" = (
+					"$(SRCROOT)/../lib/include",
+					"$(SRCROOT)/build-iphonesimulator/parent/lib/include",
+				);
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Pylux needs local network access to discover and connect to consoles on your home network.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_FILE = Pylux/Info.plist;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/build-iphonesimulator",
+					"$(SRCROOT)/build-iphoneos",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/build-iphoneos";
+				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/build-iphonesimulator";
+				MARKETING_VERSION = 0.0.0;
+				OTHER_LDFLAGS = (
+					"-lchiaki_complete",
+					"-lz",
+					"-framework",
+					Security,
+					"-framework",
+					Foundation,
+					"-framework",
+					CoreServices,
+					"-framework",
+					VideoToolbox,
+					"-framework",
+					AVFoundation,
+					"-framework",
+					AVKit,
+					"-framework",
+					AudioToolbox,
+					"-framework",
+					CoreMedia,
+					"-framework",
+					CoreVideo,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.pylux.stream;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = Pylux/Bridge/ChiakiBridge.h;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A1000073 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				/* Pylux: MARKETING_VERSION=0.0.0 and CURRENT_PROJECT_VERSION=0 are placeholders only. Real values are CHIAKI_VERSION_* in repo root CMakeLists.txt, injected at CI archive time via .github/workflows/deploy-ios.yml (xcodebuild MARKETING_VERSION / CURRENT_PROJECT_VERSION). */
+				CURRENT_PROJECT_VERSION = 0;
+				DEVELOPMENT_TEAM = KG7LUU8FX7;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/../lib/include",
+					"$(SRCROOT)/build-iphonesimulator/parent/lib/include",
+					"$(SRCROOT)/build-iphoneos/parent/lib/include",
+				);
+				"HEADER_SEARCH_PATHS[sdk=iphoneos*]" = (
+					"$(SRCROOT)/../lib/include",
+					"$(SRCROOT)/build-iphoneos/parent/lib/include",
+				);
+				"HEADER_SEARCH_PATHS[sdk=iphonesimulator*]" = (
+					"$(SRCROOT)/../lib/include",
+					"$(SRCROOT)/build-iphonesimulator/parent/lib/include",
+				);
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Pylux needs local network access to discover and connect to consoles on your home network.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_FILE = Pylux/Info.plist;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/build-iphonesimulator",
+					"$(SRCROOT)/build-iphoneos",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/build-iphoneos";
+				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/build-iphonesimulator";
+				MARKETING_VERSION = 0.0.0;
+				OTHER_LDFLAGS = (
+					"-lchiaki_complete",
+					"-lz",
+					"-framework",
+					Security,
+					"-framework",
+					Foundation,
+					"-framework",
+					CoreServices,
+					"-framework",
+					VideoToolbox,
+					"-framework",
+					AVFoundation,
+					"-framework",
+					AVKit,
+					"-framework",
+					AudioToolbox,
+					"-framework",
+					CoreMedia,
+					"-framework",
+					CoreVideo,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.pylux.stream;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = Pylux/Bridge/ChiakiBridge.h;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A1000050 /* Build configuration list for PBXNativeTarget "Pylux" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1000072 /* Debug */,
+				A1000073 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A1000061 /* Build configuration list for PBXProject "Pylux" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1000070 /* Debug */,
+				A1000071 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = A1000060 /* Project object */;
+}

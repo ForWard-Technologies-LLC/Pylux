@@ -7,15 +7,28 @@ class QmlSettings : public QObject
     Q_OBJECT
     Q_PROPERTY(bool remotePlayAsk READ remotePlayAsk WRITE setRemotePlayAsk NOTIFY remotePlayAskChanged)
     Q_PROPERTY(bool addSteamShortcutAsk READ addSteamShortcutAsk WRITE setAddSteamShortcutAsk NOTIFY addSteamShortcutAskChanged)
-    Q_PROPERTY(bool hideCursor READ hideCursor WRITE setHideCursor NOTIFY hideCursorChanged)
+    Q_PROPERTY(bool setupGuideShown READ setupGuideShown WRITE setSetupGuideShown NOTIFY setupGuideShownChanged)
+	Q_PROPERTY(bool controllerOverlayShown READ controllerOverlayShown WRITE setControllerOverlayShown NOTIFY controllerOverlayShownChanged)
+	Q_PROPERTY(bool hideCursor READ hideCursor WRITE setHideCursor NOTIFY hideCursorChanged)
     Q_PROPERTY(int audioVideoDisabled READ audioVideoDisabled WRITE setAudioVideoDisabled NOTIFY audioVideoDisabledChanged)
     Q_PROPERTY(int resolutionLocalPS4 READ resolutionLocalPS4 WRITE setResolutionLocalPS4 NOTIFY resolutionLocalPS4Changed)
     Q_PROPERTY(int resolutionRemotePS4 READ resolutionRemotePS4 WRITE setResolutionRemotePS4 NOTIFY resolutionRemotePS4Changed)
     Q_PROPERTY(int resolutionLocalPS5 READ resolutionLocalPS5 WRITE setResolutionLocalPS5 NOTIFY resolutionLocalPS5Changed)
     Q_PROPERTY(int resolutionRemotePS5 READ resolutionRemotePS5 WRITE setResolutionRemotePS5 NOTIFY resolutionRemotePS5Changed)
+    // PSCloud settings
+    Q_PROPERTY(int cloudResolutionPSCloud READ cloudResolutionPSCloud WRITE setCloudResolutionPSCloud NOTIFY cloudResolutionPSCloudChanged)
+    Q_PROPERTY(QString cloudLanguagePSCloud READ cloudLanguagePSCloud WRITE setCloudLanguagePSCloud NOTIFY cloudLanguagePSCloudChanged)
+    Q_PROPERTY(QString cloudDatacenterPSCloud READ cloudDatacenterPSCloud WRITE setCloudDatacenterPSCloud NOTIFY cloudDatacenterPSCloudChanged)
+    Q_PROPERTY(QString cloudDatacentersJsonPSCloud READ cloudDatacentersJsonPSCloud NOTIFY cloudDatacentersJsonPSCloudChanged)
+    // PSNOW settings
+    Q_PROPERTY(int cloudResolutionPSNOW READ cloudResolutionPSNOW WRITE setCloudResolutionPSNOW NOTIFY cloudResolutionPSNOWChanged)
+    Q_PROPERTY(QString cloudLanguagePSNOW READ cloudLanguagePSNOW WRITE setCloudLanguagePSNOW NOTIFY cloudLanguagePSNOWChanged)
+    Q_PROPERTY(QString cloudDatacenterPSNOW READ cloudDatacenterPSNOW WRITE setCloudDatacenterPSNOW NOTIFY cloudDatacenterPSNOWChanged)
+    Q_PROPERTY(QString cloudDatacentersJsonPSNOW READ cloudDatacentersJsonPSNOW NOTIFY cloudDatacentersJsonPSNOWChanged)
     Q_PROPERTY(int disconnectAction READ disconnectAction WRITE setDisconnectAction NOTIFY disconnectActionChanged)
     Q_PROPERTY(int suspendAction READ suspendAction WRITE setSuspendAction NOTIFY suspendActionChanged)
     Q_PROPERTY(bool logVerbose READ logVerbose WRITE setLogVerbose NOTIFY logVerboseChanged)
+    Q_PROPERTY(bool steamCloudSync READ steamCloudSync WRITE setSteamCloudSync NOTIFY steamCloudSyncChanged)
     Q_PROPERTY(int rumbleHapticsIntensity READ rumbleHapticsIntensity WRITE setRumbleHapticsIntensity NOTIFY rumbleHapticsIntensityChanged)
 #ifdef CHIAKI_GUI_ENABLE_STEAMDECK_NATIVE
     Q_PROPERTY(bool steamDeckHaptics READ steamDeckHaptics WRITE setSteamDeckHaptics NOTIFY steamDeckHapticsChanged)
@@ -29,6 +42,7 @@ class QmlSettings : public QObject
     Q_PROPERTY(int echoSuppressLevel READ echoSuppressLevel WRITE setEchoSuppressLevel NOTIFY echoSuppressLevelChanged)
 #endif
     Q_PROPERTY(bool showStreamStats READ showStreamStats WRITE setShowStreamStats NOTIFY showStreamStatsChanged)
+    Q_PROPERTY(bool showGameImageDuringLaunch READ showGameImageDuringLaunch WRITE setShowGameImageDuringLaunch NOTIFY showGameImageDuringLaunchChanged)
     Q_PROPERTY(bool streamerMode READ streamerMode WRITE setStreamerMode NOTIFY streamerModeChanged)
     Q_PROPERTY(float hapticOverride READ hapticOverride WRITE setHapticOverride NOTIFY hapticOverrideChanged)
     Q_PROPERTY(int displayTargetContrast READ displayTargetContrast WRITE setDisplayTargetContrast NOTIFY displayTargetContrastChanged)
@@ -71,7 +85,15 @@ class QmlSettings : public QObject
     Q_PROPERTY(QString psnRefreshToken READ psnRefreshToken WRITE setPsnRefreshToken NOTIFY psnRefreshTokenChanged)
     Q_PROPERTY(QString psnAuthToken READ psnAuthToken WRITE setPsnAuthToken NOTIFY psnAuthTokenChanged)
     Q_PROPERTY(QString psnAuthTokenExpiry READ psnAuthTokenExpiry WRITE setPsnAuthTokenExpiry NOTIFY psnAuthTokenExpiryChanged)
+    Q_PROPERTY(QString psnNpssoToken READ psnNpssoToken WRITE setPsnNpssoToken NOTIFY psnNpssoTokenChanged)
+    Q_PROPERTY(bool accountAttributesCheckPassed READ accountAttributesCheckPassed WRITE setAccountAttributesCheckPassed NOTIFY accountAttributesCheckPassedChanged)
     Q_PROPERTY(QString psnAccountId READ psnAccountId WRITE setPsnAccountId NOTIFY psnAccountIdChanged)
+    Q_PROPERTY(bool psnGamesSyncEnabled READ psnGamesSyncEnabled WRITE setPsnGamesSyncEnabled NOTIFY psnGamesSyncEnabledChanged)
+    Q_PROPERTY(int lastSelectedMainTab READ lastSelectedMainTab WRITE setLastSelectedMainTab NOTIFY lastSelectedMainTabChanged)
+    Q_PROPERTY(QString lastSelectedCloudSection READ lastSelectedCloudSection WRITE setLastSelectedCloudSection NOTIFY lastSelectedCloudSectionChanged)
+    Q_PROPERTY(QString cloudLibraryFilter READ cloudLibraryFilter WRITE setCloudLibraryFilter NOTIFY cloudLibraryFilterChanged)
+    Q_PROPERTY(QString cloudCatalogFilter READ cloudCatalogFilter WRITE setCloudCatalogFilter NOTIFY cloudCatalogFilterChanged)
+    Q_PROPERTY(QString cloudFavorites READ cloudFavorites WRITE setCloudFavorites NOTIFY cloudFavoritesChanged)
     Q_PROPERTY(bool mouseTouchEnabled READ mouseTouchEnabled WRITE setMouseTouchEnabled NOTIFY mouseTouchEnabledChanged)
     Q_PROPERTY(bool keyboardEnabled READ keyboardEnabled WRITE setKeyboardEnabled NOTIFY keyboardEnabledChanged)
     Q_PROPERTY(bool dpadTouchEnabled READ dpadTouchEnabled WRITE setDpadTouchEnabled NOTIFY dpadTouchEnabledChanged)
@@ -166,6 +188,9 @@ public:
     bool showStreamStats() const;
     void setShowStreamStats(bool enabled);
 
+    bool showGameImageDuringLaunch() const;
+    void setShowGameImageDuringLaunch(bool show);
+
     bool streamerMode() const;
     void setStreamerMode(bool enabled);
 
@@ -189,9 +214,28 @@ public:
 
     bool logVerbose() const;
     void setLogVerbose(bool verbose);
+    bool steamCloudSync() const;
+    void setSteamCloudSync(bool enabled);
 
     int rumbleHapticsIntensity() const;
     void setRumbleHapticsIntensity(int intensity);
+
+    // PSCloud settings
+    int cloudResolutionPSCloud() const;
+    void setCloudResolutionPSCloud(int resolution);
+    QString cloudLanguagePSCloud() const;
+    void setCloudLanguagePSCloud(const QString &language);
+    QString cloudDatacenterPSCloud() const;
+    void setCloudDatacenterPSCloud(const QString &datacenter);
+    QString cloudDatacentersJsonPSCloud() const;
+    // PSNOW settings
+    int cloudResolutionPSNOW() const;
+    void setCloudResolutionPSNOW(int resolution);
+    QString cloudLanguagePSNOW() const;
+    void setCloudLanguagePSNOW(const QString &language);
+    QString cloudDatacenterPSNOW() const;
+    void setCloudDatacenterPSNOW(const QString &datacenter);
+    QString cloudDatacentersJsonPSNOW() const;
 
 #ifdef CHIAKI_GUI_ENABLE_STEAMDECK_NATIVE
     bool steamDeckHaptics() const;
@@ -228,6 +272,12 @@ public:
 
     bool addSteamShortcutAsk() const;
     void setAddSteamShortcutAsk(bool asked);
+
+    bool setupGuideShown() const;
+    void setSetupGuideShown(bool shown);
+    
+	bool controllerOverlayShown() const;
+	void setControllerOverlayShown(bool shown);
 
     bool hideCursor() const;
     void setHideCursor(bool enabled);
@@ -492,8 +542,32 @@ public:
     QString psnAuthTokenExpiry() const;
     void setPsnAuthTokenExpiry(const QString &expiry);
 
+    QString psnNpssoToken() const;
+    void setPsnNpssoToken(const QString &npsso_token);
+
+    bool accountAttributesCheckPassed() const;
+    void setAccountAttributesCheckPassed(bool passed);
+
     QString psnAccountId() const;
     void setPsnAccountId(const QString &account_id);
+    
+    int lastSelectedMainTab() const;
+    void setLastSelectedMainTab(int tabIndex);
+    
+    QString lastSelectedCloudSection() const;
+    void setLastSelectedCloudSection(const QString &section);
+
+    QString cloudLibraryFilter() const;
+    void setCloudLibraryFilter(const QString &filter);
+
+    QString cloudCatalogFilter() const;
+    void setCloudCatalogFilter(const QString &filter);
+
+    QString cloudFavorites() const;
+    void setCloudFavorites(const QString &favorites);
+
+    bool psnGamesSyncEnabled() const;
+    void setPsnGamesSyncEnabled(bool enabled);
 
     bool mouseTouchEnabled() const;
     void setMouseTouchEnabled(bool enabled);
@@ -561,15 +635,25 @@ public:
     Q_INVOKABLE void deleteProfile(QString profile);
     Q_INVOKABLE QString stringForDpadShortcut() const;
     Q_INVOKABLE QString stringForStreamMenuShortcut() const;
+    Q_INVOKABLE QString getLicenseText() const;
 
 signals:
     void resolutionLocalPS4Changed();
     void resolutionRemotePS4Changed();
     void resolutionLocalPS5Changed();
     void resolutionRemotePS5Changed();
+    void cloudResolutionPSCloudChanged();
+    void cloudLanguagePSCloudChanged();
+    void cloudDatacenterPSCloudChanged();
+    void cloudDatacentersJsonPSCloudChanged();
+    void cloudResolutionPSNOWChanged();
+    void cloudLanguagePSNOWChanged();
+    void cloudDatacenterPSNOWChanged();
+    void cloudDatacentersJsonPSNOWChanged();
     void disconnectActionChanged();
     void suspendActionChanged();
     void logVerboseChanged();
+    void steamCloudSyncChanged();
     void rumbleHapticsIntensityChanged();
     void buttonsByPositionChanged();
     void allowJoystickBackgroundEventsChanged();
@@ -586,10 +670,13 @@ signals:
     void fullscreenDoubleClickChanged();
     void remotePlayAskChanged();
     void addSteamShortcutAskChanged();
-    void hideCursorChanged();
+    void setupGuideShownChanged();
+	void controllerOverlayShownChanged();
+	void hideCursorChanged();
     void hapticOverrideChanged();
     void audioVideoDisabledChanged();
     void showStreamStatsChanged();
+    void showGameImageDuringLaunchChanged();
     void streamerModeChanged();
     void fpsLocalPS4Changed();
     void fpsRemotePS4Changed();
@@ -622,7 +709,15 @@ signals:
     void psnAuthTokenChanged();
     void psnRefreshTokenChanged();
     void psnAuthTokenExpiryChanged();
+    void psnNpssoTokenChanged();
+    void accountAttributesCheckPassedChanged();
     void psnAccountIdChanged();
+    void psnGamesSyncEnabledChanged();
+    void lastSelectedMainTabChanged();
+    void lastSelectedCloudSectionChanged();
+    void cloudLibraryFilterChanged();
+    void cloudCatalogFilterChanged();
+    void cloudFavoritesChanged();
     void mouseTouchEnabledChanged();
     void keyboardEnabledChanged();
     void dpadTouchEnabledChanged();

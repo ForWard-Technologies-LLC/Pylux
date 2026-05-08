@@ -1,3 +1,7 @@
 screenshots
+!screenshots/
+screenshots/*
+!screenshots/android-phones/
+!screenshots/android-phones/*.png
 chiaki_square.png
 chiaki_function.png

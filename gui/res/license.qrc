@@ -1,0 +1,6 @@
+<RCC>
+  <qresource prefix="/license">
+    <file alias="agpl_license.txt">license/agpl_license.txt</file>
+    <file alias="disclaimer.txt">license/disclaimer.txt</file>
+  </qresource>
+</RCC>

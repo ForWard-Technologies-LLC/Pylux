@@ -1,0 +1,85 @@
+{
+  "identifier" : "DonationProducts",
+  "nonRenewableSubscriptions" : [
+
+  ],
+  "products" : [
+    {
+      "displayPrice" : "1.99",
+      "familyShareable" : false,
+      "internalID" : "F0A10001-0001-0001-0001-000000000001",
+      "localizations" : [
+        {
+          "description" : "Every donation counts.",
+          "displayName" : "Bronze donation",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "pylux_support_bronze",
+      "referenceName" : "Bronze Donation",
+      "type" : "NonConsumable"
+    },
+    {
+      "displayPrice" : "4.99",
+      "familyShareable" : false,
+      "internalID" : "F0A10001-0001-0001-0001-000000000002",
+      "localizations" : [
+        {
+          "description" : "A bit more support.",
+          "displayName" : "Silver donation",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "pylux_support_silver",
+      "referenceName" : "Silver Donation",
+      "type" : "NonConsumable"
+    },
+    {
+      "displayPrice" : "9.99",
+      "familyShareable" : false,
+      "internalID" : "F0A10001-0001-0001-0001-000000000003",
+      "localizations" : [
+        {
+          "description" : "When you want to give more.",
+          "displayName" : "Gold donation",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "pylux_support_gold",
+      "referenceName" : "Gold Donation",
+      "type" : "NonConsumable"
+    },
+    {
+      "displayPrice" : "19.99",
+      "familyShareable" : false,
+      "internalID" : "F0A10001-0001-0001-0001-000000000004",
+      "localizations" : [
+        {
+          "description" : "If you want to give the most.",
+          "displayName" : "Platinum donation",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "pylux_support_platinum",
+      "referenceName" : "Platinum Donation",
+      "type" : "NonConsumable"
+    }
+  ],
+  "settings" : {
+    "_failTransactionsEnabled" : false,
+    "_storeKitErrors" : [
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Load Products"
+      }
+    ]
+  },
+  "subscriptionGroups" : [
+
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}

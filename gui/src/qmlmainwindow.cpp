@@ -1,5 +1,7 @@
 #include "qmlmainwindow.h"
 #include "qmlbackend.h"
+#include "cloudstreamingbackend.h"
+#include <QJSValue>
 #include "qmlsvgprovider.h"
 #include "chiaki/log.h"
 #include "streamsession.h"
@@ -21,11 +23,12 @@
 #include <QQuickRenderTarget>
 #include <QQuickRenderControl>
 #include <QQuickGraphicsDevice>
+#include <QTimer>
 #if defined(Q_OS_MACOS)
 #include <objc/message.h>
 #endif
 
-Q_LOGGING_CATEGORY(chiakiGui, "chiaki.gui", QtInfoMsg);
+Q_LOGGING_CATEGORY(chiakiGui, "chiaki.gui");
 
 static void placebo_log_cb(void *user, pl_log_level level, const char *msg)
 {
@@ -58,7 +61,7 @@ static QString shader_cache_path()
 
 static const char *render_params_path()
 {
-    static QString path = QStandardPaths::writableLocation(QStandardPaths::ConfigLocation) + "/Chiaki/pl_render_params.conf";
+    static QString path = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/pl_render_params.conf";
     return qPrintable(path);
 }
 
@@ -80,31 +83,54 @@ private:
     QWindow *window = {};
 };
 
-QmlMainWindow::QmlMainWindow(Settings *settings, bool exit_app_on_stream_exit)
+QmlMainWindow::QmlMainWindow(Settings *settings, bool exit_app_on_stream_exit, SteamworksWrapper *steamworks)
     : QWindow()
     , settings(settings)
 {
-    init(settings, exit_app_on_stream_exit);
+    init(settings, exit_app_on_stream_exit, steamworks);
 }
 
-QmlMainWindow::QmlMainWindow(const StreamSessionConnectInfo &connect_info)
+QmlMainWindow::QmlMainWindow(const StreamSessionConnectInfo &connect_info, SteamworksWrapper *steamworks)
     : QWindow()
     , settings(connect_info.settings)
 {
     direct_stream = true;
     emit directStreamChanged();
-    init(connect_info.settings);
+    init(connect_info.settings, false, steamworks);
     backend->createSession(connect_info);
 
+    if (connect_info.fullscreen || connect_info.zoom || connect_info.stretch)
+        fullscreenTime();
     if (connect_info.zoom)
         setVideoMode(VideoMode::Zoom);
     else if (connect_info.stretch)
         setVideoMode(VideoMode::Stretch);
 
-    if (connect_info.fullscreen || connect_info.zoom || connect_info.stretch)
-        fullscreenTime();
-
     connect(session, &StreamSession::SessionQuit, qGuiApp, &QGuiApplication::quit);
+}
+
+QmlMainWindow::QmlMainWindow(Settings *settings, const QString &serviceType, const QString &gameIdentifier, bool exit_app_on_stream_exit, SteamworksWrapper *steamworks)
+    : QWindow()
+    , settings(settings)
+{
+    qInfo() << "=== QmlMainWindow: Cloud Streaming Constructor ===";
+    qInfo() << "Service Type:" << serviceType;
+    qInfo() << "Game Identifier:" << gameIdentifier;
+    qInfo() << "Exit on stream exit:" << exit_app_on_stream_exit;
+    qInfo() << "Steamworks:" << (steamworks ? "provided" : "null");
+    
+    direct_stream = true;
+    emit directStreamChanged();
+    init(settings, exit_app_on_stream_exit, steamworks);
+    startCloudStreaming(serviceType, gameIdentifier);
+
+    // Connect session quit when session is created (cloud streaming is async, so we connect via sessionChanged)
+    // Only quit app if exit_app_on_stream_exit is true (command line launch)
+    connect(backend, &QmlBackend::sessionChanged, this, [this, exit_app_on_stream_exit](StreamSession *s) {
+        if (s && exit_app_on_stream_exit) {
+            connect(s, &StreamSession::SessionQuit, qGuiApp, &QGuiApplication::quit);
+        }
+    });
 }
 
 QmlMainWindow::~QmlMainWindow()
@@ -259,9 +285,9 @@ void QmlMainWindow::setSettings(Settings *new_settings)
     QString profile = settings->GetCurrentProfile();
     qCCritical(chiakiGui) << "Current Profile: " << profile;
     if(profile.isEmpty())
-        QGuiApplication::setApplicationDisplayName("chiaki-ng");
+        QGuiApplication::setApplicationDisplayName("Pylux");
     else
-        QGuiApplication::setApplicationDisplayName(QString("chiaki-ng:%1").arg(profile));
+        QGuiApplication::setApplicationDisplayName(QString("Pylux:%1").arg(profile));
     this->setTitle(QGuiApplication::applicationDisplayName());
 }
 
@@ -365,7 +391,7 @@ AVBufferRef *QmlMainWindow::vulkanHwDeviceCtx()
     return vulkan_hw_dev_ctx;
 }
 
-void QmlMainWindow::init(Settings *settings, bool exit_app_on_stream_exit)
+void QmlMainWindow::init(Settings *settings, bool exit_app_on_stream_exit, SteamworksWrapper *steamworks)
 {
     setSurfaceType(QWindow::VulkanSurface);
 
@@ -516,7 +542,7 @@ void QmlMainWindow::init(Settings *settings, bool exit_app_on_stream_exit)
         qml_engine->setIncubationController(quick_window->incubationController());
     connect(qml_engine, &QQmlEngine::quit, this, &QWindow::close);
 
-    backend = new QmlBackend(settings, this);
+    backend = new QmlBackend(settings, this, steamworks);
     connect(backend, &QmlBackend::sessionChanged, this, [this, exit_app_on_stream_exit](StreamSession *s) {
         session = s;
         grab_input = 0;
@@ -542,6 +568,15 @@ void QmlMainWindow::init(Settings *settings, bool exit_app_on_stream_exit)
                 else
                     showMaximized();
             }
+#if defined(Q_OS_MACOS)
+            // If window size is unchanged, no Resize event runs and the Vulkan + Qt Quick
+            // target can stay stale (gray) until a manual resize. Refresh next tick so
+            // StackView can finish returning to the main menu first.
+            QTimer::singleShot(0, this, [this]() {
+                if (isExposed())
+                    updateSwapchain();
+            });
+#endif
         }
     });
     connect(backend, &QmlBackend::windowTypeUpdated, this, &QmlMainWindow::updateWindowType);
@@ -565,6 +600,16 @@ void QmlMainWindow::init(Settings *settings, bool exit_app_on_stream_exit)
     update_timer = new QTimer(this);
     update_timer->setSingleShot(true);
     connect(update_timer, &QTimer::timeout, this, &QmlMainWindow::update);
+
+    geometry_save_timer = new QTimer(this);
+    geometry_save_timer->setSingleShot(true);
+    geometry_save_timer->setInterval(500);
+    connect(geometry_save_timer, &QTimer::timeout, this, [this]() {
+        if(!session && isWindowAdjustable())
+            this->settings->SetGeometry(geometry());
+        else if(session && this->settings->GetWindowType() == WindowType::AdjustableResolution && isStreamWindowAdjustable())
+            this->settings->SetStreamGeometry(geometry());
+    });
 
     QMetaObject::invokeMethod(quick_render, &QQuickRenderControl::initialize);
 
@@ -698,7 +743,32 @@ void QmlMainWindow::createSwapchain()
 #elif defined(Q_OS_MACOS)
     VkMetalSurfaceCreateInfoEXT surfaceInfo = {};
     surfaceInfo.sType = VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT;
-    surfaceInfo.pLayer = static_cast<const CAMetalLayer*>(reinterpret_cast<void*(*)(id, SEL)>(objc_msgSend)(reinterpret_cast<id>(winId()), sel_registerName("layer")));
+    
+    // Qt 6.10+ wraps CAMetalLayer in QContainerLayer - extract the real layer
+    typedef id (*SendFunc)(id, SEL);
+    typedef unsigned long (*CountFunc)(id, SEL);
+    typedef id (*IndexFunc)(id, SEL, unsigned long);
+    
+    id nsView = reinterpret_cast<id>(winId());
+    id layer = ((SendFunc)objc_msgSend)(nsView, sel_registerName("layer"));
+    void *metalLayer = layer;
+    
+    // Check if it's QContainerLayer and extract the actual metal layer
+    const char *className = object_getClassName(layer);
+    if (strcmp(className, "QContainerLayer") == 0) {
+        // Get sublayers array
+        id sublayers = ((SendFunc)objc_msgSend)(layer, sel_registerName("sublayers"));
+        if (sublayers) {
+            // Get count
+            unsigned long count = ((CountFunc)objc_msgSend)(sublayers, sel_registerName("count"));
+            // Get first sublayer if it exists (the actual CAMetalLayer)
+            if (count > 0) {
+                metalLayer = ((IndexFunc)objc_msgSend)(sublayers, sel_registerName("objectAtIndexedSubscript:"), 0UL);
+            }
+        }
+    }
+    
+    surfaceInfo.pLayer = static_cast<const CAMetalLayer*>(metalLayer);
     err = vk_funcs.vkCreateMetalSurfaceEXT(placebo_vk_inst->instance, &surfaceInfo, nullptr, &surface);
 #elif defined(Q_OS_WIN32)
     VkWin32SurfaceCreateInfoKHR surfaceInfo = {};
@@ -742,7 +812,20 @@ void QmlMainWindow::resizeSwapchain()
     if (window_size == swapchain_size)
         return;
 
+    // Skip texture recreation if window has invalid dimensions (e.g., minimized)
+    if (window_size.width() <= 0 || window_size.height() <= 0) {
+        qCDebug(chiakiGui) << "Skipping swapchain resize for invalid window dimensions:" << window_size;
+        return;
+    }
+
     swapchain_size = window_size;
+    
+    // Double-check dimensions before calling libplacebo functions
+    if (swapchain_size.width() <= 0 || swapchain_size.height() <= 0) {
+        qCDebug(chiakiGui) << "Invalid swapchain_size before libplacebo calls:" << swapchain_size;
+        return;
+    }
+    
     pl_swapchain_resize(placebo_swapchain, &swapchain_size.rwidth(), &swapchain_size.rheight());
 
     struct pl_tex_params tex_params = {
@@ -752,6 +835,14 @@ void QmlMainWindow::resizeSwapchain()
         .sampleable = true,
         .renderable = true,
     };
+    
+    // Final safety check before calling libplacebo
+    if (tex_params.w <= 0 || tex_params.h <= 0) {
+        qCWarning(chiakiGui) << "Prevented invalid texture creation with dimensions:"
+                             << tex_params.w << "x" << tex_params.h;
+        return;
+    }
+    
     if (!pl_tex_recreate(placebo_vulkan->gpu, &quick_tex, &tex_params))
         qCCritical(chiakiGui) << "Failed to create placebo texture";
 
@@ -1163,6 +1254,9 @@ bool QmlMainWindow::event(QEvent *event)
         }
         QGuiApplication::sendEvent(quick_window, event);
         break;
+    case QEvent::Wheel:
+        QGuiApplication::sendEvent(quick_window, event);
+        break;
     case QEvent::Close:
         if (!backend->closeRequested()) {
             event->ignore();
@@ -1184,16 +1278,10 @@ bool QmlMainWindow::event(QEvent *event)
             QMetaObject::invokeMethod(quick_render, std::bind(&QmlMainWindow::destroySwapchain, this), Qt::BlockingQueuedConnection);
         break;
     case QEvent::Move:
-        if(!session && isWindowAdjustable())
-            settings->SetGeometry(geometry());
-        else if(session && settings->GetWindowType() == WindowType::AdjustableResolution && isStreamWindowAdjustable())
-            settings->SetStreamGeometry(geometry());
+        geometry_save_timer->start();
         break;
     case QEvent::Resize:
-        if(!session && isWindowAdjustable())
-            settings->SetGeometry(geometry());
-        else if(session && settings->GetWindowType() == WindowType::AdjustableResolution && isStreamWindowAdjustable())
-            settings->SetStreamGeometry(geometry());
+        geometry_save_timer->start();
         if (isExposed())
             updateSwapchain();
         break;
@@ -1207,4 +1295,31 @@ bool QmlMainWindow::event(QEvent *event)
 QObject *QmlMainWindow::focusObject() const
 {
     return quick_window->focusObject();
+}
+
+void QmlMainWindow::startCloudStreaming(const QString &serviceType, const QString &gameIdentifier)
+{
+    qInfo() << "=== QmlMainWindow::startCloudStreaming ===";
+    qInfo() << "Service Type:" << serviceType;
+    qInfo() << "Game Identifier:" << gameIdentifier;
+    
+    if (!backend) {
+        qWarning() << "QmlBackend not available";
+        return;
+    }
+    
+    CloudStreamingBackend *cloudBackend = backend->cloudStreaming();
+    if (!cloudBackend) {
+        qWarning() << "CloudStreamingBackend not available";
+        return;
+    }
+    
+    // StreamView will be shown automatically by Component.onCompleted in Main.qml
+    // which checks for Chiaki.window.directStream (set to true in constructor)
+    
+    qInfo() << "Calling cloudBackend->startCompleteCloudSession...";
+    // Start the cloud streaming session
+    // Use empty callback since we're handling via signals
+    QJSValue emptyCallback;
+    cloudBackend->startCompleteCloudSession(serviceType, gameIdentifier, emptyCallback);
 }

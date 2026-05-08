@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="donation_paywall_story_lead">Open source, community-maintained. Please consider supporting the project. Donations go to the developers who ship updates.</string>
+    <string name="donation_paywall_bullet_1">It all goes to the developers.</string>
+    <string name="donation_paywall_bullet_2">One payment in Play. No subscription.</string>
+    <string name="donation_paywall_bullet_3">Optional. Full app either way.</string>
+    <string name="donation_paywall_pick_hint">Tiers on the right. You only pay once.</string>
+</resources>

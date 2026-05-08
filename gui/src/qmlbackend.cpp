@@ -1,12 +1,16 @@
 #include "qmlbackend.h"
+#include "qmlgamesbackend.h"
+#include "donationmanager.h"
 #include "qmlsettings.h"
 #include "qmlmainwindow.h"
 #include "streamsession.h"
 #include "controllermanager.h"
 #include "psnaccountid.h"
+#include "psnaccountid_v3.h"
 #include "psntoken.h"
 #include "systemdinhibit.h"
 #include "chiaki/remote/holepunch.h"
+#include "cloudcatalogbackend.h"
 #ifdef Q_OS_MACOS
 #include "macWakeSleep.h"
 #elif defined(Q_OS_WINDOWS)
@@ -14,6 +18,10 @@
 #endif
 #if CHIAKI_GUI_ENABLE_STEAM_SHORTCUT
 #include "steamtools.h"
+#endif
+#ifdef CHIAKI_ENABLE_STEAMWORKS
+#include "steamworks/steamworks_wrapper.h"
+#include "steamworks/steamworks_cloud_sync.h"
 #endif
 
 #ifdef CHIAKI_HAVE_WEBENGINE
@@ -25,11 +33,25 @@
 #include <QUrlQuery>
 #include <QtGlobal>
 #include <QGuiApplication>
+#include <QClipboard>
+#include <QMessageBox>
 #include <QPixmap>
 #include <QImageReader>
 #include <QProcessEnvironment>
 #include <QDesktopServices>
 #include <QtConcurrent>
+#include <QRandomGenerator>
+#include <QNetworkAccessManager>
+#include <QNetworkRequest>
+#include <QNetworkReply>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QSet>
+#include <QDateTime>
+#include <QTimer>
+#include <QUuid>
+#include <algorithm>
 
 #define PSN_DEVICES_TRIES 2
 #define MAX_PSN_RECONNECT_TRIES 6
@@ -38,15 +60,13 @@
 #define WAKEUP_WAIT_SECONDS 25
 static QMutex chiaki_log_mutex;
 static ChiakiLog *chiaki_log_ctx = nullptr;
+static ChiakiLog global_log;
 static QtMessageHandler qt_msg_handler = nullptr;
 
 static void msg_handler(QtMsgType type, const QMessageLogContext &context, const QString &msg)
 {
     QMutexLocker lock(&chiaki_log_mutex);
-    if (!chiaki_log_ctx) {
-        qt_msg_handler(type, context, msg);
-        return;
-    }
+    
     ChiakiLogLevel chiaki_level;
     switch (type) {
     case QtDebugMsg:
@@ -65,7 +85,9 @@ static void msg_handler(QtMsgType type, const QMessageLogContext &context, const
         chiaki_level = CHIAKI_LOG_ERROR;
         break;
     }
-    chiaki_log(chiaki_log_ctx, chiaki_level, "%s", qPrintable(msg));
+    
+    ChiakiLog *log = chiaki_log_ctx ? chiaki_log_ctx : &global_log;
+    chiaki_log(log, chiaki_level, "%s", qPrintable(msg));
 }
 
 QmlRegist::QmlRegist(const ChiakiRegistInfo &regist_info, uint32_t log_mask, QObject *parent)
@@ -99,16 +121,131 @@ void QmlRegist::regist_cb(ChiakiRegistEvent *event, void *user)
     }
 }
 
-QmlBackend::QmlBackend(Settings *settings, QmlMainWindow *window)
+QmlBackend::QmlBackend(Settings *settings, QmlMainWindow *window, SteamworksWrapper *steamworks)
     : QObject(window)
     , settings(settings)
     , settings_qml(new QmlSettings(settings, this))
     , window(window)
 {
+    chiaki_log_init(&global_log, settings->GetLogLevelMask(), chiaki_log_cb_print, nullptr);
     qt_msg_handler = qInstallMessageHandler(msg_handler);
 
     const char *uri = "org.streetpea.chiaking";
     qmlRegisterSingletonInstance(uri, 1, 0, "Chiaki", this);
+    games_backend = new QmlGamesBackend(settings, this);
+    qmlRegisterSingletonInstance(uri, 1, 0, "ChiakiGames", games_backend);
+    auto *donationManager = new DonationManager(settings, this);
+    qmlRegisterSingletonInstance(uri, 1, 0, "DonationManager", donationManager);
+    cloud_streaming_backend = new CloudStreamingBackend(settings, this);
+    cloud_catalog_backend = new CloudCatalogBackend(settings, this);
+    
+    // Connect cloud streaming backend to register sessions
+    connect(cloud_streaming_backend, &CloudStreamingBackend::sessionCreated, this, 
+            [this, window](StreamSession *session_to_register) {
+        qInfo() << "QmlBackend: Registering cloud streaming session";
+        
+        // Clean up any existing session first
+        if (session) {
+            qWarning() << "QmlBackend: Closing existing session before registering new cloud session";
+            chiaki_log_mutex.lock();
+            chiaki_log_ctx = nullptr;
+            chiaki_log_mutex.unlock();
+            session->deleteLater();
+        }
+        
+        // Register the new session
+        session = session_to_register;
+        
+        // Setup logging
+        chiaki_log_mutex.lock();
+        chiaki_log_ctx = session->GetChiakiLog();
+        chiaki_log_mutex.unlock();
+        
+        // Connect frame presentation (critical for video display!)
+        connect(session, &StreamSession::FfmpegFrameAvailable, frame_thread->parent(), [this, window]() {
+            ChiakiFfmpegDecoder *decoder = session->GetFfmpegDecoder();
+            if (!decoder) {
+                qCCritical(chiakiGui) << "Session has no FFmpeg decoder";
+                return;
+            }
+            int32_t frames_lost;
+            AVFrame *frame = chiaki_ffmpeg_decoder_pull_frame(decoder, &frames_lost);
+            if (!frame)
+                return;
+
+            static const QSet<int> zero_copy_formats = {
+                AV_PIX_FMT_VULKAN,
+#ifdef Q_OS_LINUX
+                AV_PIX_FMT_VAAPI,
+#endif
+            };
+            if (frame->hw_frames_ctx && (!zero_copy_formats.contains(frame->format) || disable_zero_copy)) {
+                AVFrame *sw_frame = av_frame_alloc();
+                if (av_hwframe_transfer_data(sw_frame, frame, 0) < 0) {
+                    qCWarning(chiakiGui) << "Failed to transfer frame from hardware";
+                    av_frame_unref(frame);
+                    av_frame_free(&sw_frame);
+                    return;
+                }
+                av_frame_copy_props(sw_frame, frame);
+                av_frame_unref(frame);
+                frame = sw_frame;
+            }
+            QMetaObject::invokeMethod(window, std::bind(&QmlMainWindow::presentFrame, window, frame, frames_lost));
+        });
+
+        // Connect session quit handler
+        connect(session, &StreamSession::SessionQuit, this, [this](ChiakiQuitReason reason, const QString &reason_str) {
+            if (chiaki_quit_reason_is_error(reason)) {
+                QString m = tr("Pylux Session has quit") + ":\n" + chiaki_quit_reason_string(reason);
+                if (!reason_str.isEmpty())
+                    m += "\n" + tr("Reason") + ": \"" + reason_str + "\"";
+                emit sessionError(tr("Session has quit"), m);
+            }
+
+            chiaki_log_mutex.lock();
+            chiaki_log_ctx = nullptr;
+            chiaki_log_mutex.unlock();
+
+            session->deleteLater();
+            session = nullptr;
+            emit sessionChanged(session);
+
+            sleep_inhibit->release();
+            setDiscoveryEnabled(true);
+        });
+
+        // Connect discovery state handler
+        connect(session, &StreamSession::ConnectedChanged, this, [this]() {
+            if (session->IsConnected())
+                setDiscoveryEnabled(false);
+        });
+        
+        // Notify QML that session is available
+        emit sessionChanged(session);
+        
+        // Apply window type settings (fullscreen/zoom/stretch) for cloud streaming
+        // Read flags from session (already set in connect_info)
+        bool fullscreen = session->GetFullscreen();
+        bool zoom = session->GetZoom();
+        bool stretch = session->GetStretch();
+        
+        if (zoom) {
+            window->setVideoMode(QmlMainWindow::VideoMode::Zoom);
+        } else if (stretch) {
+            window->setVideoMode(QmlMainWindow::VideoMode::Stretch);
+        }
+        
+        if (fullscreen || zoom || stretch) {
+            window->fullscreenTime();
+        }
+        
+        // Inhibit sleep
+        sleep_inhibit->inhibit();
+        
+        qInfo() << "QmlBackend: Cloud streaming session registered successfully";
+    });
+    
     qmlRegisterUncreatableType<QmlMainWindow>(uri, 1, 0, "ChiakiWindow", {});
     qmlRegisterUncreatableType<QmlSettings>(uri, 1, 0, "ChiakiSettings", {});
     qmlRegisterUncreatableType<StreamSession>(uri, 1, 0, "ChiakiSession", {});
@@ -124,7 +261,39 @@ QmlBackend::QmlBackend(Settings *settings, QmlMainWindow *window)
     connect(&psn_connection_thread, &QThread::finished, worker, &QObject::deleteLater);
     connect(this, &QmlBackend::psnConnect, worker, &PsnConnectionWorker::ConnectPsnConnection);
     connect(worker, &PsnConnectionWorker::resultReady, this, &QmlBackend::checkPsnConnection);
-    connect(&psn_hosts_watcher, &QFutureWatcher<void>::finished, [this]{ this->updating_psn_hosts = false; });
+    connect(&psn_hosts_watcher, &QFutureWatcher<void>::finished, [this]{ 
+        this->updating_psn_hosts = false;
+        
+        // If the last fetch failed and we haven't tried refreshing yet, refresh token and retry
+        if (psn_hosts_last_failed && !psn_hosts_retry_after_refresh) {
+            qCInfo(chiakiGui) << "PSN device list fetch failed, attempting to refresh token...";
+            psn_hosts_retry_after_refresh = true;
+            psn_hosts_last_failed = false;
+            
+            QString refresh_token = this->settings->GetPsnRefreshToken();
+            if (!refresh_token.isEmpty()) {
+                PSNToken *psnToken = new PSNToken(this->settings, this);
+                connect(psnToken, &PSNToken::PSNTokenError, this, [this](const QString &error) {
+                    qCWarning(chiakiGui) << "Failed to refresh PSN token for device list:" << error;
+                    psn_hosts_retry_after_refresh = false;
+                });
+                connect(psnToken, &PSNToken::UnauthorizedError, this, &QmlBackend::tryRefreshWithNpsso);
+                connect(psnToken, &PSNToken::PSNTokenSuccess, this, [this]() {
+                    qCInfo(chiakiGui) << "PSN token refreshed, retrying device list fetch...";
+                    updatePsnHosts();
+                });
+                connect(psnToken, &PSNToken::Finished, psnToken, &QObject::deleteLater);
+                psnToken->RefreshPsnToken(std::move(refresh_token));
+            } else {
+                qCWarning(chiakiGui) << "No refresh token available";
+                psn_hosts_retry_after_refresh = false;
+            }
+        } else {
+            // Reset retry flag for next time
+            psn_hosts_retry_after_refresh = false;
+            psn_hosts_last_failed = false;
+        }
+    });
     psn_connection_thread.start();
 
     setConnectState(PsnConnectState::NotStarted);
@@ -162,6 +331,7 @@ QmlBackend::QmlBackend(Settings *settings, QmlMainWindow *window)
     wakeup_start_timer->setSingleShot(true);
     if(autoConnect() && !auto_connect_nickname.isEmpty())
     {
+        
         connect(psn_auto_connect_timer, &QTimer::timeout, this, [this]
         {
             int i = 0;
@@ -204,7 +374,7 @@ QmlBackend::QmlBackend(Settings *settings, QmlMainWindow *window)
                 setConnectState(PsnConnectState::ConnectFailed);
             }
         });
-        connect(psnToken, &PSNToken::UnauthorizedError, this, &QmlBackend::psnCredsExpired);
+        connect(psnToken, &PSNToken::UnauthorizedError, this, &QmlBackend::tryRefreshWithNpsso);
         connect(psnToken, &PSNToken::PSNTokenSuccess, this, [this]() {
             qCWarning(chiakiGui) << "PSN Remote Connection Tokens Refreshed. Internet is back up";
             resume_session = false;
@@ -234,11 +404,167 @@ QmlBackend::QmlBackend(Settings *settings, QmlMainWindow *window)
     connect(windows_wake_sleep, &WindowsWakeSleep::wokeUp, this, &QmlBackend::resumeFromSleep);
     connect(windows_wake_sleep, &WindowsWakeSleep::sleeping, this, &QmlBackend::goToSleep);
 #endif
+
+#ifdef CHIAKI_ENABLE_STEAMWORKS
+    // Use the passed-in Steamworks instance (already initialized and ownership-checked in main.cpp)
+    // This ensures cloud-synced PSN tokens are downloaded before use
+    steamworks_wrapper = steamworks;
+    if (steamworks_wrapper && steamworks_wrapper->isSteamAvailable()) {
+        // Sync config from cloud (blocking with timeout)
+        // This ensures we have the latest PSN tokens before refreshing
+        auto* cloudSync = steamworks_wrapper->getCloudSync();
+        if (cloudSync) {
+            qCInfo(chiakiGui) << "QmlBackend: Cloud sync instance available, enabled:" << cloudSync->isEnabled();
+            
+            if (cloudSync->isEnabled()) {
+                qCInfo(chiakiGui) << "QmlBackend: Scheduling Steam Cloud sync (async)...";
+                QTimer::singleShot(0, this, [this, cloudSync]() {
+                    qCInfo(chiakiGui) << "QmlBackend: Syncing from Steam Cloud...";
+                    int downloadedCount = cloudSync->syncAllProfilesFromCloud();
+                    if (downloadedCount > 0) {
+                        QString title = tr("Steam Cloud Sync");
+                        QString message = downloadedCount == 1 
+                            ? tr("Downloaded 1 profile from Steam Cloud") 
+                            : tr("Downloaded %1 profiles from Steam Cloud").arg(downloadedCount);
+                        emit error(title, message, 5000);
+                    }
+                });
+            }
+        } else {
+            qCWarning(chiakiGui) << "QmlBackend: Cloud sync instance is NULL!";
+        }
+        
+        // Set initial rich presence (no game, shows "Remote Play")
+        steamworks_wrapper->setRichPresence("");
+        
+        qCInfo(chiakiGui) << "QmlBackend: Using pre-initialized Steamworks instance";
+    } else {
+        qCWarning(chiakiGui) << "QmlBackend: No Steamworks instance provided or Steam not available, continuing without Steamworks features";
+    }
+#endif
+
+    // Now safe to refresh PSN token (will use cloud token if it was newer)
     refreshPsnToken();
+#if CHIAKI_GUI_ENABLE_STEAM_SHORTCUT
+    configureSteamControllerLayout();
+#endif
+
+    // Check for notifications on startup
+    checkNotification();
+}
+
+void QmlBackend::checkNotification()
+{
+    qInfo() << "[NOTIFICATION] Starting notification check";
+    
+    // Download notification file from Dropbox
+    QNetworkAccessManager *manager = new QNetworkAccessManager(this);
+    // Use dl=1 to force direct download instead of HTML page
+    QUrl url("https://www.dropbox.com/scl/fi/f88xkptasl9570ya2wd1r/notification.txt?rlkey=c7saqombjthdk6r60pcwi1wfv&st=am5k4efl&dl=1");
+    QNetworkRequest request(url);
+    request.setRawHeader("User-Agent", "Mozilla/5.0");
+    request.setRawHeader("Accept", "text/plain, application/json, */*");
+    
+    qInfo() << "[NOTIFICATION] Downloading from:" << url.toString();
+    
+    QNetworkReply *reply = manager->get(request);
+    connect(reply, &QNetworkReply::finished, this, [this, manager, reply]() {
+        qInfo() << "[NOTIFICATION] Network reply finished, error:" << reply->error() << "status:" << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        
+        reply->deleteLater();
+        manager->deleteLater();
+        
+        // Handle errors gracefully
+        if (reply->error() != QNetworkReply::NoError) {
+            qInfo() << "[NOTIFICATION] Network error:" << reply->errorString() << "- silently ignoring";
+            return;
+        }
+        
+        QByteArray data = reply->readAll();
+        qInfo() << "[NOTIFICATION] Received" << data.size() << "bytes";
+        
+        // Log first 200 characters to debug what we received
+        QString preview = QString::fromUtf8(data.left(200));
+        qInfo() << "[NOTIFICATION] First 200 chars:" << preview;
+        
+        if (data.isEmpty()) {
+            qInfo() << "[NOTIFICATION] Empty file - silently ignoring";
+            return;
+        }
+        
+        // Check if we got HTML instead of JSON (common with Dropbox)
+        if (data.startsWith("<!DOCTYPE") || data.startsWith("<html") || data.contains("<html")) {
+            qInfo() << "[NOTIFICATION] Received HTML instead of JSON - Dropbox may require direct download link";
+            return;
+        }
+        
+        // Parse JSON
+        QJsonParseError parseError;
+        QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
+        if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+            qInfo() << "[NOTIFICATION] Invalid JSON - parse error:" << parseError.errorString() << "at offset:" << parseError.offset << "- silently ignoring";
+            return;
+        }
+        
+        QJsonObject obj = doc.object();
+        if (!obj.contains("message") || !obj.contains("id")) {
+            qInfo() << "[NOTIFICATION] Missing required fields (message or id) - silently ignoring";
+            return;
+        }
+        
+        QString message = obj["message"].toString();
+        QString notificationId = obj["id"].toString();
+        
+        qInfo() << "[NOTIFICATION] Parsed - message length:" << message.length() << "id:" << notificationId;
+        
+        if (message.isEmpty() || notificationId.isEmpty()) {
+            qInfo() << "[NOTIFICATION] Empty message or id - silently ignoring";
+            return;
+        }
+        
+        // Check if we've already shown this notification
+        QString lastShownId = settings->GetLastShownNotificationId();
+        qInfo() << "[NOTIFICATION] Last shown ID:" << lastShownId << "Current ID:" << notificationId;
+        
+        if (lastShownId == notificationId) {
+            qInfo() << "[NOTIFICATION] Already shown - not showing again";
+            return;
+        }
+        
+        // Show the notification popup
+        qInfo() << "[NOTIFICATION] Showing notification popup";
+        QMessageBox::information(nullptr, tr("Notification"), message);
+        
+        // Save the notification ID so we don't show it again
+        settings->SetLastShownNotificationId(notificationId);
+        qInfo() << "[NOTIFICATION] Saved notification ID:" << notificationId;
+    });
 }
 
 QmlBackend::~QmlBackend()
 {
+#ifdef CHIAKI_ENABLE_STEAMWORKS
+    // Sync config to Steam Cloud before exit (with timeout)
+    qCInfo(chiakiGui) << "QmlBackend: Destructor - checking Steam Cloud sync...";
+    if (steamworks_wrapper && steamworks_wrapper->isSteamAvailable()) {
+        qCInfo(chiakiGui) << "QmlBackend: Steamworks available";
+        auto* cloudSync = steamworks_wrapper->getCloudSync();
+        if (cloudSync) {
+            qCInfo(chiakiGui) << "QmlBackend: Cloud sync instance exists, enabled:" << cloudSync->isEnabled();
+            if (cloudSync->isEnabled()) {
+                qCInfo(chiakiGui) << "QmlBackend: Syncing to Steam Cloud on exit...";
+                cloudSync->syncBidirectional();
+                // Note: Timeout is built into syncBidirectional (5 seconds max)
+                // App will exit regardless of sync success/failure
+            }
+        } else {
+            qCWarning(chiakiGui) << "QmlBackend: Cloud sync instance is NULL in destructor!";
+        }
+    } else {
+        qCWarning(chiakiGui) << "QmlBackend: Steamworks not available in destructor";
+    }
+#endif
+
     if(session)
     {
         chiaki_log_mutex.lock();
@@ -266,6 +592,25 @@ QmlMainWindow *QmlBackend::qmlWindow() const
 QmlSettings *QmlBackend::qmlSettings() const
 {
     return settings_qml;
+}
+
+CloudStreamingBackend *QmlBackend::cloudStreaming() const
+{
+    return cloud_streaming_backend;
+}
+
+CloudCatalogBackend *QmlBackend::cloudCatalog() const
+{
+    return cloud_catalog_backend;
+}
+
+bool QmlBackend::cloudSteamShortcutEnabled() const
+{
+#if CHIAKI_GUI_ENABLE_STEAM_SHORTCUT && defined(CHIAKI_ENABLE_STEAMWORKS)
+    return steamworks_wrapper && steamworks_wrapper->isSteamAvailable();
+#else
+    return false;
+#endif
 }
 
 StreamSession *QmlBackend::qmlSession() const
@@ -351,6 +696,7 @@ void QmlBackend::profileChanged()
     connect(settings, &Settings::CurrentProfileChanged, this, &QmlBackend::profileChanged);
     connect(settings, &Settings::ControllerMappingsUpdated, this, &QmlBackend::updateControllerMappings);
     settings_qml->setSettings(settings);
+    games_backend->setSettings(settings);  // Update games backend settings too
     discovery_manager.SetSettings(settings);
     window->setSettings(settings);
     setDiscoveryEnabled(true);
@@ -407,7 +753,7 @@ void QmlBackend::profileChanged()
                 setConnectState(PsnConnectState::ConnectFailed);
             }
         });
-        connect(psnToken, &PSNToken::UnauthorizedError, this, &QmlBackend::psnCredsExpired);
+        connect(psnToken, &PSNToken::UnauthorizedError, this, &QmlBackend::tryRefreshWithNpsso);
         connect(psnToken, &PSNToken::PSNTokenSuccess, this, []() {
             qCWarning(chiakiGui) << "PSN Remote Connection Tokens Refreshed. Internet is back up";
         });
@@ -517,13 +863,11 @@ QVariantList QmlBackend::hosts() const
         m["manual"] = manual;
         m["name"] = host.host_name;
         QString duid = "";
-        if(!registered)
-        {
-            if(psn_nickname_hosts.contains(host.host_name))
-                duid = psn_nickname_hosts.value(host.host_name).GetDuid();
-            else if(!host.ps5)
-                duid =  psn_nickname_hosts.value(QString("Main PS4 Console")).GetDuid();
-        }
+        // Always set duid from PSN data if available (needed for games list feature)
+        if(psn_nickname_hosts.contains(host.host_name))
+            duid = psn_nickname_hosts.value(host.host_name).GetDuid();
+        else if(!host.ps5)
+            duid = psn_nickname_hosts.value(QString("Main PS4 Console")).GetDuid();
         m["duid"] = duid;
         m["address"] = host.host_addr;
         m["ps5"] = host.ps5;
@@ -534,7 +878,21 @@ QVariantList QmlBackend::hosts() const
         m["registered"] = registered;
         m["display"] = hidden ? false : true;
         discovered_nicknames.append(host.host_name);
-        out.append(m);
+        
+        // Update last known IP for registered hosts
+        if (registered) {
+            auto reg_host = settings->GetRegisteredHost(host_mac);
+            if (reg_host.GetLastHostIP() != host.host_addr) {
+                qCInfo(chiakiGui) << "Updating last known IP for" << host.host_name << "from" << reg_host.GetLastHostIP() << "to" << host.host_addr;
+                reg_host.SetLastHostIP(host.host_addr);
+                settings->AddRegisteredHost(reg_host);
+            }
+        }
+        
+        // Only add hosts that should be displayed
+        if (!hidden) {
+            out.append(m);
+        }
         if(!host.ps5 && registered)
             registered_discovered_ps4s++;
     }
@@ -547,7 +905,8 @@ QVariantList QmlBackend::hosts() const
         m["address"] = host.GetHost();
         m["state"] = "unknown";
         m["registered"] = false;
-        m["display"] = discovered_manual_hosts.contains(host) ? false : true;
+        bool should_display = !discovered_manual_hosts.contains(host);
+        m["display"] = should_display;
         if (host.GetRegistered() && settings->GetRegisteredHostRegistered(host.GetMAC())) {
             auto registered = settings->GetRegisteredHost(host.GetMAC());
             m["registered"] = true;
@@ -555,7 +914,10 @@ QVariantList QmlBackend::hosts() const
             m["ps5"] = chiaki_target_is_ps5(registered.GetTarget());
             m["mac"] = registered.GetServerMAC().ToString();
         }
-        out.append(m);
+        // Only add hosts that should be displayed
+        if (should_display) {
+            out.append(m);
+        }
     }
     if(registered_discovered_ps4s >= settings->GetPS4RegisteredHostsRegistered())
         discovered_nicknames.append(QString("Main PS4 Console"));
@@ -752,6 +1114,15 @@ void QmlBackend::createSession(const StreamSessionConnectInfo &connect_info)
         return;
     }
 
+#ifdef CHIAKI_ENABLE_STEAMWORKS
+    // Update rich presence when streaming starts
+    if (steamworks_wrapper && steamworks_wrapper->isSteamAvailable()) {
+        QString gameName = connect_info.game_name;
+        // Enhanced Rich Presence: pass gameName (or empty), display token set automatically
+        steamworks_wrapper->setRichPresence(gameName);
+    }
+#endif
+
     connect(session, &StreamSession::FfmpegFrameAvailable, frame_thread->parent(), [this]() {
         ChiakiFfmpegDecoder *decoder = session->GetFfmpegDecoder();
         if (!decoder) {
@@ -786,7 +1157,7 @@ void QmlBackend::createSession(const StreamSessionConnectInfo &connect_info)
 
     connect(session, &StreamSession::SessionQuit, this, [this](ChiakiQuitReason reason, const QString &reason_str) {
         if (chiaki_quit_reason_is_error(reason)) {
-            QString m = tr("Chiaki Session has quit") + ":\n" + chiaki_quit_reason_string(reason);
+            QString m = tr("Pylux Session has quit") + ":\n" + chiaki_quit_reason_string(reason);
             if (!reason_str.isEmpty())
                 m += "\n" + tr("Reason") + ": \"" + reason_str + "\"";
             emit sessionError(tr("Session has quit"), m);
@@ -1097,7 +1468,7 @@ void QmlBackend::autoRegister()
         connect(psnToken, &PSNToken::PSNTokenError, this, [this](const QString &error) {
             qCWarning(chiakiGui) << "Could not refresh token. Automatic PSN Connection Unavailable!" << error;
         });
-        connect(psnToken, &PSNToken::UnauthorizedError, this, &QmlBackend::psnCredsExpired);
+        connect(psnToken, &PSNToken::UnauthorizedError, this, &QmlBackend::tryRefreshWithNpsso);
         connect(psnToken, &PSNToken::PSNTokenSuccess, this, []() {
             qCWarning(chiakiGui) << "PSN Remote Connection Tokens Refreshed.";
         });
@@ -1166,7 +1537,7 @@ void QmlBackend::setWebEngineHints(QQuickWebEngineProfile *profile)
 }
 #endif
 
-void QmlBackend::connectToHost(int index, QString nickname)
+void QmlBackend::connectToHost(int index, QString nickname, QString gameName, QString titleId)
 {
     window->setWindowAdjustable(false);
     auto server = displayServerAt(index);
@@ -1238,6 +1609,13 @@ void QmlBackend::connectToHost(int index, QString nickname)
                 fullscreen,
                 zoom,
                 stretch);
+        // Set game launch parameters if provided
+        if (!gameName.isEmpty()) {
+            info.game_name = gameName;
+        }
+        if (!titleId.isEmpty()) {
+            info.title_id = titleId;
+        }
         createSession(info);
     }
     else
@@ -1256,6 +1634,14 @@ void QmlBackend::connectToHost(int index, QString nickname)
                 zoom,
                 stretch);
 
+        // Set game launch parameters if provided
+        if (!gameName.isEmpty()) {
+            info.game_name = gameName;
+        }
+        if (!titleId.isEmpty()) {
+            info.title_id = titleId;
+        }
+
         QString expiry_s = settings->GetPsnAuthTokenExpiry();
         QString refresh = settings->GetPsnRefreshToken();
         if(expiry_s.isEmpty() || refresh.isEmpty())
@@ -1269,7 +1655,7 @@ void QmlBackend::connectToHost(int index, QString nickname)
             connect(psnToken, &PSNToken::PSNTokenError, this, [this](const QString &error) {
                 qCWarning(chiakiGui) << "Could not refresh token. Automatic PSN Connection Unavailable!" << error;
             });
-            connect(psnToken, &PSNToken::UnauthorizedError, this, &QmlBackend::psnCredsExpired);
+            connect(psnToken, &PSNToken::UnauthorizedError, this, &QmlBackend::tryRefreshWithNpsso);
             connect(psnToken, &PSNToken::PSNTokenSuccess, this, []() {
                 qCWarning(chiakiGui) << "PSN Remote Connection Tokens Refreshed.";
             });
@@ -1322,10 +1708,23 @@ void QmlBackend::enterPin(const QString &pin)
 
 QUrl QmlBackend::psnLoginUrl() const
 {
-    size_t duid_size = CHIAKI_DUID_STR_SIZE;
-    char duid[duid_size];
-    chiaki_holepunch_generate_client_device_uid(duid, &duid_size);
-    return QUrl(PSNAuth::LOGIN_URL + "duid=" + QString(duid) + "&");
+    // Build OAuth v3 authorize URL with all required parameters
+    // Reference: research_docs/oauth/IMPLEMENTATION_GUIDE.md lines 48-69
+    QUrl authUrl(PSNAuthV3::AUTHORIZE_ENDPOINT_V3);
+    QUrlQuery query;
+    query.addQueryItem("client_id", PSNAuthV3::CLIENT_ID);
+    query.addQueryItem("redirect_uri", PSNAuthV3::REDIRECT_URI);
+    query.addQueryItem("scope", PSNAuthV3::SCOPES);
+    query.addQueryItem("response_type", "code");
+    query.addQueryItem("service_entity", "urn:service-entity:psn");
+    query.addQueryItem("access_type", "offline"); // CRITICAL: Requests refresh token!
+    query.addQueryItem("smcid", "remoteplay");
+    query.addQueryItem("layout_type", "popup");
+    query.addQueryItem("PlatformPrivacyWs1", "minimal");
+    query.addQueryItem("no_captcha", "true");
+    query.addQueryItem("cid", QUuid::createUuid().toString(QUuid::WithoutBraces));
+    authUrl.setQuery(query);
+    return authUrl;
 }
 
 bool QmlBackend::handlePsnLoginRedirect(const QUrl &url)
@@ -1344,6 +1743,18 @@ bool QmlBackend::handlePsnLoginRedirect(const QUrl &url)
     }
     PSNAccountID *psnId = new PSNAccountID(settings, this);
     connect(psnId, &PSNAccountID::AccountIDResponse, this, [this, psnId](const QString &accountId) {
+        // Safely trigger QML property change notifications if UI is available
+        if (settings_qml) {
+            try {
+                settings_qml->setPsnAuthToken(settings->GetPsnAuthToken());
+                settings_qml->setPsnRefreshToken(settings->GetPsnRefreshToken());
+                settings_qml->setPsnAuthTokenExpiry(settings->GetPsnAuthTokenExpiry());
+                settings_qml->setPsnAccountId(settings->GetPsnAccountId());
+            } catch (...) {
+                qCWarning(chiakiGui) << "Failed to update QML settings properties - UI may not be available";
+            }
+        }
+        
         emit psnLoginAccountIdDone(accountId);
     });
     connect(psnId, &PSNAccountID::AccountIDResponse, this, &QmlBackend::updatePsnHosts);
@@ -1608,6 +2019,51 @@ void QmlBackend::setEnableAnalogStickMapping(bool enabled)
             controller_mapping_controller->EnableAnalogStickMapping(enabled);
         enable_analog_stick_mapping = enabled;
         emit enableAnalogStickMappingChanged();
+    }
+}
+
+void QmlBackend::setShowPingTimeoutDialog(bool show)
+{
+    if(show_ping_timeout_dialog != show)
+    {
+        show_ping_timeout_dialog = show;
+        emit showPingTimeoutDialogChanged();
+    }
+}
+
+void QmlBackend::setShowAuthorizationFailedDialog(bool show)
+{
+    if(show_authorization_failed_dialog != show)
+    {
+        show_authorization_failed_dialog = show;
+        emit showAuthorizationFailedDialogChanged();
+    }
+}
+
+void QmlBackend::setShowPSPlusSubscriptionDialog(bool show)
+{
+    if(show_ps_plus_subscription_dialog != show)
+    {
+        show_ps_plus_subscription_dialog = show;
+        emit showPSPlusSubscriptionDialogChanged();
+    }
+}
+
+void QmlBackend::setShowAccountPrivacySettingsDialog(bool show)
+{
+    if(show_account_privacy_settings_dialog != show)
+    {
+        show_account_privacy_settings_dialog = show;
+        emit showAccountPrivacySettingsDialogChanged();
+    }
+}
+
+void QmlBackend::setAccountPrivacyUpgradeUrl(const QString &url)
+{
+    if(account_privacy_upgrade_url != url)
+    {
+        account_privacy_upgrade_url = url;
+        emit accountPrivacyUpgradeUrlChanged();
     }
 }
 
@@ -2035,6 +2491,145 @@ QString QmlBackend::getExecutable() {
     return QCoreApplication::applicationFilePath();
 }
 
+/**
+ * Get the base Steam directory path.
+ * 
+ * NOTE: This is duplicated from SteamTools::getSteamBaseDir() in third-party/cpp-steam-tools/src/steamtools.cpp
+ * because that method is private. If the original changes, this must be updated to match.
+ * 
+ * Original source: third-party/cpp-steam-tools/src/steamtools.cpp lines 30-55
+ */
+QString QmlBackend::getSteamBaseDir()
+{
+    QString steamBaseDir;
+#if defined(__APPLE__)
+    steamBaseDir.append(getenv("HOME"));
+    steamBaseDir.append("/Library/Application Support/Steam");
+#elif defined(_WIN32)
+    steamBaseDir.append("C:/Program Files (x86)/Steam");
+#elif defined(__linux__)
+    QString steamFlatpakDir = getenv("HOME");
+    steamBaseDir.append(getenv("HOME"));
+    
+    steamFlatpakDir.append("/.var/app/com.valvesoftware.Steam/data/Steam");
+    
+    QDir steamBaseDirObj(steamFlatpakDir);
+    
+    // If flatpak Steam is installed
+    if (steamBaseDirObj.exists()) {
+        steamBaseDir.append("/.var/app/com.valvesoftware.Steam/data/Steam");
+    }
+    else {
+        // Steam installed on host
+        steamBaseDir.append("/.steam/steam");
+    }
+#endif
+    return steamBaseDir;
+}
+
+/**
+ * Get the most recent Steam user ID.
+ * 
+ * NOTE: This is duplicated from SteamTools::getMostRecentUser() in third-party/cpp-steam-tools/src/steamtools.cpp
+ * because that method is private. If the original changes, this must be updated to match.
+ * 
+ * Original source: third-party/cpp-steam-tools/src/steamtools.cpp lines 61-96
+ */
+QString QmlBackend::getSteamUserId()
+{
+    QString steamBaseDir = getSteamBaseDir();
+    if (!QDir(steamBaseDir).exists()) {
+        return QString();
+    }
+    
+    QString steamConfigFilePath = QString("%1/config/loginusers.vdf").arg(steamBaseDir);
+    QFile steamConfigfile(steamConfigFilePath);
+    
+    if (!steamConfigfile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        qCWarning(chiakiGui) << "Failed to open loginusers.vdf:" << steamConfigfile.errorString();
+        return QString();
+    }
+    
+    QTextStream in(&steamConfigfile);
+    QString steamid;
+    QString user_id;
+    
+    // Read the file line by line to find the most recent user
+    while (!in.atEnd()) {
+        QString line = in.readLine();
+        
+        if (line.contains("7656119") && !line.contains("PersonalName")) {
+            steamid = line.mid(line.indexOf("7656119"), line.size() - 1);
+        } else if ((line.contains("mostrecent", Qt::CaseInsensitive) || line.contains("MostRecent")) &&
+                   line.contains("\"1\"")) {
+            unsigned long long steamidLongLong = steamid.toULongLong();
+            steamidLongLong -= 76561197960265728;
+            user_id = QString::number(steamidLongLong);
+        }
+    }
+    
+    steamConfigfile.close();
+    return user_id;
+}
+
+void QmlBackend::configureSteamControllerLayout()
+{
+#ifdef CHIAKI_GUI_ENABLE_STEAM_SHORTCUT
+    qCInfo(chiakiGui) << "Checking Steam Deck controller configuration...";
+    
+    // Get the current Steam user ID directly by reading loginusers.vdf
+    QString steam_user_id = getSteamUserId();
+    if (steam_user_id.isEmpty()) {
+        qCInfo(chiakiGui) << "Could not determine Steam user - skipping controller configuration";
+        return;
+    }
+    
+    // Check if we've already configured this Steam user
+    QStringList configured_users = settings->GetSteamControllerConfiguredUsers();
+    if (configured_users.contains(steam_user_id)) {
+        qCInfo(chiakiGui) << "Steam Deck controller already configured for Steam user" << steam_user_id << "- skipping";
+        return;
+    }
+    
+    // Create SteamTools instance with minimal logging lambdas
+    auto infoLambda = [](const QString &msg) {
+        qCInfo(chiakiGui) << "SteamTools:" << msg;
+    };
+    auto errorLambda = [](const QString &msg) {
+        qCWarning(chiakiGui) << "SteamTools:" << msg;
+    };
+    
+    SteamTools* steam_tools = new SteamTools(infoLambda, errorLambda, QString());
+    
+    // Check if Steam exists
+    if (!steam_tools->steamExists()) {
+        qCInfo(chiakiGui) << "Steam not found - skipping controller configuration";
+        delete steam_tools;
+        return;
+    }
+    
+    // Configure the controller layout for pylux (first time for this user)
+    QString controller_layout_workshop_id = "3049833406";
+    qCInfo(chiakiGui) << "Configuring Steam Deck controller for pylux (first time for Steam user" << steam_user_id << ")";
+    qCInfo(chiakiGui) << "Applying workshop ID:" << controller_layout_workshop_id;
+    
+    // Pass "pylux" - it will be lowercased to "pylux" internally by updateControllerConfig
+    try {
+        steam_tools->updateControllerConfig("3946320", controller_layout_workshop_id);
+    } catch (const std::exception& e) {
+        qCWarning(chiakiGui) << "Failed to update Steam controller config:" << e.what();
+    }
+    
+    // Save this Steam user as configured so we never override their choice again
+    settings->AddSteamControllerConfiguredUser(steam_user_id);
+    qCInfo(chiakiGui) << "Steam Deck controller configuration complete for Steam user" << steam_user_id;
+    
+    delete steam_tools;
+#else
+    qCInfo(chiakiGui) << "Steam shortcut support not enabled - skipping controller configuration";
+#endif
+}
+
 void QmlBackend::createSteamShortcut(QString shortcutName, QString launchOptions, const QJSValue &callback, QString steamDir)
 {
     QJSValue cb = callback;
@@ -2105,7 +2700,11 @@ void QmlBackend::createSteamShortcut(QString shortcutName, QString launchOptions
         shortcuts.append(newShortcut);
     }
     steam_tools->updateShortcuts(std::move(shortcuts));
-    steam_tools->updateControllerConfig(newShortcut.getAppName(), std::move(controller_layout_workshop_id));
+    try {
+        steam_tools->updateControllerConfig(newShortcut.getAppName(), std::move(controller_layout_workshop_id));
+    } catch (const std::exception& e) {
+        qCWarning(chiakiGui) << "Failed to update Steam controller config:" << e.what();
+    }
     if (!found)
     {
         if (cb.isCallable())
@@ -2132,6 +2731,38 @@ QString QmlBackend::openPsnLink()
     {
         qCWarning(chiakiGui) << "Could not launch browser.";
         return QString(url.toEncoded());
+    }
+}
+
+QString QmlBackend::openNpssoPage()
+{
+    QUrl url = QUrl(CloudConfig::ACCOUNT_BASE + "/v1/ssocookie");
+    if(QDesktopServices::openUrl(url) && (qEnvironmentVariable("XDG_CURRENT_DESKTOP") != "gamescope"))
+    {
+        qCWarning(chiakiGui) << "Launched browser for NPSO page.";
+        return QString();
+    }
+    else
+    {
+        qCWarning(chiakiGui) << "Could not launch browser for NPSO page.";
+        return QString(url.toEncoded());
+    }
+}
+
+QString QmlBackend::getClipboardText() const
+{
+    QClipboard *clipboard = QGuiApplication::clipboard();
+    if (clipboard) {
+        return clipboard->text();
+    }
+    return QString();
+}
+
+void QmlBackend::setClipboardText(const QString &text)
+{
+    QClipboard *clipboard = QGuiApplication::clipboard();
+    if (clipboard) {
+        clipboard->setText(text);
     }
 }
 
@@ -2186,19 +2817,103 @@ void QmlBackend::initPsnAuth(const QUrl &url, const QJSValue &callback)
     emit psnTokenChanged();
 }
 
+void QmlBackend::initPsnAuthV3(const QString &npsso, const QJSValue &callback)
+{
+    const QJSValue cb = callback;
+    if (npsso.isEmpty())
+    {
+        if (cb.isCallable())
+            cb.call({QString("[E] NPSSO token is empty. Please provide a valid npsso token."), false, true});
+        return;
+    }
+
+    if (cb.isCallable())
+        cb.call({QString("[I] Starting PSN authentication with npsso token..."), true, false});
+
+    PSNAccountIDV3 *psnIdV3 = new PSNAccountIDV3(settings, this);
+    connect(psnIdV3, &PSNAccountIDV3::AccountIDResponse, this, [this, psnIdV3, cb](const QString &accountId) {
+        // Safely trigger QML property change notifications if UI is available
+        if (settings_qml) {
+            try {
+                settings_qml->setPsnAuthToken(settings->GetPsnAuthToken());
+                settings_qml->setPsnRefreshToken(settings->GetPsnRefreshToken());
+                settings_qml->setPsnAuthTokenExpiry(settings->GetPsnAuthTokenExpiry());
+                settings_qml->setPsnAccountId(settings->GetPsnAccountId());
+            } catch (...) {
+                qCWarning(chiakiGui) << "Failed to update QML settings properties - UI may not be available";
+            }
+        }
+        
+        emit psnLoginAccountIdDone(accountId);
+        if (cb.isCallable())
+            cb.call({QString("[I] PSN Remote Connection Tokens Generated."), true, true});
+    });
+    connect(psnIdV3, &PSNAccountIDV3::AccountIDResponse, this, &QmlBackend::updatePsnHosts);
+    connect(psnIdV3, &PSNAccountIDV3::AccountIDError, this, [cb](const QString &url, const QString &error) {
+        if (cb.isCallable())
+            cb.call({QString("[E] %1").arg(error), false, true});
+    });
+    connect(psnIdV3, &PSNAccountIDV3::Finished, psnIdV3, &QObject::deleteLater);
+    psnIdV3->GetPsnAccountIdFromNpsso(npsso);
+    emit psnTokenChanged();
+}
+
+void QmlBackend::tryRefreshWithNpsso()
+{
+    QString npsso = settings->GetNpssoToken();
+    if (npsso.isEmpty()) {
+        qCInfo(chiakiGui) << "No npsso token available, showing login dialog";
+        psnCredsExpired();
+        return;
+    }
+    
+    qCInfo(chiakiGui) << "Refresh token failed, attempting to use npsso token to get new tokens...";
+    PSNAccountIDV3 *psnIdV3 = new PSNAccountIDV3(settings, this);
+    connect(psnIdV3, &PSNAccountIDV3::AccountIDResponse, this, [this, psnIdV3](const QString &accountId) {
+        // Safely trigger QML property change notifications if UI is available
+        if (settings_qml) {
+            try {
+                settings_qml->setPsnAuthToken(settings->GetPsnAuthToken());
+                settings_qml->setPsnRefreshToken(settings->GetPsnRefreshToken());
+                settings_qml->setPsnAuthTokenExpiry(settings->GetPsnAuthTokenExpiry());
+                settings_qml->setPsnAccountId(settings->GetPsnAccountId());
+            } catch (...) {
+                qCWarning(chiakiGui) << "Failed to update QML settings properties - UI may not be available";
+            }
+        }
+        qCInfo(chiakiGui) << "Successfully refreshed tokens using npsso token";
+        emit psnTokenChanged();
+        // Retry the operation that failed (e.g., update hosts)
+        updatePsnHosts();
+    });
+    connect(psnIdV3, &PSNAccountIDV3::AccountIDError, this, [this](const QString &url, const QString &error) {
+        qCWarning(chiakiGui) << "Failed to refresh tokens using npsso token:" << error;
+        qCInfo(chiakiGui) << "npsso token also failed, showing login dialog";
+        psnCredsExpired();
+    });
+    connect(psnIdV3, &PSNAccountIDV3::Finished, psnIdV3, &QObject::deleteLater);
+    psnIdV3->GetPsnAccountIdFromNpsso(npsso);
+}
+
 void QmlBackend::refreshAuth()
 {
+    QString refresh_token = settings->GetPsnRefreshToken();
+    if(refresh_token.isEmpty()) {
+        qCWarning(chiakiGui) << "No refresh token available for PSN token refresh";
+        return;
+    }
+    
     PSNToken *psnToken = new PSNToken(settings, this);
     connect(psnToken, &PSNToken::PSNTokenError, this, [this](const QString &error) {
-        qCWarning(chiakiGui) << "Could not refresh token. Automatic PSN Connection Unavailable!" << error;
+        qCWarning(chiakiGui) << "PSN token refresh failed:" << error;
     });
-    connect(psnToken, &PSNToken::UnauthorizedError, this, &QmlBackend::psnCredsExpired);
-    connect(psnToken, &PSNToken::PSNTokenSuccess, this, []() {
-        qCWarning(chiakiGui) << "PSN Remote Connection Tokens Refreshed.";
+    connect(psnToken, &PSNToken::UnauthorizedError, this, [this]() {
+        qCWarning(chiakiGui) << "PSN token refresh failed: Unauthorized (tokens expired)";
+        // Try to exchange npsso for new tokens before showing login dialog
+        tryRefreshWithNpsso();
     });
     connect(psnToken, &PSNToken::PSNTokenSuccess, this, &QmlBackend::updatePsnHosts);
     connect(psnToken, &PSNToken::Finished, psnToken, &QObject::deleteLater);
-    QString refresh_token = settings->GetPsnRefreshToken();
     psnToken->RefreshPsnToken(std::move(refresh_token));
 }
 
@@ -2216,6 +2931,9 @@ void QmlBackend::updatePsnHosts()
 
 void QmlBackend::updatePsnHostsThread()
 {
+    // Reset failure flag at start
+    psn_hosts_last_failed = false;
+    
     QString psn_token = settings->GetPsnAuthToken();
     if(psn_token.isEmpty())
         return;
@@ -2224,21 +2942,35 @@ void QmlBackend::updatePsnHostsThread()
     size_t num_devices_ps5 = 0;
     ChiakiLog backend_log;
     chiaki_log_init(&backend_log, settings->GetLogLevelMask(), chiaki_log_cb_print, nullptr);
-    for(int i = 0; i < PSN_DEVICES_TRIES; i++)
+    
+    bool sync_games = settings->GetPsnGamesSyncEnabled();
+    
+    // Only try once if this is a retry after token refresh, otherwise try multiple times
+    int max_tries = psn_hosts_retry_after_refresh ? 1 : PSN_DEVICES_TRIES;
+    
+    for(int i = 0; i < max_tries; i++)
     {
-        ChiakiErrorCode err = chiaki_holepunch_list_devices(psn_token.toUtf8().constData(), CHIAKI_HOLEPUNCH_CONSOLE_TYPE_PS5, &device_info_ps5, &num_devices_ps5, &backend_log);
+        ChiakiErrorCode err = chiaki_holepunch_list_devices(psn_token.toUtf8().constData(), CHIAKI_HOLEPUNCH_CONSOLE_TYPE_PS5, &device_info_ps5, &num_devices_ps5, sync_games, &backend_log);
         if (err != CHIAKI_ERR_SUCCESS)
         {
-            if(PSN_DEVICES_TRIES - i > 1)
+            // Set failure flag so main thread can attempt token refresh
+            psn_hosts_last_failed = true;
+            
+            if(max_tries - i > 1)
             {
-                qCWarning(chiakiGui) << "Failed to get PS5 devices trying again";
+                qCWarning(chiakiGui) << "Failed to get PS5 devices (error code:" << err << "), trying again";
                 continue;
             }
             else
             {
-                qCWarning(chiakiGui) << "Failed to get PS5 devices after max tries: " << PSN_DEVICES_TRIES;
+                qCWarning(chiakiGui) << "Failed to get PS5 devices after max tries:" << max_tries << "(error code:" << err << ")";
                 num_devices_ps5 = 0;
             }
+        }
+        else
+        {
+            // Success - clear failure flag
+            psn_hosts_last_failed = false;
         }
         break;
     }
@@ -2247,10 +2979,14 @@ void QmlBackend::updatePsnHostsThread()
         ChiakiHolepunchDeviceInfo dev = device_info_ps5[i];
         // skip devices that don't have remote play enabled
         if(!dev.remoteplay_enabled)
+        {
+            qCInfo(chiakiGui) << "Skipping device with remote play disabled";
             continue;
+        }
         QByteArray duid_bytes(reinterpret_cast<char*>(dev.device_uid), sizeof(dev.device_uid));
         QString duid = QString(duid_bytes.toHex());
         QString name = QString(dev.device_name);
+        qCInfo(chiakiGui) << "Adding PSN host" << name << duid;
         bool ps5 = true;
         PsnHost psn_host(duid, name, ps5);
         if(!psn_nickname_hosts.contains(name))
@@ -2268,10 +3004,297 @@ void QmlBackend::updatePsnHostsThread()
     if(!psn_hosts.contains(duid) && (settings->GetPS4RegisteredHostsRegistered() > 0))
         psn_hosts.insert(duid, psn_host);
 
+    // Removed PSN no consoles found error message - users can add consoles manually
+
+    // Save installed games list per device BEFORE emitting hostsChanged
+    // so that the games data is available when the frontend responds
+    if (sync_games && num_devices_ps5 > 0 && device_info_ps5)
+        savePsnGamesFromDevices(device_info_ps5, num_devices_ps5);
+    
     emit hostsChanged();
     qCInfo(chiakiGui) << "Updated PSN hosts";
+    
     if(device_info_ps5)
         chiaki_holepunch_free_device_list(&device_info_ps5);
+}
+
+/**
+ * Save PSN installed games data from device list to persistent storage.
+ * 
+ * This function performs the following operations:
+ * 
+ * 1. **Load Previous Games**: Retrieves the previously saved games JSON from settings
+ *    to build a set of all title IDs we've seen before. This allows us to detect
+ *    which games are newly installed. Also loads the existing device structure to
+ *    merge with new data.
+ * 
+ * 2. **Parse Device Games**: Iterates through each device in the provided array and:
+ *    - Extracts the device unique ID (DUID) as a hex string for use as a lookup key
+ *    - Parses the games JSON array from each device's installed_games_json field
+ *    - Filters games to only include displayLocationSpace=="game" (excludes media apps)
+ *    - Counts total games and tracks which ones are new
+ * 
+ * 3. **Merge Games Per Device**: For each device, merges the new games with previously
+ *    known games (indexed by titleId). This preserves games that might be temporarily
+ *    uninstalled or on different storage. Creates a JSON structure:
+ *    {
+ *      "abc123...": {
+ *        "deviceName": "PS5",
+ *        "games": [
+ *          { "titleId": "PPSA01325", "comment": "Game Name", ... },
+ *          ...
+ *        ]
+ *      },
+ *      ...
+ *    }
+ * 
+ * 4. **Save and Notify**: Saves the merged structure to QSettings and emits
+ *    the psnGamesSynced signal with the count of newly discovered games (or total
+ *    games if this is the first sync).
+ * 
+ * @param devices Array of ChiakiHolepunchDeviceInfo containing device and games data
+ * @param device_count Number of devices in the array
+ */
+void QmlBackend::savePsnGamesFromDevices(ChiakiHolepunchDeviceInfo *devices, size_t device_count)
+{
+    qCInfo(chiakiGui) << "savePsnGamesFromDevices called with" << device_count << "devices";
+    
+    // Step 1: Load previous games and devices structure
+    QString previous_games_json = settings->GetPsnGamesJson();
+    QSet<QString> previous_game_ids;
+    QJsonObject devices_obj;  // Start with existing devices
+    
+    if (!previous_games_json.isEmpty())
+    {
+        QJsonParseError parse_error;
+        QJsonDocument prev_doc = QJsonDocument::fromJson(previous_games_json.toUtf8(), &parse_error);
+        
+        // Safety check: verify JSON parsing succeeded
+        if (parse_error.error != QJsonParseError::NoError)
+        {
+            qCWarning(chiakiGui) << "Failed to parse existing games JSON:" << parse_error.errorString() 
+                                 << "at offset" << parse_error.offset;
+            // Continue with empty devices_obj - will rebuild from scratch
+        }
+        else if (prev_doc.isObject())
+        {
+            devices_obj = prev_doc.object();  // Load existing structure
+            
+            // Build set of known title IDs across all devices
+            for (const QString &device_id : devices_obj.keys())
+            {
+                QJsonValue device_val = devices_obj.value(device_id);
+                
+                // Safety check: ensure device is an object
+                if (!device_val.isObject())
+                {
+                    qCWarning(chiakiGui) << "Skipping invalid device entry for" << device_id;
+                    continue;
+                }
+                
+                QJsonObject device = device_val.toObject();
+                QJsonValue games_val = device.value("games");
+                
+                // Safety check: ensure games is an array
+                if (!games_val.isArray())
+                {
+                    qCWarning(chiakiGui) << "Skipping device" << device_id << "- games field is not an array";
+                    continue;
+                }
+                
+                QJsonArray games = games_val.toArray();
+                for (const QJsonValue &game_val : games)
+                {
+                    // Safety check: ensure game is an object
+                    if (!game_val.isObject())
+                        continue;
+                    
+                    QJsonObject game = game_val.toObject();
+                    QString title_id = game.value("titleId").toString();
+                    if (!title_id.isEmpty())
+                        previous_game_ids.insert(title_id);
+                }
+            }
+        }
+        else
+        {
+            qCWarning(chiakiGui) << "Existing games JSON is not an object, will rebuild from scratch";
+        }
+    }
+    
+    // Step 2 & 3: Parse device games and merge with existing data
+    int new_games_count = 0;
+    int total_games_count = 0;
+    
+    qCInfo(chiakiGui) << "Previous game IDs count:" << previous_game_ids.size();
+    
+    for (size_t i = 0; i < device_count; i++)
+    {
+        ChiakiHolepunchDeviceInfo dev = devices[i];
+        
+        // Only process devices that have games data
+        if (dev.installed_games_json)
+        {
+            // Convert device UID bytes to hex string for use as JSON key
+            QByteArray duid_bytes(reinterpret_cast<char*>(dev.device_uid), sizeof(dev.device_uid));
+            QString duid = QString(duid_bytes.toHex());
+            QString device_name = QString(dev.device_name);
+            
+            qCInfo(chiakiGui) << "Processing device" << device_name << "with DUID" << duid;
+            
+            // Get existing games for this device (if any)
+            QMap<QString, QJsonObject> existing_games_map;
+            if (devices_obj.contains(duid))
+            {
+                QJsonValue existing_device_val = devices_obj.value(duid);
+                
+                // Safety check: ensure existing device is an object
+                if (existing_device_val.isObject())
+                {
+                    QJsonObject existing_device = existing_device_val.toObject();
+                    QJsonValue existing_games_val = existing_device.value("games");
+                    
+                    // Safety check: ensure games is an array
+                    if (existing_games_val.isArray())
+                    {
+                        QJsonArray existing_games = existing_games_val.toArray();
+                        for (const QJsonValue &game_val : existing_games)
+                        {
+                            // Safety check: ensure game is an object
+                            if (!game_val.isObject())
+                                continue;
+                            
+                            QJsonObject game = game_val.toObject();
+                            QString title_id = game.value("titleId").toString();
+                            if (!title_id.isEmpty())
+                                existing_games_map[title_id] = game;
+                        }
+                    }
+                }
+            }
+            
+            // Parse the new games JSON array
+            QJsonParseError parse_error;
+            QJsonDocument games_doc = QJsonDocument::fromJson(QByteArray(dev.installed_games_json), &parse_error);
+            
+            // Safety check: verify JSON parsing succeeded
+            if (parse_error.error != QJsonParseError::NoError)
+            {
+                qCWarning(chiakiGui) << "Failed to parse games JSON for device" << device_name 
+                                     << ":" << parse_error.errorString() << "at offset" << parse_error.offset;
+            }
+            else if (games_doc.isArray())
+            {
+                QJsonArray new_games_array = games_doc.array();
+                
+                // Merge new games into existing games map
+                for (const QJsonValue &game_val : new_games_array)
+                {
+                    // Safety check: ensure game is an object
+                    if (!game_val.isObject())
+                    {
+                        qCWarning(chiakiGui) << "Skipping invalid game entry for device" << device_name;
+                        continue;
+                    }
+                    
+                    QJsonObject game = game_val.toObject();
+                    QString title_id = game.value("titleId").toString();
+                    QString display_location = game.value("displayLocationSpace").toString();
+                    
+                    // Filter out non-game items (media apps, etc.)
+                    if (display_location != "game")
+                        continue;
+                    
+                    if (!title_id.isEmpty())
+                    {
+                        // Check if this is a new game
+                        if (!previous_game_ids.contains(title_id))
+                            new_games_count++;
+                        
+                        // Update or add the game (new data overwrites old for same titleId)
+                        existing_games_map[title_id] = game;
+                    }
+                    else
+                    {
+                        qCWarning(chiakiGui) << "Skipping game with empty titleId for device" << device_name;
+                    }
+                }
+                
+                // Convert merged games map to list for sorting
+                QList<QJsonObject> games_list;
+                for (const QJsonObject &game : existing_games_map)
+                    games_list.append(game);
+                
+                // Sort games: by lastAccessDateTime (most recent first), then alphabetically by name
+                std::sort(games_list.begin(), games_list.end(), [](const QJsonObject &a, const QJsonObject &b) {
+                    QString a_last_access = a.value("lastAccessDateTime").toString();
+                    QString b_last_access = b.value("lastAccessDateTime").toString();
+                    
+                    // If both have lastAccessDateTime, sort by it (descending - most recent first)
+                    if (!a_last_access.isEmpty() && !b_last_access.isEmpty()) {
+                        return a_last_access > b_last_access;  // Descending order
+                    }
+                    
+                    // If only one has lastAccessDateTime, it comes first
+                    if (!a_last_access.isEmpty()) return true;
+                    if (!b_last_access.isEmpty()) return false;
+                    
+                    // Neither has lastAccessDateTime, sort alphabetically by name
+                    QString a_name = a.value("comment").toString();
+                    if (a_name.isEmpty()) a_name = a.value("titleName").toString();
+                    
+                    QString b_name = b.value("comment").toString();
+                    if (b_name.isEmpty()) b_name = b.value("titleName").toString();
+                    
+                    return a_name.toLower() < b_name.toLower();  // Alphabetical, case-insensitive
+                });
+                
+                // Convert sorted list to array
+                QJsonArray merged_games_array;
+                for (const QJsonObject &game : games_list)
+                    merged_games_array.append(game);
+                
+                total_games_count += merged_games_array.size();
+                
+                // Create/update device entry with name and merged games array
+                QJsonObject device_entry;
+                device_entry["deviceName"] = device_name;
+                device_entry["games"] = merged_games_array;
+                devices_obj[duid] = device_entry;
+            }
+            else
+            {
+                qCWarning(chiakiGui) << "Games JSON for device" << device_name << "is not an array";
+            }
+            
+            // Free the C-allocated JSON string
+            free(dev.installed_games_json);
+        }
+    }
+    
+    // Step 4: Save to settings and notify frontend
+    if (!devices_obj.isEmpty())
+    {
+        QJsonDocument doc(devices_obj);
+        settings->SetPsnGamesJson(doc.toJson(QJsonDocument::Compact));
+        qCInfo(chiakiGui) << "Saved" << total_games_count << "installed games to settings";
+        qCInfo(chiakiGui) << "New games count:" << new_games_count << ", Previous games was empty:" << previous_game_ids.isEmpty();
+        
+        // Emit signal with count of new games (or total if first sync)
+        if (new_games_count > 0 || previous_game_ids.isEmpty())
+        {
+            qCInfo(chiakiGui) << "Emitting psnGamesSynced signal with count:" << (new_games_count > 0 ? new_games_count : total_games_count);
+            emit psnGamesSynced(new_games_count > 0 ? new_games_count : total_games_count);
+        }
+        else
+        {
+            qCInfo(chiakiGui) << "Not emitting psnGamesSynced - no new games detected";
+        }
+    }
+    else
+    {
+        qCWarning(chiakiGui) << "devices_obj is empty - no games data to save";
+    }
 }
 
 void QmlBackend::refreshPsnToken()
@@ -2288,6 +3311,339 @@ void QmlBackend::refreshPsnToken()
     else
         updatePsnHosts();
 }
+
+QString QmlBackend::getPsnInstalledGames()
+{
+    QString games_json = settings->GetPsnGamesJson();
+    return games_json.isEmpty() ? QString("{}") : games_json;
+}
+
+void QmlBackend::clearPsnGames()
+{
+    // Count games before clearing
+    QString games_json = settings->GetPsnGamesJson();
+    int games_count = 0;
+    
+    if (!games_json.isEmpty())
+    {
+        QJsonDocument doc = QJsonDocument::fromJson(games_json.toUtf8());
+        if (doc.isObject())
+        {
+            QJsonObject devices_obj = doc.object();
+            for (const QString &device_id : devices_obj.keys())
+            {
+                QJsonValue device_val = devices_obj.value(device_id);
+                if (device_val.isObject())
+                {
+                    QJsonObject device = device_val.toObject();
+                    QJsonValue games_val = device.value("games");
+                    if (games_val.isArray())
+                    {
+                        games_count += games_val.toArray().size();
+                    }
+                }
+            }
+        }
+    }
+    
+    settings->ClearPsnGamesJson();
+    qCInfo(chiakiGui) << "Cleared" << games_count << "saved games";
+    emit psnGamesCleared(games_count);
+}
+
+QString QmlBackend::generateQRCode()
+{
+    // Generate 6-digit alphanumeric code
+    const QString chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    QString code;
+    
+    // Use QRandomGenerator (Qt 5.10+)
+    QRandomGenerator *rng = QRandomGenerator::global();
+    
+    for (int i = 0; i < 6; ++i) {
+        code += chars.at(rng->bounded(chars.length()));
+    }
+    
+    return code;
+}
+
+QString QmlBackend::getPyluxURL()
+{
+    return QString(PYLUX_URL);
+}
+
+void QmlBackend::createPyluxCode(const QString &code, const QJSValue &callback)
+{
+    // Create network access manager
+    QNetworkAccessManager *manager = new QNetworkAccessManager(this);
+    
+    // Prepare the request
+    QNetworkRequest request;
+    request.setUrl(QUrl(QString(PYLUX_URL) + "/psstream/create-code"));
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    
+    // Prepare the JSON payload
+    QJsonObject json;
+    json["code"] = code;
+    QJsonDocument doc(json);
+    QByteArray data = doc.toJson();
+    
+    // Make the POST request
+    QNetworkReply *reply = manager->post(request, data);
+    
+    // Handle the response
+    connect(reply, &QNetworkReply::finished, [this, reply, callback, manager]() {
+        QJSValue cb = callback;
+        
+        if (reply->error() == QNetworkReply::NoError) {
+            // Parse the response
+            QByteArray responseData = reply->readAll();
+            QJsonDocument responseDoc = QJsonDocument::fromJson(responseData);
+            QJsonObject responseObj = responseDoc.object();
+            
+            if (responseObj["result"].toString() == "success") {
+                // Success
+                if (cb.isCallable()) {
+                    cb.call({true, QString("")});
+                }
+            } else {
+                // Server returned an error
+                QString errorMsg = responseObj["error"].toString();
+                if (errorMsg.isEmpty()) {
+                    errorMsg = "Unknown server error";
+                }
+                if (cb.isCallable()) {
+                    cb.call({false, errorMsg});
+                }
+            }
+        } else {
+            // Network error
+            QByteArray responseData = reply->readAll();
+            QString responseBody = QString::fromUtf8(responseData);
+            
+            // Log detailed error information for debugging
+            qDebug() << "Network error creating pylux code:" << reply->errorString();
+            qDebug() << "HTTP status code:" << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            qDebug() << "Response body:" << responseBody;
+            
+            // User-friendly error message with server details if available
+            QString userErrorMsg = tr("Failed to connect to server to verify QR code. Please check your internet connection and try again.");
+            if (!responseBody.isEmpty()) {
+                // Try to parse JSON error message
+                QJsonDocument errorDoc = QJsonDocument::fromJson(responseData);
+                if (!errorDoc.isNull() && errorDoc.isObject()) {
+                    QJsonObject errorObj = errorDoc.object();
+                    QString serverError = errorObj["error"].toString();
+                    if (!serverError.isEmpty()) {
+                        userErrorMsg += tr("\n\nDetails: %1").arg(serverError);
+                    }
+                } else if (!responseBody.isEmpty()) {
+                    userErrorMsg += tr("\n\nDetails: %1").arg(responseBody);
+                }
+            }
+            if (cb.isCallable()) {
+                cb.call({false, userErrorMsg});
+            }
+        }
+        
+        reply->deleteLater();
+        manager->deleteLater();
+    });
+}
+
+void QmlBackend::checkPyluxStatus(const QString &code, const QJSValue &callback)
+{
+    // Create network access manager
+    QNetworkAccessManager *manager = new QNetworkAccessManager(this);
+    
+    // Prepare the request
+    QNetworkRequest request;
+    request.setUrl(QUrl(QString(PYLUX_URL) + "/psstream/get-tokens"));
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    
+    // Prepare the JSON payload
+    QJsonObject json;
+    json["code"] = code;
+    QString npsso = settings->GetNpssoToken();
+    if (!npsso.isEmpty()) {
+        json["npsso"] = npsso;
+    }
+    QJsonDocument doc(json);
+    QByteArray data = doc.toJson();
+    
+    // Make the POST request
+    QNetworkReply *reply = manager->post(request, data);
+    
+    // Handle the response
+    connect(reply, &QNetworkReply::finished, [this, reply, callback, manager]() {
+        QJSValue cb = callback;
+        
+        if (reply->error() == QNetworkReply::NoError) {
+            // Parse the response
+            QByteArray responseData = reply->readAll();
+            QJsonDocument responseDoc = QJsonDocument::fromJson(responseData);
+            QJsonObject responseObj = responseDoc.object();
+            
+            if (responseObj["result"].toString() == "success") {
+                // Success - we got npsso token (v3 flow)
+                QString npsso = responseObj["npsso"].toString();
+                if (npsso.isEmpty()) {
+                    // Fallback: check for old format (redirect URL) for backwards compatibility
+                    npsso = responseObj["tokens"].toString();
+                }
+                if (cb.isCallable()) {
+                    cb.call({true, QString(""), npsso});
+                }
+            } else {
+                // Server returned an error
+                QString errorMsg = responseObj["error"].toString();
+                if (errorMsg.isEmpty()) {
+                    errorMsg = "Unknown server error";
+                }
+                if (cb.isCallable()) {
+                    cb.call({false, errorMsg, QString("")});
+                }
+            }
+        } else {
+            // Network error
+            QByteArray responseData = reply->readAll();
+            QString responseBody = QString::fromUtf8(responseData);
+            
+            // Log detailed error information for debugging
+            
+            // User-friendly error message with server details if available
+            QString userErrorMsg = tr("Failed to connect to server to check login status. Please check your internet connection and try again.");
+            if (!responseBody.isEmpty()) {
+                // Try to parse JSON error message
+                QJsonDocument errorDoc = QJsonDocument::fromJson(responseData);
+                if (!errorDoc.isNull() && errorDoc.isObject()) {
+                    QJsonObject errorObj = errorDoc.object();
+                    QString serverError = errorObj["error"].toString();
+                    if (!serverError.isEmpty()) {
+                        userErrorMsg += tr("\n\nDetails: %1").arg(serverError);
+                    }
+                } else if (!responseBody.isEmpty()) {
+                    userErrorMsg += tr("\n\nDetails: %1").arg(responseBody);
+                }
+            }
+            if (cb.isCallable()) {
+                cb.call({false, userErrorMsg, QString("")});
+            }
+        }
+        
+        reply->deleteLater();
+        manager->deleteLater();
+    });
+}
+
+// Steam Cloud Sync methods
+#ifdef CHIAKI_ENABLE_STEAMWORKS
+void QmlBackend::syncSteamCloud()
+{
+    if (!steamworks_wrapper || !steamworks_wrapper->isSteamAvailable()) {
+        qWarning() << "QmlBackend: Steam not available for cloud sync";
+        return;
+    }
+    
+    auto* cloudSync = steamworks_wrapper->getCloudSync();
+    if (!cloudSync) {
+        qWarning() << "QmlBackend: Cloud sync not available";
+        return;
+    }
+    
+    qInfo() << "QmlBackend: Manual cloud sync requested";
+    bool success = cloudSync->syncBidirectional();
+    
+    if (success) {
+        qInfo() << "QmlBackend: Manual cloud sync completed successfully";
+    } else {
+        qWarning() << "QmlBackend: Manual cloud sync failed";
+    }
+}
+
+void QmlBackend::clearSteamCloudData()
+{
+    qCInfo(chiakiGui) << "QmlBackend: clearSteamCloudData() called";
+    
+    if (!steamworks_wrapper || !steamworks_wrapper->isSteamAvailable()) {
+        qCWarning(chiakiGui) << "QmlBackend: Steam not available for clearing cloud data";
+        return;
+    }
+    
+    auto* cloudSync = steamworks_wrapper->getCloudSync();
+    if (!cloudSync) {
+        qCWarning(chiakiGui) << "QmlBackend: Cloud sync not available";
+        return;
+    }
+    
+    qCInfo(chiakiGui) << "QmlBackend: Clearing Steam Cloud data...";
+    bool success = cloudSync->clearAllCloudData();
+    
+    if (success) {
+        qCInfo(chiakiGui) << "QmlBackend: ✓ Cloud data cleared successfully";
+    } else {
+        qCWarning(chiakiGui) << "QmlBackend: ✗ Failed to clear cloud data";
+    }
+}
+
+void QmlBackend::deleteProfileFromCloud(const QString &profileName)
+{
+    qCInfo(chiakiGui) << "QmlBackend: deleteProfileFromCloud() called for profile:" << profileName;
+    
+    if (!steamworks_wrapper || !steamworks_wrapper->isSteamAvailable()) {
+        qCWarning(chiakiGui) << "QmlBackend: Steam not available for deleting profile from cloud";
+        return;
+    }
+    
+    auto* cloudSync = steamworks_wrapper->getCloudSync();
+    if (!cloudSync) {
+        qCWarning(chiakiGui) << "QmlBackend: Cloud sync not available";
+        return;
+    }
+    
+    qCInfo(chiakiGui) << "QmlBackend: Deleting profile" << profileName << "from Steam Cloud...";
+    bool success = cloudSync->deleteProfileFromCloud(profileName);
+    
+    if (success) {
+        qCInfo(chiakiGui) << "QmlBackend: ✓ Profile" << profileName << "deleted from cloud successfully";
+    } else {
+        qCWarning(chiakiGui) << "QmlBackend: ✗ Failed to delete profile" << profileName << "from cloud";
+    }
+}
+
+bool QmlBackend::isSteamCloudEnabled()
+{
+    if (!steamworks_wrapper || !steamworks_wrapper->isSteamAvailable()) {
+        return false;
+    }
+    
+    auto* cloudSync = steamworks_wrapper->getCloudSync();
+    if (!cloudSync) {
+        return false;
+    }
+    
+    return cloudSync->isEnabled();
+}
+
+void QmlBackend::setSteamCloudEnabled(bool enabled)
+{
+    qCInfo(chiakiGui) << "QmlBackend: setSteamCloudEnabled called with:" << enabled;
+    
+    if (!steamworks_wrapper || !steamworks_wrapper->isSteamAvailable()) {
+        qCWarning(chiakiGui) << "QmlBackend: Steam not available to change cloud sync state";
+        return;
+    }
+    
+    auto* cloudSync = steamworks_wrapper->getCloudSync();
+    if (!cloudSync) {
+        qCWarning(chiakiGui) << "QmlBackend: Cloud sync not available";
+        return;
+    }
+    
+    cloudSync->setEnabled(enabled);
+    qCInfo(chiakiGui) << "QmlBackend: Steam Cloud sync" << (enabled ? "enabled" : "disabled");
+}
+#endif  // CHIAKI_ENABLE_STEAMWORKS
 
 void PsnConnectionWorker::ConnectPsnConnection(StreamSession *session, const QString &duid, const bool &ps5)
 {

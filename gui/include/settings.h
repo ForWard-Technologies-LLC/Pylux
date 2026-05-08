@@ -172,6 +172,12 @@ enum class PlaceboToneMappingMetadata {
 	CieY
 };
 
+constexpr qint64  DONATION_MIN_STREAM_MS       = 3600000LL;
+constexpr qint64  DONATION_PROMPT_COOLDOWN_MS  = 3600000LL;
+constexpr int     DONATION_SHOW_DELAY_MS       = 5000;
+constexpr qint64  DONATION_CACHE_TTL_MS        = 24LL * 3600LL * 1000LL;
+#define           DONATION_API_BASE_URL          "https://www.xbgamestream.com/pylux"
+
 class Settings : public QObject
 {
 	Q_OBJECT
@@ -212,10 +218,11 @@ class Settings : public QObject
 		void ExportSettings(QString filepath);
 		void ImportSettings(QString filepath);
 
-		void ExportPlaceboSettings(QString filepath);
-		void ImportPlaceboSettings(QString filepath);
+	void ExportPlaceboSettings(QString filepath);
+	void ImportPlaceboSettings(QString filepath);
 
-		QMap<QString, QString> GetPlaceboValues();
+	QMap<QString, QString> GetPlaceboValues();
+	QString GetSettingsFilePath() const;
 
 		ChiakiDisableAudioVideo GetAudioVideoDisabled() const       { return static_cast<ChiakiDisableAudioVideo>(settings.value("settings/audio_video_disabled", 0).toInt()); }
 		void SetAudioVideoDisabled(ChiakiDisableAudioVideo disabled) { settings.setValue("settings/audio_video_disabled", disabled); }
@@ -231,12 +238,18 @@ class Settings : public QObject
 
 		bool GetRemotePlayAsk() const           { return settings.value("settings/remote_play_ask", true).toBool(); }
 		void SetRemotePlayAsk(bool asked)       { settings.setValue("settings/remote_play_ask", asked); }
+		bool GetSetupGuideShown() const         { return settings.value("settings/setup_guide_shown", false).toBool(); }
+		void SetSetupGuideShown(bool shown)     { settings.setValue("settings/setup_guide_shown", shown); }
+		bool GetControllerOverlayShown() const   { return settings.value("settings/controller_overlay_shown", false).toBool(); }
+		void SetControllerOverlayShown(bool shown) { settings.setValue("settings/controller_overlay_shown", shown); }
 
 		bool GetAddSteamShortcutAsk() const           { return settings.value("settings/add_steam_shortcut_ask", true).toBool(); }
 		void SetAddSteamShortcutAsk(bool asked)       { settings.setValue("settings/add_steam_shortcut_ask", asked); }
 
 		bool GetLogVerbose() const 				{ return settings.value("settings/log_verbose", false).toBool(); }
 		void SetLogVerbose(bool enabled)		{ settings.setValue("settings/log_verbose", enabled); }
+		bool GetSteamCloudSync() const 			{ return settings.value("settings/steam_cloud_sync", true).toBool(); }
+		void SetSteamCloudSync(bool enabled)	{ settings.setValue("settings/steam_cloud_sync", enabled); }
 		uint32_t GetLogLevelMask();
 
 		bool GetHideCursor() const				{ return settings.value("settings/hide_cursor", true).toBool(); }
@@ -247,6 +260,9 @@ class Settings : public QObject
 
 		bool GetShowStreamStats() const            { return settings.value("settings/show_stream_stats", false).toBool(); }
 		void SetShowStreamStats(bool enabled)      { settings.setValue("settings/show_stream_stats", enabled); }
+
+		bool GetShowGameImageDuringLaunch() const  { return settings.value("settings/show_game_image_during_launch", true).toBool(); }
+		void SetShowGameImageDuringLaunch(bool show) { settings.setValue("settings/show_game_image_during_launch", show); }
 
 		bool GetStreamerMode() const		{ return settings.value("settings/streamer_mode", false).toBool(); }
 		void SetStreamerMode(bool enabled)	{ settings.setValue("settings/streamer_mode", enabled); }
@@ -285,6 +301,29 @@ class Settings : public QObject
 		void SetResolutionRemotePS4(ChiakiVideoResolutionPreset resolution);
 		void SetResolutionLocalPS5(ChiakiVideoResolutionPreset resolution);
 		void SetResolutionRemotePS5(ChiakiVideoResolutionPreset resolution);
+
+		QString GetCloudDatacentersJson() const;  // JSON array of datacenters with ping results
+		void SetCloudDatacentersJson(const QString &json);
+
+		// PSCloud settings
+		int GetCloudResolutionPSCloud() const;
+		void SetCloudResolutionPSCloud(int resolution);
+		QString GetCloudLanguagePSCloud() const;
+		void SetCloudLanguagePSCloud(const QString &language);
+		QString GetCloudDatacenterPSCloud() const;
+		void SetCloudDatacenterPSCloud(const QString &datacenter);
+		QString GetCloudDatacentersJsonPSCloud() const;  // JSON array of datacenters with ping results
+		void SetCloudDatacentersJsonPSCloud(const QString &json);
+
+		// PSNOW settings
+		int GetCloudResolutionPSNOW() const;
+		void SetCloudResolutionPSNOW(int resolution);
+		QString GetCloudLanguagePSNOW() const;
+		void SetCloudLanguagePSNOW(const QString &language);
+		QString GetCloudDatacenterPSNOW() const;
+		void SetCloudDatacenterPSNOW(const QString &datacenter);
+		QString GetCloudDatacentersJsonPSNOW() const;  // JSON array of datacenters with ping results
+		void SetCloudDatacentersJsonPSNOW(const QString &json);
 
 		/**
 		 * @return 0 if set to "automatic"
@@ -387,6 +426,27 @@ class Settings : public QObject
 		QString GetPsnAuthTokenExpiry() const;
 		void SetPsnAuthTokenExpiry(QString expiry_date);
 
+		QString GetNpssoToken() const;
+		void SetNpssoToken(QString npsso_token);
+
+		bool GetAccountAttributesCheckPassed() const;
+		void SetAccountAttributesCheckPassed(bool passed);
+
+		int GetLastSelectedMainTab() const;
+		void SetLastSelectedMainTab(int tabIndex);
+		
+		QString GetLastSelectedCloudSection() const;
+		void SetLastSelectedCloudSection(QString section);
+
+		QString GetCloudLibraryFilter() const;
+		void SetCloudLibraryFilter(QString filter);
+
+		QString GetCloudCatalogFilter() const;
+		void SetCloudCatalogFilter(QString filter);
+
+		QString GetCloudFavorites() const;
+		void SetCloudFavorites(QString favorites);
+
 		QString GetCurrentProfile() const;
 		void SetCurrentProfile(QString profile);
 
@@ -430,9 +490,22 @@ class Settings : public QObject
 		void SetStreamMenuShortcut4(uint button);
 
 		void DeleteProfile(QString profile);
+	void AddProfile(QString profile);
 
 		QString GetPsnAccountId() const;
 		void SetPsnAccountId(QString account_id);
+		QString GetLastShownNotificationId() const;
+		void SetLastShownNotificationId(QString notification_id);
+		QString GetPsnGamesJson() const;
+		void SetPsnGamesJson(const QString &games_json);
+		bool GetPsnGamesSyncEnabled() const;
+		void SetPsnGamesSyncEnabled(bool enabled);
+		void ClearPsnGamesJson();
+		QString GetGameImageCache(const QString &key) const;
+		void SetGameImageCache(const QString &key, const QString &value);
+		
+		QStringList GetSteamControllerConfiguredUsers() const;
+		void AddSteamControllerConfiguredUser(const QString &steamUserId);
 
 		QString GetTimeFormat() const     { return time_format; }
 		void ClearKeyMapping();
@@ -676,6 +749,18 @@ class Settings : public QObject
 		QMap<int, Qt::Key> GetControllerMapping();
 		QMap<Qt::Key, int> GetControllerMappingForDecoding();
 
+		// Donation
+		QString GetDonationPsnOnlineId() const              { return settings.value("settings/donation_psn_online_id").toString(); }
+		void SetDonationPsnOnlineId(const QString &id)      { settings.setValue("settings/donation_psn_online_id", id); }
+		qint64 GetDonationTotalStreamTimeMs() const         { return settings.value("settings/donation_total_stream_time_ms", 0).toLongLong(); }
+		void SetDonationTotalStreamTimeMs(qint64 ms)        { settings.setValue("settings/donation_total_stream_time_ms", ms); }
+		qint64 GetDonationLastPromptWallClockMs() const     { return settings.value("settings/donation_last_prompt_wall_clock_ms", 0).toLongLong(); }
+		void SetDonationLastPromptWallClockMs(qint64 ms)    { settings.setValue("settings/donation_last_prompt_wall_clock_ms", ms); }
+		int GetDonationPromptShowCount() const              { return settings.value("settings/donation_prompt_show_count", 0).toInt(); }
+		void SetDonationPromptShowCount(int count)          { settings.setValue("settings/donation_prompt_show_count", count); }
+		bool GetDonationCachedStatus(bool *outStatus) const;
+		void SetDonationCachedStatus(bool donated);
+
 	signals:
 		void RegisteredHostsUpdated();
 		void HiddenHostsUpdated();
@@ -684,6 +769,8 @@ class Settings : public QObject
 		void CurrentProfileChanged();
 		void ProfilesUpdated();
 		void PlaceboSettingsUpdated();
-};
+		void CloudDatacentersJsonPSCloudChanged();
+		void CloudDatacentersJsonPSNOWChanged();
+	};
 
 #endif // CHIAKI_SETTINGS_H

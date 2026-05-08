@@ -7,6 +7,8 @@
 #include <QUrl>
 #include <QKeySequence>
 #include <QCoreApplication>
+#include <QStandardPaths>
+#include <QDateTime>
 
 #include <chiaki/config.h>
 
@@ -168,9 +170,9 @@ static void MigrateControllerMappings(QSettings *settings)
 
 Settings::Settings(const QString &conf, QObject *parent) : QObject(parent),
 	time_format("yyyy-MM-dd HH:mm:ss t"),
-	settings(QCoreApplication::organizationName(), conf.isEmpty() ? QCoreApplication::applicationName() : QStringLiteral("%1-%2").arg(QCoreApplication::applicationName(), conf)),
-	default_settings(QCoreApplication::organizationName(), QCoreApplication::applicationName()),
-	placebo_settings(QCoreApplication::organizationName(), QStringLiteral("pl_render_params"))
+	settings(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + (conf.isEmpty() ? "/pylux.conf" : QString("/pylux-%1.conf").arg(conf)), QSettings::IniFormat),
+	default_settings(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/pylux.conf", QSettings::IniFormat),
+	placebo_settings(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/pl_render_params.conf", QSettings::IniFormat)
 {
 	settings.setFallbacksEnabled(false);
 	MigrateSettings(&settings);
@@ -247,6 +249,29 @@ QMap<QString, QString> Settings::GetPlaceboValues()
 	return placeboMap;
 }
 
+QString Settings::GetSettingsFilePath() const
+{
+	return settings.fileName();
+}
+
+bool Settings::GetDonationCachedStatus(bool *outStatus) const
+{
+	if (!settings.contains("settings/donation_cached_donated_status"))
+		return false;
+	qint64 ts = settings.value("settings/donation_cached_status_timestamp", 0).toLongLong();
+	qint64 now = QDateTime::currentMSecsSinceEpoch();
+	if ((now - ts) > DONATION_CACHE_TTL_MS)
+		return false;
+	*outStatus = settings.value("settings/donation_cached_donated_status", false).toBool();
+	return true;
+}
+
+void Settings::SetDonationCachedStatus(bool donated)
+{
+	settings.setValue("settings/donation_cached_donated_status", donated);
+	settings.setValue("settings/donation_cached_status_timestamp", QDateTime::currentMSecsSinceEpoch());
+}
+
 void Settings::ImportSettings(QString filepath)
 {
 	QSettings settings_backup(filepath, QSettings::IniFormat);
@@ -271,7 +296,7 @@ void Settings::ImportSettings(QString filepath)
 	}
 	else
 	{
-		QSettings profile_settings(QCoreApplication::organizationName(), QStringLiteral("%1-%2").arg(QCoreApplication::applicationName(), profile));
+		QSettings profile_settings(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + QString("/pylux-%1.conf").arg(profile), QSettings::IniFormat);
 		profile_settings.clear();
 		SaveRegisteredHosts(&profile_settings);
 		SaveHiddenHosts(&profile_settings);
@@ -299,10 +324,9 @@ void Settings::ImportPlaceboSettings(QString filepath)
 
 uint32_t Settings::GetLogLevelMask()
 {
-	uint32_t mask = CHIAKI_LOG_ALL;
-	if(!GetLogVerbose())
-		mask &= ~CHIAKI_LOG_VERBOSE;
-	return mask;
+	if(GetLogVerbose())
+		return CHIAKI_LOG_ALL;
+	return CHIAKI_LOG_ERROR;
 }
 
 QRect Settings::GetGeometry() const
@@ -400,6 +424,97 @@ void Settings::SetResolutionLocalPS5(ChiakiVideoResolutionPreset resolution)
 void Settings::SetResolutionRemotePS5(ChiakiVideoResolutionPreset resolution)
 {
 	settings.setValue("settings/resolution_remote_ps5", resolutions[resolution]);
+}
+
+// PSCloud settings
+int Settings::GetCloudResolutionPSCloud() const
+{
+	// Fallback to legacy cloud_resolution if not set (for migration)
+	return settings.value("settings/cloud_resolution_pscloud", settings.value("settings/cloud_resolution", 1080).toInt()).toInt();
+}
+
+void Settings::SetCloudResolutionPSCloud(int resolution)
+{
+	settings.setValue("settings/cloud_resolution_pscloud", resolution);
+}
+
+QString Settings::GetCloudLanguagePSCloud() const
+{
+	return settings.value("settings/cloud_language_pscloud", "en-US").toString();
+}
+
+void Settings::SetCloudLanguagePSCloud(const QString &language)
+{
+	settings.setValue("settings/cloud_language_pscloud", language);
+}
+
+QString Settings::GetCloudDatacenterPSCloud() const
+{
+	// Fallback to legacy cloud_datacenter if not set (for migration)
+	return settings.value("settings/cloud_datacenter_pscloud", settings.value("settings/cloud_datacenter", "Auto").toString()).toString();
+}
+
+void Settings::SetCloudDatacenterPSCloud(const QString &datacenter)
+{
+	settings.setValue("settings/cloud_datacenter_pscloud", datacenter);
+}
+
+QString Settings::GetCloudDatacentersJsonPSCloud() const
+{
+	// Fallback to legacy cloud_datacenters_json if not set (for migration)
+	return settings.value("settings/cloud_datacenters_json_pscloud", settings.value("settings/cloud_datacenters_json", "[]").toString()).toString();
+}
+
+void Settings::SetCloudDatacentersJsonPSCloud(const QString &json)
+{
+	settings.setValue("settings/cloud_datacenters_json_pscloud", json);
+	emit CloudDatacentersJsonPSCloudChanged();
+}
+
+// PSNOW settings
+int Settings::GetCloudResolutionPSNOW() const
+{
+	// Fallback to legacy cloud_resolution if not set (for migration)
+	return settings.value("settings/cloud_resolution_psnow", settings.value("settings/cloud_resolution", 1080).toInt()).toInt();
+}
+
+void Settings::SetCloudResolutionPSNOW(int resolution)
+{
+	settings.setValue("settings/cloud_resolution_psnow", resolution);
+}
+
+QString Settings::GetCloudLanguagePSNOW() const
+{
+	// Fallback to legacy cloud_language if not set (for migration)
+	return settings.value("settings/cloud_language_psnow", settings.value("settings/cloud_language", "en-US").toString()).toString();
+}
+
+void Settings::SetCloudLanguagePSNOW(const QString &language)
+{
+	settings.setValue("settings/cloud_language_psnow", language);
+}
+
+QString Settings::GetCloudDatacenterPSNOW() const
+{
+	// Fallback to legacy cloud_datacenter if not set (for migration)
+	return settings.value("settings/cloud_datacenter_psnow", settings.value("settings/cloud_datacenter", "Auto").toString()).toString();
+}
+
+void Settings::SetCloudDatacenterPSNOW(const QString &datacenter)
+{
+	settings.setValue("settings/cloud_datacenter_psnow", datacenter);
+}
+
+QString Settings::GetCloudDatacentersJsonPSNOW() const
+{
+	// Fallback to legacy cloud_datacenters_json if not set (for migration)
+	return settings.value("settings/cloud_datacenters_json_psnow", settings.value("settings/cloud_datacenters_json", "[]").toString()).toString();
+}
+
+void Settings::SetCloudDatacentersJsonPSNOW(const QString &json)
+{
+	settings.setValue("settings/cloud_datacenters_json_psnow", json);
+	emit CloudDatacentersJsonPSNOWChanged();
 }
 
 static const QMap<ChiakiVideoFPSPreset, int> fps_values = {
@@ -785,6 +900,76 @@ void Settings::SetPsnAuthTokenExpiry(QString expiry_date)
 	settings.setValue("settings/psn_auth_token_expiry", expiry_date);
 }
 
+QString Settings::GetNpssoToken() const
+{
+	return settings.value("settings/psn_npsso_token").toString();
+}
+
+void Settings::SetNpssoToken(QString npsso_token)
+{
+	settings.setValue("settings/psn_npsso_token", npsso_token);
+}
+
+bool Settings::GetAccountAttributesCheckPassed() const
+{
+	return settings.value("settings/account_attributes_check_passed", false).toBool();
+}
+
+void Settings::SetAccountAttributesCheckPassed(bool passed)
+{
+	settings.setValue("settings/account_attributes_check_passed", passed);
+}
+
+int Settings::GetLastSelectedMainTab() const
+{
+	return settings.value("settings/last_selected_main_tab", 0).toInt();
+}
+
+void Settings::SetLastSelectedMainTab(int tabIndex)
+{
+	settings.setValue("settings/last_selected_main_tab", tabIndex);
+}
+
+QString Settings::GetLastSelectedCloudSection() const
+{
+	return settings.value("settings/last_selected_cloud_section", "catalog").toString();
+}
+
+void Settings::SetLastSelectedCloudSection(QString section)
+{
+	settings.setValue("settings/last_selected_cloud_section", section);
+}
+
+QString Settings::GetCloudLibraryFilter() const
+{
+	return settings.value("settings/cloud_library_filter", "all").toString();
+}
+
+void Settings::SetCloudLibraryFilter(QString filter)
+{
+	settings.setValue("settings/cloud_library_filter", filter);
+}
+
+QString Settings::GetCloudCatalogFilter() const
+{
+	return settings.value("settings/cloud_catalog_filter", "all").toString();
+}
+
+void Settings::SetCloudCatalogFilter(QString filter)
+{
+	settings.setValue("settings/cloud_catalog_filter", filter);
+}
+
+QString Settings::GetCloudFavorites() const
+{
+	return settings.value("settings/cloud_favorites", "[]").toString();
+}
+
+void Settings::SetCloudFavorites(QString favorites)
+{
+	settings.setValue("settings/cloud_favorites", favorites);
+}
+
 QString Settings::GetCurrentProfile() const
 {
 	return default_settings.value("settings/current_profile").toString();
@@ -915,6 +1100,65 @@ QString Settings::GetPsnAccountId() const
 void Settings::SetPsnAccountId(QString account_id)
 {
 	settings.setValue("settings/psn_account_id", account_id);
+}
+
+QString Settings::GetLastShownNotificationId() const
+{
+	return settings.value("settings/last_shown_notification_id").toString();
+}
+
+void Settings::SetLastShownNotificationId(QString notification_id)
+{
+	settings.setValue("settings/last_shown_notification_id", notification_id);
+}
+
+QString Settings::GetPsnGamesJson() const
+{
+	return settings.value("psn_games/devices_json").toString();
+}
+
+void Settings::SetPsnGamesJson(const QString &games_json)
+{
+	settings.setValue("psn_games/devices_json", games_json);
+}
+
+bool Settings::GetPsnGamesSyncEnabled() const
+{
+	return settings.value("psn_games/sync_enabled", true).toBool();
+}
+
+void Settings::SetPsnGamesSyncEnabled(bool enabled)
+{
+	settings.setValue("psn_games/sync_enabled", enabled);
+}
+
+void Settings::ClearPsnGamesJson()
+{
+	settings.remove("psn_games/devices_json");
+}
+
+QString Settings::GetGameImageCache(const QString &key) const
+{
+	return settings.value(key).toString();
+}
+
+void Settings::SetGameImageCache(const QString &key, const QString &value)
+{
+	settings.setValue(key, value);
+}
+
+QStringList Settings::GetSteamControllerConfiguredUsers() const
+{
+	return settings.value("steam_controller/configured_users", QStringList()).toStringList();
+}
+
+void Settings::AddSteamControllerConfiguredUser(const QString &steamUserId)
+{
+	QStringList users = GetSteamControllerConfiguredUsers();
+	if (!users.contains(steamUserId)) {
+		users.append(steamUserId);
+		settings.setValue("steam_controller/configured_users", users);
+	}
 }
 
 ChiakiConnectVideoProfile Settings::GetVideoProfileLocalPS4()
@@ -1916,22 +2160,72 @@ void Settings::SaveProfiles()
 
 void Settings::DeleteProfile(QString profile)
 {
-	QSettings delete_profile(QCoreApplication::organizationName(), QStringLiteral("%1-%2").arg(QCoreApplication::applicationName(), profile));
-	registered_hosts.clear();
-	manual_hosts.clear();
-	controller_mappings.clear();
-	SaveRegisteredHosts(&delete_profile);
-	SaveHiddenHosts(&delete_profile);
-	SaveManualHosts(&delete_profile);
-	SaveControllerMappings(&delete_profile);
-	delete_profile.remove("settings");
-	profiles.removeOne(profile);
-	SaveProfiles();
-	emit ProfilesUpdated();
+	CHIAKI_LOGI(NULL, "Settings: DeleteProfile called for '%s'", profile.toUtf8().constData());
+	
+	bool isDefaultProfile = (profile.isEmpty() || profile == "default");
+	QString currentProfile = GetCurrentProfile();
+	bool isDeletingCurrent = (currentProfile == profile);
+	
+	QString pyluxDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+	QString pyluxFile = isDefaultProfile ? (pyluxDir + "/pylux.conf") : (pyluxDir + QString("/pylux-%1.conf").arg(profile));
+	
+	CHIAKI_LOGI(NULL, "Settings: Clearing data for profile at: %s", pyluxFile.toUtf8().constData());
+	
+	// ORIGINAL LOGIC - always clear the data (in separate scope so file gets closed)
+	{
+		QSettings delete_profile(pyluxFile, QSettings::IniFormat);
+		registered_hosts.clear();
+		manual_hosts.clear();
+		controller_mappings.clear();
+		SaveRegisteredHosts(&delete_profile);
+		SaveHiddenHosts(&delete_profile);
+		SaveManualHosts(&delete_profile);
+		SaveControllerMappings(&delete_profile);
+		delete_profile.remove("settings");
+	} // delete_profile destroyed here, file is now closed
+	
+	// Only delete file and remove from list if NOT default profile
+	if (!isDefaultProfile) {
+		CHIAKI_LOGI(NULL, "Settings: File exists before delete: %s", QFile::exists(pyluxFile) ? "YES" : "NO");
+		
+		if (QFile::exists(pyluxFile)) {
+			if (QFile::remove(pyluxFile)) {
+				CHIAKI_LOGI(NULL, "Settings: ✓ Successfully deleted pylux file: %s", pyluxFile.toUtf8().constData());
+			} else {
+				CHIAKI_LOGE(NULL, "Settings: ✗ Failed to delete pylux file: %s", pyluxFile.toUtf8().constData());
+			}
+		} else {
+			CHIAKI_LOGW(NULL, "Settings: File not found: %s", pyluxFile.toUtf8().constData());
+		}
+		
+		profiles.removeOne(profile);
+		SaveProfiles();
+		emit ProfilesUpdated();
+		
+		// If deleted current profile, switch to default
+		if (isDeletingCurrent) {
+			CHIAKI_LOGI(NULL, "Settings: Deleted current profile, switching to default");
+			SetCurrentProfile("");
+		}
+	} else {
+		CHIAKI_LOGI(NULL, "Settings: Default profile - data cleared but file kept");
+	}
+	
+	// Reload
 	LoadRegisteredHosts();
 	LoadHiddenHosts();
 	LoadManualHosts();
 	LoadControllerMappings();
+}
+
+void Settings::AddProfile(QString profile)
+{
+	if (profile.isEmpty() || profiles.contains(profile))
+		return;
+	
+	profiles.append(profile);
+	SaveProfiles();
+	emit ProfilesUpdated();
 }
 
 void Settings::LoadRegisteredHosts(QSettings *qsettings)

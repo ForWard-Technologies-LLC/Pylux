@@ -3,6 +3,7 @@
 #include <streamsession.h>
 #include <settings.h>
 #include <controllermanager.h>
+#include <gamelauncher.h>
 
 #include <chiaki/base64.h>
 #include <chiaki/streamconnection.h>
@@ -109,7 +110,7 @@ StreamSessionConnectInfo::StreamSessionConnectInfo(
 	this->stretch = stretch;
 	this->keyboard_controller_enabled = settings->GetKeyboardEnabled();
 	this->mouse_touch_enabled = settings->GetMouseTouchEnabled();
-	this->enable_keyboard = false; // TODO: from settings
+	this->enable_keyboard = false;  // Will be set based on game_name when creating session
 	this->enable_dualsense = true;
 	this->rumble_haptics_intensity = settings->GetRumbleHapticsIntensity();
 	this->buttons_by_pos = settings->GetButtonsByPosition();
@@ -143,6 +144,10 @@ StreamSessionConnectInfo::StreamSessionConnectInfo(
 	this->dpad_touch_shortcut4 = settings->GetDpadTouchShortcut4();
 	if(this->dpad_touch_shortcut4 > 0)
 		this->dpad_touch_shortcut4 = 1 << (this->dpad_touch_shortcut4 - 1);
+	this->service_type = CHIAKI_SERVICE_TYPE_REMOTE_PLAY;
+	this->cloud_launch_spec = QString();
+	this->cloud_handshake_key = QString();
+	this->cloud_session_id = QString();
 }
 
 static void AudioSettingsCb(uint32_t channels, uint32_t rate, void *user);
@@ -192,6 +197,7 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 {
 	mic_buf.buf = nullptr;
 	connected = false;
+	loading_message = "";
 	muted = true;
 	mic_connected = false;
 #ifdef Q_OS_MACOS
@@ -218,9 +224,16 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 		ffmpeg_decoder = new ChiakiFfmpegDecoder;
 		ChiakiLogSniffer sniffer;
 		chiaki_log_sniffer_init(&sniffer, CHIAKI_LOG_ALL, GetChiakiLog());
+		// Use the codec from video_profile (set based on service type)
+		// For PSCLOUD, this will be H265; for PSNOW, this will be H264
+		ChiakiCodec codec = connect_info.video_profile.codec;
+		const char* codec_name = (codec == CHIAKI_CODEC_H264) ? "H264" : 
+		                         (codec == CHIAKI_CODEC_H265) ? "H265" : 
+		                         (codec == CHIAKI_CODEC_H265_HDR) ? "H265_HDR" : "UNKNOWN";
+		CHIAKI_LOGI(GetChiakiLog(), "Initializing FFmpeg decoder with codec: %s (%d)", codec_name, codec);
 		err = chiaki_ffmpeg_decoder_init(ffmpeg_decoder,
 				chiaki_log_sniffer_get_log(&sniffer),
-				chiaki_target_is_ps5(connect_info.target) ? connect_info.video_profile.codec : CHIAKI_CODEC_H264,
+				codec,
 				connect_info.hw_decoder.isEmpty() ? NULL : connect_info.hw_decoder.toUtf8().constData(),
 				connect_info.hw_device_ctx, FfmpegFrameCb, this);
 		if(err != CHIAKI_ERR_SUCCESS)
@@ -263,6 +276,11 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 	mouse_touch_enabled = connect_info.mouse_touch_enabled;
 	keyboard_controller_enabled = connect_info.keyboard_controller_enabled;
 	host = connect_info.host;
+	title_id = connect_info.title_id;
+	service_type = connect_info.service_type;
+	fullscreen = connect_info.fullscreen;
+	zoom = connect_info.zoom;
+	stretch = connect_info.stretch;
 	QByteArray host_str = connect_info.host.toUtf8();
 
 	ChiakiConnectInfo chiaki_connect_info = {};
@@ -270,7 +288,8 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 	chiaki_connect_info.host = host_str.constData();
 	chiaki_connect_info.video_profile = connect_info.video_profile;
 	chiaki_connect_info.video_profile_auto_downgrade = true;
-	chiaki_connect_info.enable_keyboard = false;
+	// Only enable PS5 keyboard dialog support when launching a game
+	chiaki_connect_info.enable_keyboard = !connect_info.game_name.isEmpty();
 	chiaki_connect_info.enable_dualsense = connect_info.enable_dualsense;
 	chiaki_connect_info.packet_loss_max = connect_info.packet_loss_max;
 	chiaki_connect_info.auto_regist = connect_info.auto_regist;
@@ -288,15 +307,33 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 		chiaki_connect_info.video_profile.codec = CHIAKI_CODEC_H264;
 	}
 #endif
-	if(connect_info.duid.isEmpty())
+	// Cloud streaming: skip regist_key/morning validation (not used for cloud streaming)
+	if(chiaki_service_type_is_cloud(connect_info.service_type))
 	{
+		CHIAKI_LOGI(GetChiakiLog(), "Cloud mode: skipping regist_key/morning validation");
+	}
+	else if(connect_info.duid.isEmpty())
+	{
+		CHIAKI_LOGI(GetChiakiLog(), "Local connection: validating regist_key and morning");
 		if(connect_info.regist_key.size() != sizeof(chiaki_connect_info.regist_key))
+		{
+			CHIAKI_LOGE(GetChiakiLog(), "RegistKey invalid: size=%zu, expected=%zu", 
+				(size_t)connect_info.regist_key.size(), sizeof(chiaki_connect_info.regist_key));
 			throw ChiakiException("RegistKey invalid");
+		}
 		memcpy(chiaki_connect_info.regist_key, connect_info.regist_key.constData(), sizeof(chiaki_connect_info.regist_key));
 
 		if(connect_info.morning.size() != sizeof(chiaki_connect_info.morning))
+		{
+			CHIAKI_LOGE(GetChiakiLog(), "Morning invalid: size=%zu, expected=%zu", 
+				(size_t)connect_info.morning.size(), sizeof(chiaki_connect_info.morning));
 			throw ChiakiException("Morning invalid");
+		}
 		memcpy(chiaki_connect_info.morning, connect_info.morning.constData(), sizeof(chiaki_connect_info.morning));
+	}
+	else
+	{
+		CHIAKI_LOGI(GetChiakiLog(), "PSN connection: skipping regist_key/morning (using holepunch)");
 	}
 
 	if(chiaki_connect_info.ps5)
@@ -332,9 +369,66 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 			SendFeedbackState();
 		}
 	});
-	// If duid isn't empty connect with psn
+	// Cloud streaming: skip holepunch/PSN setup, use direct connection
 	chiaki_connect_info.holepunch_session = NULL;
-	if(!connect_info.duid.isEmpty())
+	if(chiaki_service_type_is_cloud(connect_info.service_type))
+	{
+		// Cloud streaming mode - set cloud parameters
+		chiaki_connect_info.service_type = connect_info.service_type;
+		QByteArray cloud_launch_spec_bytes = connect_info.cloud_launch_spec.toUtf8();
+		QByteArray cloud_handshake_key_bytes = connect_info.cloud_handshake_key.toUtf8();
+		QByteArray cloud_session_id_bytes = connect_info.cloud_session_id.toUtf8();
+		
+		// Store cloud parameters (need to keep them alive for the session)
+		cloud_launch_spec_storage = cloud_launch_spec_bytes;
+		cloud_handshake_key_storage = cloud_handshake_key_bytes;
+		cloud_session_id_storage = cloud_session_id_bytes;
+		
+		chiaki_connect_info.cloud_launch_spec = cloud_launch_spec_storage.constData();
+		chiaki_connect_info.cloud_handshake_key = cloud_handshake_key_storage.constData();
+		chiaki_connect_info.cloud_session_id = cloud_session_id_storage.constData();
+		chiaki_connect_info.cloud_psn_wrapper_type = connect_info.cloud_psn_wrapper_type;
+		chiaki_connect_info.cloud_mtu_in = connect_info.cloud_mtu_in;
+		chiaki_connect_info.cloud_mtu_out = connect_info.cloud_mtu_out;
+		chiaki_connect_info.cloud_rtt_us = connect_info.cloud_rtt_us;
+		
+		// Extract port from host string if it contains "IP:PORT" format
+		// getaddrinfo needs just the IP, not IP:PORT
+		QString hostStr = connect_info.host;
+		CHIAKI_LOGI(GetChiakiLog(), "Cloud mode: parsing host string: %s", hostStr.toUtf8().constData());
+		int colonPos = hostStr.lastIndexOf(':');
+		if(colonPos > 0)
+		{
+			QString portStr = hostStr.mid(colonPos + 1);
+			CHIAKI_LOGI(GetChiakiLog(), "Cloud mode: found port string: %s", portStr.toUtf8().constData());
+			bool ok;
+			uint16_t port = portStr.toUShort(&ok);
+			if(ok && port > 0)
+			{
+				chiaki_connect_info.cloud_port = port;
+				// Update host to be just the IP address for getaddrinfo
+				hostStr = hostStr.left(colonPos);
+				QByteArray hostBytes = hostStr.toUtf8();
+				host_storage = hostBytes;
+				chiaki_connect_info.host = host_storage.constData();
+				CHIAKI_LOGI(GetChiakiLog(), "Cloud mode: successfully extracted port %u from host string", port);
+				CHIAKI_LOGI(GetChiakiLog(), "Cloud mode: using IP address: %s", chiaki_connect_info.host);
+			}
+			else
+			{
+				CHIAKI_LOGW(GetChiakiLog(), "Cloud mode: failed to parse port '%s' as valid port number", portStr.toUtf8().constData());
+				chiaki_connect_info.cloud_port = 0;
+			}
+		}
+		else
+		{
+			CHIAKI_LOGW(GetChiakiLog(), "Cloud mode: no ':' found in host string, assuming no port specified");
+			CHIAKI_LOGW(GetChiakiLog(), "Cloud mode: host string: %s", connect_info.host.toUtf8().constData());
+			chiaki_connect_info.cloud_port = 0;
+		}
+	}
+	// If duid isn't empty connect with psn (skip for cloud mode)
+	else if(!connect_info.duid.isEmpty())
 	{
 		err = InitiatePsnConnection(connect_info.psn_token);
 		if (err != CHIAKI_ERR_SUCCESS)
@@ -345,6 +439,17 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
             throw ChiakiException((tr("Invalid Account-ID"), tr("The PSN Account-ID must be exactly %1 bytes encoded as base64.")).arg(CHIAKI_PSN_ACCOUNT_ID_SIZE));
         }
         memcpy(chiaki_connect_info.psn_account_id, psn_account_id.constData(), CHIAKI_PSN_ACCOUNT_ID_SIZE);
+	}
+	else
+	{
+		chiaki_connect_info.service_type = CHIAKI_SERVICE_TYPE_REMOTE_PLAY;
+		chiaki_connect_info.cloud_launch_spec = NULL;
+		chiaki_connect_info.cloud_handshake_key = NULL;
+		chiaki_connect_info.cloud_session_id = NULL;
+		chiaki_connect_info.cloud_psn_wrapper_type = 0;
+		chiaki_connect_info.cloud_mtu_in = 0;
+		chiaki_connect_info.cloud_mtu_out = 0;
+		chiaki_connect_info.cloud_rtt_us = 0;
 	}
 	err = chiaki_session_init(&session, &chiaki_connect_info, GetChiakiLog());
 	if(err != CHIAKI_ERR_SUCCESS)
@@ -476,10 +581,33 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 			emit AveragePacketLossChanged();
 		}
 	});
+
+	// Initialize GameLauncher if game_name is set
+	if(!connect_info.game_name.isEmpty())
+	{
+		CHIAKI_LOGI(log.GetChiakiLog(), "StreamSession: game_name detected: '%s', starting GameLauncher", connect_info.game_name.toUtf8().constData());
+		game_launcher = new GameLauncher(this, connect_info.game_name, this);
+		connect(game_launcher, &GameLauncher::automationCompleted, this, &StreamSession::OnGameLauncherCompleted);
+		game_launcher->start();
+	}
+}
+
+void StreamSession::OnGameLauncherCompleted()
+{
+	emit GameLaunchCompleted();
 }
 
 StreamSession::~StreamSession()
 {
+	// Explicitly delete GameLauncher first, before we tear down the session
+	// This ensures its destructor runs and cancels all pending timers before
+	// we destroy the chiaki_session that it depends on
+	if(game_launcher)
+	{
+		delete game_launcher;
+		game_launcher = nullptr;
+	}
+	
 	if(audio_out)
 		SDL_CloseAudioDevice(audio_out);
 	if(audio_in)
@@ -1802,7 +1930,12 @@ void StreamSession::Event(ChiakiEvent *event)
 			emit ConnectedChanged();
 			break;
 		case CHIAKI_EVENT_QUIT:
-			if(!connected && !holepunch_session && chiaki_quit_reason_is_error(event->quit.reason) && connect_timer.elapsed() < SESSION_RETRY_SECONDS * 1000)
+			// Do not auto-retry when the console reports RP crashed or session in use — rapid
+			// sess/init loops stress the console and match the repeated 403 + 0x80108b15 pattern.
+			if(!connected && !holepunch_session && chiaki_quit_reason_is_error(event->quit.reason)
+					&& event->quit.reason != CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_CRASH
+					&& event->quit.reason != CHIAKI_QUIT_REASON_SESSION_REQUEST_RP_IN_USE
+					&& connect_timer.elapsed() < SESSION_RETRY_SECONDS * 1000)
 			{
 				QTimer::singleShot(1000, this, &StreamSession::Start);
 				return;
@@ -1822,6 +1955,26 @@ void StreamSession::Event(ChiakiEvent *event)
 			break;
 		case CHIAKI_EVENT_NICKNAME_RECEIVED:
 			emit NicknameReceived(event->server_nickname);
+			break;
+		case CHIAKI_EVENT_KEYBOARD_OPEN:
+			{
+				QString initialText = event->keyboard.text_str ? QString::fromUtf8(event->keyboard.text_str) : QString();
+				
+				// Only allow keyboard for GameLauncher automation
+				if (!game_launcher.isNull() && !game_launcher->isCompleted()) {
+					CHIAKI_LOGI(log.GetChiakiLog(), "PlayStation keyboard open requested (GameLauncher active) - initial text: %s", 
+						initialText.isEmpty() ? "(empty)" : initialText.toUtf8().constData());
+				} else {
+					// Reject keyboard after 1 seconds to close without showing UI - We dont support direct text input yet... This will allow normal UI to show
+					CHIAKI_LOGI(log.GetChiakiLog(), "PlayStation keyboard open requested - rejecting after 2 seconds to prevent keyboard UI");
+					QTimer::singleShot(1000, this, [this]() {
+						chiaki_session_keyboard_reject(&session);
+					});
+				}
+			}
+			break;
+		case CHIAKI_EVENT_KEYBOARD_REMOTE_CLOSE:
+			CHIAKI_LOGI(log.GetChiakiLog(), "PlayStation keyboard close notification received");
 			break;
 		case CHIAKI_EVENT_RUMBLE: {
 			if(ps5_rumble_intensity < 0)

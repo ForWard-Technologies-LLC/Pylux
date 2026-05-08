@@ -43,6 +43,12 @@ void PSNAccountID::handUserIDResponse(const QString& url, const QJsonDocument& j
     QString user_id = object.value("user_id").toString();
     QByteArray byte_representation = to_bytes_little_endian(std::stoll(user_id.toStdString()), 8);
     settings->SetPsnAccountId(byte_representation.toBase64());
+
+    QString online_id = object.value("online_id").toString();
+    if (!online_id.isEmpty()) {
+        settings->SetDonationPsnOnlineId(online_id);
+    }
+
     emit AccountIDResponse(byte_representation.toBase64());
     emit Finished();
 }

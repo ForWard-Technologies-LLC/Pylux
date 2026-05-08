@@ -15,6 +15,17 @@ DialogView {
         Chiaki.addManualHost(consoleCombo.model[consoleCombo.currentIndex].index, hostField.text.trim());
         close();
     }
+    
+    StackView.onActivated: {
+        // Focus the host field when dialog opens
+        // Set restoreFocusItem to null so DialogView doesn't interfere
+        restoreFocusItem = null;
+        Qt.callLater(() => {
+            hostField.forceActiveFocus(Qt.TabFocusReason);
+            hostField.readOnly = false;
+            Qt.inputMethod.show();
+        });
+    }
 
     Item {
         GridLayout {
@@ -37,6 +48,7 @@ DialogView {
                 echoMode: Chiaki.settings.streamerMode ? TextInput.Password : TextInput.Normal
                 Layout.preferredWidth: 400
                 firstInFocusChain: true
+                KeyNavigation.up: headerButton
             }
 
             Label {
@@ -71,6 +83,12 @@ DialogView {
                         index: i,
                     });
                     return m;
+                }
+                onActivated: {
+                    // Move focus to Add button when a valid option is selected
+                    if (model[currentIndex].index !== -1 && hostField.text.trim()) {
+                        headerButton.forceActiveFocus(Qt.TabFocusReason);
+                    }
                 }
             }
         }

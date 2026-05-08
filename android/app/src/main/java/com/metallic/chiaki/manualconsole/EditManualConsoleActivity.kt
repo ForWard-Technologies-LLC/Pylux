@@ -11,12 +11,12 @@ import android.widget.ArrayAdapter
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModelProvider
-import com.metallic.chiaki.R
+import com.pylux.stream.R
 import com.metallic.chiaki.common.RegisteredHost
 import com.metallic.chiaki.common.ext.RevealActivity
 import com.metallic.chiaki.common.ext.viewModelFactory
 import com.metallic.chiaki.common.getDatabase
-import com.metallic.chiaki.databinding.ActivityEditManualBinding
+import com.pylux.stream.databinding.ActivityEditManualBinding
 import io.reactivex.android.schedulers.AndroidSchedulers
 import io.reactivex.disposables.CompositeDisposable
 import io.reactivex.rxkotlin.addTo
@@ -61,9 +61,9 @@ class EditManualConsoleActivity: AppCompatActivity(), RevealActivity
 			binding.registeredHostTextView.setText(titleForRegisteredHost(it))
 		})
 
-		viewModel.registeredHosts.observe(this, Observer { hosts ->
+		viewModel.registeredHosts.observe(this) { hosts ->
 			binding.registeredHostTextView.setAdapter(ArrayAdapter<String>(this, R.layout.dropdown_menu_popup_item,
-				hosts.map { titleForRegisteredHost(it) }))
+				hosts.map { host -> titleForRegisteredHost(host) }))
 			binding.registeredHostTextView.onItemClickListener = object: AdapterView.OnItemClickListener {
 				override fun onItemClick(parent: AdapterView<*>?, view: View?, position: Int, id: Long)
 				{
@@ -73,7 +73,7 @@ class EditManualConsoleActivity: AppCompatActivity(), RevealActivity
 					viewModel.selectedRegisteredHost.value = host
 				}
 			}
-		})
+		}
 
 		binding.saveButton.setOnClickListener { saveHost() }
 	}

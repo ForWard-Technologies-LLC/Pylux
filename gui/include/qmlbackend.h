@@ -5,6 +5,8 @@
 #include "qmlmainwindow.h"
 #include "qmlcontroller.h"
 #include "qmlsettings.h"
+#include "cloudstreamingbackend.h"
+#include "cloudcatalogbackend.h"
 
 #include <QObject>
 #include <QThread>
@@ -12,10 +14,19 @@
 #include <QUrl>
 #include <QFutureWatcher>
 #include <QFuture>
+
+class QNetworkAccessManager;
+class QmlGamesBackend;
+
+// pylux Configuration
+#define PYLUX_URL "https://www.xbgamestream.com"
+
 #ifdef CHIAKI_HAVE_WEBENGINE
 #include <QQuickWebEngineProfile>
 #include <QWebEngineUrlRequestInterceptor>
 #endif
+
+class SteamworksWrapper;  // Always forward-declare for pointer parameters
 
 class SystemdInhibit;
 #ifdef Q_OS_MACOS
@@ -90,6 +101,14 @@ class QmlBackend : public QObject
     Q_PROPERTY(bool controllerMappingInProgress READ controllerMappingInProgress NOTIFY controllerMappingInProgressChanged)
     Q_PROPERTY(bool controllerMappingAltered READ controllerMappingAltered NOTIFY controllerMappingAlteredChanged)
     Q_PROPERTY(bool enableAnalogStickMapping READ enableAnalogStickMapping WRITE setEnableAnalogStickMapping NOTIFY enableAnalogStickMappingChanged)
+    Q_PROPERTY(bool showPingTimeoutDialog READ showPingTimeoutDialog WRITE setShowPingTimeoutDialog NOTIFY showPingTimeoutDialogChanged)
+    Q_PROPERTY(bool showAuthorizationFailedDialog READ showAuthorizationFailedDialog WRITE setShowAuthorizationFailedDialog NOTIFY showAuthorizationFailedDialogChanged)
+    Q_PROPERTY(bool showPSPlusSubscriptionDialog READ showPSPlusSubscriptionDialog WRITE setShowPSPlusSubscriptionDialog NOTIFY showPSPlusSubscriptionDialogChanged)
+    Q_PROPERTY(bool showAccountPrivacySettingsDialog READ showAccountPrivacySettingsDialog WRITE setShowAccountPrivacySettingsDialog NOTIFY showAccountPrivacySettingsDialogChanged)
+    Q_PROPERTY(QString accountPrivacyUpgradeUrl READ accountPrivacyUpgradeUrl WRITE setAccountPrivacyUpgradeUrl NOTIFY accountPrivacyUpgradeUrlChanged)
+    Q_PROPERTY(CloudStreamingBackend* cloudStreaming READ cloudStreaming CONSTANT)
+    Q_PROPERTY(CloudCatalogBackend* cloudCatalog READ cloudCatalog CONSTANT)
+    Q_PROPERTY(bool cloudSteamShortcutEnabled READ cloudSteamShortcutEnabled CONSTANT)
 
 public:
 
@@ -108,17 +127,21 @@ public:
         ConnectFailedConsoleUnreachable,
     };
     Q_ENUM(PsnConnectState);
-    QmlBackend(Settings *settings, QmlMainWindow *window);
+    QmlBackend(Settings *settings, QmlMainWindow *window, SteamworksWrapper *steamworks = nullptr);
     ~QmlBackend();
 
     QmlMainWindow *qmlWindow() const;
     QmlSettings *qmlSettings() const;
     StreamSession *qmlSession() const;
     QList<QmlController*> qmlControllers() const;
+    CloudStreamingBackend *cloudStreaming() const;
+    CloudCatalogBackend *cloudCatalog() const;
+    bool cloudSteamShortcutEnabled() const;
 
     bool discoveryEnabled() const;
     void setDiscoveryEnabled(bool enabled);
     void refreshAuth();
+    void checkNotification();
 
     PsnConnectState connectState() const;
     void setConnectState(PsnConnectState connect_state);
@@ -145,6 +168,19 @@ public:
 
     bool enableAnalogStickMapping() const { return enable_analog_stick_mapping; }
     void setEnableAnalogStickMapping(bool enabled);
+
+    bool showPingTimeoutDialog() const { return show_ping_timeout_dialog; }
+    void setShowPingTimeoutDialog(bool show);
+    
+    bool showAuthorizationFailedDialog() const { return show_authorization_failed_dialog; }
+    void setShowAuthorizationFailedDialog(bool show);
+    
+    bool showPSPlusSubscriptionDialog() const { return show_ps_plus_subscription_dialog; }
+    void setShowPSPlusSubscriptionDialog(bool show);
+    bool showAccountPrivacySettingsDialog() const { return show_account_privacy_settings_dialog; }
+    void setShowAccountPrivacySettingsDialog(bool show);
+    QString accountPrivacyUpgradeUrl() const { return account_privacy_upgrade_url; }
+    void setAccountPrivacyUpgradeUrl(const QString &url);
 
     void finishAutoRegister(const ChiakiRegisteredHost &host);
 
@@ -179,7 +215,7 @@ public:
     Q_INVOKABLE void hideHost(const QString &mac_string, const QString &host_nickname);
     Q_INVOKABLE void unhideHost(const QString &mac_string);
     Q_INVOKABLE bool registerHost(const QString &host, const QString &psn_id, const QString &pin, const QString &cpin, bool broadcast, int target, const QJSValue &callback);
-    Q_INVOKABLE void connectToHost(int index, QString nickname = QString());
+    Q_INVOKABLE void connectToHost(int index, QString nickname = QString(), QString gameName = QString(), QString titleId = QString());
     Q_INVOKABLE void stopSession(bool sleep);
     Q_INVOKABLE void sessionGoHome();
     Q_INVOKABLE void enterPin(const QString &pin);
@@ -189,10 +225,17 @@ public:
     Q_INVOKABLE void stopAutoConnect();
     Q_INVOKABLE void setConsolePin(int index, QString console_pin);
     Q_INVOKABLE QString openPsnLink();
+    Q_INVOKABLE QString openNpssoPage();
     Q_INVOKABLE QString openPlaceboOptionsLink();
+    Q_INVOKABLE QString getClipboardText() const;
+    Q_INVOKABLE void setClipboardText(const QString &text);
+
     Q_INVOKABLE void initPsnAuth(const QUrl &url, const QJSValue &callback);
+    Q_INVOKABLE void initPsnAuthV3(const QString &npsso, const QJSValue &callback);
     Q_INVOKABLE void psnCancel(bool stop_thread);
     Q_INVOKABLE void refreshPsnToken();
+    Q_INVOKABLE QString getPsnInstalledGames();
+    Q_INVOKABLE void clearPsnGames();
     Q_INVOKABLE void creatingControllerMapping(bool creating_controller_mapping);
     Q_INVOKABLE void updateButton(int chiaki_button, QString physical_button, int new_index);
     Q_INVOKABLE void controllerMappingSelectButton();
@@ -201,8 +244,24 @@ public:
     Q_INVOKABLE void controllerMappingButtonQuit();
     Q_INVOKABLE void controllerMappingApply();
     Q_INVOKABLE void autoRegister();
+    Q_INVOKABLE QString generateQRCode();
+    Q_INVOKABLE QString getPyluxURL();
+    Q_INVOKABLE void createPyluxCode(const QString &code, const QJSValue &callback);
+    Q_INVOKABLE void checkPyluxStatus(const QString &code, const QJSValue &callback);
 #if CHIAKI_GUI_ENABLE_STEAM_SHORTCUT
-    Q_INVOKABLE void createSteamShortcut(QString shortcutName, QString launchOptions, const QJSValue &callback, QString steamDir);
+    Q_INVOKABLE QString getSteamBaseDir();
+    QString getSteamUserId();
+	Q_INVOKABLE void configureSteamControllerLayout();
+	Q_INVOKABLE void createSteamShortcut(QString shortcutName, QString launchOptions, const QJSValue &callback, QString steamDir);
+#endif
+
+#ifdef CHIAKI_ENABLE_STEAMWORKS
+	// Steam Cloud Sync methods
+	Q_INVOKABLE void syncSteamCloud();
+	Q_INVOKABLE void clearSteamCloudData();
+	Q_INVOKABLE void deleteProfileFromCloud(const QString &profileName);
+	Q_INVOKABLE bool isSteamCloudEnabled();
+	Q_INVOKABLE void setSteamCloudEnabled(bool enabled);
 #endif
 #ifdef CHIAKI_HAVE_WEBENGINE
     Q_INVOKABLE void setWebEngineHints(QQuickWebEngineProfile *profile);
@@ -223,23 +282,32 @@ signals:
     void controllerMappingAlteredChanged();
     void controllerMappingSteamControllerSelected();
     void enableAnalogStickMappingChanged();
+    void showPingTimeoutDialogChanged();
+    void showAuthorizationFailedDialogChanged();
+    void showPSPlusSubscriptionDialogChanged();
+    void showAccountPrivacySettingsDialogChanged();
+    void accountPrivacyUpgradeUrlChanged();
     void discoveryEnabledChanged();
     void hostsChanged();
     void hiddenHostsChanged();
     void psnTokenChanged();
     void psnCredsExpired();
+    void psnGamesSynced(int newGamesCount);
+    void psnGamesCleared(int gamesCount);
     void autoConnectChanged();
     void wakeupStartInitiated();
     void wakeupStartFailed();
     void windowTypeUpdated(WindowType type);
 
     void error(const QString &title, const QString &text);
+    void error(const QString &title, const QString &text, int durationMs);
     void sessionError(const QString &title, const QString &text);
     void sessionPinDialogRequested();
     void sessionStopDialogRequested();
     void registDialogRequested(const QString &host, bool ps5, const QString &duid);
     void psnLoginAccountIdDone(const QString &accountId);
     void psnLoginAccountIdError(const QString &error);
+
 
 private:
     struct DisplayServer {
@@ -267,6 +335,8 @@ private:
     void updateDiscoveryHosts();
     void updatePsnHosts();
     void updatePsnHostsThread();
+    void tryRefreshWithNpsso(); // Try to refresh tokens using npsso before showing login dialog
+    void savePsnGamesFromDevices(ChiakiHolepunchDeviceInfo *devices, size_t device_count);
     void updateAudioVolume();
     void resumeFromSleep();
     uint32_t getStreamShortcut() const;
@@ -275,6 +345,9 @@ private:
 
     Settings *settings = {};
     QmlSettings *settings_qml = {};
+    QmlGamesBackend *games_backend = {};
+    CloudStreamingBackend *cloud_streaming_backend = {};
+    CloudCatalogBackend *cloud_catalog_backend = {};
     QmlMainWindow *window = {};
     StreamSession *session = {};
     QThread *frame_thread = {};
@@ -298,6 +371,8 @@ private:
     bool controller_mapping_default_mapping = false;
     bool controller_mapping_altered = false;
     bool updating_psn_hosts = false;
+    bool psn_hosts_retry_after_refresh = false;
+    bool psn_hosts_last_failed = false;
     QFutureWatcher<void> psn_hosts_watcher;
     QFuture<void> psn_hosts_future;
     bool disable_zero_copy = false;
@@ -313,6 +388,11 @@ private:
     QMap<QString, QString> controller_mapping_original_controller_mappings = {};
     bool controller_mapping_in_progress = false;
     bool enable_analog_stick_mapping = false;
+    bool show_ping_timeout_dialog = false;
+    bool show_authorization_failed_dialog = false;
+    bool show_ps_plus_subscription_dialog = false;
+    bool show_account_privacy_settings_dialog = false;
+    QString account_privacy_upgrade_url;
     bool resume_session = false;
     bool settings_allocd = false;
     HostMAC auto_connect_mac = {};
@@ -324,4 +404,8 @@ private:
 #ifdef CHIAKI_HAVE_WEBENGINE
     SecUaRequestInterceptor * request_interceptor = {};
 #endif
+#ifdef CHIAKI_ENABLE_STEAMWORKS
+    SteamworksWrapper * steamworks_wrapper = {};
+#endif
+
 };

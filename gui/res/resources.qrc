@@ -4,12 +4,16 @@
     <file>add-24px.svg</file>
     <file>discover-24px.svg</file>
     <file>discover-off-24px.svg</file>
-    <file>chiaking.svg</file>
-    <file>chiaking-logo.svg</file>
-    <file>chiaking-logo-white.svg</file>
-    <file>chiaki.svg</file>
-    <file>chiaki_macos.svg</file>
-    <file>chiaking_macos.svg</file>
+    <file>refresh-24px.svg</file>
+    <file>login-24px.svg</file>
+    <file>close-24px.svg</file>
+    <file>chiaking.png</file>
+    <file>logo_square_1024.png</file>
+    <file>chiaking-logo.png</file>
+    <file>chiaking-logo-white.png</file>
+    <file>chiaki.png</file>
+    <file>chiaki_macos.png</file>
+    <file>chiaking_macos.png</file>
     <file>console-ps4.svg</file>
     <file>console-ps5.svg</file>
     <file>buttons-ps.svg</file>
@@ -24,5 +28,8 @@
     <file>steam_landscape.png</file>
     <file>steam_logo.png</file>
     <file>steam_portrait.png</file>
+    <file>game_shortcut_icon.png</file>
+    <file>game_shortcut_logo.png</file>
+    <file>steamdeck-controls.png</file>
   </qresource>
 </RCC>

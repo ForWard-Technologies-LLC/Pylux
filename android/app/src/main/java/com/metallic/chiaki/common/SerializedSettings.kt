@@ -10,8 +10,8 @@ import android.util.Base64
 import android.util.Log
 import androidx.core.content.FileProvider
 import androidx.room.*
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.metallic.chiaki.R
+import com.metallic.chiaki.common.ext.alertDialogBuilder
+import com.pylux.stream.R
 import com.metallic.chiaki.lib.Target
 import com.squareup.moshi.*
 import io.reactivex.Completable
@@ -25,6 +25,8 @@ import io.reactivex.rxkotlin.addTo
 import io.reactivex.schedulers.Schedulers
 import okio.Buffer
 import okio.Okio
+import okio.buffer
+import okio.source
 import java.io.File
 import java.io.IOException
 
@@ -154,7 +156,7 @@ fun importSettingsFromUri(activity: Activity, uri: Uri, disposable: CompositeDis
 {
 	fun loadFail(msg: String)
 	{
-		MaterialAlertDialogBuilder(activity)
+		activity.alertDialogBuilder()
 			.setMessage(activity.getString(R.string.alert_message_import_failed, msg))
 			.setPositiveButton(R.string.action_import_failed_ack) { _, _ -> }
 			.create()
@@ -164,7 +166,8 @@ fun importSettingsFromUri(activity: Activity, uri: Uri, disposable: CompositeDis
 	try
 	{
 		val inputStream = activity.contentResolver.openInputStream(uri) ?: throw IOException()
-		val buffer = Okio.buffer(Okio.source(inputStream))
+		val source = inputStream.source()
+		val buffer = source.buffer()
 		val reader = JsonReader.of(buffer)
 		val adapter = moshi().serializedSettingsAdapter()
 
@@ -194,7 +197,7 @@ fun importSettingsFromUri(activity: Activity, uri: Uri, disposable: CompositeDis
 		val settings = adapter.fromJsonValue(settingsValue) ?: throw JsonDataException("Failed to parse Settings JSON")
 		Log.i("SerializedSettings", "would import: $settings")
 
-		MaterialAlertDialogBuilder(activity)
+		activity.alertDialogBuilder()
 			.setMessage(activity.getString(R.string.alert_message_import,
 				settings.registeredHosts.let {
 					if(it.isEmpty())

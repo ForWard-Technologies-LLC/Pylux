@@ -1,0 +1,117 @@
+name: Publish file to Dropbox
+description: >
+  Upload a file to a "latest" Dropbox path (overwrite), then server-side copy
+  it to a versioned archive path. Returns a direct-download shared URL.
+
+inputs:
+  file:
+    description: Local path to the file to publish
+    required: true
+  latest-path:
+    description: Dropbox path for the always-latest copy (e.g. /pylux/linux/pylux-latest.zip)
+    required: true
+  versioned-path:
+    description: Dropbox path for the versioned archive copy (e.g. /pylux/linux/pylux-3.8.12.zip)
+    required: true
+  refresh-token:
+    description: Dropbox OAuth refresh token
+    required: true
+  app-key:
+    description: Dropbox app key
+    required: true
+  app-secret:
+    description: Dropbox app secret
+    required: true
+
+outputs:
+  url:
+    description: Direct-download (dl=1) shared URL for the latest file
+    value: ${{ steps.publish.outputs.url }}
+
+runs:
+  using: composite
+  steps:
+    - id: publish
+      shell: bash
+      env:
+        DROPBOX_REFRESH_TOKEN: ${{ inputs.refresh-token }}
+        DROPBOX_APP_KEY: ${{ inputs.app-key }}
+        DROPBOX_APP_SECRET: ${{ inputs.app-secret }}
+        FILE: ${{ inputs.file }}
+        LATEST: ${{ inputs.latest-path }}
+        VERSIONED: ${{ inputs.versioned-path }}
+      run: |
+        set -eo pipefail
+
+        TOKEN=$(curl -fsS https://api.dropbox.com/oauth2/token \
+          -d refresh_token="$DROPBOX_REFRESH_TOKEN" \
+          -d grant_type=refresh_token \
+          -d client_id="$DROPBOX_APP_KEY" \
+          -d client_secret="$DROPBOX_APP_SECRET" \
+          | jq -r '.access_token')
+
+        echo "::group::Upload $FILE -> $LATEST"
+        curl -fsS -X POST https://content.dropboxapi.com/2/files/upload \
+          -H "Authorization: Bearer $TOKEN" \
+          -H "Dropbox-API-Arg: {\"path\":\"$LATEST\",\"mode\":\"overwrite\",\"autorename\":false}" \
+          -H "Content-Type: application/octet-stream" \
+          --data-binary @"$FILE" > /dev/null
+        echo "::endgroup::"
+
+        echo "Clearing prior $VERSIONED (if any)"
+        curl -sS -X POST https://api.dropboxapi.com/2/files/delete_v2 \
+          -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+          -d "{\"path\":\"$VERSIONED\"}" > /dev/null || true
+
+        echo "Copy $LATEST -> $VERSIONED"
+        curl -fsS -X POST https://api.dropboxapi.com/2/files/copy_v2 \
+          -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+          -d "{\"from_path\":\"$LATEST\",\"to_path\":\"$VERSIONED\",\"autorename\":false}" > /dev/null
+
+        # Fetching a public share link requires sharing.write / sharing.read scopes
+        # on the Dropbox app. Failures here must NOT abort the build — the file
+        # is already uploaded; only the convenience link is missing.
+        get_share_url() {
+          local RESP URL
+          RESP=$(curl -sS -X POST https://api.dropboxapi.com/2/sharing/create_shared_link_with_settings \
+            -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+            -d "{\"path\":\"$LATEST\",\"settings\":{\"requested_visibility\":\"public\"}}" || true)
+          URL=$(printf '%s' "$RESP" | jq -r '.url // empty' 2>/dev/null || true)
+          if [ -z "$URL" ]; then
+            # Already-shared path returns an error — ask Dropbox for the existing link instead.
+            RESP=$(curl -sS -X POST https://api.dropboxapi.com/2/sharing/list_shared_links \
+              -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+              -d "{\"path\":\"$LATEST\",\"direct_only\":true}" || true)
+            URL=$(printf '%s' "$RESP" | jq -r '.links[0].url // empty' 2>/dev/null || true)
+          fi
+          if [ -z "$URL" ]; then
+            echo "::warning::Could not obtain a Dropbox share link for $LATEST."
+            echo "::warning::Your Dropbox app likely needs the 'sharing.write' and 'sharing.read' scopes; then regenerate DROPBOX_REFRESH_TOKEN."
+            printf ''
+            return 0
+          fi
+          # Dropbox returns the URL with a "dl=0" parameter (preview page).
+          # Flip it to "dl=1" for a direct-download response.
+          # Modern URLs: https://www.dropbox.com/scl/fi/XXX/file?rlkey=YYY&dl=0
+          # Legacy URLs: https://www.dropbox.com/s/XXX/file?dl=0
+          # NB: bash's ${var/pat/str} treats '?' in pat as a wildcard, so we use
+          # sed here to avoid accidentally matching '&'.
+          URL=$(printf '%s' "$URL" | sed -E 's/([?&])dl=0([&#]|$)/\1dl=1\2/')
+          if ! printf '%s' "$URL" | grep -q 'dl=1'; then
+            if printf '%s' "$URL" | grep -q '?'; then
+              URL="${URL}&dl=1"
+            else
+              URL="${URL}?dl=1"
+            fi
+          fi
+          printf '%s' "$URL"
+        }
+
+        URL=$(get_share_url)
+
+        echo "url=$URL" >> "$GITHUB_OUTPUT"
+        if [ -n "$URL" ]; then
+          echo "Direct-download URL: $URL"
+        else
+          echo "No share URL available; file is uploaded at $LATEST"
+        fi

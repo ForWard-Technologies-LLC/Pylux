@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Selected/focused icon background with Pylux blue glow -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Focused via keyboard/D-pad (activated programmatically) -->
+    <item android:state_activated="true">
+        <layer-list>
+            <item>
+                <shape android:shape="rectangle">
+                    <corners android:radius="20dp" />
+                    <solid android:color="#55009FE3" />
+                </shape>
+            </item>
+            <item android:top="2dp" android:bottom="2dp" android:left="2dp" android:right="2dp">
+                <shape android:shape="rectangle">
+                    <corners android:radius="18dp" />
+                    <solid android:color="#25009FE3" />
+                    <stroke android:width="1.5dp" android:color="#80009FE3" />
+                </shape>
+            </item>
+        </layer-list>
+    </item>
+    <!-- Default selected state -->
+    <item>
+        <layer-list>
+            <item>
+                <shape android:shape="rectangle">
+                    <corners android:radius="20dp" />
+                    <solid android:color="#35009FE3" />
+                </shape>
+            </item>
+            <item android:top="2dp" android:bottom="2dp" android:left="2dp" android:right="2dp">
+                <shape android:shape="rectangle">
+                    <corners android:radius="18dp" />
+                    <solid android:color="#15009FE3" />
+                    <stroke android:width="1dp" android:color="#50009FE3" />
+                </shape>
+            </item>
+        </layer-list>
+    </item>
+</selector>

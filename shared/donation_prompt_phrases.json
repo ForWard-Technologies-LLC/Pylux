@@ -1,0 +1,48 @@
+{
+  "schema_version": 6,
+  "product_name": "Pylux",
+  "description": "Short donation lines in three buckets: mild, playful, and mean-jokey. Written for quick laughs, not long reads.",
+  "category_order": [
+    "mild",
+    "playful",
+    "mean"
+  ],
+  "categories": {
+    "mild": {
+      "label": "Mild",
+      "tone": "Friendly nudges, no bite.",
+      "phrases": [
+        "Hi again. If Pylux helps, toss us a tip?",
+        "Psst. Enjoying Pylux? If you can, toss a small tip.",
+        "No ads, no tracking, just one polite donation ask.",
+        "Open source runs on code, coffee, and donations.",
+        "Breaking news: generous user spotted near this button.",
+        "Your future self says, \"Nice, I donated.\"",
+        "Thanks for using Pylux. Even a small tip helps."
+      ]
+    },
+    "playful": {
+      "label": "Playful / absurd",
+      "tone": "Absurd jokes and chaos.",
+      "phrases": [
+        "Breaking news: local gamer funds app, becomes legend.",
+        "Update: donation detected. Maintainer morale up 42%.",
+        "Scientists confirm donations improve aim. Scientists fled.",
+        "This popup is on a side quest for rent money.",
+        "Donate now to unlock Legendary Supporter energy.",
+        "Hi, I'm here to talk about your car's extended warranty... just kidding. Please donate.",
+        "Weather report: 100% chance of good karma after donating."
+      ]
+    },
+    "mean": {
+      "label": "Mean (jokey)",
+      "tone": "Rude on purpose, still jokes. Use sparingly.",
+      "phrases": [
+        "Donate now. Your future girlfriend loves people who support open source.",
+        "If she asks what green flags you have, say: I donate to indie apps.",
+        "No girlfriend yet? Start with kindness, then maybe donate for bonus points.",
+        "Skip this if you want, but your future girlfriend loves a generous nerd."
+      ]
+    }
+  }
+}

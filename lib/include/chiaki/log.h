@@ -22,6 +22,15 @@ typedef enum {
 
 #define CHIAKI_LOG_ALL ((1 << 5) - 1)
 
+/** INFO + WARNING + ERROR only; omit DEBUG and VERBOSE (e.g. Release / production). */
+#define CHIAKI_LOG_MASK_QUIET (CHIAKI_LOG_INFO | CHIAKI_LOG_WARNING | CHIAKI_LOG_ERROR)
+
+/** WARNING + ERROR only (no INFO). */
+#define CHIAKI_LOG_MASK_WARNINGS_AND_ERRORS (CHIAKI_LOG_WARNING | CHIAKI_LOG_ERROR)
+
+/** ERROR only (quietest; iOS maps sub-error levels to syslog Notice via os_log DEFAULT). */
+#define CHIAKI_LOG_MASK_ERRORS_ONLY CHIAKI_LOG_ERROR
+
 CHIAKI_EXPORT char chiaki_log_level_char(ChiakiLogLevel level);
 
 typedef void (*ChiakiLogCb)(ChiakiLogLevel level, const char *msg, void *user);

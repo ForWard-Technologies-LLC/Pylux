@@ -13,7 +13,11 @@
 #include <sys/socket.h>
 #endif
 
-#ifdef __FreeBSD__
+#ifdef __APPLE__
+#include <TargetConditionals.h>
+#endif
+
+#if defined(__FreeBSD__) || (defined(__APPLE__) && !TARGET_OS_OSX)
 #include <ifaddrs.h>
 #include <string.h>
 #include <errno.h>
@@ -55,8 +59,9 @@ static inline const char *sockaddr_str(struct sockaddr *addr, char *addr_buf, si
 
 static inline int sendto_broadcast(ChiakiLog *log, chiaki_socket_t s, const void *msg, size_t len, int flags, const struct sockaddr *to, socklen_t tolen)
 {
-#ifdef __FreeBSD__
-	// see https://wiki.freebsd.org/NetworkRFCCompliance
+#if defined(__FreeBSD__) || (defined(__APPLE__) && !TARGET_OS_OSX)
+	// FreeBSD and iOS require sending to specific interface broadcast addresses
+	// See: https://wiki.freebsd.org/NetworkRFCCompliance
 	if(to->sa_family == AF_INET && ((const struct sockaddr_in *)to)->sin_addr.s_addr == htonl(INADDR_BROADCAST))
 	{
 		struct ifaddrs *ifap;
@@ -75,15 +80,15 @@ static inline int sendto_broadcast(ChiakiLog *log, chiaki_socket_t s, const void
 			if(a->ifa_broadaddr->sa_family != to->sa_family)
 				continue;
 			((struct sockaddr_in *)a->ifa_broadaddr)->sin_port = ((const struct sockaddr_in *)to)->sin_port;
-			char addr_buf[64];
-			const char *addr_str = sockaddr_str(a->ifa_broadaddr, addr_buf, sizeof(addr_buf));
-			CHIAKI_LOGV(log, "Broadcast to %s on %s", addr_str ? addr_str : "(null)", a->ifa_name);
-			int sr = sendto(s, msg, len, flags, a->ifa_broadaddr, sizeof(*a->ifa_broadaddr));
-			if(sr < 0)
-			{
-				CHIAKI_LOGE(log, "Broadcast on iface %s failed: %s", a->ifa_name, strerror(errno));
-				continue;
-			}
+		char addr_buf[64];
+		const char *addr_str = sockaddr_str(a->ifa_broadaddr, addr_buf, sizeof(addr_buf));
+		// CHIAKI_LOGV(log, "Broadcast to %s on %s", addr_str ? addr_str : "(null)", a->ifa_name);
+		int sr = sendto(s, msg, len, flags, a->ifa_broadaddr, sizeof(*a->ifa_broadaddr));
+		if(sr < 0)
+		{
+			CHIAKI_LOGV(log, "Broadcast on iface %s failed: %s", a->ifa_name, strerror(errno));
+			continue;
+		}
 			r = sr;
 		}
 		freeifaddrs(ifap);

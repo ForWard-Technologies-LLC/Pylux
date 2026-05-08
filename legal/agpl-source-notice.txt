@@ -1,0 +1,71 @@
+================================================================================
+pylux - Source Code Availability
+================================================================================
+
+This software is licensed under the GNU Affero General Public License v3.0
+(AGPL-3.0) with OpenSSL exception.
+
+As required by the AGPL license, the complete corresponding source code
+used to build this binary is available for download at:
+
+    https://www.dropbox.com/scl/fi/rw1xoplpxore68dnho9jx/psstream-source-latest.tar.gz?rlkey=8nvd0lbe2gnah51oyz1xyfjrm&st=jqpvz1n8&dl=0
+
+The source code archive includes all source files, build scripts, and
+dependencies needed to compile and build this software from source.
+
+For more information about the AGPL license and your rights, see:
+    https://www.gnu.org/licenses/agpl-3.0.html
+
+The full license text is included in this distribution as the file "COPYING".
+
+================================================================================
+GNU AFFERO GENERAL PUBLIC LICENSE - Summary
+================================================================================
+
+This program is free software: you can redistribute it and/or modify it
+under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or (at your
+option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License
+for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program in the file named COPYING. If not, see
+https://www.gnu.org/licenses/
+
+Additional permission under GNU AGPL version 3 section 7:
+
+If you modify this program, or any covered work, by linking or combining
+it with the OpenSSL project's OpenSSL library (or a modified version of
+that library), containing parts covered by the terms of the OpenSSL or
+SSLeay licenses, the Free Software Foundation grants you additional
+permission to convey the resulting work.
+
+================================================================================
+Your Rights Under AGPL
+================================================================================
+
+1. You can use this software for any purpose
+2. You can study and modify the source code
+3. You can share copies of the software
+4. You can distribute your modified versions
+
+The AGPL requires that if you distribute modified versions, you must:
+- Make your source code available under the same license
+- Include prominent notices of your modifications
+- Provide access to the source code for network users (if applicable)
+
+================================================================================
+Build Information
+================================================================================
+
+Built on: __BUILD_DATE__
+Git commit: __GIT_COMMIT__
+Git branch: __GIT_BRANCH__
+Architecture: __ARCHITECTURE__
+
+================================================================================
+

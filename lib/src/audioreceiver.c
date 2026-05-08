@@ -2,10 +2,21 @@
 
 #include <chiaki/audioreceiver.h>
 #include <chiaki/session.h>
+#include <chiaki/log.h>
+#include "pscloud_audio_reassembler.h"
 
 #include <string.h>
 
 static void chiaki_audio_receiver_frame(ChiakiAudioReceiver *audio_receiver, ChiakiSeqNum16 frame_index, bool is_haptics, uint8_t *buf, size_t buf_size);
+
+// Callback for PSCLOUD audio reassembler - emits units with frame_index from reassembler
+static void pscloud_audio_reassembler_frame_cb(ChiakiSeqNum16 frame_index, uint8_t *buf, size_t buf_size, bool is_haptics, void *user)
+{
+	ChiakiAudioReceiver *audio_receiver = (ChiakiAudioReceiver *)user;
+	chiaki_audio_receiver_frame(audio_receiver, frame_index, is_haptics, buf, buf_size);
+	if(audio_receiver->packet_stats)
+		chiaki_packet_stats_push_seq(audio_receiver->packet_stats, frame_index);
+}
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_audio_receiver_init(ChiakiAudioReceiver *audio_receiver, ChiakiSession *session, ChiakiPacketStats *packet_stats)
 {
@@ -15,10 +26,39 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_audio_receiver_init(ChiakiAudioReceiver *au
 
 	audio_receiver->frame_index_prev = 0;
 	audio_receiver->frame_index_startup = true;
+	audio_receiver->pscloud_audio_reassembler = NULL;
 
 	ChiakiErrorCode err = chiaki_mutex_init(&audio_receiver->mutex, false);
 	if(err != CHIAKI_ERR_SUCCESS)
 		return err;
+
+	// Initialize PSCLOUD audio reassembler if this is a PSCLOUD session
+	if(session && session->service_type == CHIAKI_SERVICE_TYPE_PSCLOUD)
+	{
+		CHIAKI_LOGI(session->log, "Audio Receiver: Detected PSCLOUD service type - initializing custom audio reassembler");
+		ChiakiPSCLOUDAudioReassembler *reassembler = malloc(sizeof(ChiakiPSCLOUDAudioReassembler));
+		if(!reassembler)
+			return CHIAKI_ERR_MEMORY;
+		
+		err = chiaki_pscloud_audio_reassembler_init(reassembler, session->log);
+		if(err != CHIAKI_ERR_SUCCESS)
+		{
+			free(reassembler);
+			return err;
+		}
+		
+		audio_receiver->pscloud_audio_reassembler = reassembler;
+		CHIAKI_LOGI(session->log, "Audio Receiver: ✓ PSCLOUD audio reassembler initialized successfully");
+	}
+	else
+	{
+		if(session)
+			CHIAKI_LOGI(session->log, "Audio Receiver: Using standard audio decoder (service_type=%s)", 
+				chiaki_service_type_string(session->service_type));
+		else
+			CHIAKI_LOGI(session->log, "Audio Receiver: Using standard audio decoder (no session)");
+		audio_receiver->pscloud_audio_reassembler = NULL;
+	}
 
 	return CHIAKI_ERR_SUCCESS;
 }
@@ -28,6 +68,15 @@ CHIAKI_EXPORT void chiaki_audio_receiver_fini(ChiakiAudioReceiver *audio_receive
 #ifdef CHIAKI_LIB_ENABLE_OPUS
 	opus_decoder_destroy(audio_receiver->opus_decoder);
 #endif
+	
+	if(audio_receiver->pscloud_audio_reassembler)
+	{
+		ChiakiPSCLOUDAudioReassembler *reassembler = (ChiakiPSCLOUDAudioReassembler *)audio_receiver->pscloud_audio_reassembler;
+		chiaki_pscloud_audio_reassembler_fini(reassembler);
+		free(reassembler);
+		audio_receiver->pscloud_audio_reassembler = NULL;
+	}
+	
 	chiaki_mutex_fini(&audio_receiver->mutex);
 }
 
@@ -53,6 +102,22 @@ CHIAKI_EXPORT void chiaki_audio_receiver_av_packet(ChiakiAudioReceiver *audio_re
 	if(packet->codec != 5)
 	{
 		CHIAKI_LOGE(audio_receiver->log, "Received Audio Packet with unknown Codec");
+		return;
+	}
+
+	// PSCLOUD uses unitized format: one unit per AV packet, units_in_frame_fec is literal FEC count
+	bool is_pscloud = audio_receiver->session
+		&& audio_receiver->session->service_type == CHIAKI_SERVICE_TYPE_PSCLOUD;
+
+	if(is_pscloud && audio_receiver->pscloud_audio_reassembler)
+	{
+		ChiakiPSCLOUDAudioReassembler *reassembler = (ChiakiPSCLOUDAudioReassembler *)audio_receiver->pscloud_audio_reassembler;
+		ChiakiErrorCode err = chiaki_pscloud_audio_reassembler_put_packet(
+			reassembler, packet, pscloud_audio_reassembler_frame_cb, audio_receiver);
+		if(err != CHIAKI_ERR_SUCCESS && err != CHIAKI_ERR_FEC_FAILED)
+		{
+			CHIAKI_LOGW(audio_receiver->log, "PSCLOUD audio reassembler error: %d", (int)err);
+		}
 		return;
 	}
 

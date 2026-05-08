@@ -1,0 +1,210 @@
+# Deploy Android + Android TV (Google Play)
+#
+# Architectures: arm64-v8a, armeabi-v7a, x86, x86_64 (all ABIs in one AAB)
+# Output: Signed AAB uploaded to Google Play via Fastlane
+#   release/beta → beta track
+#   master       → production track
+# Android versionCode is derived from CMake semver (see android/app/build.gradle).
+#
+# Required secrets:
+#   ANDROID_KEYSTORE_BASE64                  - base64 of upload keystore (.jks)
+#   ANDROID_KEYSTORE_PASSWORD                - keystore password
+#   ANDROID_KEY_ALIAS                        - signing key alias
+#   ANDROID_KEY_PASSWORD                     - signing key password
+#   GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64  - base64 of service account JSON key
+
+name: Deploy Android + Android TV (Google Play)
+
+on:
+  workflow_dispatch:
+  workflow_call:
+    outputs:
+      chiaki_version:
+        description: Pylux version from CMakeLists.txt
+        value: ${{ jobs.build-android.outputs.chiaki_version }}
+      play_testing_url:
+        description: Google Play open testing opt-in URL
+        value: ${{ jobs.build-android.outputs.play_testing_url }}
+      play_store_url:
+        description: Google Play store listing URL
+        value: ${{ jobs.build-android.outputs.play_store_url }}
+      android_upload_succeeded:
+        description: Whether the Fastlane Play upload step succeeded
+        value: ${{ jobs.build-android.outputs.android_upload_succeeded }}
+
+concurrency:
+  group: build-android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-android:
+    name: Build and deploy to Google Play
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      chiaki_version: ${{ steps.extract_version.outputs.version }}
+      play_testing_url: ${{ steps.play_links.outputs.play_testing_url }}
+      play_store_url: ${{ steps.play_links.outputs.play_store_url }}
+      android_upload_succeeded: ${{ steps.upload_play.outcome == 'success' }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Extract version
+        id: extract_version
+        uses: ./.github/actions/extract-version
+
+      - name: Play store links (workflow outputs)
+        id: play_links
+        if: always()
+        run: |
+          echo "play_testing_url=https://play.google.com/apps/testing/com.pylux.stream" >> "$GITHUB_OUTPUT"
+          echo "play_store_url=https://play.google.com/store/apps/details?id=com.pylux.stream" >> "$GITHUB_OUTPUT"
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK and CMake
+        run: |
+          sdkmanager --install \
+            "ndk;28.2.13676358" \
+            "cmake;3.30.4" \
+            "build-tools;35.0.0" \
+            "platforms;android-35"
+
+      - name: Install protobuf tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq protobuf-compiler
+          pip3 install 'protobuf>=5,<6' 'grpcio-tools>=1.60'
+
+      - name: Decode keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::warning::ANDROID_KEYSTORE_BASE64 not set — building unsigned"
+            echo "SIGNING_CONFIGURED=false" >> "$GITHUB_ENV"
+          else
+            KEYSTORE_PATH="$RUNNER_TEMP/release.jks"
+            echo "$KEYSTORE_BASE64" > "$RUNNER_TEMP/keystore.b64"
+            base64 -d -i "$RUNNER_TEMP/keystore.b64" > "$KEYSTORE_PATH"
+            rm -f "$RUNNER_TEMP/keystore.b64"
+            echo "KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+            echo "SIGNING_CONFIGURED=true" >> "$GITHUB_ENV"
+          fi
+
+      - name: Write local.properties
+        working-directory: android
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+          if [ "$SIGNING_CONFIGURED" = "true" ]; then
+            cat >> local.properties <<PROPS
+          chiakiKeystore=${{ env.KEYSTORE_PATH }}
+          chiakiKeystorePW=$KEYSTORE_PASSWORD
+          chiakiKeyAlias=$KEY_ALIAS
+          chiakiKeyPW=$KEY_PASSWORD
+          PROPS
+            echo "Signing configured in local.properties"
+          else
+            echo "No signing — unsigned build only"
+          fi
+
+      - name: Build release AAB
+        id: bundle_release
+        working-directory: android
+        run: |
+          ./gradlew bundleRelease \
+            --parallel \
+            --build-cache \
+            -Dorg.gradle.java.home="$JAVA_HOME"
+
+      - name: Decode Google Play service account key
+        env:
+          JSON_BASE64: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64 }}
+        run: |
+          if [ -z "$JSON_BASE64" ]; then
+            echo "::warning::GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64 not set — skipping upload"
+            echo "UPLOAD_ENABLED=false" >> "$GITHUB_ENV"
+          else
+            KEY_PATH="$RUNNER_TEMP/play-credentials.json"
+            echo "$JSON_BASE64" > "$RUNNER_TEMP/play-key.b64"
+            base64 -d -i "$RUNNER_TEMP/play-key.b64" > "$KEY_PATH"
+            rm -f "$RUNNER_TEMP/play-key.b64"
+            echo "GOOGLE_PLAY_JSON_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+            echo "UPLOAD_ENABLED=true" >> "$GITHUB_ENV"
+          fi
+
+      - name: Determine Google Play track
+        if: env.UPLOAD_ENABLED == 'true'
+        run: |
+          if [ "${{ github.ref_name }}" = "master" ]; then
+            TRACK=production
+          else
+            TRACK=beta
+          fi
+          echo "PYLUX_PLAY_TRACK=$TRACK" >> "$GITHUB_ENV"
+          echo "Deploying to Google Play track: $TRACK"
+
+      - name: Upload AAB to Google Play
+        id: upload_play
+        if: env.UPLOAD_ENABLED == 'true'
+        working-directory: android
+        env:
+          # Same value Gradle uses (extract-version semver_build_id); avoids Fastlane relying on a solo Gradle invoke.
+          ANDROID_VERSION_CODE: ${{ steps.extract_version.outputs.semver_build_id }}
+        run: |
+          sudo gem install fastlane -N
+          AAB_PATH="$(find app/build/outputs/bundle/release -name '*.aab' | head -1)"
+          export PYLUX_AAB_PATH="$PWD/$AAB_PATH"
+          fastlane upload_pylux_aab
+
+      - name: Deployment summary
+        if: always()
+        run: |
+          {
+            echo "## Pylux Android — v${CHIAKI_VERSION:-?}"
+            echo ""
+            if [ "${{ steps.bundle_release.outcome }}" = "skipped" ] || [ "${{ steps.bundle_release.outcome }}" != "success" ]; then
+              echo "Build did not complete (outcome: **${{ steps.bundle_release.outcome }}**). Check the logs above for details."
+            else
+              case "${UPLOAD_ENABLED:-false}" in
+                true)
+                  if [ "${{ steps.upload_play.outcome }}" = "success" ]; then
+                    if [ "${{ github.ref_name }}" = "master" ]; then
+                      echo "Released to the Play Store:"
+                      echo ""
+                      echo "**[Get it on Google Play](https://play.google.com/store/apps/details?id=com.pylux.stream)**"
+                      echo ""
+                      echo "Available for Android phones, tablets, and Android TV."
+                    else
+                      echo "Beta build uploaded to Google Play."
+                      echo ""
+                      echo "**[Join the beta](https://play.google.com/apps/testing/com.pylux.stream)**"
+                      echo ""
+                      echo "1. Open the join link above to opt in to the beta program."
+                      echo "2. Install or update Pylux from the [Play Store](https://play.google.com/store/apps/details?id=com.pylux.stream)."
+                      echo "3. Android TV: join the beta on a phone or browser first, then install from the Play Store on your TV."
+                    fi
+                  else
+                    echo "Upload did not complete (outcome: **${{ steps.upload_play.outcome }}**). Check the logs above for details."
+                  fi
+                  ;;
+                *)
+                  echo "Google Play upload was skipped (secret not configured)."
+                  ;;
+              esac
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

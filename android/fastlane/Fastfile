@@ -1,0 +1,45 @@
+# frozen_string_literal: true
+
+require "fileutils"
+
+default_platform(:android)
+
+platform :android do
+  desc "Upload AAB to Google Play"
+  lane :upload_pylux_aab do
+    aab_path = ENV["PYLUX_AAB_PATH"]
+    UI.user_error!("Set PYLUX_AAB_PATH to the .aab file") if aab_path.nil? || aab_path.empty?
+    UI.user_error!("AAB not found: #{aab_path}") unless File.file?(aab_path)
+
+    json_key = ENV["GOOGLE_PLAY_JSON_KEY_PATH"]
+    UI.user_error!("Set GOOGLE_PLAY_JSON_KEY_PATH to the service account JSON") if json_key.nil? || json_key.empty?
+    UI.user_error!("JSON key not found: #{json_key}") unless File.file?(json_key)
+
+    track = ENV.fetch("PYLUX_PLAY_TRACK", "beta")
+    UI.message("Uploading to Google Play track: #{track}")
+
+    vc = ENV["ANDROID_VERSION_CODE"]
+    if vc.nil? || vc.empty?
+      android_root = File.expand_path("..", __dir__)
+      out = sh("cd #{android_root} && ./gradlew :app:printPyluxVersionCode --console=plain 2>&1 | grep '^PYLUX_VERSION_CODE=' | tail -1 | cut -d= -f2", log: false).strip
+      vc = out unless out.empty?
+    end
+    UI.user_error!("Could not determine Android versionCode (set ANDROID_VERSION_CODE or run from android/ with Gradle)") if vc.nil? || vc.empty?
+
+    changelog_text = "Continuing to provide regular updates and improvements for a better experience!"
+    changelog_dir = File.expand_path("metadata/android/en-US/changelogs", __dir__)
+    FileUtils.mkdir_p(changelog_dir)
+    File.write(File.join(changelog_dir, "#{vc}.txt"), changelog_text)
+
+    upload_to_play_store(
+      json_key: json_key,
+      package_name: "com.pylux.stream",
+      aab: aab_path,
+      track: track,
+      skip_upload_metadata: true,
+      skip_upload_changelogs: false,
+      skip_upload_images: true,
+      skip_upload_screenshots: true
+    )
+  end
+end

@@ -280,7 +280,7 @@ bool MainApplication::Load()
 	brls::Logger::setLogLevel(brls::LogLevel::DEBUG);
 
 	brls::i18n::loadTranslations();
-	if(!brls::Application::init("Chiaki Remote play"))
+	if(!brls::Application::init("pylux"))
 	{
 		brls::Logger::error("Unable to init Borealis application");
 		return false;
@@ -301,7 +301,7 @@ bool MainApplication::Load()
 
 	// Create a view
 	this->rootFrame = new brls::TabFrame();
-	this->rootFrame->setTitle("Chiaki-ng: Open Source PlayStation Remote Play Client");
+	this->rootFrame->setTitle("pylux");
 	this->rootFrame->setIcon(BOREALIS_ASSET("icon.png"));
 
 	brls::List *config = new brls::List();

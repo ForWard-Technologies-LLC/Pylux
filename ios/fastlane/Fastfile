@@ -1,0 +1,82 @@
+# frozen_string_literal: true
+
+default_platform(:ios)
+
+platform :ios do
+  desc "Upload the IPA at PYLUX_IPA_PATH to App Store Connect"
+  lane :upload_pylux_ipa do
+    ipa_path = ENV["PYLUX_IPA_PATH"]
+    UI.user_error!("Set PYLUX_IPA_PATH to the .ipa file") if ipa_path.nil? || ipa_path.empty?
+    UI.user_error!("IPA not found: #{ipa_path}") unless File.file?(ipa_path)
+
+    key_id = ENV["APP_STORE_CONNECT_API_KEY_KEY_ID"]
+    issuer_id = ENV["APP_STORE_CONNECT_API_KEY_ISSUER_ID"]
+    key_path = ENV["APP_STORE_CONNECT_API_KEY_KEY_FILEPATH"]
+    UI.user_error!("Set APP_STORE_CONNECT_API_KEY_KEY_ID, APP_STORE_CONNECT_API_KEY_ISSUER_ID, APP_STORE_CONNECT_API_KEY_KEY_FILEPATH") if [key_id, issuer_id, key_path].any? { |v| v.nil? || v.empty? }
+    UI.user_error!("API key file not found: #{key_path}") unless File.file?(key_path)
+
+    api_key = app_store_connect_api_key(
+      key_id: key_id,
+      issuer_id: issuer_id,
+      key_filepath: key_path,
+      duration: 1200,
+      in_house: false
+    )
+
+    submit = ENV.fetch("PYLUX_SUBMIT_FOR_REVIEW", "false") == "true"
+    beta_external = ENV.fetch("PYLUX_TESTFLIGHT_EXTERNAL_BETA", "false") == "true"
+    changelog_text = "Continuing to provide regular updates and improvements for a better experience!"
+    reviewer_notes = "Minor bug fix post release. No new features."
+
+    if beta_external
+      # release/beta → TestFlight external beta distribution
+      UI.message("TestFlight: external beta (wait for processing, External group)")
+      upload_to_testflight(
+        api_key: api_key,
+        ipa: ipa_path,
+        skip_waiting_for_build_processing: false,
+        skip_submission: false,
+        distribute_external: true,
+        groups: ["External"],
+        changelog: changelog_text,
+        uses_non_exempt_encryption: false,
+        notify_external_testers: true,
+        beta_app_review_info: {
+          notes: reviewer_notes
+        }
+      )
+    elsif submit
+      # master → App Store production submission
+      # Write the "What's New" metadata file so deliver can set whatsNew on the version.
+      # release_notes is silently ignored when skip_metadata:true, so we use a file instead.
+      require 'fileutils'
+      meta_en = File.expand_path("./fastlane/metadata/en-US")
+      FileUtils.mkdir_p(meta_en)
+      File.write(File.join(meta_en, "release_notes.txt"), changelog_text)
+
+      UI.message("Submitting to App Store for review")
+      upload_to_app_store(
+        api_key: api_key,
+        ipa: ipa_path,
+        submit_for_review: true,
+        automatic_release: false,
+        skip_metadata: false,
+        skip_screenshots: true,
+        precheck_include_in_app_purchases: false,
+        submission_information: {
+          export_compliance_uses_encryption: false,
+          add_id_info_uses_idfa: false
+        }
+      )
+    else
+      # upload only, no submission (e.g. workflow_dispatch dry run)
+      UI.message("Uploading to App Store Connect only (no submission)")
+      upload_to_testflight(
+        api_key: api_key,
+        ipa: ipa_path,
+        skip_waiting_for_build_processing: true,
+        skip_submission: true
+      )
+    end
+  end
+end

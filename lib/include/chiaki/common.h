@@ -112,6 +112,41 @@ static inline bool chiaki_codec_is_hdr(ChiakiCodec codec)
 
 CHIAKI_EXPORT const char *chiaki_codec_name(ChiakiCodec codec);
 
+/**
+ * Unified streaming service type (single source of truth).
+ *
+ * - REMOTE_PLAY: classic local/PSN remote play
+ * - PSNOW / PSCLOUD: cloud streaming variants
+ */
+typedef enum
+{
+	CHIAKI_SERVICE_TYPE_REMOTE_PLAY = 0,
+	CHIAKI_SERVICE_TYPE_PSNOW = 1,
+	CHIAKI_SERVICE_TYPE_PSCLOUD = 2,
+} ChiakiServiceType;
+
+static inline bool chiaki_service_type_is_valid(ChiakiServiceType service_type)
+{
+	return service_type == CHIAKI_SERVICE_TYPE_REMOTE_PLAY
+		|| service_type == CHIAKI_SERVICE_TYPE_PSNOW
+		|| service_type == CHIAKI_SERVICE_TYPE_PSCLOUD;
+}
+
+/**
+ * Defensive defaulting: if a caller forgets to initialize service_type, treat it as REMOTE_PLAY.
+ */
+static inline ChiakiServiceType chiaki_service_type_normalize(ChiakiServiceType service_type)
+{
+	return chiaki_service_type_is_valid(service_type) ? service_type : CHIAKI_SERVICE_TYPE_REMOTE_PLAY;
+}
+
+static inline bool chiaki_service_type_is_cloud(ChiakiServiceType service_type)
+{
+	return chiaki_service_type_normalize(service_type) != CHIAKI_SERVICE_TYPE_REMOTE_PLAY;
+}
+
+CHIAKI_EXPORT const char *chiaki_service_type_string(ChiakiServiceType service_type);
+
 #ifdef __cplusplus
 }
 #endif

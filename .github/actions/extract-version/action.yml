@@ -1,0 +1,49 @@
+name: Extract Pylux version
+description: >
+  Reads CHIAKI_VERSION_MAJOR/MINOR/PATCH from CMakeLists.txt, exposes the
+  full version as both a step output and the CHIAKI_VERSION env var.
+  Also exposes semver_build_id = MAJOR*10000 + MINOR*100 + PATCH (each 0..99)
+  for Android versionCode / Apple build numbers — tracks the Pylux semver.
+
+inputs:
+  cmakelists:
+    description: Path to CMakeLists.txt
+    required: false
+    default: CMakeLists.txt
+
+outputs:
+  version:
+    description: Full version string (e.g. 3.8.12)
+    value: ${{ steps.extract.outputs.version }}
+  major:
+    description: CHIAKI_VERSION_MAJOR
+    value: ${{ steps.extract.outputs.major }}
+  minor:
+    description: CHIAKI_VERSION_MINOR
+    value: ${{ steps.extract.outputs.minor }}
+  patch:
+    description: CHIAKI_VERSION_PATCH
+    value: ${{ steps.extract.outputs.patch }}
+  semver_build_id:
+    description: Integer MAJOR*10000+MINOR*100+PATCH (monotonic with semver if components stay 0-99)
+    value: ${{ steps.extract.outputs.semver_build_id }}
+
+runs:
+  using: composite
+  steps:
+    - id: extract
+      shell: bash
+      run: |
+        CMAKE="${{ inputs.cmakelists }}"
+        MAJOR=$(grep '^set(CHIAKI_VERSION_MAJOR' "$CMAKE" | awk '{print $2}' | tr -d ')')
+        MINOR=$(grep '^set(CHIAKI_VERSION_MINOR' "$CMAKE" | awk '{print $2}' | tr -d ')')
+        PATCH=$(grep '^set(CHIAKI_VERSION_PATCH' "$CMAKE" | awk '{print $2}' | tr -d ')')
+        VERSION="${MAJOR}.${MINOR}.${PATCH}"
+        SEMVER_BUILD_ID=$((10#${MAJOR} * 10000 + 10#${MINOR} * 100 + 10#${PATCH}))
+        echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+        echo "major=${MAJOR}" >> "$GITHUB_OUTPUT"
+        echo "minor=${MINOR}" >> "$GITHUB_OUTPUT"
+        echo "patch=${PATCH}" >> "$GITHUB_OUTPUT"
+        echo "semver_build_id=${SEMVER_BUILD_ID}" >> "$GITHUB_OUTPUT"
+        echo "CHIAKI_VERSION=${VERSION}" >> "$GITHUB_ENV"
+        echo "Pylux version: ${VERSION} (semver_build_id=${SEMVER_BUILD_ID})"

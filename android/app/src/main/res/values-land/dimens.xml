@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Paywall landscape: fixed-width donation column (wider when sheet uses full display width) -->
+    <dimen name="support_paywall_land_donation_panel_width">328dp</dimen>
+    <dimen name="support_paywall_horizontal_pad">16dp</dimen>
+    <dimen name="support_paywall_header_padding_top">4dp</dimen>
+    <dimen name="support_paywall_banner_horizontal_pad">12dp</dimen>
+    <dimen name="cloud_game_image_height">120dp</dimen>
+    <dimen name="cloud_game_text_padding">8dp</dimen>
+    <dimen name="cloud_game_name_text_size">12sp</dimen>
+    <dimen name="cloud_game_platform_text_size">10sp</dimen>
+</resources>
+

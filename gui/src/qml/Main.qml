@@ -10,7 +10,7 @@ Item {
     property list<Item> restoreFocusItems
     property bool initialAsk: false
     Material.theme: Material.Dark
-    Material.accent: "#00a7ff"
+    Material.accent: "#00d4ff"
 
     function controllerButton(name) {
         let type = "deck";
@@ -119,6 +119,71 @@ Item {
             stack.pop(stack.get(0));
         else
             stack.replace(stack.get(0), mainViewComponent);
+        
+        // Check if ping timeout dialog should be shown
+        if (Chiaki.showPingTimeoutDialog) {
+            Qt.callLater(() => {
+                root.showMessageDialog(
+                    qsTr("Ping Too High"),
+                    qsTr("Ping must be less than 80ms to start a cloud session.\n\nTo continue anyway, go to Settings → Cloud and manually select a datacenter for your service (Game Library or Game Catalog)."),
+                    () => {
+                        Chiaki.showPingTimeoutDialog = false;
+                    }
+                );
+            });
+        }
+        
+        // Check if authorization failed dialog should be shown
+        if (Chiaki.showAuthorizationFailedDialog) {
+            Qt.callLater(() => {
+                root.showConfirmDialog(
+                    qsTr("Authentication Required"),
+                    qsTr("Your NPSSO token is likely expired. Please re-login to continue using cloud streaming."),
+                    () => {
+                        // A button: Open QR login screen
+                        Chiaki.showAuthorizationFailedDialog = false;
+                        root.showPSNTokenDialog("", true);
+                    },
+                    () => {
+                        // B button: Just close the dialog
+                        Chiaki.showAuthorizationFailedDialog = false;
+                    }
+                );
+            });
+        }
+        
+        // Check if PS Plus subscription dialog should be shown
+        if (Chiaki.showPSPlusSubscriptionDialog) {
+            Qt.callLater(() => {
+                root.showMessageDialog(
+                    qsTr("PS Plus Subscription Required"),
+                    qsTr("You may not have an active PS Plus subscription. Please check your subscription status and try again."),
+                    () => {
+                        Chiaki.showPSPlusSubscriptionDialog = false;
+                    }
+                );
+            });
+        }
+        
+        // Check if account privacy settings dialog should be shown
+        if (Chiaki.showAccountPrivacySettingsDialog) {
+            Qt.callLater(() => {
+                accountPrivacyDialog.upgradeUrl = Chiaki.accountPrivacyUpgradeUrl || "";
+                accountPrivacyDialog.callback = () => {
+                    // Ignore Forever - set setting to skip future checks
+                    Chiaki.settings.accountAttributesCheckPassed = true;
+                    Chiaki.showAccountPrivacySettingsDialog = false;
+                    Chiaki.accountPrivacyUpgradeUrl = "";
+                };
+                accountPrivacyDialog.rejectCallback = () => {
+                    // Cancel - just close dialog
+                    Chiaki.showAccountPrivacySettingsDialog = false;
+                    Chiaki.accountPrivacyUpgradeUrl = "";
+                };
+                accountPrivacyDialog.restoreFocusItem = Window.window.activeFocusItem;
+                accountPrivacyDialog.open();
+            });
+        }
     }
 
     function showStreamView() {
@@ -129,18 +194,40 @@ Item {
         stack.replace(stack.get(0), psnViewComponent, {}, StackView.Immediate)
     }
 
+    function showGamesView(deviceId, deviceName, serverIndex) {
+        stack.push(gamesViewComponent, {deviceId: deviceId, deviceName: deviceName, serverIndex: serverIndex})
+    }
+
     function showManualHostDialog() {
         stack.push(manualHostDialogComponent);
     }
 
-    function showConfirmDialog(title, text, callback, rejectCallback = null) {
+    function showConfirmDialog(title, text, callback, rejectCallback = null, keepDialogOpen = false) {
         confirmDialog.title = title;
         confirmDialog.text = text;
         confirmDialog.callback = callback;
         confirmDialog.rejectCallback = rejectCallback;
+        confirmDialog.keepDialogOpen = keepDialogOpen;
         confirmDialog.restoreFocusItem = Window.window.activeFocusItem;
         confirmDialog.open();
     }
+
+    function showMessageDialog(title, text, callback) {
+        messageDialog.title = title;
+        messageDialog.text = text;
+        messageDialog.callback = callback;
+        messageDialog.restoreFocusItem = Window.window.activeFocusItem;
+        messageDialog.open();
+    }
+
+    function showToast(title, text, color = "#2196F3") {
+        errorTitleLabel.text = title;
+        errorTextLabel.text = text;
+        errorToast.color = color;
+        errorHideTimer.start();
+    }
+
+
 
     function showRemindDialog(title, text, remotePlay, callback) {
         remindDialog.title = title;
@@ -203,23 +290,37 @@ Item {
     }
 
     function showPSNTokenDialog(psnurl, expired) {
-        stack.push(psnTokenDialogComponent, {psnurl: psnurl, expired: expired});
+        // Show QR login dialog first, then fallback to token dialog if needed
+        stack.push("QRLoginDialog.qml", {callback: (id) => {
+            // If QR login succeeds with an account ID, we're done
+            if (id) {
+                console.log("QR login successful, account ID:", id);
+                return;
+            }
+            // If user chooses "Login on This Device" (callback called with null), show the token dialog
+            stack.push(psnTokenDialogComponent, {psnurl: psnurl, expired: expired});
+        }});
     }
 
     function showControllerMappingDialog() {
         stack.push(controllerMappingDialogComponent)
     }
 
+    function showConsoleSetupWalkthrough() {
+        stack.push(consoleSetupWalkthroughComponent)
+    }
+
+    function openDonationPrompt() {
+        stack.push(donationPromptDialogComponent)
+    }
+
     Component.onCompleted: {
         if (Chiaki.session)
             stack.replace(stack.get(0), streamViewComponent, {}, StackView.Immediate);
+        else if (Chiaki.window.directStream)
+            stack.replace(stack.get(0), streamViewComponent, {}, StackView.Immediate);
         else if (Chiaki.autoConnect)
             stack.replace(stack.get(0), autoConnectViewComponent, {}, StackView.Immediate);
-    }
-
-    Pane {
-        anchors.fill: parent
-        visible: !Chiaki.window.hasVideo && !Chiaki.window.keepVideo
     }
 
     StackView {
@@ -256,7 +357,8 @@ Item {
         width: 1200
         anchors.top: parent.top
         anchors.horizontalCenter: parent.horizontalCenter
-        color: Material.background
+        color: "transparent"
+        
         Loader {
             anchors.fill: parent
             id: placeboSettingsLoader
@@ -271,7 +373,8 @@ Item {
         height: 500
         width: 1200
         visible: opacity
-        color: Material.background
+        color: "transparent"
+        
         Loader {
             anchors.fill: parent
             id: displaySettingsLoader
@@ -286,7 +389,8 @@ Item {
         height: 600
         width: 1200
         visible: opacity
-        color: Material.background
+        color: "transparent"
+        
         Loader {
             anchors.fill: parent
             id: colorMappingSettingsLoader
@@ -294,10 +398,11 @@ Item {
         }
     }
     Rectangle {
+        id: errorToast
         anchors {
             bottom: parent.bottom
             horizontalCenter: parent.horizontalCenter
-            bottomMargin: 30
+            bottomMargin: 80
         }
         color: Material.accent
         width: errorLayout.width + 40
@@ -306,6 +411,7 @@ Item {
         opacity: errorHideTimer.running ? 0.8 : 0.0
 
         Behavior on opacity { NumberAnimation { duration: 500 } }
+        Behavior on color { ColorAnimation { duration: 300 } }
 
         ColumnLayout {
             id: errorLayout
@@ -336,6 +442,14 @@ Item {
         id: confirmDialog
     }
 
+    MessageDialog {
+        id: messageDialog
+    }
+
+    AccountPrivacyDialog {
+        id: accountPrivacyDialog
+    }
+
     RemindDialog {
         id: remindDialog
     }
@@ -360,27 +474,69 @@ Item {
             root.showPSNTokenDialog(true);
         }
 
-        function onError(title, text) {
+        function onError(title, text, durationMs) {
             errorTitleLabel.text = title;
             errorTextLabel.text = text;
+            // Use red color for errors (instead of blue Material.accent)
+            errorToast.color = "#F44336";
+            // Use provided duration or default to 2 seconds
+            errorHideTimer.interval = durationMs !== undefined ? durationMs : 2000;
+            errorHideTimer.start();
+        }
+
+        function onPsnGamesSynced(newGamesCount) {
+            errorTitleLabel.text = qsTr("Games Synced");
+            errorTextLabel.text = newGamesCount === 1 
+                ? qsTr("1 game added") 
+                : qsTr("%1 games added").arg(newGamesCount);
+            // Use a success green color for positive notifications
+            errorToast.color = "#4CAF50";
+            errorHideTimer.start();
+        }
+
+        function onPsnGamesCleared(gamesCount) {
+            errorTitleLabel.text = qsTr("Games Cleared");
+            errorTextLabel.text = gamesCount === 0 
+                ? qsTr("No saved games to clear")
+                : gamesCount === 1 
+                    ? qsTr("1 game cleared") 
+                    : qsTr("%1 games cleared").arg(gamesCount);
+            // Use a blue color for informational notifications
+            errorToast.color = "#2196F3";
             errorHideTimer.start();
         }
 
         function onRegistDialogRequested(host, ps5, duid) {
-            if(!duid)
+            // Check if user is logged into PSN
+            const isPsnLoggedIn = Chiaki.settings.psnAuthToken && Chiaki.settings.psnAuthToken !== "";
+            
+            if(!isPsnLoggedIn) {
+                // Not logged in to PSN - ask if they want to login for automatic setup or manually register
+                root.showConfirmDialog(
+                    qsTr("Console Setup"), 
+                    qsTr("Would you like to login for automatic console setup?\n\nChoose 'Yes' to login for automatic registration.\nChoose 'No' to manually enter console information."),
+                    () => root.showPSNTokenDialog("", false),  // Yes - show PSN login
+                    () => showRegistDialog(host, ps5)          // No - show manual registration
+                )
+            }
+            else if(!duid) {
+                // Logged in to PSN but console was discovered locally (no duid)
+                // Can only do manual registration in this case
                 showRegistDialog(host, ps5);
-            else
-            {
+            }
+            else {
+                // Logged in to PSN and console has duid - can do automatic registration
                 if(ps5)
                     root.showConfirmDialog(qsTr("Registration Type"), qsTr("Would you like to use automatic registration?"), () => root.autoRegister(true, host, ps5), () => root.autoRegister(false, host, ps5))
                 else
-                    root.showConfirmDialog(qsTr("Registration Type"), qsTr("Would you like to use automatic registration (must be main PS4 console registered to your PSN)?"), () => root.autoRegister(true, host, ps5), () => root.autoRegister(false, host, ps5))
+                    root.showConfirmDialog(qsTr("Registration Type"), qsTr("Would you like to use automatic registration (must be main PS4 console registered to your account)?"), () => root.autoRegister(true, host, ps5), () => root.autoRegister(false, host, ps5))
             }
         }
 
         function onWakeupStartInitiated() {
             stack.replace(stack.get(0), autoConnectViewComponent, {}, StackView.Immediate);
         }
+
     }
 
     Component {
@@ -401,6 +557,11 @@ Item {
     Component {
         id: psnViewComponent
         PsnView {}
+    }
+
+    Component {
+        id: gamesViewComponent
+        GamesView {}
     }
 
     Component {
@@ -448,6 +609,8 @@ Item {
         PSNTokenDialog { }
     }
 
+
+
     Component {
         id: registDialogComponent
         RegistDialog { }
@@ -456,5 +619,25 @@ Item {
     Component {
         id: controllerMappingDialogComponent
         ControllerMappingDialog { }
+    }
+
+    Component {
+        id: consoleSetupWalkthroughComponent
+        ConsoleSetupWalkthrough { }
+    }
+
+    Component {
+        id: donationPromptDialogComponent
+        DonationPromptDialog { }
+    }
+
+    Connections {
+        target: DonationManager
+        enabled: DonationManager.enabled
+
+        function onShowDonationPromptChanged() {
+            if (DonationManager.showDonationPrompt)
+                openDonationPrompt();
+        }
     }
 }

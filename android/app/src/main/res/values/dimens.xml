@@ -8,4 +8,20 @@
     <dimen name="control_analog_stick_radius">48dp</dimen>
     <dimen name="control_analog_stick_handle_radius">32dp</dimen>
     <dimen name="floating_action_button_speed_dial_anim_offset">48dp</dimen>
+    <dimen name="cloud_game_image_height">180dp</dimen>
+    <dimen name="cloud_game_text_padding">12dp</dimen>
+    <dimen name="cloud_game_name_text_size">14sp</dimen>
+    <dimen name="cloud_game_platform_text_size">12sp</dimen>
+    <dimen name="donation_tier_button_spacing">8dp</dimen>
+    <dimen name="support_paywall_corner">20dp</dimen>
+    <dimen name="support_paywall_corner_inner">17dp</dimen>
+    <dimen name="support_paywall_frame_stroke">3dp</dimen>
+    <dimen name="support_paywall_header_padding_top">10dp</dimen>
+    <dimen name="support_paywall_banner_horizontal_pad">14dp</dimen>
+    <dimen name="support_paywall_land_donation_panel_width">328dp</dimen>
+    <dimen name="support_paywall_horizontal_pad">20dp</dimen>
+    <dimen name="support_tier_card_corner_radius">12dp</dimen>
+    <dimen name="support_tier_sweep_stroke">2dp</dimen>
+    <dimen name="support_tier_card_spacing">8dp</dimen>
+    <dimen name="support_tier_grid_gap">8dp</dimen>
 </resources>

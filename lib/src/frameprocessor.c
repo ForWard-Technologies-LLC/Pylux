@@ -199,7 +199,7 @@ CHIAKI_EXPORT void chiaki_frame_processor_report_packet_stats(ChiakiFrameProcess
 
 static ChiakiErrorCode chiaki_frame_processor_fec(ChiakiFrameProcessor *frame_processor)
 {
-	CHIAKI_LOGI(frame_processor->log, "Frame Processor received %u+%u / %u+%u units, attempting FEC",
+	CHIAKI_LOGV(frame_processor->log, "Frame Processor received %u+%u / %u+%u units, attempting FEC",
 				frame_processor->units_source_received, frame_processor->units_fec_received,
 				frame_processor->units_source_expected, frame_processor->units_fec_expected);
 
@@ -236,12 +236,12 @@ static ChiakiErrorCode chiaki_frame_processor_fec(ChiakiFrameProcessor *frame_pr
 	if(err != CHIAKI_ERR_SUCCESS)
 	{
 		err = CHIAKI_ERR_FEC_FAILED;
-		CHIAKI_LOGE(frame_processor->log, "FEC failed");
+		CHIAKI_LOGW(frame_processor->log, "FEC failed");
 	}
 	else
 	{
 		err = CHIAKI_ERR_SUCCESS;
-		CHIAKI_LOGI(frame_processor->log, "FEC successful");
+		CHIAKI_LOGV(frame_processor->log, "FEC successful");
 
 		// restore unit sizes
 		for(size_t i=0; i<frame_processor->units_source_expected; i++)

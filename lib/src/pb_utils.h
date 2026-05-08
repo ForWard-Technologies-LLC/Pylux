@@ -8,12 +8,16 @@
 
 static inline bool chiaki_pb_encode_string(pb_ostream_t *stream, const pb_field_t *field, void *const *arg)
 {
+	if(!arg || !*arg)
+		return false;
+	
 	char *str = *arg;
+	size_t len = strlen(str);
 
 	if (!pb_encode_tag_for_field(stream, field))
 		return false;
 
-	return pb_encode_string(stream, (uint8_t*)str, strlen(str));
+	return pb_encode_string(stream, (uint8_t*)str, len);
 }
 
 typedef struct

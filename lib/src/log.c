@@ -45,21 +45,27 @@ CHIAKI_EXPORT void chiaki_log_cb_print(ChiakiLogLevel level, const char *msg, vo
 	const char *color = NULL;
 	switch(level)
 	{
+		case CHIAKI_LOG_VERBOSE:
+			color = "36";  // Cyan
+			break;
 		case CHIAKI_LOG_DEBUG:
-			color = "34";
+			color = "34";  // Blue
+			break;
+		case CHIAKI_LOG_INFO:
+			color = "32";  // Green
 			break;
 		case CHIAKI_LOG_WARNING:
-			color = "33";
+			color = "33";  // Yellow
 			break;
 		case CHIAKI_LOG_ERROR:
-			color = "31";
+			color = "31";  // Red
 			break;
 		default:
 			break;
 	}
 
 	if(color)
-		printf("\033[38;5;%sm", color);
+		printf("\033[0;%sm", color);
 	printf("[%c] ", c);
 	if(color)
 		printf("\033[0m");
@@ -116,8 +122,6 @@ CHIAKI_EXPORT void chiaki_log_hexdump(ChiakiLog *log, ChiakiLogLevel level, cons
 	if(log && !(log->level_mask & level))
 		return;
 
-	chiaki_log(log, level, "offset 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef");
-
 	size_t offset = 0;
 
 	char hex_buf[HEXDUMP_WIDTH * 3 + 1];
@@ -136,7 +140,8 @@ CHIAKI_EXPORT void chiaki_log_hexdump(ChiakiLog *log, ChiakiLogLevel level, cons
 				uint8_t b = buf[i];
 				hex_buf[i*3] = hex_char[b >> 4];
 				hex_buf[i*3+1] = hex_char[b & 0xf];
-
+				
+				// ASCII representation
 				if(b > 0x20 && b < 0x7f)
 					ascii_buf[i] = (char)b;
 				else
@@ -152,7 +157,7 @@ CHIAKI_EXPORT void chiaki_log_hexdump(ChiakiLog *log, ChiakiLogLevel level, cons
 			hex_buf[i*3+2] = ' ';
 		}
 
-		chiaki_log(log, level, "%6zx %s%s", offset, hex_buf, ascii_buf);
+		chiaki_log(log, level, "%04x   %s  %s", (unsigned int)offset, hex_buf, ascii_buf);
 
 		if(buf_size > HEXDUMP_WIDTH)
 		{

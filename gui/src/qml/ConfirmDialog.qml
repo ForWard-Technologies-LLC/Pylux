@@ -10,16 +10,27 @@ Dialog {
     property var callback
     property var rejectCallback
     property bool newDialogOpen: false
+    property bool keepDialogOpen: false  // Don't close dialog before callback (e.g., for quit)
     property Item restoreFocusItem
     parent: Overlay.overlay
     x: Math.round((root.width - width) / 2)
     y: Math.round((root.height - height) / 2)
     modal: true
     Material.roundedScale: Material.MediumScale
+    
+    background: Rectangle {
+        color: Material.dialogColor
+        radius: 12
+        border.color: Material.accent
+        border.width: 2
+    }
+    
     onOpened: label.forceActiveFocus(Qt.TabFocusReason)
     onAccepted: {
-        newDialogOpen = true;
-        restoreFocus();
+        if (!keepDialogOpen) {
+            newDialogOpen = true;
+            restoreFocus();
+        }
         callback();
     }
     onClosed: if(!newDialogOpen) { restoreFocus() }

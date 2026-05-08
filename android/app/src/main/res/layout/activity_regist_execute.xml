@@ -7,7 +7,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:padding="8dp"
-    tools:context=".regist.RegistExecuteActivity">
+    tools:context="com.metallic.chiaki.regist.RegistExecuteActivity">
 
     <ImageView
         android:id="@+id/iconImageView"

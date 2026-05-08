@@ -8,7 +8,14 @@ if(APPLE)
 endif()
 
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Concurrent Svg Qml Quick Widgets)
-find_package(Qt6 COMPONENTS WebEngineQuick)
+if(Qt6_VERSION VERSION_GREATER_EQUAL "6.10.0")
+	find_package(Qt6 REQUIRED COMPONENTS GuiPrivate)
+endif()
+
+# CHIAKI_ENABLE_GUI_WEBENGINE: root CMakeLists.txt (OFF on Linux; App Store passes OFF via PYLUX_EXTRA_CMAKE_ARGS)
+if(CHIAKI_ENABLE_GUI_WEBENGINE)
+	find_package(Qt6 COMPONENTS WebEngineQuick)
+endif()
 find_package(Qt6 COMPONENTS DBus)
 
 if(WIN32)
@@ -29,12 +36,27 @@ set(SOURCE_FILES
 	include/host.h
 	src/host.cpp
 	res/resources.qrc
+	res/license.qrc
 	include/controllermanager.h
 	src/controllermanager.cpp
 	include/psnaccountid.h
 	src/psnaccountid.cpp
+	include/psnaccountid_v3.h
+	src/psnaccountid_v3.cpp
 	include/psntoken.h
 	src/psntoken.cpp
+	include/cloudstreamingbackend.h
+	src/cloudstreamingbackend.cpp
+	include/cloudcatalogbackend.h
+	src/cloudcatalogbackend.cpp
+	include/cloudstreaming/pscloudauth.h
+	src/cloudstreaming/pscloudauth.cpp
+	include/cloudstreaming/pskamajisession.h
+	src/cloudstreaming/pskamajisession.cpp
+	include/cloudstreaming/psgaikaistreaming.h
+	src/cloudstreaming/psgaikaistreaming.cpp
+	include/cloudstreaming/datacenterping.h
+	src/cloudstreaming/datacenterping.cpp
 	include/jsonrequester.h
 	src/jsonrequester.cpp
 	src/qml/qml.qrc
@@ -42,6 +64,8 @@ set(SOURCE_FILES
 	src/qmlmainwindow.cpp
 	include/qmlbackend.h
 	src/qmlbackend.cpp
+	include/qmlgamesbackend.h
+	src/qmlgamesbackend.cpp
 	include/qmlcontroller.h
 	src/qmlcontroller.cpp
 	include/qmlsettings.h
@@ -50,6 +74,10 @@ set(SOURCE_FILES
 	src/qmlsvgprovider.cpp
 	include/systemdinhibit.h
 	src/systemdinhibit.cpp
+	include/gamelauncher.h
+	src/gamelauncher.cpp
+	include/donationmanager.h
+	src/donationmanager.cpp
 	)
 set(RESOURCE_FILES "")
 
@@ -70,12 +98,23 @@ if(CHIAKI_ENABLE_STEAMDECK_NATIVE AND LINUX)
 	)
 endif()
 
+if(CHIAKI_ENABLE_STEAMWORKS)
+	list(APPEND SOURCE_FILES
+		include/steamworks/steamworks_wrapper.h
+		src/steamworks/steamworks_api.cpp
+		include/steamworks/steamworks_cloud_sync.h
+		src/steamworks/steamworks_cloud_sync.cpp
+	)
+endif()
+
 if(APPLE)
 	list(APPEND SOURCE_FILES
 		include/macMicPermission.h
 		src/macMicPermission.m
 		include/macWakeSleep.h
 		src/macWakeSleep.cpp
+		include/cloudstreaming/nsurlsession_oauth.h
+		src/cloudstreaming/nsurlsession_oauth.mm
 	)
 elseif(WIN32)
 	list(APPEND SOURCE_FILES
@@ -84,7 +123,13 @@ elseif(WIN32)
 	)
 endif()
 
-add_executable(chiaki WIN32
+if(NOT APPLE)
+	list(APPEND SOURCE_FILES
+		src/cloudstreaming/nsurlsession_oauth_fallback.cpp
+	)
+endif()
+
+add_executable(chiaki
 		${RESOURCE_FILES}
 		${SOURCE_FILES}
 )
@@ -105,7 +150,7 @@ if (${Qt6DBus_FOUND} AND NOT WIN32 AND NOT APPLE)
 	target_link_libraries(chiaki Qt::DBus)
 	target_compile_definitions(chiaki PRIVATE CHIAKI_HAVE_DBUS)
 endif()
-if (${Qt6WebEngineQuick_FOUND})
+if(CHIAKI_ENABLE_GUI_WEBENGINE AND Qt6WebEngineQuick_FOUND)
 	target_link_libraries(chiaki Qt::WebEngineQuick)
 	target_compile_definitions(chiaki PRIVATE CHIAKI_HAVE_WEBENGINE)
 endif()
@@ -129,6 +174,18 @@ if(CHIAKI_ENABLE_STEAM_SHORTCUT)
 	target_link_libraries(chiaki cpp-steam-tools)
 	target_compile_definitions(chiaki PRIVATE CHIAKI_GUI_ENABLE_STEAM_SHORTCUT)
 endif()
+if(CHIAKI_ENABLE_STEAMWORKS)
+	target_link_libraries(chiaki steamworks)
+	target_compile_definitions(chiaki PRIVATE CHIAKI_ENABLE_STEAMWORKS)
+endif()
+if(CHIAKI_IS_MAC_APPSTORE)
+	target_compile_definitions(chiaki PRIVATE CHIAKI_IS_MAC_APPSTORE)
+	target_sources(chiaki PRIVATE
+		include/macstorekit.h
+		src/macstorekit.mm
+	)
+	target_link_libraries(chiaki "-framework StoreKit")
+endif()
 if(NOT CHIAKI_ENABLE_FFMPEG_DECODER)
 	message(FATAL_ERROR "Chiaki GUI requires CHIAKI_ENABLE_FFMPEG_DECODER=ON")
 endif()
@@ -137,19 +194,33 @@ if(APPLE)
 endif()
 
 # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fanalyzer")
+if(CHIAKI_IS_MAC_APPSTORE AND DEFINED PYLUX_MACOS_BUILD_NUMBER AND NOT "${PYLUX_MACOS_BUILD_NUMBER}" STREQUAL "")
+	set(MACOSX_BUNDLE_BUILD_VERSION "${PYLUX_MACOS_BUILD_NUMBER}")
+else()
+	set(MACOSX_BUNDLE_BUILD_VERSION "${CHIAKI_VERSION}")
+endif()
+
 set_target_properties(chiaki PROPERTIES
 		MACOSX_BUNDLE TRUE
 		MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/MacOSXBundleInfo.plist.in"
-		MACOSX_BUNDLE_BUNDLE_NAME chiaki-ng
-		MACOSX_BUNDLE_BUNDLE_VERSION ${CHIAKI_VERSION}
+		MACOSX_BUNDLE_BUNDLE_NAME Pylux
+		MACOSX_BUNDLE_SHORT_VERSION_STRING "${CHIAKI_VERSION}"
+		MACOSX_BUNDLE_BUNDLE_VERSION "${MACOSX_BUNDLE_BUILD_VERSION}"
 		MACOSX_BUNDLE_COPYRIGHT "thestr4ng3r (AGPLv3)"
-		MACOSX_BUNDLE_GUI_IDENTIFIER "org.streetpea.chiaking"
+		MACOSX_BUNDLE_GUI_IDENTIFIER "com.pylux.stream"
 		MACOSX_BUNDLE_ICON_FILE chiaking.icns
 		RESOURCE "${RESOURCE_FILES}")
+
+if(WIN32)
+	# Allow disabling WIN32_EXECUTABLE for debugging (e.g., fastbuild.bat sets CHIAKI_ENABLE_CONSOLE=ON)
+	if(NOT CHIAKI_ENABLE_CONSOLE)
+		set_target_properties(chiaki PROPERTIES WIN32_EXECUTABLE TRUE)
+	endif()
+endif()
 
 install(TARGETS chiaki
 		RUNTIME DESTINATION bin
 		BUNDLE DESTINATION bin)
-install(FILES chiaking.desktop DESTINATION share/applications)
+install(FILES io.github.ForWard_Technologies_LLC.Pylux.desktop DESTINATION share/applications)
 install(FILES chiaking.png DESTINATION share/icons/hicolor/512x512/apps)
-install(FILES io.github.streetpea.Chiaki4deck.appdata.xml DESTINATION share/metainfo)
+install(FILES io.github.ForWard_Technologies_LLC.Pylux.metainfo.xml DESTINATION share/metainfo)

@@ -260,6 +260,13 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_thread_timedjoin(ChiakiThread *thread, void
 		return CHIAKI_ERR_THREAD;
 	if(retval)
 		*retval = thread->ret;
+#elif defined(__ANDROID__)
+	// Android API < 26 doesn't have pthread_clockjoin_np or pthread_timedjoin_np
+	// Fall back to blocking join - timeout parameter is ignored
+	(void)timeout_ms;
+	int r = pthread_join(thread->thread, retval);
+	if(r != 0)
+		return CHIAKI_ERR_THREAD;
 #else
 	struct timespec timeout;
 	set_timeout(&timeout, timeout_ms);

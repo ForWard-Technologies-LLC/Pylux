@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop">
+  <id>io.github.ForWard_Technologies_LLC.Pylux</id>
+  <launchable type="desktop-id">io.github.ForWard_Technologies_LLC.Pylux.desktop</launchable>
+  <name>Pylux</name>
+  <summary>Free and Open Source Remote Play Client</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>AGPL-3.0-only</project_license>
+  <developer id="com.pylux">
+    <name>ForWard Technologies LLC</name>
+  </developer>
+  <url type="homepage">https://github.com/ForWard-Technologies-LLC/Pylux</url>
+  <url type="bugtracker">https://github.com/ForWard-Technologies-LLC/Pylux/issues</url>
+  <description>
+    <p>
+      Pylux is a free, community-built, open source remote play client forked from Chiaki.
+      It focuses on maintaining internet remote play across platforms and aims to keep
+      the app easy to access through major app marketplaces. Supports PlayStation 4 and
+      PlayStation 5 consoles.
+    </p>
+  </description>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/ForWard-Technologies-LLC/Pylux/master/assets/screenshots/android-phones/01.png</image>
+    </screenshot>
+  </screenshots>
+  <content_rating type="oars-1.1" />
+  <!-- Flathub: add <release> entries here when shipping new versions (not generated from CMake). -->
+  <releases>
+    <release date="2026-04-24" version="2.10.13">
+      <description>
+        <p>Rebrand user-facing names from chiaki-ng to Pylux across macOS, desktop, and packaging.</p>
+      </description>
+    </release>
+    <release date="2026-04-21" version="2.10.11">
+      <description>
+        <p>Version bump; release branches aligned with master.</p>
+      </description>
+    </release>
+    <release date="2026-04-20" version="2.10.10">
+      <description>
+        <p>Initial Pylux release on Flathub.</p>
+      </description>
+    </release>
+  </releases>
+</component>

@@ -2,6 +2,8 @@
 
 set -xe
 
+STEAMWORKS="${CHIAKI_ENABLE_STEAMWORKS:-OFF}"
+
 if [ "$(uname -m)" = "aarch64" ]
 then
     export GCC_STRING="gcc_arm64"
@@ -23,6 +25,7 @@ qt-cmake \
 	-DCHIAKI_ENABLE_TESTS=ON \
 	-DCHIAKI_ENABLE_GUI=ON \
 	-DCHIAKI_GUI_ENABLE_SDL_GAMECONTROLLER=ON \
+	-DCHIAKI_ENABLE_STEAMWORKS="${STEAMWORKS}" \
 	-DCMAKE_INSTALL_PREFIX=/usr \
 	..
 cd ..
@@ -43,6 +46,9 @@ curl -L -O https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/downloa
 chmod +x linuxdeploy-plugin-qt-${ARCH}.AppImage
 
 export LD_LIBRARY_PATH="${QT_PATH}/${QT_VERSION}/${GCC_STRING}/lib:$(pwd)/../build_appimage/third-party/cpp-steam-tools:$LD_LIBRARY_PATH"
+if [ "${STEAMWORKS}" = "ON" ]; then
+    export LD_LIBRARY_PATH="$(pwd)/../third-party/steamworks/steamworks_sdk/redistributable_bin/linux64:${LD_LIBRARY_PATH}"
+fi
 export QML_SOURCES_PATHS="$(pwd)/../gui/src/qml"
 if [ "$(uname -m)" = "aarch64" ]
 then
@@ -53,22 +59,41 @@ then
     ./qemu-aarch64-static ./linuxdeploy-${ARCH}.AppImage \
         --appdir="${appdir}" \
         -e "${appdir}/usr/bin/chiaki" \
-        -d "${appdir}/usr/share/applications/chiaking.desktop" \
+        -d "${appdir}/usr/share/applications/io.github.ForWard_Technologies_LLC.Pylux.desktop" \
         --exclude-library='libva*' \
         --exclude-library='libvulkan*' \
-        --exclude-library='libhidapi*'
+        --exclude-library='libhidapi*' \
+        --exclude-library='libssl*' \
+        --exclude-library='libcrypto*'
+    # Exclude OpenSSL libraries: Qt 6.9 expects OpenSSL 3.x at runtime, but the build container
+    # (Ubuntu 20.04) only has OpenSSL 1.1.1f. By excluding these, the AppImage uses the system's
+    # OpenSSL (3.x on modern distros like Steam Deck), avoiding Qt TLS backend version mismatch.
     ./qemu-aarch64-static ./linuxdeploy-plugin-qt-${ARCH}.AppImage --appdir="${appdir}"
     ./qemu-aarch64-static ./appimagetool-aarch64.AppImage "${appdir}"
 else
     ./linuxdeploy-${ARCH}.AppImage \
         --appdir="${appdir}" \
         -e "${appdir}/usr/bin/chiaki" \
-        -d "${appdir}/usr/share/applications/chiaking.desktop" \
+        -d "${appdir}/usr/share/applications/io.github.ForWard_Technologies_LLC.Pylux.desktop" \
         --plugin qt \
         --exclude-library='libva*' \
         --exclude-library='libvulkan*' \
         --exclude-library='libhidapi*' \
+        --exclude-library='libssl*' \
+        --exclude-library='libcrypto*' \
         --output appimage
+    # Exclude OpenSSL libraries: Qt 6.9 expects OpenSSL 3.x at runtime, but the build container
+    # (Ubuntu 20.04) only has OpenSSL 1.1.1f. By excluding these, the AppImage uses the system's
+    # OpenSSL (3.x on modern distros like Steam Deck), avoiding Qt TLS backend version mismatch.
 fi
 
-mv chiaki-ng-${ARCH}.AppImage chiaki-ng.AppImage
+# appimagetool names output from the .desktop Name= field (Pylux).
+if [ -f "Pylux-${ARCH}.AppImage" ]; then
+    mv "Pylux-${ARCH}.AppImage" pylux.AppImage
+elif [ -f "pylux-${ARCH}.AppImage" ]; then
+    mv "pylux-${ARCH}.AppImage" pylux.AppImage
+else
+    echo "ERROR: expected Pylux-${ARCH}.AppImage; found:" >&2
+    ls -1 *.AppImage >&2 || true
+    exit 1
+fi

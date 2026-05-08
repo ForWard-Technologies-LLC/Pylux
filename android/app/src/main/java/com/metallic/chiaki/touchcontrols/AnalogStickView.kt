@@ -11,7 +11,7 @@ import android.graphics.drawable.Drawable
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
-import com.metallic.chiaki.R
+import com.pylux.stream.R
 import kotlin.math.abs
 
 class AnalogStickView @JvmOverloads constructor(

@@ -9,8 +9,14 @@ int main(int argc, char *argv[]) { return real_main(argc, argv); }
 #include <controllermanager.h>
 #include <discoverymanager.h>
 #include <qmlmainwindow.h>
+#include <qmlbackend.h>
+#include <cloudstreamingbackend.h>
 #include <QApplication>
-#include <QtTypes>
+#include <QMessageBox>
+#ifdef CHIAKI_ENABLE_STEAMWORKS
+#include <steamworks/steamworks_wrapper.h>
+#endif
+// QtTypes removed - not needed in Qt6
 
 #ifdef CHIAKI_ENABLE_CLI
 #include <chiaki-cli.h>
@@ -30,6 +36,9 @@ int main(int argc, char *argv[]) { return real_main(argc, argv); }
 #include <QCommandLineParser>
 #include <QMap>
 #include <QSurfaceFormat>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
 
 Q_DECLARE_METATYPE(ChiakiLogLevel)
 Q_DECLARE_METATYPE(ChiakiRegistEventType)
@@ -51,8 +60,12 @@ static const QMap<QString, CLICommand> cli_commands = {
 };
 #endif
 
+#ifdef CHIAKI_ENABLE_STEAMWORKS
+static SteamworksWrapper *InitializeSteamworks(Settings *settings);
+#endif
 int RunStream(QGuiApplication &app, const StreamSessionConnectInfo &connect_info);
 int RunMain(QGuiApplication &app, Settings *settings, bool exit_app_on_stream_exit);
+int RunCloudStream(QGuiApplication &app, Settings *settings, const QString &serviceType, const QString &gameIdentifier);
 
 int real_main(int argc, char *argv[])
 {
@@ -63,18 +76,32 @@ int real_main(int argc, char *argv[])
 	qRegisterMetaType<ChiakiRegistEventType>();
 	qRegisterMetaType<ChiakiLogLevel>();
 
-	QGuiApplication::setOrganizationName("Chiaki");
-	QGuiApplication::setApplicationName("Chiaki");
+	QGuiApplication::setOrganizationName("pylux");
+	QGuiApplication::setApplicationName("pylux");
 	QGuiApplication::setApplicationVersion(CHIAKI_VERSION);
-	QGuiApplication::setApplicationDisplayName("chiaki-ng");
+	QGuiApplication::setApplicationDisplayName("Pylux");
+#if defined(Q_OS_MACOS)
+	qputenv("QT_MTL_NO_TRANSACTION", "1");
+#endif
 #if defined(Q_OS_LINUX)
 	if(qEnvironmentVariableIsSet("FLATPAK_ID"))
 		QGuiApplication::setDesktopFileName(qEnvironmentVariable("FLATPAK_ID"));
 	else
 #endif
-		QGuiApplication::setDesktopFileName("chiaki-ng");
+		QGuiApplication::setDesktopFileName("pylux");
 
-	qputenv("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu");
+#ifdef CHIAKI_HAVE_WEBENGINE
+	QString webengine_flags = "--disable-gpu";
+
+#ifdef CHIAKI_ENABLE_STEAMWORKS
+	// Disable sandbox when Steamworks is enabled AND running on Steam Deck
+	if (qEnvironmentVariableIsSet("SteamDeck")) {
+		webengine_flags += " --no-sandbox --disable-dev-shm-usage --disable-setuid-sandbox --single-process";
+	}
+#endif
+
+	qputenv("QTWEBENGINE_CHROMIUM_FLAGS", webengine_flags.toUtf8());
+#endif
 #if defined(Q_OS_WIN)
 	const size_t cSize = strlen(argv[0])+1;
 	wchar_t wc[cSize];
@@ -98,7 +125,7 @@ int real_main(int argc, char *argv[])
 		return 1;
 	}
 
-    SDL_SetHint(SDL_HINT_APP_NAME, "chiaki-ng");
+    SDL_SetHint(SDL_HINT_APP_NAME, "pylux");
 
 	if(SDL_Init(SDL_INIT_AUDIO) < 0)
 	{
@@ -115,7 +142,7 @@ int real_main(int argc, char *argv[])
 #ifdef Q_OS_MACOS
 	QGuiApplication::setWindowIcon(QIcon(":/icons/chiaking_macos.svg"));
 #else
-	QGuiApplication::setWindowIcon(QIcon(":/icons/chiaking.svg"));
+	QGuiApplication::setWindowIcon(QIcon(":/icons/steam_icon.png"));
 #endif
 
 	QCommandLineParser parser;
@@ -124,7 +151,10 @@ int real_main(int argc, char *argv[])
 	
 	QStringList cmds;
 	cmds.append("stream");
+	cmds.append("launchTitle");
 	cmds.append("list");
+	cmds.append("cloudGameCatalog");
+	cmds.append("cloudGameLibrary");
 #ifdef CHIAKI_ENABLE_CLI
 	cmds.append(cli_commands.keys());
 #endif
@@ -161,6 +191,18 @@ int real_main(int argc, char *argv[])
 	QCommandLineOption passcode_option("passcode", "Automatically send your PlayStation login passcode (only affects users with a login passcode set on their PlayStation console).", "passcode");
 	parser.addOption(passcode_option);
 
+	QCommandLineOption title_id_option("title-id", "Title ID of game to launch (for game cover art display).", "title-id");
+	parser.addOption(title_id_option);
+
+	QCommandLineOption nickname_option("nickname", "Console nickname (for use with launchTitle command).", "nickname");
+	parser.addOption(nickname_option);
+
+	QCommandLineOption product_id_option("product-id", "Product ID of game to stream (for use with cloudGameCatalog command).", "product-id");
+	parser.addOption(product_id_option);
+
+	QCommandLineOption entitlement_id_option("entitlement-id", "Entitlement ID of game to stream (for use with cloudGameLibrary command).", "entitlement-id");
+	parser.addOption(entitlement_id_option);
+
 	parser.process(app);
 	QStringList args = parser.positionalArguments();
 
@@ -170,7 +212,7 @@ int real_main(int argc, char *argv[])
 		settings.SetCurrentProfile(parser.value(profile_option));
 	Settings alt_settings(parser.isSet(profile_option) ? "" : settings.GetCurrentProfile());
 	if(!settings.GetCurrentProfile().isEmpty())
-		QGuiApplication::setApplicationDisplayName(QString("chiaki-ng:%1").arg(settings.GetCurrentProfile()));
+		QGuiApplication::setApplicationDisplayName(QString("Pylux:%1").arg(settings.GetCurrentProfile()));
 	bool use_alt_settings = false;
 	if(!parser.isSet(profile_option))
 		use_alt_settings = true;
@@ -183,6 +225,143 @@ int real_main(int argc, char *argv[])
 		for(const auto &host : settings.GetRegisteredHosts())
 			printf("Host: %s \n", host.GetServerNickname().toLocal8Bit().constData());
 		return 0;
+	}
+	if(args[0] == "launchTitle")
+	{
+		// Get values from named options
+		QString nickname = parser.value(nickname_option);
+		QString title_id_value = parser.value(title_id_option);
+		
+		// Validate required options
+		if(nickname.isEmpty())
+		{
+			fprintf(stderr, "ERROR: --nickname is required for launchTitle command\n");
+			return 1;
+		}
+		if(title_id_value.isEmpty())
+		{
+			fprintf(stderr, "ERROR: --title-id is required for launchTitle command\n");
+			return 1;
+		}
+		
+		// Look up game name from settings based on title_id
+		QString game_name;
+		QString psn_games_json = (use_alt_settings ? alt_settings : settings).GetPsnGamesJson();
+		if(!psn_games_json.isEmpty())
+		{
+			QJsonDocument doc = QJsonDocument::fromJson(psn_games_json.toUtf8());
+			if(doc.isObject())
+			{
+				QJsonObject root = doc.object();
+				// Find the device matching the nickname
+				for(const QString &device_key : root.keys())
+				{
+					QJsonObject device = root[device_key].toObject();
+					QString device_name = device["deviceName"].toString();
+					
+					// Only search games on the device we're connecting to
+					if(device_name == nickname)
+					{
+						QJsonArray games = device["games"].toArray();
+						
+						// Search for the game with matching titleId
+						for(const QJsonValue &game_val : games)
+						{
+							QJsonObject game = game_val.toObject();
+							QString tid = game["titleId"].toString();
+							if(tid == title_id_value)
+							{
+								game_name = game["comment"].toString();
+								break;
+							}
+						}
+						break; // Found the device, stop searching
+					}
+				}
+			}
+		}
+		
+		if(game_name.isEmpty())
+		{
+			fprintf(stderr, "ERROR: Could not find game with title ID '%s' in settings. Make sure you've connected to the console and synced games.\n", title_id_value.toUtf8().constData());
+			return 1;
+		}
+		
+		// Check that only one display mode option is set
+		if ((parser.isSet(stretch_option) && (parser.isSet(zoom_option) || parser.isSet(fullscreen_option))) || (parser.isSet(zoom_option) && parser.isSet(fullscreen_option)))
+		{
+			fprintf(stderr, "ERROR: Must choose between fullscreen, zoom or stretch option.\n");
+			return 1;
+		}
+		
+		// Handle passcode option
+		QString initial_login_passcode;
+		if(parser.value(passcode_option).isEmpty())
+		{
+			initial_login_passcode = QString("");
+		}
+		else
+		{
+			initial_login_passcode = parser.value(passcode_option);
+			if(initial_login_passcode.length() != 4)
+			{
+				fprintf(stderr, "ERROR: Login passcode must be 4 digits. You entered %" PRIdQSIZETYPE " digits\n", initial_login_passcode.length());
+				return 1;
+			}
+		}
+		
+		// Find the host by nickname and get its last known IP
+		bool found = false;
+		ChiakiTarget target = CHIAKI_TARGET_PS4_10;
+		QByteArray regist_key;
+		QByteArray morning;
+		QString host;
+		QString console_pin;
+		
+		for(const auto &temphost : (use_alt_settings ? alt_settings : settings).GetRegisteredHosts())
+		{
+			if(temphost.GetServerNickname() == nickname)
+			{
+				found = true;
+				morning = temphost.GetRPKey();
+				regist_key = temphost.GetRPRegistKey();
+				target = temphost.GetTarget();
+				host = temphost.GetLastHostIP();
+				console_pin = temphost.GetConsolePin();
+				break;
+			}
+		}
+		
+		if(!found)
+		{
+			fprintf(stderr, "ERROR: No configuration found for console nickname '%s'\n", nickname.toLocal8Bit().constData());
+			return 1;
+		}
+		
+		if(host.isEmpty())
+		{
+			fprintf(stderr, "ERROR: No last known IP for console '%s'. Please connect to it normally first.\n", nickname.toLocal8Bit().constData());
+			return 1;
+		}
+		
+		// Create session with game launch parameters
+		StreamSessionConnectInfo connect_info(
+				use_alt_settings ? &alt_settings : &settings,
+				target,
+				host,
+				QString(), // nickname not needed for direct connection
+				std::move(regist_key),
+				std::move(morning),
+				initial_login_passcode.isEmpty() ? console_pin : initial_login_passcode,
+				QString(), // duid
+				false,
+				parser.isSet(fullscreen_option),
+				parser.isSet(zoom_option),
+				parser.isSet(stretch_option));
+		connect_info.game_name = game_name;
+		connect_info.title_id = title_id_value;
+		
+		return RunStream(app, connect_info);
 	}
 	if(args[0] == "stream")
 	{
@@ -277,6 +456,34 @@ int real_main(int argc, char *argv[])
 
 		return RunStream(app, connect_info);
 	}
+	if(args[0] == "cloudGameCatalog")
+	{
+		QString product_id = parser.value(product_id_option);
+
+		if(product_id.isEmpty())
+		{
+			fprintf(stderr, "ERROR: --product-id is required for cloudGameCatalog command\n");
+			return 1;
+		}
+
+		fprintf(stdout, "=== cloudGameCatalog command ===\n");
+		fprintf(stdout, "Product ID: %s\n", product_id.toLocal8Bit().constData());
+		fprintf(stdout, "Service Type: psnow\n");
+		
+		return RunCloudStream(app, use_alt_settings ? &alt_settings : &settings, "psnow", product_id);
+	}
+	if(args[0] == "cloudGameLibrary")
+	{
+		QString entitlement_id = parser.value(entitlement_id_option);
+		
+		if(entitlement_id.isEmpty())
+		{
+			fprintf(stderr, "ERROR: --entitlement-id is required for cloudGameLibrary command\n");
+			return 1;
+		}
+		
+		return RunCloudStream(app, use_alt_settings ? &alt_settings : &settings, "pscloud", entitlement_id);
+	}
 #ifdef CHIAKI_ENABLE_CLI
 	else if(cli_commands.contains(args[0]))
 	{
@@ -304,14 +511,107 @@ int real_main(int argc, char *argv[])
 
 int RunMain(QGuiApplication &app, Settings *settings, bool exit_app_on_stream_exit)
 {
+#ifdef CHIAKI_ENABLE_STEAMWORKS
+	// Create and initialize single Steamworks instance
+	SteamworksWrapper *steamworks = new SteamworksWrapper();
+	if (!steamworks->initialize(3946320, settings)) {
+		QMessageBox::critical(nullptr, "Steam Not Running", 
+			"Steam must be running to use Pylux.\n\nClick OK to exit.");
+		delete steamworks;
+		return 1;
+	}
+	
+	auto ownership = steamworks->checkOwnership();
+	if (ownership == SteamworksWrapper::NoLicense) {
+		QMessageBox::critical(nullptr, "License Verification Failed", 
+			"You do not own Pylux.\n\nPlease purchase Pylux on Steam to continue.\n\nClick OK to exit.");
+		delete steamworks;
+		return 1;
+	} else if (ownership == SteamworksWrapper::NotAuthenticated) {
+		QMessageBox::critical(nullptr, "Authentication Required", 
+			"Steam user not yet authenticated for Pylux.\n\nPlease restart Steam and try again.\n\nClick OK to exit.");
+		delete steamworks;
+		return 1;
+	} else if (ownership == SteamworksWrapper::NotRunning) {
+		QMessageBox::critical(nullptr, "Steam Not Running", 
+			"Steam must be running to use Pylux.\n\nClick OK to exit.");
+		delete steamworks;
+		return 1;
+	}
+	// Pass the initialized instance to QmlMainWindow, which will pass it to QmlBackend
+	QmlMainWindow main_window(settings, exit_app_on_stream_exit, steamworks);
+#else
 	QmlMainWindow main_window(settings, exit_app_on_stream_exit);
+#endif
 	main_window.show();
 	return app.exec();
 }
 
+#ifdef CHIAKI_ENABLE_STEAMWORKS
+static SteamworksWrapper *InitializeSteamworks(Settings *settings)
+{
+	// Create and initialize single Steamworks instance
+	SteamworksWrapper *steamworks = new SteamworksWrapper();
+	if (!steamworks->initialize(3946320, settings)) {
+		QMessageBox::critical(nullptr, "Steam Not Running", 
+			"Steam must be running to use Pylux.\n\nClick OK to exit.");
+		delete steamworks;
+		return nullptr;
+	}
+	
+	auto ownership = steamworks->checkOwnership();
+	if (ownership == SteamworksWrapper::NoLicense) {
+		QMessageBox::critical(nullptr, "License Verification Failed", 
+			"You do not own Pylux.\n\nPlease purchase Pylux on Steam to continue.\n\nClick OK to exit.");
+		delete steamworks;
+		return nullptr;
+	} else if (ownership == SteamworksWrapper::NotAuthenticated) {
+		QMessageBox::critical(nullptr, "Authentication Required", 
+			"Steam user not yet authenticated for Pylux.\n\nPlease restart Steam and try again.\n\nClick OK to exit.");
+		delete steamworks;
+		return nullptr;
+	} else if (ownership == SteamworksWrapper::NotRunning) {
+		QMessageBox::critical(nullptr, "Steam Not Running", 
+			"Steam must be running to use Pylux.\n\nClick OK to exit.");
+		delete steamworks;
+		return nullptr;
+	}
+	return steamworks;
+}
+#endif
+
 int RunStream(QGuiApplication &app, const StreamSessionConnectInfo &connect_info)
 {
+#ifdef CHIAKI_ENABLE_STEAMWORKS
+	SteamworksWrapper *steamworks = InitializeSteamworks(connect_info.settings);
+	if (!steamworks) {
+		return 1;
+	}
+	QmlMainWindow main_window(connect_info, steamworks);
+#else
 	QmlMainWindow main_window(connect_info);
+#endif
+	main_window.show();
+	return app.exec();
+}
+
+int RunCloudStream(QGuiApplication &app, Settings *settings, const QString &serviceType, const QString &gameIdentifier)
+{
+	fprintf(stdout, "=== RunCloudStream ===\n");
+	fprintf(stdout, "Service Type: %s\n", serviceType.toLocal8Bit().constData());
+	fprintf(stdout, "Game Identifier: %s\n", gameIdentifier.toLocal8Bit().constData());
+	
+#ifdef CHIAKI_ENABLE_STEAMWORKS
+	SteamworksWrapper *steamworks = InitializeSteamworks(settings);
+	if (!steamworks) {
+		return 1;
+	}
+	// When started from command line, exit app on stream exit (true)
+	QmlMainWindow main_window(settings, serviceType, gameIdentifier, true, steamworks);
+#else
+	// When started from command line, exit app on stream exit (true)
+	QmlMainWindow main_window(settings, serviceType, gameIdentifier, true);
+#endif
 	main_window.show();
 	return app.exec();
 }

@@ -1,0 +1,246 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fitsSystemWindows="true">
+
+    <com.google.android.material.appbar.AppBarLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:fitsSystemWindows="true">
+
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            android:background="?attr/colorPrimary"
+            android:theme="@style/ThemeOverlay.MaterialComponents.Dark.ActionBar"
+            app:popupTheme="@style/ThemeOverlay.MaterialComponents.Light" />
+
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <!-- Phone layout: vertical, single column -->
+    <LinearLayout
+        android:id="@+id/phoneModeLayout"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="32dp"
+        android:visibility="visible"
+        app:layout_behavior="@string/appbar_scrolling_view_behavior">
+
+        <com.google.android.material.textview.MaterialTextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/psn_login_instructions"
+            android:textSize="16sp"
+            android:textColor="?android:textColorPrimary"
+            android:textAlignment="center"
+            android:layout_marginBottom="24dp" />
+
+        <com.google.android.material.textview.MaterialTextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/psn_login_code_label"
+            android:textSize="14sp"
+            android:textColor="?android:textColorSecondary"
+            android:layout_marginBottom="8dp" />
+
+        <com.google.android.material.textview.MaterialTextView
+            android:id="@+id/loginCodeText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="000000"
+            android:textSize="36sp"
+            android:textStyle="bold"
+            android:textColor="#FFFFFF"
+            android:fontFamily="monospace"
+            android:letterSpacing="0.2"
+            android:layout_marginBottom="32dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/openBrowserButton"
+            android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:text="@string/psn_login_open_browser"
+            android:textSize="16sp"
+            android:enabled="false"
+            android:layout_marginBottom="12dp"
+            app:cornerRadius="12dp"
+            app:iconGravity="textStart"
+            app:icon="@android:drawable/ic_menu_view" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/checkStatusButton"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:text="@string/psn_login_check_status"
+            android:textSize="14sp"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:enabled="false"
+            android:layout_marginBottom="24dp"
+            app:cornerRadius="12dp" />
+
+        <ProgressBar
+            android:id="@+id/progress_bar"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            android:visibility="visible" />
+
+        <com.google.android.material.textview.MaterialTextView
+            android:id="@+id/statusText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/psn_login_connecting"
+            android:textSize="14sp"
+            android:textColor="?android:textColorSecondary"
+            android:textAlignment="center"
+            android:layout_marginBottom="48dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/cancelButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/action_cancel"
+            android:textSize="12sp"
+            android:minHeight="36dp"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:textColor="?android:textColorTertiary" />
+
+    </LinearLayout>
+
+    <!-- TV layout: side-by-side — QR code left, instructions right -->
+    <LinearLayout
+        android:id="@+id/tvModeLayout"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:padding="40dp"
+        android:visibility="gone"
+        app:layout_behavior="@string/appbar_scrolling_view_behavior">
+
+        <!-- Left: QR code -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center">
+
+            <ImageView
+                android:id="@+id/qrCodeImage"
+                android:layout_width="220dp"
+                android:layout_height="220dp"
+                android:contentDescription="QR code for login"
+                android:background="#FFFFFF"
+                android:padding="8dp"
+                android:scaleType="fitCenter" />
+
+            <com.google.android.material.textview.MaterialTextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Scan with your phone"
+                android:textSize="13sp"
+                android:textColor="?android:textColorSecondary"
+                android:layout_marginTop="12dp"
+                android:textAlignment="center" />
+
+        </LinearLayout>
+
+        <!-- Divider -->
+        <View
+            android:layout_width="1dp"
+            android:layout_height="match_parent"
+            android:layout_marginHorizontal="32dp"
+            android:background="?android:attr/listDivider" />
+
+        <!-- Right: code + actions -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center_horizontal">
+
+            <com.google.android.material.textview.MaterialTextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Sign in to PSN"
+                android:textSize="22sp"
+                android:textStyle="bold"
+                android:textColor="?android:textColorPrimary"
+                android:layout_marginBottom="12dp" />
+
+            <com.google.android.material.textview.MaterialTextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Scan the QR code or visit xbgamestream.com/psstream on your phone and enter this code:"
+                android:textSize="14sp"
+                android:textColor="?android:textColorSecondary"
+                android:textAlignment="center"
+                android:layout_marginBottom="20dp" />
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/tvLoginCodeText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="000000"
+                android:textSize="36sp"
+                android:textStyle="bold"
+                android:textColor="#FFFFFF"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.3"
+                android:layout_marginBottom="28dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/tvCheckStatusButton"
+                android:layout_width="wrap_content"
+                android:layout_height="56dp"
+                android:text="@string/psn_login_check_status"
+                android:textSize="15sp"
+                android:focusable="true"
+                android:focusableInTouchMode="true"
+                android:paddingHorizontal="32dp"
+                android:enabled="false"
+                android:layout_marginBottom="20dp"
+                app:cornerRadius="12dp" />
+
+            <ProgressBar
+                android:id="@+id/tvProgressBar"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:visibility="visible" />
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/tvStatusText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/psn_login_connecting"
+                android:textSize="14sp"
+                android:textColor="?android:textColorSecondary"
+                android:textAlignment="center"
+                android:layout_marginBottom="24dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/tvCancelButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/action_cancel"
+                android:textSize="12sp"
+                android:focusable="true"
+                android:focusableInTouchMode="true"
+                android:minHeight="36dp"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:textColor="?android:textColorTertiary" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

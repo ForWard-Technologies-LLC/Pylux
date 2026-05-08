@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        Play Console one-time INAPP (non-consumable) donation tiers for com.pylux.stream.
+        Order = dialog order (low → high). Owning any listed product hides the prompt.
+    -->
+    <string-array name="donation_iap_product_ids" translatable="false">
+        <item>pylux_support_bronze</item>
+        <item>pylux_support_silver</item>
+        <item>pylux_support_gold</item>
+        <item>pylux_support_platinum</item>
+    </string-array>
+</resources>

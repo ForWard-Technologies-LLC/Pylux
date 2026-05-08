@@ -18,6 +18,14 @@ Dialog {
     y: Math.round((root.height - height) / 2)
     modal: true
     Material.roundedScale: Material.MediumScale
+    
+    background: Rectangle {
+        color: Material.dialogColor
+        radius: 12
+        border.color: Material.accent
+        border.width: 2
+    }
+    
     onOpened: label.forceActiveFocus(Qt.TabFocusReason)
     onAccepted: {
         newDialogOpen = true;
@@ -34,13 +42,14 @@ Dialog {
         if(newDialogOpen)
             return;
         restoreFocus();
-        if(!remotePlay && Chiaki.settings.remotePlayAsk)
-        {
-            if(!Chiaki.settings.psnRefreshToken || !Chiaki.settings.psnAuthToken || !Chiaki.settings.psnAuthTokenExpiry || !Chiaki.settings.psnAccountId)
-                root.showRemindDialog(qsTr("Remote Play via PSN"), qsTr("Would you like to connect to PSN?\nThis enables:\n- Automatic registration\n- Playing outside of your home network without port forwarding?") + "\n\n" + qsTr("(Note: If you select no now and want to do this later, go to the Config section of the settings.)"), true, () => root.showPSNTokenDialog(false));
-            else
-                Chiaki.settings.remotePlayAsk = false;
-        }
+        // Commented out: Cascading Remote Play via PSN prompt after Steam shortcut dialog
+        // if(!remotePlay && Chiaki.settings.remotePlayAsk)
+        // {
+        //     if(!Chiaki.settings.psnRefreshToken || !Chiaki.settings.psnAuthToken || !Chiaki.settings.psnAuthTokenExpiry || !Chiaki.settings.psnAccountId)
+        //         root.showRemindDialog(qsTr("Remote Play via PSN"), qsTr("Would you like to connect to PSN?\nThis enables:\n- Automatic registration\n- Playing outside of your home network without port forwarding?") + "\n\n" + qsTr("(Note: If you select no now and want to do this later, go to the Config section of the settings.)"), true, () => root.showPSNTokenDialog(false));
+        //     else
+        //         Chiaki.settings.remotePlayAsk = false;
+        // }
     }
 
     function restoreFocus() {

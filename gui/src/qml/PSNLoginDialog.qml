@@ -14,7 +14,7 @@ DialogView {
     property bool submitting: false
     property bool closing: false
     property var psnurl: ""
-    title: qsTr("PSN Login")
+    title: qsTr("Login")
     buttonVisible: false
     buttonText: qsTr("Get Account ID")
     buttonEnabled: !submitting && url.text.trim()
@@ -68,76 +68,134 @@ DialogView {
             }
             anchors.fill: parent
             visible: false
-            ToolBar {
+            Rectangle {
                 id: psnLoginToolbar
                 anchors {
-                    top: parent.top
+                    bottom: parent.bottom
                     left: parent.left
                     right: parent.right
+                    bottomMargin: 20
+                    leftMargin: 20
+                    rightMargin: 20
                 }
-                height: 80
+                height: 70
+                z: 10
+                radius: 12
+                color: Qt.rgba(10/255, 15/255, 26/255, 0.95)
+                border.color: Qt.rgba(0, 212/255, 255/255, 0.4)
+                border.width: 1
+
+                // Subtle glow effect
+                Rectangle {
+                    anchors.fill: parent
+                    anchors.margins: -2
+                    radius: parent.radius + 1
+                    color: "transparent"
+                    border.color: Qt.rgba(0, 212/255, 255/255, 0.2)
+                    border.width: 1
+                    z: -1
+                }
 
                 RowLayout {
                     anchors {
                         fill: parent
-                        leftMargin: 10
-                        rightMargin: 10
+                        leftMargin: 15
+                        rightMargin: 15
+                        topMargin: 10
+                        bottomMargin: 10
                     }
+                    spacing: 15
+                    
                     Button {
                         id: reloadButton
                         Layout.fillHeight: true
-                        Layout.preferredWidth: 350
-                        flat: true
-                        text: "reload + clear cookies"
-                        Image {
-                            anchors {
-                                left: parent.left
-                                verticalCenter: parent.verticalCenter
-                                leftMargin: 12
-                            }
-                            width: 28
-                            height: 28
-                            sourceSize: Qt.size(width, height)
-                            source: "qrc:/icons/l1.svg"
-                        }
+                        Layout.preferredWidth: 220
+                        text: "Reload + Clear Cookies"
+                        font.pixelSize: 12
+                        font.weight: Font.Medium
                         onClicked: reloadTimer.start()
-                        Material.roundedScale: Material.SmallScale
                         focusPolicy: Qt.NoFocus
+                        
+                        background: Rectangle {
+                            radius: 8
+                            color: parent.pressed ? Qt.rgba(0, 212/255, 255/255, 0.3) : 
+                                   parent.hovered ? Qt.rgba(0, 212/255, 255/255, 0.2) : 
+                                   Qt.rgba(0, 212/255, 255/255, 0.1)
+                            border.color: Qt.rgba(0, 212/255, 255/255, 0.6)
+                            border.width: 1
+                            
+                            Behavior on color { ColorAnimation { duration: 150 } }
+                            Behavior on border.color { ColorAnimation { duration: 150 } }
+                        }
+                        
+                        contentItem: RowLayout {
+                            spacing: 8
+                            
+                            Image {
+                                Layout.preferredWidth: 20
+                                Layout.preferredHeight: 20
+                                sourceSize: Qt.size(width, height)
+                                source: "qrc:/icons/l1.svg"
+                            }
+                            
+                            Text {
+                                Layout.fillWidth: true
+                                text: parent.parent.text
+                                font: parent.parent.font
+                                color: "#00d4ff"
+                                horizontalAlignment: Text.AlignLeft
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                        }
                     }
-                    ProgressBar {
-                        id: browserProgresss
-                        Layout.fillHeight: true
-                        Layout.preferredWidth: 300
-                        from: 0
-                        to: 100
-                        value: webView.web.loadProgress
-                        Material.roundedScale: Material.SmallScale
-                        focusPolicy: Qt.NoFocus
+                    
+                    // Spacer to push buttons to edges
+                    Item {
+                        Layout.fillWidth: true
+                        
+                        ProgressBar {
+                            id: browserProgresss
+                            anchors.centerIn: parent
+                            width: 150
+                            height: 6
+                            from: 0
+                            to: 100
+                            value: webView.web ? webView.web.loadProgress : 0
+                            focusPolicy: Qt.NoFocus
+                            
+                            background: Rectangle {
+                                radius: 3
+                                color: Qt.rgba(255, 255, 255, 0.1)
+                                border.color: Qt.rgba(255, 255, 255, 0.2)
+                                border.width: 1
+                            }
+                            
+                            contentItem: Item {
+                                Rectangle {
+                                    width: parent.width * (browserProgresss.value / 100)
+                                    height: parent.height
+                                    radius: 3
+                                    color: Qt.rgba(0, 212/255, 255/255, 0.8)
+                                    
+                                    Behavior on width { NumberAnimation { duration: 100 } }
+                                }
+                            }
+                        }
                     }
                     Button {
                         id: extBrowserButton
                         Layout.fillHeight: true
-                        Layout.preferredWidth: 300
-                        flat: true
-                        Image {
-                            anchors {
-                                left: parent.left
-                                verticalCenter: parent.verticalCenter
-                                leftMargin: 12
-                            }
-                            width: 28
-                            height: 28
-                            sourceSize: Qt.size(width, height)
-                            source: "qrc:/icons/r1.svg"
-                        }
+                        Layout.preferredWidth: 220
+                        text: "Use External Browser"
+                        font.pixelSize: 12
+                        font.weight: Font.Medium
                         focusPolicy: Qt.NoFocus
-                        text: "Use external browser"
                         onClicked: {
                             nativeLoginForm.visible = false;
                             psnLoginToolbar.visible = false;
                             nativeErrorGrid.visible = false;
                             webView.visible = false;
-                            loginForm.visible = true;
+                            loginFormScroll.visible = true;
                             dialog.buttonVisible = true;
                             psnurl = Chiaki.openPsnLink();
                             if(psnurl)
@@ -146,6 +204,38 @@ DialogView {
                                 openurl.copy();
                             }
                             pasteUrl.forceActiveFocus(Qt.TabFocusReason);
+                        }
+                        
+                        background: Rectangle {
+                            radius: 8
+                            color: parent.pressed ? Qt.rgba(100/255, 100/255, 100/255, 0.4) : 
+                                   parent.hovered ? Qt.rgba(100/255, 100/255, 100/255, 0.3) : 
+                                   Qt.rgba(100/255, 100/255, 100/255, 0.2)
+                            border.color: Qt.rgba(150/255, 150/255, 150/255, 0.5)
+                            border.width: 1
+                            
+                            Behavior on color { ColorAnimation { duration: 150 } }
+                            Behavior on border.color { ColorAnimation { duration: 150 } }
+                        }
+                        
+                        contentItem: RowLayout {
+                            spacing: 8
+                            
+                            Image {
+                                Layout.preferredWidth: 20
+                                Layout.preferredHeight: 20
+                                sourceSize: Qt.size(width, height)
+                                source: "qrc:/icons/r1.svg"
+                            }
+                            
+                            Text {
+                                Layout.fillWidth: true
+                                text: parent.parent.text
+                                font: parent.parent.font
+                                color: Qt.rgba(200/255, 200/255, 200/255, 1)
+                                horizontalAlignment: Text.AlignLeft
+                                verticalAlignment: Text.AlignVCenter
+                            }
                         }
                     }
                 }
@@ -183,7 +273,7 @@ DialogView {
                 columnSpacing: 20
                 Label {
                     id: nativeErrorHeader
-                    text: "Retrieving PSN account ID failed with error: "
+                    text: "Retrieving account ID failed with error: "
                     Layout.fillHeight: true
                     Layout.preferredWidth: 400
                     Layout.leftMargin: 20
@@ -223,71 +313,46 @@ DialogView {
                 id: webView
                 property Item web: null
                 anchors {
-                    top: psnLoginToolbar.bottom
-                    bottom: parent.bottom
+                    top: parent.top
+                    bottom: psnLoginToolbar.top
                     left: parent.left
                     right: parent.right
                     leftMargin: 10
                     rightMargin: 10
                 }
                 Component.onCompleted: {
-                    try {
-                        web = Qt.createQmlObject("
-                        import QtWebEngine
-                        import org.streetpea.chiaking
-                        WebEngineView {
-                            profile {
-                                offTheRecord: false
-                                storageName: 'psn-token'
-                                onClearHttpCacheCompleted: {
-                                    if(dialog.closing)
-                                        root.closeDialog();
-                                    else
-                                        webView.web.reload();
-                                }
-                            }
-                            settings {
-                                // Load larger touch icons
-                                touchIconsEnabled: true
-                            }
-
-                            onContextMenuRequested: (request) => request.accepted = true;
-                            onNavigationRequested: (request) => {
-                                if (Chiaki.checkPsnRedirectURL(request.url)) {
-                                    Chiaki.handlePsnLoginRedirect(request.url)
-                                    request.reject();
-                                }
-                                else
-                                    request.accept();
-                            }
-                            onCertificateError: console.error(error.description);
-                        }", webView, "webView");
-                        Chiaki.setWebEngineHints(web.profile);
-                        webView.web.url = Chiaki.psnLoginUrl();
-                        web.anchors.fill = webView;
-                    } catch (error) {
-                        console.error('Create webengine view failed with error:' + error);
-                        extBrowserButton.clicked();
-                    }
+                    // Always use external browser - don't create WebEngine view
+                    extBrowserButton.clicked();
                 }
             }
         }
-        GridLayout {
-            id: loginForm
+        ScrollView {
+            id: loginFormScroll
             anchors {
                 top: parent.top
-                horizontalCenter: parent.horizontalCenter
+                left: parent.left
+                right: parent.right
+                bottom: parent.bottom
                 topMargin: 50
+                leftMargin: 20
+                rightMargin: 20
+                bottomMargin: 20
             }
             visible: false
-            columns: 2
-            rowSpacing: 10
-            columnSpacing: 20
+            clip: true
+            ScrollBar.vertical.policy: ScrollBar.AsNeeded
+            
+            GridLayout {
+                id: loginForm
+                width: loginFormScroll.availableWidth
+                columns: 2
+                rowSpacing: 10
+                columnSpacing: 20
 
             Label {
                 id: errorHeader
                 visible: false
-                text: "Retrieving PSN account ID failed with error"
+                text: "Retrieving account ID failed with error"
             }
 
             Label {
@@ -328,7 +393,8 @@ DialogView {
             TextField {
                 id: url
                 echoMode: Chiaki.settings.streamerMode ? TextInput.Password : TextInput.Normal
-                Layout.preferredWidth: 400
+                Layout.fillWidth: true
+                Layout.maximumWidth: 400
                 KeyNavigation.priority: {
                     if(readOnly)
                         KeyNavigation.BeforeItem
@@ -360,9 +426,74 @@ DialogView {
                         else
                             pasteUrl
                     }
-                    KeyNavigation.down: pasteUrl
+                    KeyNavigation.down: npssoToken
+                }
+            }
+
+            Label {
+                text: qsTr("NPSSO Token (Cloud Play Only, Optional)")
+                Layout.topMargin: 15
+            }
+
+            TextField {
+                id: npssoToken
+                echoMode: Chiaki.settings.streamerMode ? TextInput.Password : TextInput.Normal
+                text: Chiaki.settings.psnNpssoToken
+                Layout.fillWidth: true
+                Layout.maximumWidth: 400
+                onTextChanged: {
+                    // Parse input: extract token from JSON format or use as-is
+                    let inputText = text.trim();
+                    let token = inputText;
+                    
+                    // Try to parse as JSON
+                    if (inputText.startsWith("{") && inputText.includes("npsso")) {
+                        try {
+                            let json = JSON.parse(inputText);
+                            if (json.npsso) {
+                                token = json.npsso;
+                            }
+                        } catch (e) {
+                            // Not valid JSON, use as-is
+                        }
+                    }
+                    
+                    Chiaki.settings.psnNpssoToken = token;
+                }
+                KeyNavigation.priority: KeyNavigation.AfterItem
+                KeyNavigation.up: pasteUrl
+                KeyNavigation.down: openNpssoButton
+                C.Button {
+                    id: openNpssoButton
+                    text: qsTr("Open NPSSO Page")
+                    anchors {
+                        left: parent.right
+                        verticalCenter: parent.verticalCenter
+                        leftMargin: 10
+                    }
+                    KeyNavigation.priority: KeyNavigation.BeforeItem
+                    onClicked: {
+                        Chiaki.openNpssoPage()
+                    }
+                    KeyNavigation.left: npssoToken
+                    KeyNavigation.up: npssoToken
+                    Keys.onUpPressed: (event) => {
+                        npssoToken.forceActiveFocus();
+                        event.accepted = true;
+                    }
                     lastInFocusChain: true
                 }
+            }
+
+            Label {
+                Layout.columnSpan: 2
+                Layout.topMargin: 5
+                text: qsTr("Required for Game Catalog and Game Library. Sign in first, then copy the full token from the page.")
+                wrapMode: Text.Wrap
+                font.pixelSize: 11
+                opacity: 0.8
+                color: Qt.rgba(255, 255, 255, 0.7)
+            }
             }
         }
 
@@ -379,7 +510,7 @@ DialogView {
                 id: formLabel
                 Layout.alignment: Qt.AlignCenter
                 Layout.bottomMargin: 50
-                text: qsTr("This requires your PSN privacy settings to allow anyone to find you in your search")
+                text: qsTr("This requires your privacy settings to allow anyone to find you in your search")
             }
 
             C.TextField {

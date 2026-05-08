@@ -14,7 +14,12 @@ DialogView {
         PS4,
         PS5
     }
+    enum CloudService {
+        PSCloud,
+        PSNOW
+    }
     property int selectedConsole: SettingsDialog.Console.PS5
+    property int selectedCloudService: SettingsDialog.CloudService.PSCloud
     property bool quitControllerMapping: true
     id: dialog
     title: qsTr("Settings")
@@ -23,6 +28,16 @@ DialogView {
     Keys.onPressed: (event) => {
         if (event.modifiers)
             return;
+        
+        // Don't intercept Up/Down keys if any ComboBox popup is visible
+        // This allows ComboBoxes to handle navigation and selection
+        if (event.key === Qt.Key_Up || event.key === Qt.Key_Down) {
+            let focusedItem = Window.activeFocusItem;
+            if (focusedItem && focusedItem.popup && focusedItem.popup.visible) {
+                return;
+            }
+        }
+        
         switch (event.key) {
         case Qt.Key_PageUp:
             bar.decrementCurrentIndex();
@@ -33,282 +48,184 @@ DialogView {
             event.accepted = true;
             break;
         case Qt.Key_Up:
-            if(bar.currentIndex == 3)
-            {
-                if(audiowifiScrollbar.position > 0.001)
-                    audiowifiFlick.flick(0, 500);
-            }
-            else if (bar.currentIndex == 6)
-            {
-                if(controllersScrollbar.position > 0.001)
-                    controllersFlick.flick(0, 500);
-            }
-            else
-                return;
-            event.accepted = true;
+            event.accepted = false;
             break;
         case Qt.Key_Down:
-            if(bar.currentIndex == 3)
-            {
-                if(audiowifiScrollbar.position < 1.0 - audiowifiScrollbar.size - 0.001)
-                    audiowifiFlick.flick(0, -500);
-            }
-            else if(bar.currentIndex == 6)
-            {
-                if(controllersScrollbar.position < 1.0 - controllersScrollbar.size - 0.001)
-                    controllersFlick.flick(0, -500);
-            }
-            else
-                return;
-            event.accepted = true;
+            event.accepted = false;
             break;
         }
     }
 
     Item {
-        TabBar {
-            id: bar
+        // Container for tab bar with LB/RB buttons
+        Rectangle {
+            id: tabBarContainer
             anchors {
                 top: parent.top
                 left: parent.left
                 right: parent.right
-                topMargin: 5
+                topMargin: 15
+                leftMargin: 20
+                rightMargin: 20
             }
+            height: 60
+            color: Qt.rgba(255, 255, 255, 0.05)
+            radius: 12
+            border.color: Qt.rgba(0, 212/255, 255/255, 0.2)
+            border.width: 1
 
-            TabButton {
-                id: general
-                text: qsTr("General")
-                focusPolicy: Qt.NoFocus
-                Image {
-                    anchors {
-                        left: general.right
-                        verticalCenter: parent.verticalCenter
-                        leftMargin: -15
-                    }
-                    width: 28
-                    height: 28
-                    sourceSize: Qt.size(width, height)
-                    source: "qrc:/icons/l1.svg"
-                    visible: bar.currentIndex == 1
-                }
-            }
+            RowLayout {
+                anchors.fill: parent
+                anchors.margins: 8
+                spacing: 0
 
-            TabButton {
-                id: video
-                text: qsTr("Video")
-                focusPolicy: Qt.NoFocus
-                Image {
-                    anchors {
-                        right: video.left
-                        verticalCenter: parent.verticalCenter
-                        rightMargin: -15
+                // Left L1 button
+                Button {
+                    Layout.preferredWidth: 40
+                    Layout.fillHeight: true
+                    focusPolicy: Qt.NoFocus
+                    enabled: bar.currentIndex > 0
+                    onClicked: bar.currentIndex = Math.max(0, bar.currentIndex - 1)
+                    
+                    background: Rectangle {
+                        radius: 6
+                        color: "transparent"
+                        opacity: parent.enabled ? 1.0 : 0.3
                     }
-                    width: 28
-                    height: 28
-                    sourceSize: Qt.size(width, height)
-                    source: "qrc:/icons/r1.svg"
-                    visible: bar.currentIndex == 0
-                }
-                Image {
-                    anchors {
-                        left: video.right
-                        verticalCenter: parent.verticalCenter
-                        leftMargin: -15
+                    
+                    Image {
+                        anchors.centerIn: parent
+                        width: 28
+                        height: 28
+                        sourceSize: Qt.size(width, height)
+                        source: "qrc:/icons/l1.svg"
+                        opacity: parent.enabled ? 1.0 : 0.3
                     }
-                    width: 28
-                    height: 28
-                    sourceSize: Qt.size(width, height)
-                    source: "qrc:/icons/l1.svg"
-                    visible: bar.currentIndex == 2
                 }
-            }
 
-            TabButton {
-                id: stream
-                text: qsTr("Stream")
-                focusPolicy: Qt.NoFocus
-                Image {
-                    anchors {
-                        right: stream.left
-                        verticalCenter: parent.verticalCenter
-                        rightMargin: -15
-                    }
-                    width: 28
-                    height: 28
-                    sourceSize: Qt.size(width, height)
-                    source: "qrc:/icons/r1.svg"
-                    visible: bar.currentIndex == 1
-                }
-                Image {
-                    anchors {
-                        left: stream.right
-                        verticalCenter: parent.verticalCenter
-                        leftMargin: -15
-                    }
-                    width: 28
-                    height: 28
-                    sourceSize: Qt.size(width, height)
-                    source: "qrc:/icons/l1.svg"
-                    visible: bar.currentIndex == 3
-                }
-            }
+                // Tab bar in the center
+                TabBar {
+                    id: bar
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    background: Rectangle { color: "transparent" }
 
-            TabButton {
-                text: qsTr("Audio/Wifi")
-                id: audio
-                focusPolicy: Qt.NoFocus
-                Image {
-                    anchors {
-                        right: audio.left
-                        verticalCenter: parent.verticalCenter
-                        rightMargin: -15
+                    TabButton {
+                        id: general
+                        text: qsTr("General")
+                        focusPolicy: Qt.NoFocus
                     }
-                    width: 28
-                    height: 28
-                    sourceSize: Qt.size(width, height)
-                    source: "qrc:/icons/r1.svg"
-                    visible: bar.currentIndex == 2
-                }
-                Image {
-                    anchors {
-                        left: audio.right
-                        verticalCenter: parent.verticalCenter
-                        leftMargin: -15
-                    }
-                    width: 28
-                    height: 28
-                    sourceSize: Qt.size(width, height)
-                    source: "qrc:/icons/l1.svg"
-                    visible: bar.currentIndex == 4
-                }
-            }
 
-            TabButton {
-                text: qsTr("Consoles")
-                id: consoles
-                focusPolicy: Qt.NoFocus
-                Image {
-                    anchors {
-                        right: consoles.left
-                        verticalCenter: parent.verticalCenter
-                        rightMargin: -15
+                    TabButton {
+                        id: video
+                        text: qsTr("Video")
+                        focusPolicy: Qt.NoFocus
                     }
-                    width: 28
-                    height: 28
-                    sourceSize: Qt.size(width, height)
-                    source: "qrc:/icons/r1.svg"
-                    visible: bar.currentIndex == 3
-                }
-                Image {
-                    anchors {
-                        left: consoles.right
-                        verticalCenter: parent.verticalCenter
-                        leftMargin: -15
-                    }
-                    width: 28
-                    height: 28
-                    sourceSize: Qt.size(width, height)
-                    source: "qrc:/icons/l1.svg"
-                    visible: bar.currentIndex == 5
-                }
-            }
 
-            TabButton {
-                text: qsTr("Keys")
-                id: keys
-                focusPolicy: Qt.NoFocus
-                Image {
-                    anchors {
-                        right: keys.left
-                        verticalCenter: parent.verticalCenter
-                        rightMargin: -15
+                    TabButton {
+                        id: stream
+                        text: qsTr("Stream")
+                        focusPolicy: Qt.NoFocus
                     }
-                    width: 28
-                    height: 28
-                    sourceSize: Qt.size(width, height)
-                    source: "qrc:/icons/r1.svg"
-                    visible: bar.currentIndex == 4
-                }
-                Image {
-                    anchors {
-                        left: keys.right
-                        verticalCenter: parent.verticalCenter
-                        leftMargin: -15
-                    }
-                    width: 28
-                    height: 28
-                    sourceSize: Qt.size(width, height)
-                    source: "qrc:/icons/l1.svg"
-                    visible: bar.currentIndex == 6
-                }
-            }
 
-            TabButton {
-                text: qsTr("Controllers")
-                id: controllers
-                focusPolicy: Qt.NoFocus
-                Image {
-                    anchors {
-                        right: controllers.left
-                        verticalCenter: parent.verticalCenter
-                        rightMargin: -15
+                    TabButton {
+                        text: qsTr("Audio/Wifi")
+                        id: audio
+                        focusPolicy: Qt.NoFocus
                     }
-                    width: 28
-                    height: 28
-                    sourceSize: Qt.size(width, height)
-                    source: "qrc:/icons/r1.svg"
-                    visible: bar.currentIndex == 5
-                }
-                Image {
-                    anchors {
-                        left: controllers.right
-                        verticalCenter: parent.verticalCenter
-                        leftMargin: -15
-                    }
-                    width: 28
-                    height: 28
-                    sourceSize: Qt.size(width, height)
-                    source: "qrc:/icons/l1.svg"
-                    visible: bar.currentIndex == 7
-                }
-            }
 
-            TabButton {
-                text: qsTr("Config")
-                id: config
-                focusPolicy: Qt.NoFocus
-                Image {
-                    anchors {
-                        right: config.left
-                        verticalCenter: parent.verticalCenter
-                        rightMargin: -15
+                    TabButton {
+                        text: qsTr("Consoles")
+                        id: consoles
+                        focusPolicy: Qt.NoFocus
                     }
-                    width: 28
-                    height: 28
-                    sourceSize: Qt.size(width, height)
-                    source: "qrc:/icons/r1.svg"
-                    visible: bar.currentIndex == 6
+
+                    TabButton {
+                        text: qsTr("Keys")
+                        id: keys
+                        focusPolicy: Qt.NoFocus
+                    }
+
+                    TabButton {
+                        text: qsTr("Controllers")
+                        id: controllers
+                        focusPolicy: Qt.NoFocus
+                    }
+
+                    TabButton {
+                        text: qsTr("Config")
+                        id: config
+                        focusPolicy: Qt.NoFocus
+                    }
+
+                    TabButton {
+                        text: qsTr("Cloud")
+                        id: cloud
+                        focusPolicy: Qt.NoFocus
+                    }
+                }
+
+                // Right R1 button
+                Button {
+                    Layout.preferredWidth: 40
+                    Layout.fillHeight: true
+                    focusPolicy: Qt.NoFocus
+                    enabled: bar.currentIndex < bar.count - 1
+                    onClicked: bar.currentIndex = Math.min(bar.count - 1, bar.currentIndex + 1)
+                    
+                    background: Rectangle {
+                        radius: 6
+                        color: "transparent"
+                        opacity: parent.enabled ? 1.0 : 0.3
+                    }
+                    
+                    Image {
+                        anchors.centerIn: parent
+                        width: 28
+                        height: 28
+                        sourceSize: Qt.size(width, height)
+                        source: "qrc:/icons/r1.svg"
+                        opacity: parent.enabled ? 1.0 : 0.3
+                    }
                 }
             }
         }
 
         StackLayout {
+            id: stackLayout
             anchors {
-                top: bar.bottom
+                top: tabBarContainer.bottom
                 left: parent.left
                 right: parent.right
                 bottom: parent.bottom
+                topMargin: 10
             }
             currentIndex: bar.currentIndex
             onCurrentIndexChanged: nextItemInFocusChain().forceActiveFocus(Qt.TabFocusReason)
 
             Item {
                 // General
-                ColumnLayout {
+                C.SmartFlickable {
+                    id: generalFlick
+                    implicitWidth: parent.width ? parent.width : 0
+                    implicitHeight: parent.height ? parent.height : 0
+                    anchors {
+                        fill: parent
+                        topMargin: 20
+                        bottomMargin: 20
+                        leftMargin: parent.width ? (parent.width / 2 - generalColumn.width / 2) : 0
+                    }
+                    contentWidth: generalColumn.width
+                    contentHeight: generalColumn.height
+                    tabIndex: 0
+                    currentTabIndex: bar.currentIndex
+                    contentLayout: generalColumn
+                    
+                    ColumnLayout {
+                    id: generalColumn
                     anchors {
                         top: parent.top
                         horizontalCenter: parent.horizontalCenter
-                        topMargin: 20
                     }
                     spacing: 10
                     GridLayout {
@@ -449,6 +366,7 @@ DialogView {
                             text: qsTr("Streamer Mode (Hides Info)")
                         }
                         C.CheckBox {
+                            id: streamerMode
                             checked: Chiaki.settings.streamerMode
                             onToggled: Chiaki.settings.streamerMode = !Chiaki.settings.streamerMode
                         }
@@ -467,14 +385,55 @@ DialogView {
                             checked: Chiaki.settings.streamMenuEnabled
                             onToggled: Chiaki.settings.streamMenuEnabled = !Chiaki.settings.streamMenuEnabled
                             KeyNavigation.priority: KeyNavigation.BeforeItem
-                            KeyNavigation.up: openButton
+                            KeyNavigation.up: streamerMode
                             KeyNavigation.left: streamMenu
                             KeyNavigation.right: streamMenu
+                            KeyNavigation.down: psnGamesSyncCheckbox
+                        }
+
+                        Label {
+                            Layout.alignment: Qt.AlignRight
+                            text: qsTr("(Checked)")
+                        }
+
+                        Label {
+                            Layout.alignment: Qt.AlignRight
+                            text: qsTr("Sync Console Game Data")
+                        }
+                        C.CheckBox {
+                            id: psnGamesSyncCheckbox
+                            text: qsTr("Save game list for main screen")
+                            checked: Chiaki.settings.psnGamesSyncEnabled
+                            onToggled: Chiaki.settings.psnGamesSyncEnabled = checked
+                            KeyNavigation.priority: KeyNavigation.BeforeItem
+                            KeyNavigation.up: streamMenu
+                            KeyNavigation.left: psnGamesSyncCheckbox
+                            KeyNavigation.right: psnGamesSyncCheckbox
+                            KeyNavigation.down: showGameImageDuringLaunch
+                        }
+
+                        Label {
+                            Layout.alignment: Qt.AlignRight
+                            text: qsTr("(Checked)")
+                        }
+
+                        Label {
+                            Layout.alignment: Qt.AlignRight
+                            text: qsTr("Display Game Art While Loading")
+                        }
+                        C.CheckBox {
+                            id: showGameImageDuringLaunch
+                            checked: Chiaki.settings.showGameImageDuringLaunch
+                            onToggled: Chiaki.settings.showGameImageDuringLaunch = !Chiaki.settings.showGameImageDuringLaunch
+                            KeyNavigation.priority: KeyNavigation.BeforeItem
+                            KeyNavigation.up: psnGamesSyncCheckbox
+                            KeyNavigation.left: showGameImageDuringLaunch
+                            KeyNavigation.right: showGameImageDuringLaunch
                             KeyNavigation.down: {
                                 if(streamMenuShortcut1.visible)
                                     streamMenuShortcut1
                                 else
-                                    streamMenu
+                                    showGameImageDuringLaunch
                             }
                         }
 
@@ -505,7 +464,7 @@ DialogView {
                                 else
                                     KeyNavigation.AfterItem
                             }
-                            KeyNavigation.up: streamMenu
+                            KeyNavigation.up: psnGamesSyncCheckbox
                             KeyNavigation.down: streamMenuShortcut1
                             KeyNavigation.left: streamMenuShortcut1
                             KeyNavigation.right: streamMenuShortcut2
@@ -524,7 +483,7 @@ DialogView {
                                 else
                                     KeyNavigation.AfterItem
                             }
-                            KeyNavigation.up: streamMenu
+                            KeyNavigation.up: psnGamesSyncCheckbox
                             KeyNavigation.down: streamMenuShortcut2
                             KeyNavigation.left: streamMenuShortcut1
                             KeyNavigation.right: streamMenuShortcut3
@@ -543,7 +502,7 @@ DialogView {
                                 else
                                     KeyNavigation.AfterItem
                             }
-                            KeyNavigation.up: streamMenu
+                            KeyNavigation.up: psnGamesSyncCheckbox
                             KeyNavigation.down: streamMenuShortcut3
                             KeyNavigation.left: streamMenuShortcut2
                             KeyNavigation.right: streamMenuShortcut4
@@ -562,7 +521,7 @@ DialogView {
                                 else
                                     KeyNavigation.AfterItem
                             }
-                            KeyNavigation.up: streamMenu
+                            KeyNavigation.up: psnGamesSyncCheckbox
                             KeyNavigation.down: streamMenuShortcut4
                             KeyNavigation.left: streamMenuShortcut3
                             KeyNavigation.right: streamMenuShortcut4
@@ -574,15 +533,32 @@ DialogView {
                         }
                     }
                 }
+                }
             }
 
             Item {
                 // Video
+                C.SmartFlickable {
+                    id: videoFlick
+                    implicitWidth: parent.width ? parent.width : 0
+                    implicitHeight: parent.height ? parent.height : 0
+                    anchors {
+                        fill: parent
+                        topMargin: 20
+                        bottomMargin: 20
+                        leftMargin: parent.width ? (parent.width / 2 - videoGrid.width / 2) : 0
+                    }
+                    contentWidth: videoGrid.width
+                    contentHeight: videoGrid.height
+                    tabIndex: 1
+                    currentTabIndex: bar.currentIndex
+                    contentLayout: videoGrid
+                    
                 GridLayout {
+                    id: videoGrid
                     anchors {
                         top: parent.top
                         horizontalCenter: parent.horizontalCenter
-                        topMargin: 20
                     }
                     columns: 3
                     rowSpacing: 10
@@ -772,15 +748,32 @@ DialogView {
 
                     Label {}
                 }
+                }
             }
 
             Item {
                 // Stream
+                C.SmartFlickable {
+                    id: streamFlick
+                    implicitWidth: parent.width ? parent.width : 0
+                    implicitHeight: parent.height ? parent.height : 0
+                    anchors {
+                        fill: parent
+                        topMargin: 20
+                        bottomMargin: 20
+                        leftMargin: parent.width ? (parent.width / 2 - streamGrid.width / 2) : 0
+                    }
+                    contentWidth: streamGrid.width
+                    contentHeight: streamGrid.height
+                    tabIndex: 2
+                    currentTabIndex: bar.currentIndex
+                    contentLayout: streamGrid
+                    
                 GridLayout {
+                    id: streamGrid
                     anchors {
                         top: parent.top
                         horizontalCenter: parent.horizontalCenter
-                        topMargin: 20
                     }
                     columns: 3
                     rowSpacing: 10
@@ -1211,11 +1204,12 @@ DialogView {
                         }
                     }
                 }
+                }
             }
 
             Item {
                 // Audio and Wifi
-                Flickable {
+                C.SmartFlickable {
                     id: audiowifiFlick
                     implicitWidth: parent.width ? parent.width: 0
                     implicitHeight: parent.height ? parent.height: 0
@@ -1225,15 +1219,12 @@ DialogView {
                         bottomMargin: 20
                         leftMargin: parent.width ? (parent.width / 2 - audiowifigrid.width / 2) : 0
                     }
-                    clip: true
                     contentWidth: audiowifigrid.width
                     contentHeight: audiowifigrid.height
-                    flickableDirection: Flickable.AutoFlickIfNeeded
-                    ScrollBar.vertical: ScrollBar {
-                        id: audiowifiScrollbar
-                        policy: ScrollBar.AlwaysOn
-                        visible: audiowifiFlick.contentHeight > audiowifiFlick.implicitHeight - audiowifiFlick.anchors.topMargin - audiowifiFlick.anchors.bottomMargin
-                    }
+                    tabIndex: 3
+                    currentTabIndex: bar.currentIndex
+                    contentLayout: audiowifigrid
+                    
                     GridLayout {
                         id: audiowifigrid
                         columns: 3
@@ -1259,26 +1250,6 @@ DialogView {
                             model: [qsTr("Auto")].concat(Chiaki.settings.availableAudioOutDevices)
                             currentIndex: Math.max(0, model.indexOf(Chiaki.settings.audioOutDevice))
                             onActivated: (index) => Chiaki.settings.audioOutDevice = index ? model[index] : ""
-                            Keys.onPressed: (event) => {
-                                if (event.modifiers)
-                                    return;
-                                switch (event.key) {
-                                    case Qt.Key_Up:
-                                        if(bar.currentIndex != 3)
-                                            return;
-                                        if(audiowifiScrollbar.position > 0.001)
-                                            audiowifiFlick.flick(0, 500);
-                                        event.accepted = true;
-                                        break;
-                                    case Qt.Key_Down:
-                                        if(bar.currentIndex != 3)
-                                            return;
-                                        if(audiowifiScrollbar.position < 1.0 - audiowifiScrollbar.size - 0.001)
-                                            audiowifiFlick.flick(0, -500);
-                                        event.accepted = true;
-                                        break;
-                                }
-                            }
                         }
 
                         Label {
@@ -1299,26 +1270,6 @@ DialogView {
                             model: [qsTr("Auto")].concat(Chiaki.settings.availableAudioInDevices)
                             currentIndex: Math.max(0, model.indexOf(Chiaki.settings.audioInDevice))
                             onActivated: (index) => Chiaki.settings.audioInDevice = index ? model[index] : ""
-                            Keys.onPressed: (event) => {
-                                if (event.modifiers)
-                                    return;
-                                switch (event.key) {
-                                    case Qt.Key_Up:
-                                        if(bar.currentIndex != 3)
-                                            return;
-                                        if(audiowifiScrollbar.position > 0.001)
-                                            audiowifiFlick.flick(0, 500);
-                                        event.accepted = true;
-                                        break;
-                                    case Qt.Key_Down:
-                                        if(bar.currentIndex != 3)
-                                            return;
-                                        if(audiowifiScrollbar.position < 1.0 - audiowifiScrollbar.size - 0.001)
-                                            audiowifiFlick.flick(0, -500);
-                                        event.accepted = true;
-                                        break;
-                                }
-                            }
                         }
 
                         Label {
@@ -1565,31 +1516,49 @@ DialogView {
             }
 
             Item {
-            // Consoles
-                C.Button {
-                    id: registerNewButton
+                // Consoles
+                C.SmartFlickable {
+                    id: consolesFlick
+                    implicitWidth: parent.width ? parent.width : 0
+                    implicitHeight: parent.height ? parent.height : 0
                     anchors {
-                        top: parent.top
-                        horizontalCenter: parent.horizontalCenter
-                        topMargin: 30
+                        fill: parent
+                        topMargin: 20
+                        bottomMargin: 20
                     }
-                    topPadding: 26
-                    leftPadding: 30
-                    rightPadding: 30
-                    bottomPadding: 26
-                    firstInFocusChain: true
-                    text: qsTr("Register New")
-                    onClicked: root.showRegistDialog("255.255.255.255", true)
-                    Material.roundedScale: Material.SmallScale
+                    contentWidth: consolesContent.width
+                    contentHeight: consolesContent.height
+                    tabIndex: 4
+                    currentTabIndex: bar.currentIndex
+                    contentLayout: consolesContent
+                    
+                Column {
+                    id: consolesContent
+                    width: consolesFlick.width
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    
+                Item {
+                    width: parent.width
+                    height: registerNewButton.height + 30
+                    
+                    C.Button {
+                        id: registerNewButton
+                        anchors.centerIn: parent
+                        topPadding: 26
+                        leftPadding: 30
+                        rightPadding: 30
+                        bottomPadding: 26
+                        firstInFocusChain: true
+                        text: qsTr("Register New")
+                        onClicked: root.showRegistDialog("255.255.255.255", true)
+                        Material.roundedScale: Material.SmallScale
+                    }
                 }
 
                 Label {
                     id: consolesLabel
-                    anchors {
-                        top: registerNewButton.bottom
-                        horizontalCenter: registerNewButton.horizontalCenter
-                        topMargin: 10
-                    }
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    topPadding: 10
                     text: qsTr("Registered Consoles")
                     font.bold: true
                 }
@@ -1597,16 +1566,13 @@ DialogView {
                 ListView {
                     id: consolesView
                     height: 170
+                    width: 700
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.topMargin: 10
                     onCountChanged: {
                         consolesView.contentHeight = consolesView.count * 80 + consolesView.anchors.topMargin;
                     }
                     keyNavigationEnabled: false
-                    anchors {
-                        top: consolesLabel.bottom
-                        horizontalCenter: consolesLabel.horizontalCenter
-                        topMargin: 10
-                    }
-                    width: 700
                     ScrollBar.vertical: ScrollBar {
                         id: consolesScrollbar
                         policy: ScrollBar.AlwaysOn
@@ -1650,8 +1616,6 @@ DialogView {
                                         let item = nextItemInFocusChain(false);
                                         if (item)
                                             item.forceActiveFocus(Qt.TabFocusReason);
-                                        if(consolesScrollbar.position > 0.001)
-                                            consolesView.flick(0, 500);
                                         let count = index > 0 ? 2: 0;
                                         for(var i = 0; i < count; i++)
                                         {
@@ -1670,8 +1634,6 @@ DialogView {
                                         let item = nextItemInFocusChain();
                                         if (item)
                                             item.forceActiveFocus(Qt.TabFocusReason);
-                                        if(consolesScrollbar.position < 1.0 - consolesScrollbar.size - 0.001)
-                                            consolesView.flick(0, -500);
                                         let count = 2;
                                         for(var i = 0; i < count; i++)
                                         {
@@ -1734,8 +1696,6 @@ DialogView {
                                                     item = item2;
                                                 }
                                             }
-                                            if(consolesScrollbar.position > 0.001)
-                                                consolesView.flick(0, 500);
                                             event.accepted = true;
                                         }
                                         break;
@@ -1754,8 +1714,6 @@ DialogView {
                                                     item = item2;
                                                 }
                                             }
-                                            if(consolesScrollbar.position < 1.0 - consolesScrollbar.size - 0.001)
-                                                consolesView.flick(0, -500);
                                             event.accepted = true;
                                         }
                                         break;
@@ -1782,11 +1740,8 @@ DialogView {
 
                 Label {
                     id: hiddenConsolesLabel
-                    anchors {
-                        top: consolesView.bottom
-                        horizontalCenter: consolesView.horizontalCenter
-                        topMargin: 10
-                    }
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    topPadding: 10
                     text: qsTr("Hidden Consoles")
                     font.bold: true
                 }
@@ -1794,16 +1749,13 @@ DialogView {
                     id: hiddenConsolesView
                     keyNavigationEnabled: false
                     height: 170
+                    width: 500
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.topMargin: 10
                     onCountChanged: {
                         hiddenConsolesView.contentHeight = hiddenConsolesView.count * 80 + hiddenConsolesView.anchors.topMargin;
                     }
-                    anchors {
-                        top: hiddenConsolesLabel.bottom
-                        horizontalCenter: hiddenConsolesLabel.horizontalCenter
-                        topMargin: 10
-                    }
                     clip: true
-                    width: 500
                     ScrollBar.vertical: ScrollBar {
                         id: hiddenConsolesScrollbar
                         policy: ScrollBar.AlwaysOn
@@ -1835,8 +1787,6 @@ DialogView {
                                             let item = nextItemInFocusChain(false);
                                             if (item)
                                                 item.forceActiveFocus(Qt.TabFocusReason);
-                                            if(hiddenConsolesScrollbar.position > 0.001)
-                                                hiddenConsolesView.flick(0, 500);
                                             event.accepted = true;
                                         }
                                         break;
@@ -1845,8 +1795,6 @@ DialogView {
                                             let item = nextItemInFocusChain();
                                             if (item)
                                                 item.forceActiveFocus(Qt.TabFocusReason);
-                                            if(hiddenConsolesScrollbar.position < 1.0 - hiddenConsolesScrollbar.size - 0.001)
-                                                hiddenConsolesView.flick(0, -500);
                                             event.accepted = true;
                                         }
                                         break;
@@ -1870,16 +1818,34 @@ DialogView {
                         }
                     }
                 }
+                }
+                }
             }
 
             Item {
                 // Keys
                 id: controllerMapping
+                C.SmartFlickable {
+                    id: keysFlick
+                    implicitWidth: parent.width ? parent.width : 0
+                    implicitHeight: parent.height ? parent.height : 0
+                    anchors {
+                        fill: parent
+                        topMargin: 20
+                        bottomMargin: 20
+                        leftMargin: parent.width ? (parent.width / 2 - keysGrid.width / 2) : 0
+                    }
+                    contentWidth: keysGrid.width
+                    contentHeight: keysGrid.height
+                    tabIndex: 5
+                    currentTabIndex: bar.currentIndex
+                    contentLayout: keysGrid
+                    
                 GridLayout {
+                    id: keysGrid
                     anchors {
                         top: parent.top
                         horizontalCenter: parent.horizontalCenter
-                        topMargin: 20
                     }
                     columns: 3
                     rowSpacing: 3
@@ -2157,11 +2123,12 @@ DialogView {
                         }
                     }
                 }
+                }
             }
 
             Item {
                 // Controllers
-                Flickable {
+                C.SmartFlickable {
                     id: controllersFlick
                     implicitWidth: parent.width ? parent.width: 0
                     implicitHeight: parent.height ? parent.height: 0
@@ -2171,15 +2138,12 @@ DialogView {
                         bottomMargin: 20
                         leftMargin: parent.width ? (parent.width / 2 - controllersLayout.width / 2) : 0
                     }
-                    clip: true
                     contentWidth: controllersLayout.width
                     contentHeight: controllersLayout.height
-                    flickableDirection: Flickable.AutoFlickIfNeeded
-                    ScrollBar.vertical: ScrollBar {
-                        id: controllersScrollbar
-                        policy: ScrollBar.AlwaysOn
-                        visible: controllersFlick.contentHeight > controllersFlick.implicitHeight - controllersFlick.anchors.topMargin - controllersFlick.anchors.bottomMargin
-                    }
+                    tabIndex: 6
+                    currentTabIndex: bar.currentIndex
+                    contentLayout: controllersLayout
+                    
                     ColumnLayout {
                         id: controllersLayout
                         anchors {
@@ -2197,22 +2161,33 @@ DialogView {
                                 reset: false
                             });
                         }
-                        C.Button {
-                            sendOutput: true
-                            Layout.alignment: Qt.AlignHCenter
-                            id: controllerMappingReset
-                            text: "Reset Controller Mapping"
-                            onClicked: controllerMappingDialog.show({
-                                reset: true
-                            });
+                    C.Button {
+                        sendOutput: true
+                        Layout.alignment: Qt.AlignHCenter
+                        id: controllerMappingReset
+                        text: "Reset Controller Mapping"
+                        onClicked: controllerMappingDialog.show({
+                            reset: true
+                        });
+                    }
+                    C.Button {
+                        sendOutput: true
+                        Layout.alignment: Qt.AlignHCenter
+                        id: applyControllerLayout
+                        text: qsTr("Apply Base Layout")
+                        visible: typeof Chiaki.configureSteamControllerLayout === "function"
+                        onClicked: {
+                            Chiaki.configureSteamControllerLayout();
+                            root.showToast(qsTr("Layout Applied"), "", "#4CAF50");
                         }
+                    }
 
-                        RowLayout {
-                            spacing: 10
-                            Layout.alignment: Qt.AlignHCenter
-                            Label {
-                                Layout.alignment: Qt.AlignRight
-                                text: qsTr("Background Controller Events:")
+                    RowLayout {
+                        spacing: 10
+                        Layout.alignment: Qt.AlignHCenter
+                        Label {
+                            Layout.alignment: Qt.AlignRight
+                            text: qsTr("Background Controller Events:")
                             }
                             C.CheckBox {
                                 id: backgroundController
@@ -2490,17 +2465,33 @@ DialogView {
 
             Item {
                 // Config (PSN Remote Connection Setup and Import/Export)
-                GridLayout {
+                C.SmartFlickable {
+                    id: configFlick
+                    implicitWidth: parent.width ? parent.width : 0
+                    implicitHeight: parent.height ? parent.height : 0
+                    anchors {
+                        fill: parent
+                        topMargin: 20
+                        bottomMargin: 20
+                        leftMargin: parent.width ? (parent.width / 2 - configColumn.width / 2) : 0
+                    }
+                    contentWidth: configColumn.width
+                    contentHeight: configColumn.height
+                    tabIndex: 7
+                    currentTabIndex: bar.currentIndex
+                    contentLayout: configColumn
+                    
+                ColumnLayout {
+                    id: configColumn
+                    width: 500
                     anchors {
                         top: parent.top
                         horizontalCenter: parent.horizontalCenter
-                        topMargin: 50
                     }
-                    columns: 1
-                    rowSpacing: 20
-                    columnSpacing: 10
+                    spacing: 20
 
                     Label {
+                        Layout.alignment: Qt.AlignHCenter
                         text: {
                             if(Chiaki.settings.currentProfile)
                                 qsTr("Current Profile: ") + Chiaki.settings.currentProfile
@@ -2512,18 +2503,38 @@ DialogView {
                     C.Button {
                         id: profile
                         firstInFocusChain: true
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.fillWidth: true
+                        Layout.maximumWidth: 400
+                        Layout.preferredHeight: 50
                         text: qsTr("Manage Profiles")
                         onClicked: {
                             root.showProfileDialog()
                         }
                         Material.roundedScale: Material.SmallScale
+                        
+                        // Handle gamepad navigation up - cycle through tabs
+                        Keys.onPressed: (event) => {
+                            if (event.key === Qt.Key_Up) {
+                                if (bar.currentIndex > 0) {
+                                    bar.currentIndex--;
+                                } else {
+                                    bar.currentIndex = bar.count - 1;  // Wrap to last tab
+                                }
+                                event.accepted = true;
+                            }
+                        }
                     }
 
                     C.Button {
                         id: openPsnLogin
-                        text: qsTr("Login to PSN")
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.fillWidth: true
+                        Layout.maximumWidth: 400
+                        Layout.preferredHeight: 50
+                        text: qsTr("Login")
                         onClicked: {
-                            root.showPSNTokenDialog(false)
+                            root.showPSNTokenDialog(false);
                         }
                         Material.roundedScale: Material.SmallScale
                         visible: !Chiaki.settings.psnRefreshToken || !Chiaki.settings.psnAuthToken || !Chiaki.settings.psnAuthTokenExpiry || !Chiaki.settings.psnAccountId
@@ -2531,16 +2542,17 @@ DialogView {
 
                     C.Button {
                         id: resetPsnTokens
-                        topPadding: 26
-                        leftPadding: 30
-                        rightPadding: 30
-                        bottomPadding: 26
-                        text: qsTr("Clear PSN Token")
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.fillWidth: true
+                        Layout.maximumWidth: 400
+                        Layout.preferredHeight: 50
+                        text: qsTr("Clear Token")
                         onClicked: {
                             Chiaki.settings.psnRefreshToken = ""
                             Chiaki.settings.psnAuthToken = ""
                             Chiaki.settings.psnAuthTokenExpiry = ""
                             Chiaki.settings.psnAccountId = ""
+                            Chiaki.settings.psnNpssoToken = ""
                             openPsnLogin.forceActiveFocus(Qt.TabFocusReason);
                         }
                         Material.roundedScale: Material.SmallScale
@@ -2548,7 +2560,24 @@ DialogView {
                     }
 
                     C.Button {
+                        id: clearPsnGamesButton
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.fillWidth: true
+                        Layout.maximumWidth: 400
+                        Layout.preferredHeight: 50
+                        text: qsTr("Clear Saved Game Data")
+                        onClicked: {
+                            Chiaki.clearPsnGames();
+                        }
+                        Material.roundedScale: Material.SmallScale
+                    }
+
+                    C.Button {
                         id: exportButton
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.fillWidth: true
+                        Layout.maximumWidth: 400
+                        Layout.preferredHeight: 50
                         text: qsTr("Export settings to file")
                         onClicked: {
                             Chiaki.settings.exportSettings();
@@ -2558,6 +2587,10 @@ DialogView {
 
                     C.Button {
                         id: importButton
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.fillWidth: true
+                        Layout.maximumWidth: 400
+                        Layout.preferredHeight: 50
                         text: qsTr("Import settings from file")
                         onClicked: {
                             Chiaki.settings.importSettings();
@@ -2566,18 +2599,340 @@ DialogView {
                     }
 
                     C.Button {
+                        id: setupGuideButton
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.fillWidth: true
+                        Layout.maximumWidth: 400
+                        Layout.preferredHeight: 50
+                        text: qsTr("Console Setup Guide")
+                        onClicked: root.showConsoleSetupWalkthrough()
+                        Material.roundedScale: Material.SmallScale
+                    }
+
+                    C.Button {
+                        id: supportButton
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.fillWidth: true
+                        Layout.maximumWidth: 400
+                        Layout.preferredHeight: 50
+                        text: qsTr("Support Pylux")
+                        visible: DonationManager.enabled
+                        onClicked: DonationManager.openSupportFromSettings()
+                        Material.roundedScale: Material.SmallScale
+
+                        Connections {
+                            target: DonationManager
+                            function onAlreadyDonated() {
+                                root.showToast(qsTr("Thank You!"), qsTr("You've already donated — we appreciate your support!"), "#4CAF50");
+                            }
+                        }
+                    }
+
+                    C.Button {
                         id: aboutButton
-                        text: qsTr("About %1-ng").arg(Qt.application.name)
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.fillWidth: true
+                        Layout.maximumWidth: 400
+                        Layout.preferredHeight: 50
+                        text: qsTr("About")
                         onClicked: aboutDialog.open()
                         Material.roundedScale: Material.SmallScale
                     }
 
                     C.CheckBox {
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.topMargin: 15
                         text: qsTr("Verbose Logging (unchecked)")
                         checked: Chiaki.settings.logVerbose
                         lastInFocusChain: true
                         onToggled: Chiaki.settings.logVerbose = checked
                     }
+                }
+                }
+            }
+
+            Item {
+                // Cloud
+                C.SmartFlickable {
+                    id: cloudFlick
+                    implicitWidth: parent.width ? parent.width : 0
+                    implicitHeight: parent.height ? parent.height : 0
+                    anchors {
+                        fill: parent
+                        topMargin: 20
+                        bottomMargin: 20
+                        leftMargin: parent.width ? (parent.width / 2 - cloudGrid.width / 2) : 0
+                    }
+                    contentWidth: cloudGrid.width
+                    contentHeight: cloudGrid.height
+                    tabIndex: 8
+                    currentTabIndex: bar.currentIndex
+                    contentLayout: cloudGrid
+                
+                GridLayout {
+                    id: cloudGrid
+                    anchors {
+                        top: parent.top
+                        horizontalCenter: parent.horizontalCenter
+                    }
+                    columns: 3
+                    rowSpacing: 10
+                    columnSpacing: 20
+
+                    Label {
+                        Layout.alignment: Qt.AlignRight
+                        text: qsTr("Settings for:")
+                    }
+
+                    C.ComboBox {
+                        id: cloudServiceSelection
+                        Layout.preferredWidth: 400
+                        Layout.alignment: Qt.AlignLeft
+                        model: [qsTr("Game Library"), qsTr("Game Catalog")]
+                        currentIndex: selectedCloudService
+                        onActivated: (index) => selectedCloudService = index
+                        firstInFocusChain: true
+                        KeyNavigation.priority: {
+                            if(!popup.visible)
+                                KeyNavigation.BeforeItem
+                            else
+                                KeyNavigation.AfterItem
+                        }
+                        KeyNavigation.down: {
+                            if(selectedCloudService == SettingsDialog.CloudService.PSCloud)
+                                resolutionPSCloud
+                            else
+                                resolutionPSNOW
+                        }
+                    }
+
+                    Label {
+                        Layout.alignment: Qt.AlignRight
+                        text: qsTr("")
+                    }
+
+                    Label {
+                        Layout.alignment: Qt.AlignRight
+                        text: qsTr("Resolution:")
+                    }
+
+                    C.ComboBox {
+                        id: resolutionPSCloud
+                        Layout.preferredWidth: 400
+                        model: ["720p", "1080p", "1440p", "2160p"]
+                        currentIndex: {
+                            let res = Chiaki.settings.cloudResolutionPSCloud;
+                            if (res === 720) return 0;
+                            if (res === 1440) return 2;
+                            if (res === 2160) return 3;
+                            return 1; // Default to 1080
+                        }
+                        onActivated: index => {
+                            if (index === 0) {
+                                Chiaki.settings.cloudResolutionPSCloud = 720;
+                            } else if (index === 2) {
+                                Chiaki.settings.cloudResolutionPSCloud = 1440;
+                            } else if (index === 3) {
+                                Chiaki.settings.cloudResolutionPSCloud = 2160;
+                            } else {
+                                Chiaki.settings.cloudResolutionPSCloud = 1080;
+                            }
+                        }
+                        visible: selectedCloudService == SettingsDialog.CloudService.PSCloud
+                        KeyNavigation.right: datacenterPSCloud
+                        KeyNavigation.up: cloudServiceSelection
+                        KeyNavigation.down: datacenterPSCloud
+                        KeyNavigation.priority: {
+                            if(!popup.visible)
+                                KeyNavigation.BeforeItem
+                            else
+                                KeyNavigation.AfterItem
+                        }
+                    }
+
+                    Label {
+                        Layout.alignment: Qt.AlignRight
+                        text: qsTr("(1080p)")
+                        visible: selectedCloudService == SettingsDialog.CloudService.PSCloud
+                    }
+
+                    C.ComboBox {
+                        id: resolutionPSNOW
+                        Layout.preferredWidth: 400
+                        model: ["720p", "1080p", "1440p", "2160p"]
+                        currentIndex: {
+                            let res = Chiaki.settings.cloudResolutionPSNOW;
+                            if (res === 720) return 0;
+                            if (res === 1440) return 2;
+                            if (res === 2160) return 3;
+                            return 1; // Default to 1080
+                        }
+                        onActivated: index => {
+                            if (index === 0) {
+                                Chiaki.settings.cloudResolutionPSNOW = 720;
+                            } else if (index === 2) {
+                                Chiaki.settings.cloudResolutionPSNOW = 1440;
+                            } else if (index === 3) {
+                                Chiaki.settings.cloudResolutionPSNOW = 2160;
+                            } else {
+                                Chiaki.settings.cloudResolutionPSNOW = 1080;
+                            }
+                        }
+                        visible: selectedCloudService == SettingsDialog.CloudService.PSNOW
+                        KeyNavigation.right: datacenterPSNOW
+                        KeyNavigation.up: cloudServiceSelection
+                        KeyNavigation.down: datacenterPSNOW
+                        KeyNavigation.priority: {
+                            if(!popup.visible)
+                                KeyNavigation.BeforeItem
+                            else
+                                KeyNavigation.AfterItem
+                        }
+                    }
+
+                    Label {
+                        Layout.alignment: Qt.AlignRight
+                        text: qsTr("(1080p)")
+                        visible: selectedCloudService == SettingsDialog.CloudService.PSNOW
+                    }
+
+                    Label {
+                        Layout.alignment: Qt.AlignRight
+                        text: qsTr("Datacenter:")
+                    }
+
+                    C.ComboBox {
+                        id: datacenterPSCloud
+                        Layout.preferredWidth: 400
+                        model: {
+                            let m = ["Auto"];
+                            try {
+                                let datacentersJson = Chiaki.settings.cloudDatacentersJsonPSCloud || "[]";
+                                let datacenters = JSON.parse(datacentersJson);
+                                if (Array.isArray(datacenters)) {
+                                    for (let i = 0; i < datacenters.length; i++) {
+                                        let dc = datacenters[i];
+                                        let name = dc.dataCenter || "";
+                                        let rtt = dc.rtt || -1;
+                                        if (name) {
+                                            if (rtt >= 0) {
+                                                m.push(name + " (" + rtt + "ms)");
+                                            } else {
+                                                m.push(name);
+                                            }
+                                        }
+                                    }
+                                }
+                            } catch (e) {
+                                console.warn("Failed to parse datacenters:", e);
+                            }
+                            return m;
+                        }
+                        currentIndex: {
+                            let selected = Chiaki.settings.cloudDatacenterPSCloud || "Auto";
+                            if (selected === "Auto") return 0;
+                            for (let i = 1; i < model.length; i++) {
+                                if (model[i].startsWith(selected)) return i;
+                            }
+                            return 0;
+                        }
+                        onActivated: index => {
+                            if (index === 0) {
+                                Chiaki.settings.cloudDatacenterPSCloud = "Auto";
+                            } else {
+                                let name = model[index];
+                                let match = name.match(/^([^(]+)/);
+                                if (match) {
+                                    Chiaki.settings.cloudDatacenterPSCloud = match[1].trim();
+                                } else {
+                                    Chiaki.settings.cloudDatacenterPSCloud = name;
+                                }
+                            }
+                        }
+                        visible: selectedCloudService == SettingsDialog.CloudService.PSCloud
+                        KeyNavigation.left: resolutionPSCloud
+                        KeyNavigation.up: resolutionPSCloud
+                        KeyNavigation.priority: {
+                            if(!popup.visible)
+                                KeyNavigation.BeforeItem
+                            else
+                                KeyNavigation.AfterItem
+                        }
+                        lastInFocusChain: selectedCloudService == SettingsDialog.CloudService.PSCloud
+                    }
+
+                    Label {
+                        Layout.alignment: Qt.AlignRight
+                        text: qsTr("(Auto)")
+                        visible: selectedCloudService == SettingsDialog.CloudService.PSCloud
+                    }
+
+                    C.ComboBox {
+                        id: datacenterPSNOW
+                        Layout.preferredWidth: 400
+                        model: {
+                            let m = ["Auto"];
+                            try {
+                                let datacentersJson = Chiaki.settings.cloudDatacentersJsonPSNOW || "[]";
+                                let datacenters = JSON.parse(datacentersJson);
+                                if (Array.isArray(datacenters)) {
+                                    for (let i = 0; i < datacenters.length; i++) {
+                                        let dc = datacenters[i];
+                                        let name = dc.dataCenter || "";
+                                        let rtt = dc.rtt || -1;
+                                        if (name) {
+                                            if (rtt >= 0) {
+                                                m.push(name + " (" + rtt + "ms)");
+                                            } else {
+                                                m.push(name);
+                                            }
+                                        }
+                                    }
+                                }
+                            } catch (e) {
+                                console.warn("Failed to parse datacenters:", e);
+                            }
+                            return m;
+                        }
+                        currentIndex: {
+                            let selected = Chiaki.settings.cloudDatacenterPSNOW || "Auto";
+                            if (selected === "Auto") return 0;
+                            for (let i = 1; i < model.length; i++) {
+                                if (model[i].startsWith(selected)) return i;
+                            }
+                            return 0;
+                        }
+                        onActivated: index => {
+                            if (index === 0) {
+                                Chiaki.settings.cloudDatacenterPSNOW = "Auto";
+                            } else {
+                                let name = model[index];
+                                let match = name.match(/^([^(]+)/);
+                                if (match) {
+                                    Chiaki.settings.cloudDatacenterPSNOW = match[1].trim();
+                                } else {
+                                    Chiaki.settings.cloudDatacenterPSNOW = name;
+                                }
+                            }
+                        }
+                        visible: selectedCloudService == SettingsDialog.CloudService.PSNOW
+                        KeyNavigation.left: resolutionPSNOW
+                        KeyNavigation.up: resolutionPSNOW
+                        KeyNavigation.priority: {
+                            if(!popup.visible)
+                                KeyNavigation.BeforeItem
+                            else
+                                KeyNavigation.AfterItem
+                        }
+                        lastInFocusChain: selectedCloudService == SettingsDialog.CloudService.PSNOW
+                    }
+
+                    Label {
+                        Layout.alignment: Qt.AlignRight
+                        text: qsTr("(Auto)")
+                        visible: selectedCloudService == SettingsDialog.CloudService.PSNOW
+                    }
+                }
                 }
             }
         }
@@ -2614,40 +2969,113 @@ DialogView {
             parent: Overlay.overlay
             x: Math.round((root.width - width) / 2)
             y: Math.round((root.height - height) / 2)
-            title: qsTr("About %1-ng").arg(Qt.application.name)
+            width: Math.min(700, root.width - 40)
+            height: Math.min(600, root.height - 80)
+            title: qsTr("About Pylux")
             modal: true
             standardButtons: Dialog.Ok
             Material.roundedScale: Material.MediumScale
             onAboutToHide: aboutButton.forceActiveFocus(Qt.TabFocusReason)
 
-            RowLayout {
-                spacing: 50
-                onVisibleChanged: if (visible) forceActiveFocus(Qt.TabFocusReason)
-                Keys.onReturnPressed: aboutDialog.close()
-                Keys.onEscapePressed: aboutDialog.close()
+            Flickable {
+                id: aboutFlick
+                anchors.fill: parent
+                clip: true
+                contentWidth: width
+                contentHeight: aboutContent.implicitHeight
+                flickableDirection: Flickable.VerticalFlick
+                boundsBehavior: Flickable.StopAtBounds
+                interactive: true
+                focus: true
 
-                Image {
-                    Layout.preferredWidth: 200
-                    fillMode: Image.PreserveAspectFit
-                    verticalAlignment: Image.AlignTop
-                    source: "qrc:icons/chiaking-logo.svg"
+                ScrollBar.vertical: ScrollBar {
+                    id: aboutScrollBar
+                    policy: ScrollBar.AlwaysOn
                 }
 
-                Label {
-                    Layout.preferredWidth: 400
-                    verticalAlignment: Text.AlignTop
-                    wrapMode: Text.Wrap
-                    text: "<h1>chiaki-ng</h1> by Street Pea, version %1
-                        <h2>Fork of Chiaki</h2> by Florian Markl at version 2.1.1
+                Keys.onPressed: (event) => {
+                    if (event.key === Qt.Key_Up) {
+                        aboutFlick.flick(0, 500)
+                        event.accepted = true
+                    } else if (event.key === Qt.Key_Down) {
+                        aboutFlick.flick(0, -500)
+                        event.accepted = true
+                    }
+                }
 
-                        <p>This program is free software: you can redistribute it and/or modify
-                        it under the terms of the GNU Affero General Public License version 3
-                        as published by the Free Software Foundation.</p>
+                ColumnLayout {
+                    id: aboutContent
+                    width: aboutFlick.width - aboutScrollBar.width - 4
+                    spacing: 4
 
-                        <p>This program is distributed in the hope that it will be useful,
-                        but WITHOUT ANY WARRANTY; without even the implied warranty of
-                        MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-                        GNU General Public License for more details.</p>".arg(Qt.application.version)
+                    Label {
+                        Layout.fillWidth: true
+                        text: qsTr("Pylux")
+                        font.pixelSize: 22
+                        font.bold: true
+                        Layout.bottomMargin: 2
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: qsTr("Version %1").arg(Qt.application.version)
+                        font.pixelSize: 13
+                        opacity: 0.7
+                        Layout.bottomMargin: 12
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: qsTr("License")
+                        font.pixelSize: 13
+                        font.bold: true
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.Wrap
+                        font.pixelSize: 12
+                        text: qsTr("Licensed under the GNU Affero General Public License version 3.")
+                        Layout.bottomMargin: 10
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: qsTr("Warranty")
+                        font.pixelSize: 13
+                        font.bold: true
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.Wrap
+                        font.pixelSize: 12
+                        text: qsTr("This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.")
+                        Layout.bottomMargin: 10
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        height: 1
+                        color: Material.dividerColor
+                        Layout.bottomMargin: 8
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: qsTr("Full License Text")
+                        font.pixelSize: 14
+                        font.bold: true
+                        Layout.bottomMargin: 4
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.Wrap
+                        textFormat: Text.PlainText
+                        font.pixelSize: 11
+                        text: Chiaki.settings.getLicenseText()
+                    }
                 }
             }
         }

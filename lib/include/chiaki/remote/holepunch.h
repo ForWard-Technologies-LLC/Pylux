@@ -72,6 +72,7 @@ typedef struct chiaki_holepunch_device_info_t
     char device_name[32];
     uint8_t device_uid[32];
     bool remoteplay_enabled;
+    char* installed_games_json;  // JSON array of installed games, must be freed with free()
 } ChiakiHolepunchDeviceInfo;
 
 /** Port types used for remote play. */
@@ -96,7 +97,7 @@ typedef enum chiaki_holepunch_port_type_t
 CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_list_devices(
     const char* psn_oauth2_token,
     ChiakiHolepunchConsoleType console_type, ChiakiHolepunchDeviceInfo** devices,
-    size_t* device_count, ChiakiLog *log);
+    size_t* device_count, bool sync_games, ChiakiLog *log);
 
 /**
  * Free the memory allocated for a device list.
@@ -206,6 +207,18 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_session_create(
 CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_session_start(
     ChiakiHolepunchSession session, const uint8_t* console_uid,
     ChiakiHolepunchConsoleType console_type);
+
+/**
+ * Copy the most recent human-readable error from the last failed `chiaki_holepunch_session_start`
+ * (or other start-phase failure that sets it). Empty if none. Thread-safe only if called from
+ * the same thread as holepunch APIs for that session.
+ *
+ * @param buf Destination buffer
+ * @param buf_size Size of buf including NUL terminator space
+ * @return Length of the string written (excluding NUL), or 0 if empty or invalid args
+ */
+CHIAKI_EXPORT size_t chiaki_holepunch_session_get_last_error(
+    ChiakiHolepunchSession session, char *buf, size_t buf_size);
 
 /** Discovers UPNP if available
  * @param session The Session intance.

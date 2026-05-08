@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Full frame; sheet is laid out below the status bar so this does not run under the notification area. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/pylux_blue" />
+        </shape>
+    </item>
+    <item
+        android:bottom="@dimen/support_paywall_frame_stroke"
+        android:left="@dimen/support_paywall_frame_stroke"
+        android:right="@dimen/support_paywall_frame_stroke"
+        android:top="@dimen/support_paywall_frame_stroke">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/primary_dark" />
+        </shape>
+    </item>
+</layer-list>

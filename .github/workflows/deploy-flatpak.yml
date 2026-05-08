@@ -1,0 +1,129 @@
+# Deploy Flatpak (Flathub)
+#
+# AppStream release history (gui/*.metainfo.xml) is maintained manually for Flathub — not overwritten from CMake.
+#
+# Architecture: x86_64 (build verification) — Flathub itself builds both x86_64 + aarch64
+# Output: Verified Flatpak bundle on runner (no workflow artifact) + manifest synced to flathub/io.github.ForWard_Technologies_LLC.Pylux
+#
+# On release/beta push: builds Flatpak to verify, then syncs manifest to Flathub repo.
+# On master push (when uncommented): same behavior.
+
+name: Deploy Flatpak (Flathub)
+
+on:
+  workflow_dispatch:
+  workflow_call:
+    outputs:
+      chiaki_version:
+        description: Pylux version from CMakeLists.txt
+        value: ${{ jobs.build-and-verify.outputs.chiaki_version }}
+      flatpak_build_succeeded:
+        description: Whether the Flatpak CI verify build succeeded
+        value: ${{ jobs.build-and-verify.outputs.flatpak_build_succeeded }}
+
+concurrency:
+  group: deploy-flatpak-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-verify:
+    name: Build and verify Flatpak (x86_64)
+    runs-on: ubuntu-latest
+    outputs:
+      chiaki_version: ${{ steps.extract_version.outputs.version }}
+      flatpak_build_succeeded: ${{ steps.flatpak_build.outcome == 'success' }}
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.9
+      options: --privileged
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Extract version
+        id: extract_version
+        uses: ./.github/actions/extract-version
+
+      - name: Patch manifest to build from local checkout
+        run: |
+          sed -i '/^  - name: pylux/,/^  - name:\|^$/{
+            s|      - type: git|      - type: dir|
+            s|        url:.*|        path: ../../|
+            /commit:/d
+          }' scripts/flatpak/io.github.ForWard_Technologies_LLC.Pylux.yml
+
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        id: flatpak_build
+        with:
+          bundle: pylux-x64.flatpak
+          manifest-path: scripts/flatpak/io.github.ForWard_Technologies_LLC.Pylux.yml
+          cache-key: flatpak-builder-${{ github.sha }}
+          arch: x86_64
+          upload-artifact: "false"
+
+      - name: Build summary
+        if: always()
+        run: |
+          {
+            echo "## Pylux Flatpak — v${CHIAKI_VERSION:-?} (x86_64 CI verify)"
+            echo ""
+            if [ "${{ steps.flatpak_build.outcome }}" = "success" ]; then
+              echo "Flatpak **bundle** \`pylux-x64.flatpak\` was produced on the runner (verify step logs); it is **not** uploaded as a workflow artifact."
+              echo ""
+              echo "### How users install (once on Flathub)"
+              echo "- After Flathub publishes the app: [\`io.github.ForWard_Technologies_LLC.Pylux\` on Flathub](https://flathub.org/apps/io.github.ForWard_Technologies_LLC.Pylux) — \`flatpak install flathub io.github.ForWard_Technologies_LLC.Pylux\`."
+              echo ""
+              echo "### Repo maintenance"
+              echo "- Manifest sync to the Flathub git repo is still **commented out** in this workflow (see TODO in \`deploy-flatpak.yml\`)."
+            else
+              echo "Flatpak build step outcome: **${{ steps.flatpak_build.outcome }}**. Fix manifest or build errors above."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # TODO: Uncomment after Flathub submission is approved and flathub/io.github.ForWard_Technologies_LLC.Pylux exists.
+  #       Also add a FLATHUB_TOKEN secret (PAT with write access to that repo).
+  #
+  # sync-to-flathub:
+  #   name: Sync manifest to Flathub repo
+  #   needs: build-and-verify
+  #   runs-on: ubuntu-latest
+  #
+  #   steps:
+  #     - name: Checkout Pylux repo
+  #       uses: actions/checkout@v4
+  #       with:
+  #         path: pylux
+  #
+  #     - name: Checkout Flathub repo
+  #       uses: actions/checkout@v4
+  #       with:
+  #         repository: flathub/io.github.ForWard_Technologies_LLC.Pylux
+  #         token: ${{ secrets.FLATHUB_TOKEN }}
+  #         path: flathub
+  #
+  #     - name: Sync files to Flathub repo
+  #       run: |
+  #         PYLUX_COMMIT=$(cd pylux && git rev-parse HEAD)
+  #
+  #         # Patch the commit hash in the manifest to match this exact build
+  #         sed "s|commit: .*|commit: ${PYLUX_COMMIT}|" \
+  #           pylux/scripts/flatpak/io.github.ForWard_Technologies_LLC.Pylux.yml > flathub/io.github.ForWard_Technologies_LLC.Pylux.yml
+  #
+  #         cp pylux/scripts/flatpak/0001-vulkan-ignore-frames-without-hw-context.patch \
+  #            flathub/0001-vulkan-ignore-frames-without-hw-context.patch
+  #
+  #     - name: Commit and push to Flathub
+  #       working-directory: flathub
+  #       run: |
+  #         git config user.name "github-actions[bot]"
+  #         git config user.email "github-actions[bot]@users.noreply.github.com"
+  #
+  #         if git diff --quiet && [ -z "$(git ls-files --others --exclude-standard)" ]; then
+  #           echo "No changes to sync."
+  #           exit 0
+  #         fi
+  #
+  #         git add -A
+  #         git commit -m "Sync manifest from Pylux @ $(cd ../pylux && git rev-parse --short HEAD)"
+  #         git push

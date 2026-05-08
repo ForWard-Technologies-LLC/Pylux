@@ -16,12 +16,12 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.metallic.chiaki.R
+import com.pylux.stream.R
 import com.metallic.chiaki.common.LogFile
 import com.metallic.chiaki.common.LogManager
 import com.metallic.chiaki.common.ext.viewModelFactory
 import com.metallic.chiaki.common.fileProviderAuthority
-import com.metallic.chiaki.databinding.FragmentSettingsLogsBinding
+import com.pylux.stream.databinding.FragmentSettingsLogsBinding
 
 class SettingsLogsFragment: AppCompatDialogFragment(), TitleFragment
 {

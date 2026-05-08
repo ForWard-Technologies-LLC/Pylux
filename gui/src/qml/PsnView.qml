@@ -20,7 +20,7 @@ Rectangle {
             return;
         allowClose = false;
         cancelling = true;
-        infoLabel.text = qsTr("Cancelling connection with console over PSN ...");
+        infoLabel.text = qsTr("Cancelling connection with console...");
         Chiaki.psnCancel(false);
     }
 
@@ -57,7 +57,7 @@ Rectangle {
         anchors.centerIn: parent
         opacity: textVisible ? 1.0: 0.0
         visible: opacity
-        text: qsTr("Establishing connection with console over PSN ...")
+        text: qsTr("Establishing connection with console...")
         Behavior on opacity { NumberAnimation { duration: 250 } }
     }
 
@@ -86,7 +86,7 @@ Rectangle {
             opacity: (textVisible && !cancelling) ? 1.0: 0.0
             visible: opacity
             text: {
-                var typeString = registOnly ? qsTr("automatic registration") : qsTr("remote connection via PSN")
+                var typeString = registOnly ? qsTr("automatic registration") : qsTr("remote connection")
                 qsTr("Press %1 to cancel %2").arg(Chiaki.controllers.length ? (root.controllerButton("circle").includes("deck") ? "B" : "Circle") : "escape or right-click").arg(typeString)
             }
         }
@@ -181,7 +181,7 @@ Rectangle {
             switch(Chiaki.connectState)
             {
                 case Chiaki.PsnConnectState.LinkingConsole:
-                    infoLabel.text = registOnly ? qsTr("Registering PlayStation console with chiaki-ng ...") : qsTr("Linking chiaki-ng with PlayStation console ...")
+                    infoLabel.text = registOnly ? qsTr("Registering PlayStation console with Pylux ...") : qsTr("Linking Pylux with PlayStation console ...")
                     view.allowClose = false
                     break
                 case Chiaki.PsnConnectState.RegisteringConsole:
@@ -192,7 +192,7 @@ Rectangle {
                     failTimer.restart()
                     break
                 case Chiaki.PsnConnectState.DataConnectionStart:
-                    infoLabel.text = qsTr("Console Linked ... Establishing data connection with console over PSN ...")
+                    infoLabel.text = qsTr("Console Linked ... Establishing data connection with console...")
                     view.allowClose = true
                     break
                 case Chiaki.PsnConnectState.DataConnectionFinished:
@@ -200,12 +200,12 @@ Rectangle {
                     break
                 case Chiaki.PsnConnectState.ConnectFailed:
                     if(!cancelling)
-                        infoLabel.text = qsTr("Connection over PSN failed closing ...")
+                        infoLabel.text = qsTr("Connection failed closing...")
                     failTimer.running = true
                     break
                 case Chiaki.PsnConnectState.ConnectFailedStart:
                     if(!cancelling)
-                        infoLabel.text = qsTr("PSN couldn't establish connection with PlayStation. Please try again ...")
+                        infoLabel.text = qsTr("Couldn't establish connection with PlayStation. Please try again...")
                     failTimer.running = true
                     break
                 case Chiaki.PsnConnectState.ConnectFailedConsoleUnreachable:
@@ -214,7 +214,7 @@ Rectangle {
                     failTimer.running = true
                     break
                 case Chiaki.PsnConnectState.WaitingForInternet:
-                    infoLabel.text = qsTr("Establishing Internet Connection to PSN...")
+                    infoLabel.text = qsTr("Establishing Internet Connection...")
                     break
             }
         }

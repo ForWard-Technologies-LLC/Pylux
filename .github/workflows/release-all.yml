@@ -1,0 +1,162 @@
+# Orchestrates platform builds/deploys, then creates a GitHub Release with download and store links.
+# Push trigger to release/beta is disabled while testing; run via workflow_dispatch when ready.
+
+name: Release all platforms
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-all-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    uses: ./.github/workflows/build-linux.yml
+    secrets: inherit
+
+  windows:
+    uses: ./.github/workflows/build-windows.yml
+    secrets: inherit
+
+  android:
+    uses: ./.github/workflows/deploy-android.yml
+    secrets: inherit
+
+  ios:
+    uses: ./.github/workflows/deploy-ios.yml
+    secrets: inherit
+
+  macos:
+    uses: ./.github/workflows/deploy-macos.yml
+    secrets: inherit
+
+  flatpak:
+    uses: ./.github/workflows/deploy-flatpak.yml
+    secrets: inherit
+
+  release:
+    name: Create GitHub release
+    needs: [linux, windows, android, ios, macos, flatpak]
+    runs-on: ubuntu-latest
+    if: success()
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: version
+        uses: ./.github/actions/extract-version
+
+      - name: Compute tag and publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF_NAME: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+          LINUX_ZIP: ${{ needs.linux.outputs.zip_url }}
+          LINUX_AI: ${{ needs.linux.outputs.appimage_url }}
+          WIN_ZIP: ${{ needs.windows.outputs.zip_url }}
+          WIN_INST: ${{ needs.windows.outputs.installer_url }}
+          PLAY_TEST: ${{ needs.android.outputs.play_testing_url }}
+          PLAY_STORE: ${{ needs.android.outputs.play_store_url }}
+          TF_JOIN: ${{ needs.ios.outputs.testflight_join_url }}
+          ANDROID_UPLOAD_OK: ${{ needs.android.outputs.android_upload_succeeded }}
+          IOS_UPLOAD_OK: ${{ needs.ios.outputs.ios_upload_succeeded }}
+          MACOS_UPLOAD_OK: ${{ needs.macos.outputs.macos_upload_succeeded }}
+          FLATPAK_OK: ${{ needs.flatpak.outputs.flatpak_build_succeeded }}
+        run: |
+          set -euo pipefail
+          VER="${{ steps.version.outputs.version }}"
+
+          if [ "$REF_NAME" = "release/beta" ]; then
+            PREFIX="v${VER}-beta"
+            N=1
+            while gh release view "${PREFIX}.${N}" --repo "$REPO" &>/dev/null; do
+              N=$((N + 1))
+            done
+            TAG="${PREFIX}.${N}"
+          elif [ "$REF_NAME" = "master" ]; then
+            TAG="v${VER}"
+            if gh release view "$TAG" --repo "$REPO" &>/dev/null; then
+              echo "::error::GitHub Release ${TAG} already exists for ${REPO}"
+              exit 1
+            fi
+          else
+            echo "::error::release-all only publishes from refs release/beta or master (got: ${REF_NAME})"
+            exit 1
+          fi
+
+          NOTES_FILE="${RUNNER_TEMP}/release-notes.md"
+          TF_URL="${TF_JOIN:-https://testflight.apple.com/join/V8pv6cXK}"
+          FLATHUB_URL="https://flathub.org/apps/io.github.ForWard_Technologies_LLC.Pylux"
+          IOS_APPSTORE_URL="https://apps.apple.com/app/pylux-remote-play/id6761292658"
+          MACOS_APPSTORE_URL="https://apps.apple.com/app/pylux-remote-play/id6761292658"
+          {
+            echo "## Pylux v${VER}"
+            echo ""
+            echo "**Branch:** \`${REF_NAME}\` · **Tag:** \`${TAG}\`"
+            echo ""
+
+            echo "### Android (Google Play)"
+            echo ""
+            if [ "$REF_NAME" = "release/beta" ]; then
+              echo "**Get it:** [Join open beta](${PLAY_TEST:-#}) · [Play Store (beta)](${PLAY_STORE:-#})"
+              echo ""
+              echo "- **Android (phones & tablets)** — join open testing via the link above, then install from the Play Store."
+              echo "- **Android TV** — join beta on a phone/browser first, then install from the Play Store on your TV."
+            else
+              echo "**Get it:** [Play Store](${PLAY_STORE:-#})"
+              echo ""
+              echo "- **Android (phones & tablets)** and **Android TV** — install directly from the Play Store listing above."
+            fi
+            echo "- **Upload succeeded:** ${ANDROID_UPLOAD_OK}"
+            echo ""
+
+            echo "### iOS & macOS (App Store)"
+            echo ""
+            if [ "$REF_NAME" = "release/beta" ]; then
+              echo "**Get it:** [Join TestFlight (iOS & macOS)](${TF_URL})"
+              echo ""
+              echo "- **iOS** — install via TestFlight using the link above."
+              echo "- **macOS** — install via TestFlight using the same link."
+            else
+              echo "**Get it:** [iOS App Store](${IOS_APPSTORE_URL}) · [Mac App Store](${MACOS_APPSTORE_URL})"
+              echo ""
+              echo "- **iOS** — available on the App Store. If recently submitted, allow a few days for Apple review."
+              echo "- **macOS** — available on the Mac App Store. If recently submitted, allow a few days for Apple review."
+            fi
+            echo "- **iOS upload succeeded:** ${IOS_UPLOAD_OK} · **macOS upload succeeded:** ${MACOS_UPLOAD_OK}"
+            echo ""
+
+            echo "### Windows (Dropbox)"
+            echo ""
+            echo "**Downloads:** [Portable zip](${WIN_ZIP:-#}) · [Installer](${WIN_INST:-#})"
+            echo ""
+            if [ "$REF_NAME" = "release/beta" ]; then
+              echo "Beta rolling filenames: \`pylux-beta-latest.zip\`, \`pylux-windows-installer-beta-latest.exe\` (stable \`pylux-latest\` paths are not overwritten)."
+              echo ""
+            fi
+
+            echo "### Linux (Dropbox)"
+            echo ""
+            echo "**Downloads:** [Portable zip](${LINUX_ZIP:-#}) · [AppImage](${LINUX_AI:-#})"
+            echo ""
+            if [ "$REF_NAME" = "release/beta" ]; then
+              echo "Beta rolling filenames: \`pylux-beta-latest.zip\`, \`pylux-beta-latest.AppImage\` (stable \`pylux-latest\` paths are not overwritten)."
+              echo ""
+            fi
+            echo "- **Portable zip** — unzip and run \`launch.sh\` (recommended for Steam). The launch script sets up bundled libs and the OpenSSL fallback automatically."
+            echo "- **AppImage** — make executable and run directly. Set \`APPIMAGE_EXTRACT_AND_RUN=1\` if Steam misbehaves."
+            echo ""
+
+            echo "### Flatpak"
+            echo ""
+            echo "**Get it:** [Flathub — io.github.ForWard_Technologies_LLC.Pylux](${FLATHUB_URL})"
+            echo ""
+            echo "- **CI verify build succeeded:** ${FLATPAK_OK}"
+          } > "$NOTES_FILE"
+
+          gh release create "$TAG" --repo "$REPO" --title "Pylux ${TAG}" --notes-file "$NOTES_FILE"

@@ -9,6 +9,7 @@
 #include <QStandardPaths>
 #include <QFileDialog>
 #include <QApplication>
+#include <QFile>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -24,6 +25,8 @@ QmlSettings::QmlSettings(Settings *settings, QObject *parent)
 
     connect(settings, &Settings::RegisteredHostsUpdated, this, &QmlSettings::registeredHostsChanged);
     connect(settings, &Settings::ProfilesUpdated, this, &QmlSettings::profilesChanged);
+    connect(settings, &Settings::CloudDatacentersJsonPSCloudChanged, this, &QmlSettings::cloudDatacentersJsonPSCloudChanged);
+    connect(settings, &Settings::CloudDatacentersJsonPSNOWChanged, this, &QmlSettings::cloudDatacentersJsonPSNOWChanged);
 }
 
 bool QmlSettings::remotePlayAsk() const
@@ -48,6 +51,28 @@ void QmlSettings::setAddSteamShortcutAsk(bool asked)
     emit addSteamShortcutAskChanged();
 }
 
+bool QmlSettings::setupGuideShown() const
+{
+    return settings->GetSetupGuideShown();
+}
+
+void QmlSettings::setSetupGuideShown(bool shown)
+{
+    settings->SetSetupGuideShown(shown);
+    emit setupGuideShownChanged();
+}
+
+bool QmlSettings::controllerOverlayShown() const
+{
+	return settings->GetControllerOverlayShown();
+}
+
+void QmlSettings::setControllerOverlayShown(bool shown)
+{
+	settings->SetControllerOverlayShown(shown);
+	emit controllerOverlayShownChanged();
+}
+
 bool QmlSettings::hideCursor() const
 {
     return settings->GetHideCursor();
@@ -68,6 +93,17 @@ void QmlSettings::setShowStreamStats(bool enabled)
 {
     settings->SetShowStreamStats(enabled);
     emit showStreamStatsChanged();
+}
+
+bool QmlSettings::showGameImageDuringLaunch() const
+{
+    return settings->GetShowGameImageDuringLaunch();
+}
+
+void QmlSettings::setShowGameImageDuringLaunch(bool show)
+{
+    settings->SetShowGameImageDuringLaunch(show);
+    emit showGameImageDuringLaunchChanged();
 }
 
 bool QmlSettings::streamerMode() const
@@ -147,6 +183,84 @@ void QmlSettings::setResolutionRemotePS5(int resolution)
     emit resolutionRemotePS5Changed();
 }
 
+// PSCloud settings
+int QmlSettings::cloudResolutionPSCloud() const
+{
+    return settings->GetCloudResolutionPSCloud();
+}
+
+void QmlSettings::setCloudResolutionPSCloud(int resolution)
+{
+    settings->SetCloudResolutionPSCloud(resolution);
+    emit cloudResolutionPSCloudChanged();
+}
+
+QString QmlSettings::cloudLanguagePSCloud() const
+{
+    return settings->GetCloudLanguagePSCloud();
+}
+
+void QmlSettings::setCloudLanguagePSCloud(const QString &language)
+{
+    settings->SetCloudLanguagePSCloud(language);
+    emit cloudLanguagePSCloudChanged();
+}
+
+QString QmlSettings::cloudDatacenterPSCloud() const
+{
+    return settings->GetCloudDatacenterPSCloud();
+}
+
+void QmlSettings::setCloudDatacenterPSCloud(const QString &datacenter)
+{
+    settings->SetCloudDatacenterPSCloud(datacenter);
+    emit cloudDatacenterPSCloudChanged();
+}
+
+QString QmlSettings::cloudDatacentersJsonPSCloud() const
+{
+    return settings->GetCloudDatacentersJsonPSCloud();
+}
+
+// PSNOW settings
+int QmlSettings::cloudResolutionPSNOW() const
+{
+    return settings->GetCloudResolutionPSNOW();
+}
+
+void QmlSettings::setCloudResolutionPSNOW(int resolution)
+{
+    settings->SetCloudResolutionPSNOW(resolution);
+    emit cloudResolutionPSNOWChanged();
+}
+
+QString QmlSettings::cloudLanguagePSNOW() const
+{
+    return settings->GetCloudLanguagePSNOW();
+}
+
+void QmlSettings::setCloudLanguagePSNOW(const QString &language)
+{
+    settings->SetCloudLanguagePSNOW(language);
+    emit cloudLanguagePSNOWChanged();
+}
+
+QString QmlSettings::cloudDatacenterPSNOW() const
+{
+    return settings->GetCloudDatacenterPSNOW();
+}
+
+void QmlSettings::setCloudDatacenterPSNOW(const QString &datacenter)
+{
+    settings->SetCloudDatacenterPSNOW(datacenter);
+    emit cloudDatacenterPSNOWChanged();
+}
+
+QString QmlSettings::cloudDatacentersJsonPSNOW() const
+{
+    return settings->GetCloudDatacentersJsonPSNOW();
+}
+
 int QmlSettings::disconnectAction() const
 {
     return static_cast<int>(settings->GetDisconnectAction());
@@ -179,6 +293,17 @@ void QmlSettings::setLogVerbose(bool verbose)
     settings->SetLogVerbose(verbose);
     QLoggingCategory::setFilterRules(QStringLiteral("chiaki.gui.debug=%1").arg(verbose ? "true" : "false"));
     emit logVerboseChanged();
+}
+
+bool QmlSettings::steamCloudSync() const
+{
+    return settings->GetSteamCloudSync();
+}
+
+void QmlSettings::setSteamCloudSync(bool enabled)
+{
+    settings->SetSteamCloudSync(enabled);
+    emit steamCloudSyncChanged();
 }
 
 int QmlSettings::rumbleHapticsIntensity() const
@@ -625,6 +750,83 @@ void QmlSettings::setPsnAuthTokenExpiry(const QString &expiry)
     emit psnAuthTokenExpiryChanged();
 }
 
+QString QmlSettings::psnNpssoToken() const
+{
+	return settings->GetNpssoToken();
+}
+
+void QmlSettings::setPsnNpssoToken(const QString &npsso_token)
+{
+	settings->SetNpssoToken(npsso_token);
+	emit psnNpssoTokenChanged();
+}
+
+bool QmlSettings::accountAttributesCheckPassed() const
+{
+	return settings->GetAccountAttributesCheckPassed();
+}
+
+void QmlSettings::setAccountAttributesCheckPassed(bool passed)
+{
+	settings->SetAccountAttributesCheckPassed(passed);
+	emit accountAttributesCheckPassedChanged();
+}
+
+int QmlSettings::lastSelectedMainTab() const
+{
+	return settings->GetLastSelectedMainTab();
+}
+
+void QmlSettings::setLastSelectedMainTab(int tabIndex)
+{
+	settings->SetLastSelectedMainTab(tabIndex);
+	emit lastSelectedMainTabChanged();
+}
+
+QString QmlSettings::lastSelectedCloudSection() const
+{
+	return settings->GetLastSelectedCloudSection();
+}
+
+void QmlSettings::setLastSelectedCloudSection(const QString &section)
+{
+	settings->SetLastSelectedCloudSection(section);
+	emit lastSelectedCloudSectionChanged();
+}
+
+QString QmlSettings::cloudLibraryFilter() const
+{
+	return settings->GetCloudLibraryFilter();
+}
+
+void QmlSettings::setCloudLibraryFilter(const QString &filter)
+{
+	settings->SetCloudLibraryFilter(filter);
+	emit cloudLibraryFilterChanged();
+}
+
+QString QmlSettings::cloudCatalogFilter() const
+{
+	return settings->GetCloudCatalogFilter();
+}
+
+void QmlSettings::setCloudCatalogFilter(const QString &filter)
+{
+	settings->SetCloudCatalogFilter(filter);
+	emit cloudCatalogFilterChanged();
+}
+
+QString QmlSettings::cloudFavorites() const
+{
+	return settings->GetCloudFavorites();
+}
+
+void QmlSettings::setCloudFavorites(const QString &favorites)
+{
+	settings->SetCloudFavorites(favorites);
+	emit cloudFavoritesChanged();
+}
+
 QString QmlSettings::psnAccountId() const
 {
     return settings->GetPsnAccountId();
@@ -634,6 +836,17 @@ void QmlSettings::setPsnAccountId(const QString &account_id)
 {
     settings->SetPsnAccountId(account_id);
     emit psnAccountIdChanged();
+}
+
+bool QmlSettings::psnGamesSyncEnabled() const
+{
+    return settings->GetPsnGamesSyncEnabled();
+}
+
+void QmlSettings::setPsnGamesSyncEnabled(bool enabled)
+{
+    settings->SetPsnGamesSyncEnabled(enabled);
+    emit psnGamesSyncEnabledChanged();
 }
 
 bool QmlSettings::mouseTouchEnabled() const
@@ -1608,6 +1821,15 @@ QString QmlSettings::stringForStreamMenuShortcut() const
     return shortcut_string;
 }
 
+QString QmlSettings::getLicenseText() const
+{
+	QFile licenseFile(QStringLiteral(":/license/agpl_license.txt"));
+	QFile disclaimerFile(QStringLiteral(":/license/disclaimer.txt"));
+	QString licenseText = licenseFile.open(QIODevice::ReadOnly | QIODevice::Text) ? QString::fromUtf8(licenseFile.readAll()) : QString();
+	QString disclaimerText = disclaimerFile.open(QIODevice::ReadOnly | QIODevice::Text) ? QString::fromUtf8(disclaimerFile.readAll()) : QString();
+	return licenseText + (licenseText.isEmpty() ? QString() : QStringLiteral("\n\n")) + disclaimerText;
+}
+
 void QmlSettings::deleteRegisteredHost(int index)
 {
     settings->RemoveRegisteredHost(settings->GetRegisteredHosts().value(index).GetServerMAC());
@@ -1802,7 +2024,7 @@ void QmlSettings::exportSettings()
     if(profile.isEmpty())
         profile = "Default";
     QString fileName = QFileDialog::getSaveFileName(QApplication::focusWidget(), tr("Export %1 Profile To File").arg(profile),
-                                                    QStandardPaths::writableLocation(QStandardPaths::DesktopLocation) + "/chiaki-ng-" + profile,
+                                                    QStandardPaths::writableLocation(QStandardPaths::DesktopLocation) + "/pylux-" + profile,
                                                     tr("Settings files (*.ini)"),
                                                     nullptr,
                                                     QFileDialog::DontUseNativeDialog | QFileDialog::DontConfirmOverwrite);
@@ -1836,7 +2058,7 @@ QString QmlSettings::chooseSteamBasePath()
 void QmlSettings::exportPlaceboSettings()
 {
     QString fileName = QFileDialog::getSaveFileName(QApplication::focusWidget(), tr("Export Placebo Renderer Settings To File"),
-                                                    QStandardPaths::writableLocation(QStandardPaths::DesktopLocation) + "/chiaki-ng-placebo",
+                                                    QStandardPaths::writableLocation(QStandardPaths::DesktopLocation) + "/pylux-placebo",
                                                     tr("Settings files (*.ini)"),
                                                     nullptr,
                                                     QFileDialog::DontUseNativeDialog | QFileDialog::DontConfirmOverwrite);

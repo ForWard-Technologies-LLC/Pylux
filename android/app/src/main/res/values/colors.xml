@@ -1,18 +1,50 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="primary">#162d50</color>
-    <color name="primary_dark">#000128</color>
-    <color name="accent">#ffaaee</color>
+    <!-- Cool Blue Theme -->
+    <color name="primary">#1A2332</color>              <!-- Dark blue-gray -->
+    <color name="primary_dark">#0D1117</color>          <!-- Very dark blue -->
+    <color name="accent">#4A9EFF</color>                <!-- Bright blue accent -->
+    <color name="accent_light">#6BB6FF</color>          <!-- Light blue -->
 
     <color name="stream_text">@android:color/white</color>
     <color name="stream_background">@android:color/black</color>
     <color name="stream_overlay_background">#77000000</color>
 
-    <color name="floating_action_button_speed_dial_background">#fafafa</color>
-    <color name="floating_action_button_speed_dial_tint">#333333</color>
+    <color name="floating_action_button_speed_dial_background">#4A9EFF</color>
+    <color name="floating_action_button_speed_dial_tint">#ffffff</color>
 
     <color name="control_primary">#22ffffff</color>
     <color name="control_pressed">#88ffffff</color>
 
     <color name="item_delete_background">#B71C1C</color>
+    
+    <!-- UI Elements -->
+    <color name="fab_background">#4A9EFF</color>
+    <color name="search_background">#2A3A4A</color>
+    <color name="tab_indicator">#6BB6FF</color>
+    
+    <!-- Mode Switcher -->
+    <color name="mode_switcher_ripple">#336BB6FF</color>
+    
+    <!-- Console Card Colors -->
+    <color name="psn_blue">#2563EB</color>
+    
+    <!-- Pylux Brand Colors (matching iOS) -->
+    <color name="pylux_blue">#009FE3</color>              <!-- Pylux brand blue -->
+    <color name="pylux_blue_glow">#4D009FE3</color>       <!-- 30% opacity glow -->
+    <color name="pylux_blue_border">#40009FE3</color>     <!-- 25% opacity border -->
+    <color name="pylux_blue_selected">#26009FE3</color>   <!-- 15% opacity selected bg -->
+    <color name="pylux_blue_selected_border">#66009FE3</color> <!-- 40% opacity selected border -->
+    <color name="toolbar_bg">#14161F</color>              <!-- Dark toolbar background -->
+
+    <!-- Support / paywall sheet -->
+    <color name="support_header_icon_scrim">#33FFFFFF</color>
+    <color name="support_drag_handle">#66FFFFFF</color>
+    <color name="support_tier_card_bg">#1A2332</color>
+    <color name="support_tier_card_stroke">@color/pylux_blue_border</color>
+    <color name="support_text_secondary">#B8C5D6</color>
+    <color name="support_paywall_divider">#33FFFFFF</color>
+    <color name="support_badge_bg">#40009FE3</color>
+    <color name="support_tier_ripple">#40FFFFFF</color>
+    <color name="support_tap_hint">#7A8FA3</color>
 </resources>
