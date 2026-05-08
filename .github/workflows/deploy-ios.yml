@@ -39,7 +39,7 @@ concurrency:
 jobs:
   build-ios:
     name: Build and deploy to TestFlight
-    runs-on: macos-15
+    runs-on: macos-latest
     timeout-minutes: 120
     outputs:
       chiaki_version: ${{ steps.extract_version.outputs.version }}

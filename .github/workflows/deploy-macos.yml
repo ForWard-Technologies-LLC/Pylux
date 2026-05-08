@@ -56,11 +56,11 @@ jobs:
       matrix:
         include:
           - arch: ARM64
-            runner: macos-14
+            runner: macos-latest
             brew_prefix: /opt/homebrew
             cmake_arch: arm64
           - arch: x86_64
-            runner: macos-15-intel
+            runner: macos-latest-xlarge
             brew_prefix: /usr/local
             cmake_arch: x86_64
 
@@ -154,7 +154,7 @@ jobs:
 
   create-appstore-pkg:
     name: Create universal PKG and deploy
-    runs-on: macos-15
+    runs-on: macos-latest
     needs: build-appstore
     timeout-minutes: 120
     outputs:
