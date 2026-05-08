@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<component type="desktop">
+<component type="desktop-application">
   <id>io.github.ForWard_Technologies_LLC.Pylux</id>
   <launchable type="desktop-id">io.github.ForWard_Technologies_LLC.Pylux.desktop</launchable>
   <name>Pylux</name>
