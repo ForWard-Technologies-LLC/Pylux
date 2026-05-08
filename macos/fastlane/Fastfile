@@ -55,6 +55,7 @@ platform :mac do
         automatic_release: false,
         skip_metadata: true,
         skip_screenshots: true,
+        precheck_include_in_app_purchases: false,
         release_notes: { "default" => changelog_text },
         submission_information: {
           export_compliance_uses_encryption: false
