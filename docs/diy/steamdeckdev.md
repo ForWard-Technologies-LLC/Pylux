@@ -1,4 +1,4 @@
-# Developing chiaki-ng updates on Steam Deck
+# Developing Pylux updates on Steam Deck
 
 This is for contributors that want to make/test updates to the codebase without building a new flatpak each time.
 
@@ -11,7 +11,7 @@ This is for contributors that want to make/test updates to the codebase without 
 1. Install flatpak with debug extension and/or build a new one with any added dependencies following [Building the Flatpak Yourself](buildit.md){target="_blank" rel="noopener"}
 
     ``` bash
-    flatpak install --user --include-debug -y https://raw.githubusercontent.com/streetpea/chiaki-ng/main/scripts/flatpak/io.github.streetpea.Chiaki4deck-devel.flatpakref
+    flatpak install --user --include-debug -y https://raw.githubusercontent.com/ForWard-Technologies-LLC/Pylux/main/scripts/flatpak/io.github.ForWard_Technologies_LLC.Pylux-devel.flatpakref
     ```
 
     !!! Info "Creating local flatpak builds"
@@ -21,7 +21,7 @@ This is for contributors that want to make/test updates to the codebase without 
         ``` bash
         sources:
         - type: git
-          url: https://github.com/streetpea/chiaki-ng.git
+          url: https://github.com/ForWard-Technologies-LLC/Pylux.git
           branch: main
         ```
 
@@ -30,13 +30,13 @@ This is for contributors that want to make/test updates to the codebase without 
         ``` bash
         sources:
         - type: dir
-          path: path-to-chiaki-ng-git
+          path: path-to-Pylux-git
         ```
 
-2. Copy config file from chiaki-ng
+2. Copy config file from Pylux
 
     ``` bash
-    cp ~/.var/app/io.github.streetpea.Chiaki4deck/config/Chiaki/Chiaki.conf ~/.var/app/io.github.streetpea.Chiaki4deck-devel/config/Chiaki/Chiaki.conf 
+    cp ~/.var/app/io.github.ForWard_Technologies_LLC.Pylux/config/Chiaki/Chiaki.conf ~/.var/app/io.github.ForWard_Technologies_LLC.Pylux-devel/config/Chiaki/Chiaki.conf 
     ```
 
 3. Install the SDK
@@ -56,19 +56,19 @@ This is for contributors that want to make/test updates to the codebase without 
     === "HTTPS"
 
         ``` bash
-        git clone --recurse-submodules https://github.com/streetpea/chiaki-ng.git
+        git clone --recurse-submodules https://github.com/ForWard-Technologies-LLC/Pylux.git
         ```
 
     === "SSH"
 
         ``` bash
-        git clone --recurse-submodules git@github.com:streetpea/chiaki-ng.git
+        git clone --recurse-submodules git@github.com:ForWard-Technologies-LLC/Pylux.git
         ```
 
     === "GitHub cli"
 
         ``` bash
-        gh repo clone streetpea/chiaki-ng
+        gh repo clone ForWard-Technologies-LLC/Pylux
         ```
 
     !!! Question "What if I'm testing changes from my branch?"
@@ -77,10 +77,10 @@ This is for contributors that want to make/test updates to the codebase without 
 
 ## Creating and Debugging Builds without New Flatpak Build
 
-1. Enter the development version of the flatpak with the chiaki-ng source code mounted with:
+1. Enter the development version of the flatpak with the Pylux source code mounted with:
 
     ``` bash
-    flatpak run --command=bash --devel io.github.streetpea.Chiaki4deck-devel
+    flatpak run --command=bash --devel io.github.ForWard_Technologies_LLC.Pylux-devel
     ```
 
 2. Create a build using cmake as per usual
@@ -106,7 +106,7 @@ This is for contributors that want to make/test updates to the codebase without 
             cmake -DCMAKE_BUILD_TYPE=Debug ..
             ```
         
-        5. Build `chiaki-ng`
+        5. Build Pylux
 
             ``` bash
             make
@@ -132,7 +132,7 @@ This is for contributors that want to make/test updates to the codebase without 
             cmake -DCMAKE_BUILD_TYPE=Release ..
             ```
         
-        5. Build `chiaki-ng`
+        5. Build Pylux
 
             ``` bash
             make
@@ -186,10 +186,10 @@ This is for contributors that want to make/test updates to the codebase without 
     flatpak-coredumpctl -m given_pid flatpak_name
     ```
 
-    ???+ Example "Example given pid 4822 and flatpak name `io.github.streetpea.Chiaki4deck-devel`"
+    ???+ Example "Example given pid 4822 and flatpak name `io.github.ForWard_Technologies_LLC.Pylux-devel`"
 
         ``` bash
-        flatpak-coredumpctl -m 4822 io.github.streetpea.Chiaki4deck-devel
+        flatpak-coredumpctl -m 4822 io.github.ForWard_Technologies_LLC.Pylux-devel
         ```
 
 3. Use gdb commands as per usual such as `bt full`

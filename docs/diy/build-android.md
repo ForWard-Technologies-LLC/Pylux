@@ -205,7 +205,7 @@ cd android
 
 1. Open Android Studio
 2. Select **File → Open**
-3. Navigate to the `android` directory in the chiaki-ng repository
+3. Navigate to the `android` directory in the Pylux repository
 4. Click **OK** and wait for Gradle sync to complete
 5. Select **Build → Make Project** or **Build → Build Bundle(s) / APK(s) → Build APK(s)**
 

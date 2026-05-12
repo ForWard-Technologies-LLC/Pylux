@@ -1,6 +1,6 @@
 # Set Up Remote Play
 
-This section covers how to set up PlayStation Remote Play (using `chiaki-ng`) on your client device [i.e., Steam Deck]. It covers installing the `chiaki-ng` package, configuring an automatic (scripted) launch, and adding `chiaki-ng` to _Game Mode_ with icons and a custom controller configuration to boot. Please switch into _Desktop Mode_ for this process.
+This section covers how to set up PlayStation Remote Play (using Pylux) on your client device. It covers installing Pylux, configuring an automatic (scripted) launch, and adding Pylux to _Game Mode_ (Steam Deck) with icons and a custom controller configuration to boot.
 
 !!! Tip "Open This Documentation on Your client device [i.e., Steam Deck] for Easy Copy/Pasting"
 

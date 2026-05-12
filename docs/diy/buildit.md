@@ -97,13 +97,13 @@
 2. Create a directory for your build files and switch into it
 
     ```bash
-    mkdir -p ~/build-chiaki-ng-flatpak && cd ~/build-chiaki-ng-flatpak
+    mkdir -p ~/build-Pylux-flatpak && cd ~/build-Pylux-flatpak
     ```
 
-3. Get the [flatpak manifest file](https://docs.flatpak.org/en/latest/manifests.html){target="_blank" rel="noopener"} for `chiaki-ng`
+3. Get the [flatpak manifest file](https://docs.flatpak.org/en/latest/manifests.html){target="_blank" rel="noopener"} for Pylux
 
     ```
-    curl -Lo chiaki-ng.yaml https://raw.githubusercontent.com/streetpea/chiaki-ng/main/scripts/flatpak/chiaki4deck.yaml
+    curl -Lo Pylux.yaml https://raw.githubusercontent.com/ForWard-Technologies-LLC/Pylux/main/scripts/flatpak/pylux.yaml
     ```
 
 4. Get the patch files
@@ -111,13 +111,13 @@
     1. 0001-Vulkan-Don-t-try-to-reuse-old-swapchain.patch
 
         ```
-        curl -LO https://raw.githubusercontent.com/streetpea/chiaki-ng/main/scripts/flatpak/0001-Vulkan-Don-t-try-to-reuse-old-swapchain.patch
+        curl -LO https://raw.githubusercontent.com/ForWard-Technologies-LLC/Pylux/main/scripts/flatpak/0001-Vulkan-Don-t-try-to-reuse-old-swapchain.patch
         ```
 
     2. 0001-vulkan-ignore-frames-without-hw-context.patch
 
         ```
-        curl -LO https://raw.githubusercontent.com/streetpea/chiaki-ng/main/scripts/flatpak/0001-vulkan-ignore-frames-without-hw-context.patch
+        curl -LO https://raw.githubusercontent.com/ForWard-Technologies-LLC/Pylux/main/scripts/flatpak/0001-vulkan-ignore-frames-without-hw-context.patch
         ```
 
 ### Create `gpg` Key for Signing your Builds and Repositories
@@ -125,31 +125,31 @@
 1. Create the [gpg](https://gnupg.org/gph/en/manual/c14.html){target="_blank" rel="noopener"} key pair
 
     ``` bash
-    gpg --quick-gen-key chiaki-ng-diy
+    gpg --quick-gen-key Pylux-diy
     ```
 
 2. Export public key (private key stays on your machine in your gpg directory) [~/.gnupg by default].
 
     ``` bash
-    gpg --export chiaki-ng-diy > chiaki-ng-diy.gpg
+    gpg --export Pylux-diy > Pylux-diy.gpg
     ```
 
 ### Create Flatpak
 
-4. Build the flatpak for `chiaki-ng`
+4. Build the flatpak for Pylux
 
     ``` bash
-    flatpak-builder --repo=chiaki-ng-diy --force-clean build chiaki-ng.yaml --gpg-sign chiaki-ng-diy
+    flatpak-builder --repo=Pylux-diy --force-clean build Pylux.yaml --gpg-sign Pylux-diy
     ```
 
     !!! Question "How long :clock: will this take?"
 
-        This build process is compiling first the dependencies and then Chiaki itself with the updates included in `chiaki-ng`. This will take a long while (read: 15+ minutes depending on the resources of the build system itself) the first time it runs. However, since flatpak caches builds, if you make changes to just the `chiaki-ng` repo code and then run a new build, it will import the dependencies from cache and only start building from scratch when it detects the first change in the stack. This results in subsequent builds going much faster than the first build you make.
+        This build process is compiling first the dependencies and then Chiaki itself with the updates included in Pylux. This will take a long while (read: 15+ minutes depending on the resources of the build system itself) the first time it runs. However, since flatpak caches builds, if you make changes to just the Pylux repo code and then run a new build, it will import the dependencies from cache and only start building from scratch when it detects the first change in the stack. This results in subsequent builds going much faster than the first build you make.
 
 5. Update static deltas (makes upgrading require less downloaded data for end-users)
 
     ``` bash
-    flatpak build-update-repo chiaki-ng-diy --generate-static-deltas --gpg-sign=chiaki-ng-diy
+    flatpak build-update-repo Pylux-diy --generate-static-deltas --gpg-sign=Pylux-diy
     ```
 
 
@@ -158,12 +158,12 @@
 1. Add the repository you built as a local remote repository
 
     ``` bash
-    flatpak --user remote-add --gpg-import chiaki-ng-diy.gpg chiaki-ng-diy ~/build-chiaki-ng-flatpak/chiaki-ng-diy
+    flatpak --user remote-add --gpg-import Pylux-diy.gpg Pylux-diy ~/build-Pylux-flatpak/Pylux-diy
     ```
 
-2. Install your self-built `chiaki-ng` flatpak from your new remote
+2. Install your self-built Pylux flatpak from your new remote
 
     ``` bash
-    flatpak --user install chiaki-ng-diy io.github.streetpea.Chiaki4deck
+    flatpak --user install Pylux-diy io.github.ForWard_Technologies_LLC.Pylux
     ```
 

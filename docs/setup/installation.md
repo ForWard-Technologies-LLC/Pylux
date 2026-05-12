@@ -1,45 +1,80 @@
-# Installing `chiaki-ng`
+# Installing Pylux
 
-=== "Linux Flatpak"
+=== "Android / Android TV"
+
+    Install directly from the Play Store:
+
+    [Get it on Google Play](https://play.google.com/store/apps/details?id=com.pylux.stream){ target="_blank" rel="noopener" }
+
+    Works on phones, tablets, and Android TV devices.
+
+=== "iOS / iPadOS"
+
+    Install from the App Store:
+
+    [Download on the App Store](https://apps.apple.com/us/app/pylux-remote-play/id6761292658){ target="_blank" rel="noopener" }
+
+=== "macOS"
+
+    Install from the Mac App Store:
+
+    [Download on the Mac App Store](https://apps.apple.com/us/app/pylux-remote-play/id6761292658){ target="_blank" rel="noopener" }
+
+=== "Windows"
+
+    Download from the [Releases page](https://github.com/ForWard-Technologies-LLC/Pylux/releases){ target="_blank" rel="noopener" }:
+
+    - **Installer** — recommended for most users
+    - **Portable zip** — unzip and run, no install required
+
+=== "Linux / Steam Deck"
 
     !!! Tip "Copying from and Pasting into Konsole Windows"
 
-        You can copy from and paste into `konsole` windows with ++ctrl+shift+c++ (copy) and ++ctrl+shift+v++ (paste) instead of the normal ++ctrl+c++ (copy) and ++ctrl+v++ (paste) shortcuts. In fact, ++ctrl+c++ is a shortcut to terminate the current process in the `konsole`. Additionally, you can still right-click and select copy or paste as per normal.
+        You can copy from and paste into `konsole` windows with ++ctrl+shift+c++ (copy) and ++ctrl+shift+v++ (paste) instead of the normal ++ctrl+c++ (copy) and ++ctrl+v++ (paste) shortcuts.
 
-    === "Using the Discover Store (Recommended)"
+    === "Flatpak (Recommended)"
 
-        1. Open the Discover store
+        === "Using the Discover Store"
 
-            ![Open Discover](images/OpenDiscover.png)
+            1. Open the Discover store
 
-        2. Search for `chiaki-ng` in the search bar
+                ![Open Discover](images/OpenDiscover.png)
 
-            ![Install chiaki-ng](images/InstallChiaking.png)
+            2. Search for `Pylux` in the search bar
 
-        3. Click Install
+            3. Click Install
 
-    === "Using the `konsole` (If for some reason it doesn't show up on the Discover store)"
+        === "Using the `konsole`"
 
-        1. Run the following command in the `konsole`
+            1. Run the following command in the `konsole`
 
+                ```
+                flatpak install -y io.github.ForWard_Technologies_LLC.Pylux
+                ```
+
+        !!! Note "About the Pylux Flatpak"
+
+            The above instructions are for the official Pylux flatpak on Flathub.
+
+            You can also build the flatpak yourself by following the instructions in [Building the Flatpak Yourself](../diy/buildit.md){ target="_blank" rel="noopener" }.
+
+    === "AppImage"
+
+        1. Download the AppImage from the [Releases page](https://github.com/ForWard-Technologies-LLC/Pylux/releases){ target="_blank" rel="noopener" }
+
+        2. Make it executable and run it:
+
+            ```bash
+            chmod +x pylux-latest.AppImage
+            ./pylux-latest.AppImage
             ```
-            flatpak install -y io.github.streetpea.Chiaki4deck
-            ```
 
-    !!! Note "About `chiaki-ng`"
+            !!! Tip "Steam Deck / Steam"
+                Set `APPIMAGE_EXTRACT_AND_RUN=1` if Steam misbehaves with the AppImage.
 
-        The above instructions are for the official `chiaki-ng` flatpak on Flathub.
-        
-        However, you can also build the flatpak yourself (recommended for users who want to add their own source code changes on top of the ones I've made) by following the instructions in [Building the flatpak yourself](../diy/buildit.md){target="_blank" rel="noopener"}.
+    === "Portable zip"
 
-=== "MacOS via Brew"
+        1. Download the portable zip from the [Releases page](https://github.com/ForWard-Technologies-LLC/Pylux/releases){ target="_blank" rel="noopener" }
 
-    1. Install with the following command in the terminal
-
-        ```
-        brew install --cask streetpea/streetpea/chiaki-ng
-        ```
-
-=== "MacOS/Windows/Linux Appimage Package"
-
-    1. Download the appopriate package from the [releases page](https://github.com/streetpea/chiaki-ng/releases){target="_blank" rel="noopener"} on GitHub (for Mac there are separate packages for the Intel (`-amd64`) and Apple (`-arm64`) based Macs)
+        2. Unzip and run `launch.sh` (sets up bundled libs and OpenSSL fallback automatically)

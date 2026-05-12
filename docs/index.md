@@ -1,66 +1,59 @@
-# PlayStation Remote Play for Everyone
+# Pylux — PS4 & PS5 Remote Play for Everyone
 
-!!! Abstract "Site Purpose"
+**Pylux** is a free, open-source PS4 and PS5 Remote Play client for Android, Android TV, iOS, iPadOS, macOS, Windows, Linux, and Steam Deck. It focuses on easy app-store installs, Internet Play (no port forwarding required), automatic console discovery, and a touch-friendly mobile UI — all from one community-maintained codebase.
 
-    This site serves to get you up and running with chiaki-ng!
+## Download
+
+=== "Android / Android TV"
+    [Get it on Google Play](https://play.google.com/store/apps/details?id=com.pylux.stream){ .md-button .md-button--primary target="_blank" rel="noopener" }
+
+    Works on phones, tablets, and Android TV devices.
+
+=== "iOS / iPadOS"
+    [Download on the App Store](https://apps.apple.com/app/pylux/id6746521314){ .md-button .md-button--primary target="_blank" rel="noopener" }
+
+=== "macOS"
+    [Download on the Mac App Store](https://apps.apple.com/app/pylux/id6746521314){ .md-button .md-button--primary target="_blank" rel="noopener" }
+
+=== "Windows / Linux / Steam Deck"
+    [View All Releases on GitHub](https://github.com/ForWard-Technologies-LLC/Pylux/releases){ .md-button .md-button--primary target="_blank" rel="noopener" }
+
+    Builds available as installer, portable zip, AppImage, and Flatpak.
 
 ## Getting Started
 
-Start by visiting the [Setup section](setup/index.md){target="_blank" rel="noopener"} and following each of the subsections to learn how to setup `chiaki-ng`.
+Head to the [Setup section](setup/index.md) to get Pylux running on your device. The setup guide covers:
 
-## Supporting
+- Installing and registering Pylux with your console
+- Configuring video, audio, and controller settings
+- Using [Internet Play](setup/remoteconnection.md) to connect from anywhere without port forwarding
+- Setting up [automation and shortcuts](setup/automation.md) for Steam Deck Game Mode
 
-[Buy me a coffee](https://buymeacoffee.com/streetpea){target="_blank" rel="noopener"}
+## Key Features
 
-## Getting Updates
+- **Internet Play** — connect to your console from anywhere, no router configuration needed
+- **Automatic console discovery** — finds PS4/PS5 consoles on your local network automatically
+- **Cross-platform** — Android, Android TV, iOS, macOS, Windows, Linux, Steam Deck
+- **Touch-friendly UI** — mobile-optimized controls for phones and tablets
+- **App-store installs** — available on Google Play, App Store, and Mac App Store
+- **Open source** — AGPL-3.0 licensed, community-maintained
 
-Visit [chiaki-ng Releases](updates/releases.md){target="_blank" rel="noopener"} for instructions on updating to the newest release, with notes for each release.
+## Platform Guides
 
-## Additional Information
+| Platform | Guide |
+|---|---|
+| Android / Android TV | [Android Setup](setup/android.md) |
+| iPhone / iPad | [iOS Setup](setup/ios.md) |
+| Steam Deck | [Steam Deck Setup](setup/steam-deck.md) |
+| Windows | [Windows Setup](setup/windows.md) |
+| Linux | [Linux Setup](setup/linux.md) |
 
-### About Chiaki
+## Contributing
 
-[Chiaki](https://git.sr.ht/~thestr4ng3r/chiaki){target="_blank" rel="noopener"} is a "Free and Open Source PlayStation Remote Play Client" licensed under the [GNU Affero General Public License version 3](https://www.gnu.org/licenses/agpl-3.0.html){target="_blank" rel="noopener"} (AGPL V3). This license enables anyone to share and modify the source code to add additional features on the condition that they make those publicly available (copy-left) and also license them under the same AGPL V3 license.
-
-### About `chiaki-ng`
-
-`chiaki-ng` aims to serve as a next generation of Chiaki bringing new features and changes to the existing project which is now in maintenance mode. It is available on Linux, Windows, and MacOS.
-
-!!! Question "Where is `chiaki-ng` available?"
-
-    There is a flatpak on flathub for Linux (https://flathub.org/apps/io.github.streetpea.Chiaki4deck){target="_blank" rel="noopener"} as well as packages for Linux, Windows, and MacOS (amd64 and arm64) on the [releases page](https://github.com/streetpea/chiaki4deck/releases){target="_blank" rel="noopener"}. See the [Installation section](setup/installation.md){target="_blank" rel="noopener"} to get started.
-    
-For users that want to build from source, I have also provided the updated source code on the accompanying GitHub repo (the link to the GitHub is on the top right [top left menu on mobile] of the site banner you see if you scroll to the top of any page). Instructions for this are in the [DIY section](diy/buildit.md){target="_blank" rel="noopener"}. As it stands, a lot of the documentation applies to the general Chiaki flatpak in addition to the `chiaki-ng` flatpak, but instructions are specifically tailored to `chiaki-ng` and the updates included therein. To use this documentation with the Chiaki flatpak replace `io.github.streetpea.Chiaki4deck` with `re.chiaki.Chiaki` where applicable and note that the features listed in the [Updates section](updates/done.md){target="_blank" rel="noopener"} will not work with that version (they only work with `chiaki-ng` until the main `Chiaki` flatpak gets an update.)
-
-## Submitting Documentation Updates
-
-If you want to update the documentation to add helpful information of your own, you can scroll to the top of the page you want to edit and click the paper with pencil icon on the top right (to the right of the current page's title). This will enable you to make edits and submit them for approval. If you have more detailed edits or a new contribution, you can build the documentation locally and see the changes rendered as you make and save them by following the [Building the Documentation Yourself section](diy/builddocs.md){target="_blank" rel="noopener"}.
-
-## Making Suggestions for Improvements to the Documentation
-
-Please submit general issues to the [chiaki-ng GitHub](https://github.com/streetpea/chiaki-ng/issues){target="_blank" rel="noopener"} as well as specific issues related to a given page by clicking the :material-heart-broken: underneath "Was this page helpful?" and opening the feedback form for the page you think needs updating.
+Fork the repo, create a branch off `release/beta`, and open a pull request. CI automatically builds and deploys to all platforms when merged. See [CONTRIBUTING.md](https://github.com/ForWard-Technologies-LLC/Pylux/blob/master/CONTRIBUTING.md){ target="_blank" rel="noopener" } for the full workflow.
 
 ## Acknowledgements
 
-* Thanks to the following individuals:
-    - Chiaki Authors (including but not limited to Florian Märkl)
-    - Reddit users and others who have helped me in my personal Chiaki journey such as u/mintcu7000 with his getting started guide on Reddit
-    - Egoistically for the RGB update patch
-    - Florian Grill for his gracious help with reverse engineering the PlayStation remote play protocols
-    - Kirin Ghost for creating chiaki-ng artwork
+Pylux is built on top of [Chiaki](https://git.sr.ht/~thestr4ng3r/chiaki){ target="_blank" rel="noopener" } and [chiaki-ng](https://github.com/streetpea/chiaki-ng){ target="_blank" rel="noopener" }. Special thanks to the Chiaki authors and the chiaki-ng maintainers for their foundational work. Pylux extends that work with a focus on app-store distribution, mobile support, Android TV, and Internet Play.
 
-* Thanks to the following open-source projects for inspiration around Steam Deck gyro and haptics:
-    - [Steam Controller Singer](https://github.com/Roboron3042/SteamControllerSinger){target="_blank" rel="noopener"}
-    - [Steam Deck Gyro DSU](https://github.com/kmicki/SteamDeckGyroDSU){target="_blank" rel="noopener"}
-
-## Maintainer
-
-* [Street Pea](https://www.reddit.com/message/compose/?to=Street_Pea_6693){target="_blank" rel="noopener"}
-
-## Contributors
-
-* [Johannes Baiter](https://github.com/jbaiter){target="_blank" rel="noopener"}
-* [Jamie Bartlett](https://github.com/Nikorag?tab=repositories){target="_blank" rel="noopener"}
-* [Joni Bimbashi](https://github.com/jonibim){target="_blank" rel="noopener"}
-* [David Rosca](https://github.com/nowrep){target="_blank" rel="noopener"}
-* [Street Pea](https://github.com/streetpea){target="_blank" rel="noopener"}
+For questions or support, open a [GitHub Discussion](https://github.com/ForWard-Technologies-LLC/Pylux/discussions){ target="_blank" rel="noopener" } or contact [forward.technologies.llc@gmail.com](mailto:forward.technologies.llc@gmail.com).

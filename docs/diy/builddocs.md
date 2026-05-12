@@ -2,7 +2,7 @@
 
 !!! warning "For Documentation Contributors Only"
 
-    This is for people who want to update the documentation of `chiaki-ng` and see the updates locally or if you are a regular user and are curious on how to do it. In most cases, just accessing the documentation via the site https://streetpea.github.io/chiaki-ng/ is best. If you want to access the documentation without internet access, instead of following this documentation, you should navigate to the print page (which displays the documentation in printable format). Then, Print->Save to pdf in your web browser and access the PDF freely offline.
+    This is for people who want to update the documentation of Pylux and see the updates locally or if you are a regular user and are curious on how to do it. In most cases, just accessing the documentation via the site https://forward-technologies-llc.github.io/Pylux/ is best. If you want to access the documentation without internet access, instead of following this documentation, you should navigate to the print page (which displays the documentation in printable format). Then, Print->Save to pdf in your web browser and access the PDF freely offline.
 
 ## Installing Pre-requisites
 
@@ -10,7 +10,7 @@
     1. Install the devel flatpak and sdk
 
         ```bash
-        flatpak install -y --user https://raw.githubusercontent.com/streetpea/chiaki-ng/main/scripts/flatpak/io.github.streetpea.Chiaki4deck-devel.flatpakref
+        flatpak install -y --user https://raw.githubusercontent.com/ForWard-Technologies-LLC/Pylux/main/scripts/flatpak/io.github.ForWard_Technologies_LLC.Pylux-devel.flatpakref
         ```
     2. Install the sdk
 
@@ -21,14 +21,14 @@
     3. Run the devel flatpak
 
         ```bash
-        flatpak run --devel --command=bash io.github.streetpea.Chiaki4deck-devel
+        flatpak run --devel --command=bash io.github.ForWard_Technologies_LLC.Pylux-devel
         ```
 
 === "Using System"
 
     1. Install pip3 on your computer, if it's not already installed (instructions vary depending on Operating System)
 
-    2. Install mkdocs and plugins used in chiaki-ng documentation
+    2. Install mkdocs and plugins used in Pylux documentation
 
         ``` bash
         pip3 install mkdocs mkdocs-material mkdocs-git-revision-date-localized-plugin mkdocs-print-site-plugin
@@ -41,19 +41,19 @@
     === "HTTPS"
 
         ``` bash
-        git clone https://github.com/streetpea/chiaki-ng.git
+        git clone https://github.com/ForWard-Technologies-LLC/Pylux.git
         ```
 
     === "SSH"
 
         ``` bash
-        git clone git@github.com:streetpea/chiaki-ng.git
+        git clone git@github.com:ForWard-Technologies-LLC/Pylux.git
         ```
 
     === "GitHub cli"
 
         ``` bash
-        gh repo clone streetpea/chiaki-ng
+        gh repo clone ForWard-Technologies-LLC/Pylux
         ```
 
 2. Change into the source code directory in your terminal

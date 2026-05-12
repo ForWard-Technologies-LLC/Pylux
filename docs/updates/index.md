@@ -1,7 +1,9 @@
-# `chiaki-ng` Updates
+# Pylux Updates
 
-This section covers the updates to Chiaki in `chiaki-ng`. Information about each release and how to update is in the [Releases Section](releases.md){target="_blank" rel="noopener"}. Updates that are currently done (implemented) are listed in the [Done section](done.md){target="_blank" rel="noopener"} along with details, while updates that are planned for the future are listed in the [Planned section](planned.md){target="_blank" rel="noopener"}.
+This section covers updates and the Pylux release history.
 
-!!! Question "Why These Updates?"
+- [Releases](releases.md) — how to update on each platform and links to all releases
+- [Done](done.md) — features that have been implemented
+- [Planned](planned.md) — features planned for the future
 
-    I started by simply choosing to update things that would give me a better experience with Chiaki on my Steam Deck. I have also begun incorporating suggestions from users of `chiaki-ng` via [chiaki-ng's GitHub issues page](https://github.com/streetpea/chiaki-ng/issues){target="_blank" rel="noopener"} (both issues created by GitHub users as well as issues from Reddit users that I created for them in GitHub for tracking). Given the current state of the Chiaki project (maintenance mode), I'm not sure if all of these changes will be accepted upstream. However, so far several changes included here (some by Street Pea and some by Johannes Baiter) have been merged upstream (though are not part of the official flatpak yet since a new release has not been cut). These are marked appropriately in the [done section](done.md){target="_blank" rel="noopener"} with the relevant footnotes. I will also continue sending patches upstream for my Chiaki updates. I have created `chiaki-ng` as a means to distribute these changes to others using the Steam Deck as well as others wanting to add additional beneficial features on top of mine. Currently, I am aiming to make `chiaki-ng` work for all traditional Chiaki users (may not benefit other users as much as Steam Deck users, but wouldn't be bad for those users either).
+Pylux is built on top of [chiaki-ng](https://github.com/streetpea/chiaki-ng){ target="_blank" rel="noopener" } and extends it with a focus on app-store distribution, Android TV support, iOS/macOS packaging, and Internet Play.
