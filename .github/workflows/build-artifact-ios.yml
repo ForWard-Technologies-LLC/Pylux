@@ -1,0 +1,123 @@
+# Build iOS artifact — on-demand, build-only.
+# The .ipa is NOT installable directly — a sideloading
+# tool (AltStore/Sideloadly) must re-sign it with the user's own Apple ID first.
+
+name: Build iOS (artifact)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: build-artifact-ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build iOS unsigned .ipa (artifact)
+    runs-on: macos-26
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set short commit hash
+        run: echo "SHORT_SHA=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+
+      - name: Extract version
+        id: extract_version
+        uses: ./.github/actions/extract-version
+
+      - name: Install build dependencies
+        run: |
+          retry() {
+            local attempts="$1"
+            shift
+            local n=1
+            until "$@"; do
+              if [ "$n" -ge "$attempts" ]; then
+                echo "Command failed after $n attempts: $*"
+                return 1
+              fi
+              local sleep_s=$((n * 15))
+              echo "Attempt $n failed; retrying in ${sleep_s}s: $*"
+              sleep "$sleep_s"
+              n=$((n + 1))
+            done
+          }
+          retry 4 brew install cmake ninja protobuf@29 python-setuptools
+          pip3 install --user --break-system-packages 'protobuf>=5,<6'
+          echo "$(brew --prefix)/opt/protobuf@29/bin" >> "$GITHUB_PATH"
+
+      - name: Download iOS toolchain
+        working-directory: ios
+        run: |
+          if [ ! -f ios.toolchain.cmake ]; then
+            curl -sL -o ios.toolchain.cmake \
+              https://raw.githubusercontent.com/leetal/ios-cmake/master/ios.toolchain.cmake
+          fi
+
+      - name: Build chiaki-lib (device)
+        working-directory: ios
+        run: |
+          cmake -S . -B build-iphoneos -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE=ios.toolchain.cmake \
+            -DPLATFORM=OS64 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DUSE_LIBIDN2=OFF \
+            -DCURL_USE_LIBPSL=OFF \
+            -DUSE_NGHTTP2=OFF \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+          cmake --build build-iphoneos --config Release --target chiaki-lib
+
+      - name: Create combined static library
+        working-directory: ios
+        run: |
+          find build-iphoneos -name "*.a" -print0 | \
+            xargs -0 libtool -static -o build-iphoneos/libchiaki_complete.a
+
+      - name: Set iOS marketing + build numbers from CMake (root CMakeLists.txt)
+        run: |
+          echo "IOS_MARKETING_VERSION=${{ steps.extract_version.outputs.version }}" >> "$GITHUB_ENV"
+          echo "IOS_CURRENT_PROJECT_VERSION=${{ steps.extract_version.outputs.semver_build_id }}" >> "$GITHUB_ENV"
+
+      # Archive with code signing fully disabled — no cert/profile/secrets needed.
+      - name: Archive (unsigned)
+        working-directory: ios
+        run: |
+          xcodebuild -project Pylux.xcodeproj \
+            -scheme Pylux \
+            -sdk iphoneos \
+            -configuration Release \
+            archive \
+            -destination 'generic/platform=iOS' \
+            -archivePath build-derived/Pylux.xcarchive \
+            -derivedDataPath build-derived \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            MARKETING_VERSION="${IOS_MARKETING_VERSION}" \
+            CURRENT_PROJECT_VERSION="${IOS_CURRENT_PROJECT_VERSION}"
+
+      # Hand-roll an UNSIGNED .ipa: zip the .app into Payload/ (sideload-only).
+      - name: Package unsigned .ipa
+        working-directory: ios
+        run: |
+          APP=$(find build-derived/Pylux.xcarchive/Products/Applications \
+            -maxdepth 1 -name "*.app" | head -1)
+          if [ -z "$APP" ] || [ ! -d "$APP" ]; then
+            echo "::error::No .app found in archive — cannot build .ipa"
+            exit 1
+          fi
+          rm -rf payload-staging && mkdir -p payload-staging/Payload
+          cp -R "$APP" payload-staging/Payload/
+          ( cd payload-staging && zip -ry "../Pylux-unsigned.ipa" Payload )
+          echo "Built unsigned IPA: ios/Pylux-unsigned.ipa (sideload with AltStore/Sideloadly)"
+
+      - name: Upload iOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pylux-iOS-${{ steps.extract_version.outputs.version }}-${{ env.SHORT_SHA }}.ipa
+          path: ios/Pylux-unsigned.ipa
+          retention-days: 14
+          if-no-files-found: error

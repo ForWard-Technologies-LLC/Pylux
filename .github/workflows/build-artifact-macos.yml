@@ -1,0 +1,45 @@
+# Build macOS artifact — on-demand, build-only.
+
+name: Build macOS (artifact)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: build-artifact-macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build macOS arm64 (artifact)
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set short commit hash
+        run: echo "SHORT_SHA=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+
+      - name: Extract version
+        id: extract_version
+        uses: ./.github/actions/extract-version
+
+      # Ad-hoc, no credentials file, no notarization, no notary keychain.
+      # build-macos.sh installs its own Homebrew deps and skips the DMG when
+      # notarization is off; we package the .app it leaves in build-output/.
+      - name: Build ad-hoc .app
+        run: bash scripts/build-macos.sh arm64 --ad-hoc --no-credentials-file --no-notarize --skip-notary-keychain
+
+      - name: Zip .app bundle
+        working-directory: build-output
+        run: zip -ry Pylux-macos.zip Pylux.app
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pylux-macOS-${{ steps.extract_version.outputs.version }}-${{ env.SHORT_SHA }}.zip
+          path: build-output/Pylux-macos.zip
+          retention-days: 14
+          if-no-files-found: error
