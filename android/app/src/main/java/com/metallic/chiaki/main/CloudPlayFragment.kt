@@ -1144,7 +1144,7 @@ class CloudPlayFragment : Fragment()
 	private fun onGameClicked(game: CloudGame)
 	{
 		val isPscloud = game.serviceType == "pscloud"
-				if (isPscloud && !game.isOwned)
+		if (isPscloud && !game.isOwned)
 		{
 			// Show dialog to add game to library
 			showAddToLibraryDialog(game)

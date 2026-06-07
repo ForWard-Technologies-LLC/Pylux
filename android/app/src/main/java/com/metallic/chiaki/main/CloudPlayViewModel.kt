@@ -81,6 +81,7 @@ class CloudPlayViewModel(
 					{
 						allGames = result.data
 						Log.i(TAG, "Successfully loaded ${allGames.size} games")
+						repository.lastCatalogFetchWarning?.let { _warning.value = it }
 						applySearchFilter()
 						// PS3 Classics are subscription-streamable -> always shown in the Catalog.
 						if (appendPs3Classics)

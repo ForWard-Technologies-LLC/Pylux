@@ -53,6 +53,11 @@ class CloudGameRepository(
 		private const val PS5_CATALOG_V3_CACHE_FILE = "ps5_cloud_catalog_v3.json"
 		private const val CACHE_DURATION_MS = 24 * 60 * 60 * 1000L // 24 hours
 
+		private const val OWNERSHIP_SESSION_WARNING =
+			"Your PlayStation session has expired. Please log in again to see your owned games."
+		private const val OWNERSHIP_NETWORK_WARNING =
+			"Couldn't verify your owned games (network error). Pull to refresh to try again."
+
 		// Region-group-specific so an Americas/PAL switch doesn't serve stale ids (e.g. "_US"/"_GB").
 		private fun ps3ClassicsCacheFile(accountCountry: String): String =
 			"ps3_classics_catalog_${com.metallic.chiaki.cloudplay.KamajiClassics.classicsStoreCountry(accountCountry)}.json"
@@ -76,6 +81,8 @@ class CloudGameRepository(
 	{
 		return withContext(Dispatchers.IO)
 		{
+			lastCatalogFetchWarning = null
+
 			// Check cache first if not forcing refresh
 			if (!forceRefresh)
 			{
@@ -94,7 +101,8 @@ class CloudGameRepository(
 			// Cache and return only if the legacy PS Now browse store actually returned games.
 			if (result is PsnResult.Success && result.data.isNotEmpty())
 			{
-				cacheGames(result.data, PSNOW_CACHE_FILE)
+				if (!isOwnershipVerificationFailure(lastCatalogFetchWarning))
+					cacheGames(result.data, PSNOW_CACHE_FILE)
 				return@withContext result
 			}
 
@@ -102,7 +110,11 @@ class CloudGameRepository(
 			// many regions (e.g. Hungary). Fall back to the PS Plus subscription catalog (~630),
 			// NOT the full ~4000 streamable universe (that is the Library "all" view).
 			Log.w(TAG, "PSNow catalog unavailable/empty, falling back to PS Plus subscription catalog")
-			fetchPlusCatalog(npssoToken, forceRefresh)
+			val plusResult = fetchPlusCatalog(npssoToken, forceRefresh)
+			if (plusResult is PsnResult.Success && plusResult.data.isNotEmpty()
+				&& !isOwnershipVerificationFailure(lastCatalogFetchWarning))
+				cacheGames(plusResult.data, PSNOW_CACHE_FILE)
+			plusResult
 		}
 	}
 
@@ -115,6 +127,7 @@ class CloudGameRepository(
 	{
 		return withContext(Dispatchers.IO)
 		{
+			lastCatalogFetchWarning = null
 			CloudLocaleBootstrap.ensureConfigured(preferences, npssoToken)
 			try
 			{
@@ -135,6 +148,7 @@ class CloudGameRepository(
 					catch (e: Exception)
 					{
 						Log.w(TAG, "Catalog ownership marking failed; showing as not owned", e)
+						lastCatalogFetchWarning = ownershipFailureWarning(e)
 					}
 				}
 				PsnResult.Success(games)
@@ -154,6 +168,7 @@ class CloudGameRepository(
 	{
 		return withContext(Dispatchers.IO)
 		{
+			lastCatalogFetchWarning = null
 			CloudLocaleBootstrap.ensureConfigured(preferences, npssoToken)
 
 			if (!forceRefresh)
@@ -169,8 +184,19 @@ class CloudGameRepository(
 				val stored = preferences.getCloudLanguage()
 				Log.i(TAG, "Fetching PS5 Cloud catalog stored=$stored forceRefresh=$forceRefresh")
 				val catalog = fetchPs5CatalogV3(stored, forceRefresh)
-				val gamesWithOwnership = crossReferenceOwnership(catalog, npssoToken)
-				if (gamesWithOwnership.isNotEmpty())
+				var ownershipFailed = false
+				val gamesWithOwnership = try
+				{
+					crossReferenceOwnership(catalog, npssoToken)
+				}
+				catch (e: Exception)
+				{
+					ownershipFailed = true
+					Log.w(TAG, "Ownership cross-reference failed; not caching merged catalog", e)
+					lastCatalogFetchWarning = ownershipFailureWarning(e)
+					catalog.browseGames.map { it.copy(isOwned = false) }
+				}
+				if (gamesWithOwnership.isNotEmpty() && !ownershipFailed)
 					cacheGames(gamesWithOwnership, PSCLOUD_ALL_CACHE_FILE)
 				PsnResult.Success(gamesWithOwnership)
 			}
@@ -226,22 +252,28 @@ class CloudGameRepository(
 		if (npssoToken.isEmpty())
 			return catalog.browseGames.map { it.copy(isOwned = false) }
 
-		return try
-		{
-			val ownedCrossRef = pscloudCatalogService.getOwnedPs5CloudGames(
-				npssoToken,
-				catalog.browseGames,
-				catalog.plusLibrarySupplement,
-				catalog.productIdAliases
-			)
-			PsCloudOwnership.mergeOwnedIntoBrowseCatalog(catalog.browseGames, ownedCrossRef)
-		}
-		catch (e: Exception)
-		{
-			Log.w(TAG, "Failed to cross-reference ownership, returning games as not owned", e)
-			catalog.browseGames.map { it.copy(isOwned = false) }
-		}
+		val ownedCrossRef = pscloudCatalogService.getOwnedPs5CloudGames(
+			npssoToken,
+			catalog.browseGames,
+			catalog.plusLibrarySupplement,
+			catalog.productIdAliases
+		)
+		return PsCloudOwnership.mergeOwnedIntoBrowseCatalog(catalog.browseGames, ownedCrossRef)
 	}
+
+	private fun ownershipFailureWarning(e: Exception): String
+	{
+		val msg = e.message?.lowercase() ?: ""
+		val isAuth = msg.contains("login_required")
+			|| msg.contains("failed to extract oauth token")
+			|| msg.contains("no location header in oauth")
+			|| (msg.contains("oauth") && Regex("http 4\\d\\d").containsMatchIn(msg))
+			|| (msg.contains("entitlements") && (msg.contains("http 401") || msg.contains("http 403")))
+		return if (isAuth) OWNERSHIP_SESSION_WARNING else OWNERSHIP_NETWORK_WARNING
+	}
+
+	private fun isOwnershipVerificationFailure(warning: String?): Boolean =
+		warning == OWNERSHIP_SESSION_WARNING || warning == OWNERSHIP_NETWORK_WARNING
 	
 	/**
 	 * Fetch owned PS5 games (user's library)
