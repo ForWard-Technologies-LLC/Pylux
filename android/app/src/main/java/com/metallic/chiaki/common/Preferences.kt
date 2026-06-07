@@ -304,6 +304,19 @@ class Preferences(context: Context)
 	fun setCloudLanguageFromSession(language: String?, country: String?)
 	{
 		val locale = com.metallic.chiaki.cloudplay.CloudLocale.fromSession(language, country) ?: return
+		if (isCloudLanguageConfigured())
+		{
+			// The country is the real region signal; the language part may get auto-corrected by
+			// the imagic fetch (e.g. hu-HU settles on en-HU). Only re-save when the country changes,
+			// otherwise we'd clobber the validated locale on every Kamaji session and thrash the cache.
+			val storedCountry = com.metallic.chiaki.cloudplay.CloudLocale.parseStorePath(getCloudLanguage()).first
+			val sessionCountry = com.metallic.chiaki.cloudplay.CloudLocale.parseStorePath(locale).first
+			if (storedCountry == sessionCountry)
+			{
+				Log.i("Preferences", "Kamaji session country unchanged ($sessionCountry), keeping validated locale ${getCloudLanguage()}")
+				return
+			}
+		}
 		setCloudLanguage(locale)
 	}
 	

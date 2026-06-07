@@ -62,7 +62,7 @@ class CloudPlayViewModel(
 	/**
 	 * Fetch PSNow catalog from network/cache
 	 */
-	fun fetchPsnowCatalog(forceRefresh: Boolean = false)
+	fun fetchPsnowCatalog(forceRefresh: Boolean = false, appendPs3Classics: Boolean = false)
 	{
 		viewModelScope.launch {
 			try
@@ -70,11 +70,11 @@ class CloudPlayViewModel(
 				_loading.value = true
 				_error.value = null
 				_warning.value = null
-				
+
 				Log.i(TAG, "Fetching PSNow catalog (forceRefresh=$forceRefresh)")
-				
+
 				val npssoToken = preferences.getNpssoToken()
-				
+
 				when (val result = repository.fetchPsnowCatalog(npssoToken, forceRefresh))
 				{
 					is PsnResult.Success ->
@@ -82,6 +82,9 @@ class CloudPlayViewModel(
 						allGames = result.data
 						Log.i(TAG, "Successfully loaded ${allGames.size} games")
 						applySearchFilter()
+						// PS3 Classics are subscription-streamable -> always shown in the Catalog.
+						if (appendPs3Classics)
+							fetchPs3ClassicsCatalog(forceRefresh)
 					}
 					is PsnResult.Error ->
 					{
@@ -106,7 +109,7 @@ class CloudPlayViewModel(
 	 * Fetch PS5 Cloud catalog from network/cache
 	 * @param showOnlyOwned If true, fetches only user's owned games; if false, fetches all PS5 games
 	 */
-	fun fetchPs5CloudCatalog(showOnlyOwned: Boolean = false, forceRefresh: Boolean = false)
+	fun fetchPs5CloudCatalog(showOnlyOwned: Boolean = false, forceRefresh: Boolean = false, appendPs3Classics: Boolean = false)
 	{
 		viewModelScope.launch {
 			try
@@ -149,6 +152,9 @@ class CloudPlayViewModel(
 							Log.i(TAG, "Successfully loaded ${allGames.size} PS5 games")
 							repository.lastCatalogFetchWarning?.let { _warning.value = it }
 							applySearchFilter()
+							// Library "all" (streamable universe) includes PS3 Classics; "owned" does not.
+							if (appendPs3Classics)
+								fetchPs3ClassicsCatalog(forceRefresh)
 						}
 						is PsnResult.Error ->
 						{
@@ -171,6 +177,49 @@ class CloudPlayViewModel(
 		}
 	}
 	
+	/**
+	 * Fetch the streamable PS3 Classics (public Apollo container) and APPEND them to the
+	 * already-displayed list. Additive: it never replaces the PS4/PS5 catalog already loaded,
+	 * so it works whether the primary catalog came from PS Now or the imagic fallback. PS3
+	 * Classics are subscription-streamable, so they belong in the Game Catalog and in the
+	 * Library "all" view -- but NOT the "owned" view. Mirrors CloudPlayView.qml appendPs3Catalog().
+	 */
+	fun fetchPs3ClassicsCatalog(forceRefresh: Boolean = false)
+	{
+		viewModelScope.launch {
+			try
+			{
+				when (val result = repository.fetchPs3ClassicsCatalog(forceRefresh))
+				{
+					is PsnResult.Success ->
+					{
+						if (result.data.isNotEmpty())
+						{
+							// De-dupe by productId in case of a re-entrant append.
+							val existingIds = allGames.mapTo(HashSet()) { it.productId }
+							val toAdd = result.data.filter { existingIds.add(it.productId) }
+							if (toAdd.isNotEmpty())
+							{
+								allGames = allGames + toAdd
+								Log.i(TAG, "Appended ${toAdd.size} PS3 Classics to catalog")
+								applySearchFilter()
+							}
+						}
+					}
+					is PsnResult.Error ->
+					{
+						// Non-fatal: PS3 Classics are supplementary to the primary catalog.
+						Log.w(TAG, "PS3 Classics catalog unavailable: ${result.message}")
+					}
+				}
+			}
+			catch (e: Exception)
+			{
+				Log.w(TAG, "Unexpected error fetching PS3 Classics catalog", e)
+			}
+		}
+	}
+
 	/**
 	 * Get current section
 	 */

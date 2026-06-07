@@ -122,11 +122,20 @@ class CloudGameAdapter(
 				card.strokeColor = android.graphics.Color.TRANSPARENT
 				card.strokeWidth = 0
 			}
-			binding.gamePlatformTextView.text = when (game.platform.lowercase()) {
-				"ps3" -> "3"
-				"ps4" -> "4"
-				"ps5" -> "5"
-				else -> game.platform.takeLast(1)
+			// Derive the badge from the title id (PPSA = PS5, CUSA = PS4) like the Qt client does,
+			// since the catalog parser tags everything "ps5"; fall back to the platform field.
+			binding.gamePlatformTextView.text = run {
+				val pid = game.productId.ifEmpty { game.storeProductId }
+				when {
+					pid.contains("PPSA") -> "5"
+					pid.contains("CUSA") -> "4"
+					else -> when (game.platform.lowercase()) {
+						"ps3" -> "3"
+						"ps4" -> "4"
+						"ps5" -> "5"
+						else -> game.platform.takeLast(1)
+					}
+				}
 			}
 
 			if (showOwnershipBadge && game.serviceType == "pscloud") {

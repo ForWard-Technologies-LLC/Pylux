@@ -325,7 +325,22 @@ void PSKamajiSession::step0_5d_ConvertProductId()
     QStringList localeParts = locale.split("-");
     QString country = localeParts.size() > 1 ? localeParts[1].toUpper() : "US";
     QString language = localeParts[0].toLower();
-    
+
+    // PS3 / Classics product ids (NPEA/NPEB/BLES/BCES or NPUA/NPUB/BLUS/BCUS -- anything
+    // that isn't a modern CUSA/PPSA id) come from the public Apollo catalog, which we walk
+    // in the account's region group (Americas -> US store, everything else -> PAL/GB).
+    // Resolve them against that SAME region's container so the lookup finds the product and
+    // returns the PSNW entitlement the account is authorized for at Gaikai. The account's
+    // own locale country can be a region with no pcnow storefront (e.g. Hungary -> "Storefront
+    // not found"), and the wrong region's ids return 401 "invalidEntitlement", so map to the
+    // region-group store. Must match CloudCatalogBackend's PS3 catalog source.
+    const bool isLegacyClassicsId = !productId.contains(QLatin1String("CUSA"))
+                                 && !productId.contains(QLatin1String("PPSA"));
+    if (isLegacyClassicsId) {
+        country = KamajiConsts::classicsStoreCountry(country);
+        language = QStringLiteral("en");
+    }
+
     QString url = QString("https://psnow.playstation.com/store/api/pcnow/00_09_000/container/%1/%2/19/%3?useOffers=true&gkb=1&gkb2=1")
         .arg(country, language, productId);
     
@@ -478,15 +493,76 @@ void PSKamajiSession::handleProductIdConversionResponse(QNetworkReply *reply)
             if (!streamingEntitlementId.isEmpty()) break;
         }
     }
-    
-    // Determine platform from playable_platform strings (pick highest: PS4 > PS3)
+
+    // PS Plus catalog titles (e.g. PS4 games via PS Plus Premium) don't carry a per-game
+    // streaming license (license_type == 4) like the old PS Now catalog did — their full-game
+    // entitlement is license_type 0 with packageType "PS4GD"/"PS5GD"/"PSGD", streamable via the
+    // PS Plus subscription. Fall back to that full-game entitlement so step0_5e can acquire it.
+    if (streamingEntitlementId.isEmpty()) {
+        // Title id of the requested product, e.g. "EP1464-CUSA24653_00-..." -> "CUSA24653".
+        // Cross-gen containers list BOTH the PS4 (CUSA) and PS5 (PPSA) full-game entitlements;
+        // we must pick the one matching the requested product so the entitlement platform stays
+        // consistent with the streaming session (a PS5 entitlement on a PS4/kratos session makes
+        // the senkusha ping server never ack -> 0/5 pings -> allocation fails).
+        QString requestedTitleId;
+        {
+            const QStringList dashParts = productId.split(QLatin1Char('-'));
+            if (dashParts.size() >= 2)
+                requestedTitleId = dashParts[1].split(QLatin1Char('_')).value(0);
+        }
+        auto pickFullGameEntitlement = [&](const QJsonObject &skuObj, bool requireTitleMatch) -> bool {
+            if (!skuObj.contains("entitlements") || !skuObj["entitlements"].isArray())
+                return false;
+            const QJsonArray entitlements = skuObj["entitlements"].toArray();
+            for (const QJsonValue &entValue : entitlements) {
+                const QJsonObject ent = entValue.toObject();
+                const QString entId = ent["id"].toString();
+                const QString pkgType = ent["packageType"].toString();
+                // Full game digital ("*GD"); skip add-ons (PS4AL), themes (PS4MISC), etc.
+                if (entId.isEmpty() || !pkgType.endsWith(QStringLiteral("GD")))
+                    continue;
+                if (requireTitleMatch && !requestedTitleId.isEmpty() && !entId.contains(requestedTitleId))
+                    continue;
+                streamingEntitlementId = entId;
+                sku = skuObj["id"].toString();
+                streamingSku = sku;
+                qInfo() << "Found full-game Entitlement ID (PS Plus catalog fallback):"
+                        << streamingEntitlementId << "packageType:" << pkgType << "SKU:" << sku
+                        << "titleMatch:" << requireTitleMatch;
+                return true;
+            }
+            return false;
+        };
+        // Pass 1: prefer the entitlement matching the requested product's title id (platform-consistent).
+        // Pass 2: fall back to any full-game entitlement.
+        for (bool requireTitleMatch : {true, false}) {
+            if (streamingEntitlementId.isEmpty() && pickFullGameEntitlement(defaultSku, requireTitleMatch))
+                break;
+            if (streamingEntitlementId.isEmpty() && obj.contains("skus") && obj["skus"].isArray()) {
+                const QJsonArray skus = obj["skus"].toArray();
+                for (const QJsonValue &skuValue : skus) {
+                    if (pickFullGameEntitlement(skuValue.toObject(), requireTitleMatch))
+                        break;
+                }
+            }
+            if (!streamingEntitlementId.isEmpty())
+                break;
+        }
+    }
+
+    // Determine platform from playable_platform strings (pick highest: PS5 > PS4 > PS3)
     if (!playablePlatformArray.isEmpty()) {
+        bool hasPS5 = false;
         bool hasPS4 = false;
         bool hasPS3 = false;
         for (const QJsonValue &platformValue : playablePlatformArray) {
             QString platformStr = platformValue.toString();
+            // Check PS5 first ("PS5™"/"PS5"); PS4/PS5 cross-gen containers may list both.
+            if (platformStr.contains("PS5", Qt::CaseInsensitive)) {
+                hasPS5 = true;
+            }
             // Check for PS4 (handles "PS4™" and "PS4")
-            if (platformStr.contains("PS4", Qt::CaseInsensitive)) {
+            else if (platformStr.contains("PS4", Qt::CaseInsensitive)) {
                 hasPS4 = true;
             }
             // Check for PS3 (handles "PS3™" and "PS3")
@@ -494,7 +570,9 @@ void PSKamajiSession::handleProductIdConversionResponse(QNetworkReply *reply)
                 hasPS3 = true;
             }
         }
-        if (hasPS4) {
+        if (hasPS5) {
+            detectedPlatform = "ps5";
+        } else if (hasPS4) {
             detectedPlatform = "ps4";
         } else if (hasPS3) {
             detectedPlatform = "ps3";
@@ -841,10 +919,24 @@ void PSKamajiSession::handleCheckEntitlementResponse(QNetworkReply *reply)
         step5_GetAuthCode();
         return;
     } else if (statusCode == 404) {
-        // User doesn't have entitlement - try to acquire it
+        // User doesn't have the per-game entitlement on the account.
+        const bool isLegacyClassicsId = !productId.contains(QLatin1String("CUSA"))
+                                     && !productId.contains(QLatin1String("PPSA"));
+        if (isLegacyClassicsId) {
+            // PS3 / Classics: the streaming entitlement is granted by the PS Plus
+            // subscription (a free 100%-off checkout), but that checkout requires a
+            // pcnow storefront in the account's region -- which many regions (e.g.
+            // Hungary) don't have, so the acquire fails with "Against Eligibility Rule".
+            // On a real PS5 the subscription alone grants streaming with no purchase, so
+            // skip the acquire and let Gaikai validate the Premium subscription directly.
+            // If Gaikai genuinely needs the entitlement on the account, it returns
+            // noGameForEntitlementId downstream and we learn the wall is at Gaikai.
+            qInfo() << "Kamaji Step 0.5e.2 - Entitlement not found (404); legacy Classics id -> skipping acquire, proceeding to Gaikai";
+            step5_GetAuthCode();
+            return;
+        }
+        // PS4/PS5 catalog: try to acquire it via checkout.
         qInfo() << "Kamaji Step 0.5e.2 - Entitlement not found (404), will attempt to acquire";
-        
-        // Continue to checkout preview
         step0_5e_CheckoutPreview();
         return;
     } else {

@@ -7,6 +7,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QSet>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QJSValue>
@@ -29,6 +30,38 @@ namespace KamajiConsts {
     static const QString REFERER = "https://psnow.playstation.com/app/2.2.0/133/5cdcc037d/";
     static const QString REDIRECT_URI = "https://psnow.playstation.com/app/2.2.0/133/5cdcc037d/grc-response.html";
     static const QString USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) playstation-now/0.0.0 Chrome/83.0.4103.104 Electron/9.0.4 Safari/537.36 gkApollo";
+
+    // --- PS3 / Classics pcnow store, by account region group ---------------------
+    // pcnow (the PS Plus PC "Apollo" backend) has only TWO Classics id families:
+    //   * SCEA / Americas  -> store MSF192018, US-region ids (UP*/NPUA*/BLUS*),
+    //                         PS3 child container "APOLLOPS3GAMES"
+    //   * SCEE / PAL (rest) -> store MSF192014, EU-region ids (EP*/NPEA*/NPEB*/BLES*),
+    //                         PS3 child container "APOLLOPS3"
+    // JP / Asia have no Apollo store (the PC app isn't offered there), so they fall
+    // back to PAL. A PS Plus account is authorized at Gaikai only for the id family of
+    // its own region group, so we must browse + resolve in the account's group.
+    inline bool isAmericasClassicsRegion(const QString &countryCode) {
+        static const QSet<QString> kAmericas = {
+            QStringLiteral("US"), QStringLiteral("CA"), QStringLiteral("MX"),
+            QStringLiteral("BR"), QStringLiteral("AR"), QStringLiteral("CL"),
+            QStringLiteral("CO"), QStringLiteral("PE"), QStringLiteral("EC"),
+            QStringLiteral("BO"), QStringLiteral("PY"), QStringLiteral("UY"),
+            QStringLiteral("CR"), QStringLiteral("GT"), QStringLiteral("HN"),
+            QStringLiteral("NI"), QStringLiteral("PA"), QStringLiteral("SV"),
+            QStringLiteral("DO") };
+        return kAmericas.contains(countryCode.toUpper());
+    }
+    // Country path to use for container/conversion calls (US for Americas, GB for PAL).
+    inline QString classicsStoreCountry(const QString &accountCountry) {
+        return isAmericasClassicsRegion(accountCountry) ? QStringLiteral("US")
+                                                        : QStringLiteral("GB");
+    }
+    // Fully-qualified PS3 catalog container id for the account's region group.
+    inline QString classicsPs3ContainerId(const QString &accountCountry) {
+        return isAmericasClassicsRegion(accountCountry)
+            ? QStringLiteral("STORE-MSF192018-APOLLOPS3GAMES")
+            : QStringLiteral("STORE-MSF192014-APOLLOPS3");
+    }
 }
 
 /**

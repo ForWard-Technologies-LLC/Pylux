@@ -134,13 +134,13 @@ QString CloudCatalogBackend::getCachedData(const QString &key, int maxAge)
 
 QString CloudCatalogBackend::getCachedPs5CatalogV3(int maxAge)
 {
-    const QString cached = getCachedData(QStringLiteral("ps5_cloud_catalog_v3"), maxAge);
+    const QString cached = getCachedData(QStringLiteral("ps5_cloud_catalog_v6"), maxAge);
     if (cached.isEmpty())
         return QString();
 
     const QJsonDocument doc = QJsonDocument::fromJson(cached.toUtf8());
     if (!doc.isObject()) {
-        QFile::remove(getCacheFilePath(QStringLiteral("ps5_cloud_catalog_v3")));
+        QFile::remove(getCacheFilePath(QStringLiteral("ps5_cloud_catalog_v6")));
         return QString();
     }
 
@@ -149,7 +149,7 @@ QString CloudCatalogBackend::getCachedPs5CatalogV3(int maxAge)
     if (!cachedLocale.isEmpty() && cachedLocale != expectedLocale) {
         qInfo() << "[CACHE LOCALE MISMATCH] PS5 catalog v3 locale" << cachedLocale
                 << "!=" << expectedLocale << ", refetching";
-        QFile::remove(getCacheFilePath(QStringLiteral("ps5_cloud_catalog_v3")));
+        QFile::remove(getCacheFilePath(QStringLiteral("ps5_cloud_catalog_v6")));
         return QString();
     }
 
@@ -460,19 +460,23 @@ void CloudCatalogBackend::handlePsnowSessionResponse()
     // Save country and language from session response to settings
     QString country = data["country"].toString();
     QString language = data["language"].toString();
-    if (!country.isEmpty() && !language.isEmpty()) {
+    if (!country.isEmpty() && !language.isEmpty() && settings) {
         // Format: language-COUNTRY (e.g., "nl-NL" or "en-US")
-        QString locale = QString("%1-%2").arg(language, country.toUpper());
-        if (settings) {
-            QString previousLocale = settings->GetCloudLanguagePSCloud();
-            settings->SetCloudLanguagePSCloud(locale);
-            qInfo() << "[PSNOW] Saved locale from session:" << locale;
-            
-            // Invalidate cache if locale changed
-            if (previousLocale != locale) {
-                qInfo() << "[PSNOW] Locale changed from" << previousLocale << "to" << locale << "- invalidating cache";
-                invalidateCache();
-            }
+        const QString sessionLocale = QString("%1-%2").arg(language.toLower(), country.toUpper());
+        const QString previousLocale = settings->GetCloudLanguagePSCloud();
+        // The country is the real region signal; the language part may get
+        // auto-corrected later (the imagic fetch settles e.g. hu-HU on en-HU).
+        // Only re-save when the country actually changes, otherwise we'd clobber
+        // the validated locale on every visit and thrash the cache.
+        const QString previousCountry = previousLocale.section(QLatin1Char('-'), 1, 1).toUpper();
+        if (previousCountry != country.toUpper()) {
+            settings->SetCloudLanguagePSCloud(sessionLocale);
+            qInfo() << "[PSNOW] Region changed, saved locale from session:" << sessionLocale
+                    << "(was" << previousLocale << ") - invalidating cache";
+            invalidateCache();
+        } else if (settings->GetLogVerbose()) {
+            qInfo() << "[PSNOW] Session country unchanged (" << country
+                    << "), keeping validated locale" << previousLocale;
         }
     }
     
@@ -870,7 +874,189 @@ void CloudCatalogBackend::processPsnowCatalogComplete()
     emit catalogUpdated();
 }
 
+// ---------------------------------------------------------------------------
+// PS3 Classics catalog (public Apollo container walk)
+//
+// The PS Plus PC ("Apollo") app browses the streamable catalog through the public
+// pcnow container API at psnow.playstation.com. There is a dedicated PS3 container,
+// STORE-MSF192018-APOLLOPS3GAMES, that lists ~300 streamable PS3 titles with their
+// PS3 product ids (NPUA/NPUB/BLUS/BCUS) -- none of which appear in the imagic
+// gameslist the rest of the catalog uses. The container API needs no OAuth or
+// per-account session (unlike /user/stores, which 404s in regions where the PC app
+// is unavailable, e.g. Hungary), so we can walk it directly in any region. The
+// resulting titles carry playable_platform ["PS3"] and stream via the existing
+// PSNOW -> Gaikai konan path.
+// ---------------------------------------------------------------------------
+// Resolve the account's region group from its store locale (e.g. "en-HU" -> "HU").
+// pcnow has two Classics id families (Americas/SCEA and PAL/SCEE); a PS Plus account is
+// authorized at Gaikai only for the family of its own region group, so the catalog must
+// be browsed in that group. See KamajiConsts::classicsStoreCountry / classicsPs3ContainerId.
+QString CloudCatalogBackend::ps3AccountCountry() const
+{
+    QString locale = settings ? settings->GetCloudLanguagePSCloud() : QStringLiteral("en-US");
+    QStringList parts = locale.split(QLatin1Char('-'));
+    QString cc = parts.size() > 1 ? parts[1] : QStringLiteral("US");
+    return cc.toUpper();
+}
+
+void CloudCatalogBackend::fetchPs3Catalog(const QJSValue &callback)
+{
+    const QString cc = ps3AccountCountry();
+    // Region-group-specific cache key so an Americas/PAL switch doesn't serve stale ids.
+    const QString cacheKey = QStringLiteral("ps3_catalog_") + KamajiConsts::classicsStoreCountry(cc);
+    QString cached = getCachedData(cacheKey, CACHE_DURATION_CATALOG);
+    if (!cached.isEmpty()) {
+        qInfo() << "[CACHE] Using cached PS3 catalog";
+        QJsonDocument doc = QJsonDocument::fromJson(cached.toUtf8());
+        if (callback.isCallable())
+            callback.call({true, "Cached", QJSValue(QString::fromUtf8(doc.toJson(QJsonDocument::Compact)))});
+        return;
+    }
+
+    if (ps3State.inProgress) {
+        qInfo() << "[PS3] Catalog fetch already in progress";
+        if (callback.isCallable())
+            callback.call({false, "Request already in progress", QJSValue()});
+        return;
+    }
+
+    ps3State.containerUrl = QStringLiteral(
+        "https://psnow.playstation.com/store/api/pcnow/00_09_000/container/%1/en/19/%2")
+        .arg(KamajiConsts::classicsStoreCountry(cc), KamajiConsts::classicsPs3ContainerId(cc));
+    qInfo() << "[API CALL] Fetching PS3 Classics catalog (region group"
+            << KamajiConsts::classicsStoreCountry(cc) << "for account country" << cc << ")";
+    ps3State.callback = callback;
+    ps3State.allGames = QJsonArray();
+    ps3State.currentStart = 0;
+    ps3State.totalResults = -1;
+    ps3State.inProgress = true;
+    fetchPs3CatalogPage();
+}
+
+void CloudCatalogBackend::fetchPs3CatalogPage()
+{
+    QString url = QString("%1?useOffers=true&gkb=1&gkb2=1&start=%2&size=100")
+                      .arg(ps3State.containerUrl)
+                      .arg(ps3State.currentStart);
+
+    if (settings && settings->GetLogVerbose()) {
+        qInfo() << "=== CloudCatalogBackend: PS3 catalog page ===";
+        qInfo() << "  URL:" << url;
+    }
+
+    QNetworkRequest req{QUrl(url)};
+    req.setRawHeader("Accept", "application/json");
+    req.setRawHeader("User-Agent", KamajiConsts::USER_AGENT.toUtf8());
+
+    QNetworkReply *reply = networkManager->get(req);
+    connect(reply, &QNetworkReply::finished, this, &CloudCatalogBackend::handlePs3CatalogPageResponse);
+}
+
+void CloudCatalogBackend::handlePs3CatalogPageResponse()
+{
+    QNetworkReply *reply = qobject_cast<QNetworkReply*>(sender());
+    if (!reply) return;
+    reply->deleteLater();
+
+    int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    QByteArray data = reply->readAll();
+
+    if (reply->error() != QNetworkReply::NoError || statusCode != 200) {
+        QString errorMsg = QString("PS3 catalog fetch failed (HTTP %1): %2")
+                               .arg(statusCode).arg(reply->errorString());
+        qWarning() << "CloudCatalogBackend:" << errorMsg;
+        if (ps3State.allGames.isEmpty()) {
+            ps3State.inProgress = false;
+            if (ps3State.callback.isCallable())
+                ps3State.callback.call({false, errorMsg, QJSValue()});
+            return;
+        }
+        // Partial data already collected: return what we have.
+        finishPs3Catalog();
+        return;
+    }
+
+    QJsonObject obj = QJsonDocument::fromJson(data).object();
+    if (ps3State.totalResults < 0)
+        ps3State.totalResults = obj.value("total_results").toInt();
+
+    QJsonArray links = obj.value("links").toArray();
+    int productCount = 0;
+    for (const QJsonValue &v : links) {
+        QJsonObject g = v.toObject();
+        if (g.value("container_type").toString() != QLatin1String("product"))
+            continue;
+        QString img = extractCoverImageFromGameObject(g);
+        if (!img.isEmpty())
+            g["imageUrl"] = img;
+        ps3State.allGames.append(g);
+        productCount++;
+    }
+
+    if (settings && settings->GetLogVerbose())
+        qInfo() << "  PS3 page games:" << productCount << "accumulated:" << ps3State.allGames.size()
+                << "of" << ps3State.totalResults;
+
+    ps3State.currentStart += 100;
+    if (productCount > 0 && ps3State.currentStart < ps3State.totalResults) {
+        fetchPs3CatalogPage();
+    } else {
+        finishPs3Catalog();
+    }
+}
+
+void CloudCatalogBackend::finishPs3Catalog()
+{
+    QJsonObject result;
+    result["games"] = ps3State.allGames;
+    result["total"] = ps3State.allGames.size();
+    QJsonDocument resultDoc(result);
+    setCachedData(QStringLiteral("ps3_catalog_") + KamajiConsts::classicsStoreCountry(ps3AccountCountry()), resultDoc);
+
+    qInfo() << "[PS3] Catalog complete:" << ps3State.allGames.size() << "PS3 titles";
+
+    ps3State.inProgress = false;
+    if (ps3State.callback.isCallable())
+        ps3State.callback.call({true, "Success", QJSValue(QString::fromUtf8(resultDoc.toJson(QJsonDocument::Compact)))});
+}
+
 namespace {
+
+// Canonicalize a "language-COUNTRY" locale to lowercase-language / uppercase-country.
+static QString canonicalStoreLocale(const QString &raw)
+{
+    QString s = raw.trimmed();
+    if (s.isEmpty())
+        return QStringLiteral("en-US");
+    const QStringList parts = s.split(QLatin1Char('-'));
+    QString lang = parts.value(0).toLower();
+    QString country = parts.value(1).toUpper();
+    if (lang.isEmpty())
+        lang = QStringLiteral("en");
+    if (country.isEmpty())
+        country = QStringLiteral("US");
+    return lang + QLatin1Char('-') + country;
+}
+
+// Build the ordered list of store locales to try. Sony's storefront/imagic endpoints
+// only serve a fixed set of language-COUNTRY combinations: the country is always
+// served, but the language may not be (e.g. a Hungarian-language account yields
+// "hu-HU", which 404s, while "en-HU" works). Fall back to English for the same
+// country, then en-US, so the catalog loads in every region.
+static QStringList buildStoreLocaleFallbackChain(const QString &stored)
+{
+    const QString canonical = canonicalStoreLocale(stored);
+    const QString country = canonical.section(QLatin1Char('-'), 1, 1);
+    QStringList chain;
+    auto add = [&chain](const QString &loc) {
+        if (!loc.isEmpty() && !chain.contains(loc))
+            chain.append(loc);
+    };
+    add(canonical);
+    add(QStringLiteral("en-") + country);
+    add(QStringLiteral("en-US"));
+    return chain;
+}
 
 static const QStringList kPs5ImagicCategoryLists = {
     QStringLiteral("plus-games-list"),
@@ -881,21 +1067,25 @@ static const QStringList kPs5ImagicCategoryLists = {
     QStringLiteral("all-ps5-list"),
 };
 
-static bool isPs5Game(const QJsonObject &gameObj)
+// PS Plus cloud streaming covers PS4 and PS5 titles (PS3 is not present in these
+// imagic lists). A PS4-only title such as God of War (2018) is streamable when
+// owned even though it carries device ["PS4"], so the catalog must not discard it.
+static bool isCloudDeviceGame(const QJsonObject &gameObj)
 {
     const QJsonArray devices = gameObj.value(QStringLiteral("device")).toArray();
     for (const QJsonValue &device : devices) {
-        if (device.toString() == QLatin1String("PS5"))
+        const QString d = device.toString();
+        if (d == QLatin1String("PS5") || d == QLatin1String("PS4"))
             return true;
     }
     return false;
 }
 
-static bool isPs5StreamingGame(const QJsonObject &gameObj)
+static bool isCloudStreamingGame(const QJsonObject &gameObj)
 {
     if (!gameObj.value(QStringLiteral("streamingSupported")).toBool())
         return false;
-    return isPs5Game(gameObj);
+    return isCloudDeviceGame(gameObj);
 }
 
 static QString ps5CloudConceptKey(const QJsonObject &gameObj)
@@ -911,6 +1101,60 @@ static QString ps5CloudConceptKey(const QJsonObject &gameObj)
             return conceptId;
     }
     return gameObj.value(QStringLiteral("productId")).toString();
+}
+
+// Platform token from a product id's title id: CUSA = PS4, PPSA = PS5.
+static QString ps5CloudPlatformToken(const QString &productId)
+{
+    if (productId.contains(QLatin1String("PPSA")))
+        return QStringLiteral("ps5");
+    if (productId.contains(QLatin1String("CUSA")))
+        return QStringLiteral("ps4");
+    return QString();
+}
+
+// Catalog dedupe identity: one entry per game PER PLATFORM, so a cross-gen title that Sony lists
+// as separate PS4 and PS5 editions (e.g. Deliver Us The Moon) shows as two cards, while duplicate
+// same-platform SKUs still collapse. (conceptId alone collapsed the PS4/PS5 editions into one.)
+static QString ps5CloudEditionKey(const QJsonObject &gameObj)
+{
+    const QString concept = ps5CloudConceptKey(gameObj);
+    if (concept.isEmpty())
+        return QString();
+    return concept + QLatin1Char('|')
+           + ps5CloudPlatformToken(gameObj.value(QStringLiteral("productId")).toString());
+}
+
+// A "full game" entitlement (vs an add-on / avatar / theme). PSN marks the base game with
+// feature_type 3 and a *GD package_type (PSGD/PS4GD); add-ons use feature_type 0 and
+// PS4MISC/PSAL/etc. Used to keep the base game when collapsing same-platform SKUs.
+static bool ps5CloudIsFullGameEntitlement(const QJsonObject &ownedGameObj)
+{
+    if (ownedGameObj.value(QStringLiteral("feature_type")).toInt() == 3)
+        return true;
+    const QString pt = ownedGameObj.value(QStringLiteral("game_meta")).toObject()
+                           .value(QStringLiteral("package_type")).toString();
+    return pt.endsWith(QStringLiteral("GD"));
+}
+
+// Rank an owned entitlement as THE streaming candidate for its edition (higher = preferred).
+// Upgrade / bonus / cross-buy SKUs collapse to the same conceptId+platform as the base game, so we
+// must pick which one's product_id the card streams. The package_type/feature_type flags are not
+// enough: Death Stranding DC's "Bonus Content" SKU is ALSO PSGD + feature_type 3, identical to the
+// game. The reliable signal is that the BASE GAME's entitlement id EQUALS its product_id (e.g.
+// ...DEATHSTRANDINGEU == ...DEATHSTRANDINGEU), while bonus/upgrade SKUs carry a different id (the
+// bonus is product_id ...DEATHSTRADCDDE01 but id ...PPSA02624...). Prefer the canonical full-game
+// entitlement so getStreamingIdentifier streams the real game's product_id, not a DLC product that
+// Gaikai has no game for (-> noGameForEntitlementId).
+static int ps5CloudOwnedStreamRank(const QJsonObject &ownedGameObj)
+{
+    const QString id = ownedGameObj.value(QStringLiteral("id")).toString();
+    const QString pid = ownedGameObj.value(QStringLiteral("product_id")).toString();
+    int rank = 0;
+    if (!pid.isEmpty() && pid == id) rank += 4;            // canonical product (the base game SKU)
+    if (ps5CloudIsFullGameEntitlement(ownedGameObj)) rank += 2; // full game (feature_type 3 / *GD)
+    if (!id.isEmpty()) rank += 1;                          // has a real entitlement id
+    return rank;
 }
 
 static QString ps5CloudProductIdStableKey(const QString &productId)
@@ -946,6 +1190,53 @@ static QMap<QString, QJsonObject> buildStableKeyIndex(const QJsonArray &games)
     return index;
 }
 
+// imagic encodes conceptId as a JSON number; entitlements (if present) may use a
+// number or string. Normalize to a non-empty decimal string, else empty.
+static QString ps5CloudConceptIdString(const QJsonValue &conceptIdVal)
+{
+    if (conceptIdVal.isDouble()) {
+        const qint64 c = static_cast<qint64>(conceptIdVal.toDouble());
+        return c > 0 ? QString::number(c) : QString();
+    }
+    if (conceptIdVal.isString())
+        return conceptIdVal.toString();
+    return QString();
+}
+
+// conceptId is region-stable (227770 for God of War 2018) whereas product IDs are
+// region-prefixed (EP9000 vs UP9000) and vary by edition, so it is the most reliable
+// owned->catalog match when both sides carry one.
+static QMap<QString, QJsonObject> buildConceptIdIndex(const QJsonArray &games)
+{
+    QMap<QString, QJsonObject> index;
+    for (const QJsonValue &game : games) {
+        if (!game.isObject())
+            continue;
+        const QJsonObject gameObj = game.toObject();
+        const QString concept = ps5CloudConceptIdString(gameObj.value(QStringLiteral("conceptId")));
+        if (concept.isEmpty() || index.contains(concept))
+            continue;
+        index.insert(concept, gameObj);
+    }
+    return index;
+}
+
+// Pull a conceptId out of an owned entitlement, checking the field names the
+// commerce API and our merged objects use. Returns empty if none is present.
+static QString ownedEntitlementConceptId(const QJsonObject &ownedGameObj)
+{
+    QString concept = ps5CloudConceptIdString(ownedGameObj.value(QStringLiteral("conceptId")));
+    if (concept.isEmpty())
+        concept = ps5CloudConceptIdString(ownedGameObj.value(QStringLiteral("concept_id")));
+    if (concept.isEmpty()) {
+        const QJsonObject gameMeta = ownedGameObj.value(QStringLiteral("game_meta")).toObject();
+        concept = ps5CloudConceptIdString(gameMeta.value(QStringLiteral("conceptId")));
+        if (concept.isEmpty())
+            concept = ps5CloudConceptIdString(gameMeta.value(QStringLiteral("concept_id")));
+    }
+    return concept;
+}
+
 static QJsonObject productIdAliasesToJson(const QMap<QString, QString> &aliases)
 {
     QJsonObject obj;
@@ -965,6 +1256,18 @@ static QMap<QString, QString> productIdAliasesFromJson(const QJsonObject &obj)
     return aliases;
 }
 
+// The PS Plus subscription "Game Catalog" (what Sony lists on the PS Plus games page) is the
+// union of these curated lists. The other source we fetch, "all-ps5-list", is the entire
+// cloud-streamable PS5 universe (~7000 titles) — useful for matching owned games but NOT the
+// subscription catalog, so it must not inflate the Catalog tab.
+static bool isPlusCatalogList(const QString &categoryList)
+{
+    return categoryList == QLatin1String("plus-games-list")
+        || categoryList == QLatin1String("plus-classics-list")
+        || categoryList == QLatin1String("ubisoft-classics-list")
+        || categoryList == QLatin1String("plus-monthly-games-list");
+}
+
 static void mergeImagicListIntoPs5Catalog(const QString &categoryList,
                                           const QJsonDocument &doc,
                                           QMap<QString, QJsonObject> &gamesByConceptId,
@@ -972,6 +1275,7 @@ static void mergeImagicListIntoPs5Catalog(const QString &categoryList,
                                           QMap<QString, QString> &productIdAliases,
                                           int &totalGamesSeen)
 {
+    const bool plusCatalog = isPlusCatalogList(categoryList);
     if (!doc.isArray())
         return;
 
@@ -985,36 +1289,53 @@ static void mergeImagicListIntoPs5Catalog(const QString &categoryList,
             if (!game.isObject())
                 continue;
             QJsonObject gameObj = game.toObject();
-            if (!isPs5Game(gameObj))
+            // Accept both PS4 and PS5 cloud titles. The old PS5-only gate silently
+            // dropped PS4-only PS-Plus-catalog games (e.g. God of War 2018) before
+            // they could reach the library-stream supplement below.
+            if (!isCloudDeviceGame(gameObj))
                 continue;
 
-            // Plus catalog titles excluded from public cloud browse (library-stream candidates)
-            if (categoryList == QLatin1String("plus-games-list")
+            // Subscription-catalog titles excluded from public cloud browse (library-stream
+            // candidates): streamingSupported=false but streamable once owned/acquired. Capture
+            // these from EVERY subscription list (plus-games, classics, ubisoft, monthly) so the
+            // Game Catalog includes them too — not just plus-games-list.
+            if (plusCatalog
                 && !gameObj.value(QStringLiteral("streamingSupported")).toBool()) {
                 const QString productId = gameObj.value(QStringLiteral("productId")).toString();
-                if (!productId.isEmpty())
+                if (!productId.isEmpty()) {
+                    gameObj.insert(QStringLiteral("plusCatalog"), true);
                     plusLibrarySupplementByProductId.insert(productId, gameObj);
+                }
                 continue;
             }
 
-            if (!isPs5StreamingGame(gameObj))
+            if (!isCloudStreamingGame(gameObj))
                 continue;
 
-            const QString key = ps5CloudConceptKey(gameObj);
+            // Dedupe per game PER PLATFORM so cross-gen PS4/PS5 editions both appear.
+            const QString key = ps5CloudEditionKey(gameObj);
             const QString productId = gameObj.value(QStringLiteral("productId")).toString();
             if (key.isEmpty() || productId.isEmpty())
                 continue;
 
             if (gamesByConceptId.contains(key)) {
-                const QString canonicalProductId =
-                    gamesByConceptId.value(key).value(QStringLiteral("productId")).toString();
+                QJsonObject existing = gamesByConceptId.value(key);
+                const QString canonicalProductId = existing.value(QStringLiteral("productId")).toString();
                 if (!canonicalProductId.isEmpty() && productId != canonicalProductId
                     && !productIdAliases.contains(productId)) {
                     productIdAliases.insert(productId, canonicalProductId);
                 }
+                // Lists are fetched in parallel, so a title may be seen first via all-ps5-list
+                // (not subscription) and later via a subscription list. Upgrade the flag so the
+                // subscription membership wins regardless of arrival order.
+                if (plusCatalog && !existing.value(QStringLiteral("plusCatalog")).toBool()) {
+                    existing.insert(QStringLiteral("plusCatalog"), true);
+                    gamesByConceptId.insert(key, existing);
+                }
                 continue;
             }
 
+            gameObj.insert(QStringLiteral("plusCatalog"), plusCatalog);
             gamesByConceptId.insert(key, gameObj);
         }
     }
@@ -1024,10 +1345,6 @@ static void mergeImagicListIntoPs5Catalog(const QString &categoryList,
 
 void CloudCatalogBackend::fetchPs5CloudCatalog(const QJSValue &callback)
 {
-    // Get locale from unified language setting and convert to lowercase for API
-    QString localeSetting = settings ? settings->GetCloudLanguagePSCloud() : "en-US";
-    QString locale = localeSetting.toLower(); // Convert "en-US" to "en-us"
-    
     // Check cache first
     QString cached = getCachedPs5CatalogV3(CACHE_DURATION_CATALOG);
     if (!cached.isEmpty()) {
@@ -1038,9 +1355,26 @@ void CloudCatalogBackend::fetchPs5CloudCatalog(const QJSValue &callback)
         }
         return;
     }
-    
+
     qInfo() << "[API CALL] Fetching PS5 cloud catalog (6 imagic lists, cache miss or expired)";
     ps5State.callback = callback;
+
+    // Build the store-locale fallback chain (session locale -> en-COUNTRY -> en-US)
+    // and start with the first tier. Tiers escalate only when a whole tier 404s.
+    ps5State.localeChain =
+        buildStoreLocaleFallbackChain(settings ? settings->GetCloudLanguagePSCloud()
+                                               : QStringLiteral("en-US"));
+    ps5State.localeTierIndex = 0;
+    startPs5ImagicListFetch();
+}
+
+void CloudCatalogBackend::startPs5ImagicListFetch()
+{
+    ps5State.activeLocale = ps5State.localeChain.value(ps5State.localeTierIndex,
+                                                       QStringLiteral("en-US"));
+    const QString locale = ps5State.activeLocale.toLower(); // imagic wants "en-us"
+
+    // Reset per-tier accumulators so a failed tier leaves nothing behind.
     ps5State.gamesByConceptId.clear();
     ps5State.plusLibrarySupplementByProductId.clear();
     ps5State.productIdAliases.clear();
@@ -1049,6 +1383,11 @@ void CloudCatalogBackend::fetchPs5CloudCatalog(const QJSValue &callback)
     ps5State.allPs5ListSucceeded = false;
     ps5State.failedLists.clear();
     ps5State.pendingListFetches = kPs5ImagicCategoryLists.size();
+
+    if (settings && settings->GetLogVerbose()) {
+        qInfo() << "[API CALL] PS5 imagic fetch using locale tier" << ps5State.localeTierIndex
+                << ":" << ps5State.activeLocale;
+    }
 
     for (const QString &categoryList : kPs5ImagicCategoryLists) {
         const QString url = QStringLiteral(
@@ -1110,6 +1449,17 @@ void CloudCatalogBackend::handlePs5ImagicListResponse()
     ps5State.pendingListFetches--;
     if (ps5State.pendingListFetches <= 0) {
         if (ps5State.succeededListFetches <= 0) {
+            // The whole tier failed (typically a 404 for an unsupported store
+            // locale such as hu-HU). Escalate to the next locale tier before
+            // giving up, so regions Sony only serves in English still load.
+            if (ps5State.localeTierIndex + 1 < ps5State.localeChain.size()) {
+                ps5State.localeTierIndex++;
+                qWarning() << "[API] All imagic lists failed for locale"
+                           << ps5State.activeLocale << "- retrying with"
+                           << ps5State.localeChain.value(ps5State.localeTierIndex);
+                startPs5ImagicListFetch();
+                return;
+            }
             if (ps5State.callback.isCallable()) {
                 ps5State.callback.call({false,
                                           QStringLiteral("All imagic lists failed to load"),
@@ -1152,9 +1502,20 @@ void CloudCatalogBackend::finalizePs5CloudCatalogFetch()
         qInfo() << "  Product ID aliases (same conceptId):" << ps5State.productIdAliases.size();
     }
 
+    // Persist the locale that actually worked so game-details fetches and the
+    // cache locale check all agree on it (e.g. a hu-HU account settles on en-HU).
+    const QString workingLocale = !ps5State.activeLocale.isEmpty()
+                                      ? ps5State.activeLocale
+                                      : (settings ? settings->GetCloudLanguagePSCloud()
+                                                  : QStringLiteral("en-US"));
+    if (settings && settings->GetCloudLanguagePSCloud() != workingLocale) {
+        qInfo() << "[PSCLOUD] Store locale settled on" << workingLocale
+                << "(was" << settings->GetCloudLanguagePSCloud() << ")";
+        settings->SetCloudLanguagePSCloud(workingLocale);
+    }
+
     QJsonObject result;
-    result.insert(QStringLiteral("locale"),
-                  settings ? settings->GetCloudLanguagePSCloud() : QStringLiteral("en-US"));
+    result.insert(QStringLiteral("locale"), workingLocale);
     result[QStringLiteral("games")] = allGames;
     result[QStringLiteral("total")] = allGames.size();
     result[QStringLiteral("plusLibrarySupplement")] = plusSupplementGames;
@@ -1164,7 +1525,7 @@ void CloudCatalogBackend::finalizePs5CloudCatalogFetch()
     const QJsonDocument resultDoc(result);
 
     if (ps5State.allPs5ListSucceeded)
-        setCachedData(QStringLiteral("ps5_cloud_catalog_v3"), resultDoc);
+        setCachedData(QStringLiteral("ps5_cloud_catalog_v6"), resultDoc);
 
     QString callbackMessage = QStringLiteral("Success");
     if (!ps5State.failedLists.isEmpty()) {
@@ -1525,6 +1886,9 @@ void CloudCatalogBackend::handleOwnedGamesResponse()
     // Filter for PS5 games (package_type=PSGD)
     QJsonArray ps5Games = filterOwnedPs5Games(ownedGamesState.accumulatedEntitlements);
 
+    // Map each bundle product_id -> the entitlement ids that share it, so a bundle (e.g. RE7 Gold,
+    // whose components each carry the bundle product_id but a distinct entitlement id) can expand to
+    // its component games during cross-reference (upstream PR #15's bundle-sibling matching).
     QMap<QString, QStringList> componentIds;
     for (const QJsonValue &ent : ownedGamesState.accumulatedEntitlements) {
         if (!ent.isObject())
@@ -1535,11 +1899,11 @@ void CloudCatalogBackend::handleOwnedGamesResponse()
         if (!pid.isEmpty() && !eid.isEmpty())
             componentIds[pid].append(eid);
     }
-    
+
     if (settings && settings->GetLogVerbose()) {
         qInfo() << "  PS5 games (PSGD):" << ps5Games.size();
     }
-    
+
     QJsonObject result;
     result["games"] = ps5Games;
     result["total"] = ps5Games.size();
@@ -1547,12 +1911,12 @@ void CloudCatalogBackend::handleOwnedGamesResponse()
     for (auto it = componentIds.cbegin(); it != componentIds.cend(); ++it)
         componentObj.insert(it.key(), QJsonArray::fromStringList(it.value()));
     result[QStringLiteral("componentIdsByProductId")] = componentObj;
-    
+
     QJsonDocument resultDoc(result);
-    
+
     // Cache the result
     setCachedData("ps5_cloud_library", resultDoc);
-    
+
     // If cross-reference is active, populate its state
     if (crossReferenceState.callback.isCallable() && !crossReferenceState.ownedGamesFetched) {
         crossReferenceState.ownedGames = ps5Games;
@@ -1579,78 +1943,83 @@ QJsonArray CloudCatalogBackend::filterOwnedPs5Games(const QJsonArray &entitlemen
     QJsonArray ps5Games;
     
     for (const QJsonValue &ent : entitlements) {
-        if (ent.isObject()) {
-            QJsonObject entObj = ent.toObject();
-            
-            // Check for game_meta and package_type
-            if (entObj.contains("game_meta") && entObj["game_meta"].isObject()) {
-                QJsonObject gameMeta = entObj["game_meta"].toObject();
-                QString packageType = gameMeta["package_type"].toString();
-                
-                // Filter for PS5 games (PSGD)
-                if (packageType == "PSGD") {
-                    // Skip inactive games (active_flag must be true)
-                    bool activeFlag = entObj.contains("active_flag") && entObj["active_flag"].toBool();
-                    if (!activeFlag) {
-                        continue;
-                    }
-                    
-                    // Skip subscriptions/services (Product IDs starting with IP or SUB)
-                    QString productId = entObj["product_id"].toString();
-                    if (!productId.startsWith("IP") && !productId.startsWith("SUB")) {
-                        // Extract cover image from game_meta.icon_url (this is the primary field for entitlements API)
-                        QString coverImageUrl;
-                        
-                        // Check game_meta.icon_url first (this is where the API returns images)
-                        if (gameMeta.contains("icon_url")) {
-                            coverImageUrl = gameMeta["icon_url"].toString();
-                        }
-                        
-                        // Fallback: try extractCoverImageFromGameObject for images array if present
-                        if (coverImageUrl.isEmpty()) {
-                            coverImageUrl = extractCoverImageFromGameObject(gameMeta);
-                        }
-                        if (coverImageUrl.isEmpty()) {
-                            coverImageUrl = extractCoverImageFromGameObject(entObj);
-                        }
-                        
-                        // Additional fallbacks for other common image field names
-                        if (coverImageUrl.isEmpty()) {
-                            if (gameMeta.contains("imageUrl")) {
-                                coverImageUrl = gameMeta["imageUrl"].toString();
-                            } else if (gameMeta.contains("image_url")) {
-                                coverImageUrl = gameMeta["image_url"].toString();
-                            } else if (gameMeta.contains("thumbnail_url")) {
-                                coverImageUrl = gameMeta["thumbnail_url"].toString();
-                            } else if (entObj.contains("imageUrl")) {
-                                coverImageUrl = entObj["imageUrl"].toString();
-                            } else if (entObj.contains("image_url")) {
-                                coverImageUrl = entObj["image_url"].toString();
-                            } else if (entObj.contains("thumbnail_url")) {
-                                coverImageUrl = entObj["thumbnail_url"].toString();
-                            }
-                        }
-                        
-                        if (!coverImageUrl.isEmpty()) {
-                            entObj["imageUrl"] = coverImageUrl;
-                            if (settings && settings->GetLogVerbose()) {
-                                QString gameName = gameMeta.contains("name") ? gameMeta["name"].toString() : productId;
-                                qInfo() << "  Extracted cover image for PS5 game:" << gameName << "from icon_url";
-                            }
-                        } else {
-                            if (settings && settings->GetLogVerbose()) {
-                                QString gameName = gameMeta.contains("name") ? gameMeta["name"].toString() : productId;
-                                qInfo() << "  No image found in entitlement response for PS5 game:" << gameName;
-                            }
-                        }
-                        
-                        ps5Games.append(entObj);
-                    }
-                }
+        if (!ent.isObject())
+            continue;
+        QJsonObject entObj = ent.toObject();
+
+        // Must look like a game entitlement (has game_meta).
+        if (!entObj.contains("game_meta") || !entObj["game_meta"].isObject())
+            continue;
+        QJsonObject gameMeta = entObj["game_meta"].toObject();
+        const QString packageType = gameMeta["package_type"].toString();
+
+        // Skip inactive entitlements (active_flag must be true).
+        const bool activeFlag = entObj.contains("active_flag") && entObj["active_flag"].toBool();
+        if (!activeFlag)
+            continue;
+
+        // Skip subscriptions/services (Product IDs starting with IP or SUB).
+        const QString productId = entObj["product_id"].toString();
+        if (productId.startsWith("IP") || productId.startsWith("SUB"))
+            continue;
+
+        // Hide EXTRAS: feature_type==0 is DLC / add-ons / themes / avatars / season passes / cross-buy
+        // "tracks" (PS4MISC/PSAL/PSTRACK/PS4AC/...), NEVER a base game -- every *GD game package is
+        // feature_type 1 (trial / free-to-play) or 3/5 (full game). Dropping ft==0 keeps add-ons from
+        // cluttering the library or marking a game "owned" via DLC, and is safe (it can't hide a game).
+        // Trials/free (ft1) and full games (ft3/5) are KEPT; the trial-vs-full split is handled when
+        // merging owned games into the catalog (a trial stays its own card so the full version can
+        // still show "Add Game").
+        if (entObj.value(QStringLiteral("feature_type")).toInt() == 0)
+            continue;
+
+        // Previously this required package_type == "PSGD" (PS5 only), which dropped
+        // owned PS4 titles (e.g. God of War 2018) and PS3 titles. We now accept every
+        // active game entitlement; streamability is enforced downstream by the catalog
+        // cross-reference (only titles present in the streamable catalog/supplement are
+        // shown), and matches are deduped by conceptId, so non-streamable or add-on
+        // entitlements are harmlessly dropped there.
+        const QString gameName = gameMeta.contains("name") ? gameMeta["name"].toString() : productId;
+        if (settings && settings->GetLogVerbose()) {
+            qInfo() << "  Owned entitlement:" << gameName
+                    << "package_type:" << (packageType.isEmpty() ? QStringLiteral("(none)") : packageType)
+                    << "product_id:" << productId;
+        }
+
+        // Extract cover image from game_meta.icon_url (the primary field for the entitlements API).
+        QString coverImageUrl;
+        if (gameMeta.contains("icon_url")) {
+            coverImageUrl = gameMeta["icon_url"].toString();
+        }
+        if (coverImageUrl.isEmpty()) {
+            coverImageUrl = extractCoverImageFromGameObject(gameMeta);
+        }
+        if (coverImageUrl.isEmpty()) {
+            coverImageUrl = extractCoverImageFromGameObject(entObj);
+        }
+        // Additional fallbacks for other common image field names.
+        if (coverImageUrl.isEmpty()) {
+            if (gameMeta.contains("imageUrl")) {
+                coverImageUrl = gameMeta["imageUrl"].toString();
+            } else if (gameMeta.contains("image_url")) {
+                coverImageUrl = gameMeta["image_url"].toString();
+            } else if (gameMeta.contains("thumbnail_url")) {
+                coverImageUrl = gameMeta["thumbnail_url"].toString();
+            } else if (entObj.contains("imageUrl")) {
+                coverImageUrl = entObj["imageUrl"].toString();
+            } else if (entObj.contains("image_url")) {
+                coverImageUrl = entObj["image_url"].toString();
+            } else if (entObj.contains("thumbnail_url")) {
+                coverImageUrl = entObj["thumbnail_url"].toString();
             }
         }
+        if (!coverImageUrl.isEmpty()) {
+            entObj["imageUrl"] = coverImageUrl;
+        }
+
+        ps5Games.append(entObj);
     }
-    
+
     return ps5Games;
 }
 
@@ -1722,6 +2091,7 @@ void CloudCatalogBackend::getOwnedPs5CloudGames(const QJSValue &callback)
                     qInfo() << "[CROSS-REF] Loaded owned PS5 games from cache:" << crossReferenceState.ownedGames.size() << "games";
                 }
             }
+            // Bundle->components map for bundle-sibling matching (upstream PR #15).
             if (obj.contains(QStringLiteral("componentIdsByProductId"))
                 && obj.value(QStringLiteral("componentIdsByProductId")).isObject()) {
                 const QJsonObject m = obj.value(QStringLiteral("componentIdsByProductId")).toObject();
@@ -1735,7 +2105,7 @@ void CloudCatalogBackend::getOwnedPs5CloudGames(const QJSValue &callback)
             }
         }
     }
-    
+
     // If we have both from cache, process immediately
     if (catalogFromCache && ownedFromCache) {
         processCrossReferenceComplete();
@@ -2072,7 +2442,7 @@ QString CloudCatalogBackend::getGameLandscapeImageFromCache(const QString &servi
         }
         
         // Fallback to catalog (may not have landscape images)
-        cacheKey = "ps5_cloud_catalog_v3";
+        cacheKey = "ps5_cloud_catalog_v6";
         isPsCloudLibrary = false;
     } else {
         qWarning() << "getGameLandscapeImage: Unknown service type:" << serviceType;
@@ -2080,7 +2450,7 @@ QString CloudCatalogBackend::getGameLandscapeImageFromCache(const QString &servi
     }
     
     // Load cache - use very large maxAge to never invalidate cache (read-only operation)
-    QString cached = (cacheKey == QLatin1String("ps5_cloud_catalog_v3"))
+    QString cached = (cacheKey == QLatin1String("ps5_cloud_catalog_v6"))
                          ? getCachedPs5CatalogV3(INT_MAX)
                          : getCachedData(cacheKey, INT_MAX);
     if (cached.isEmpty()) {
@@ -2262,20 +2632,29 @@ void CloudCatalogBackend::processCrossReferenceComplete()
         buildStableKeyIndex(crossReferenceState.cloudCatalogGames);
     const QMap<QString, QJsonObject> supplementStableKey =
         buildStableKeyIndex(crossReferenceState.plusLibrarySupplement);
+    const QMap<QString, QJsonObject> browseByConcept =
+        buildConceptIdIndex(crossReferenceState.cloudCatalogGames);
+    const QMap<QString, QJsonObject> supplementByConcept =
+        buildConceptIdIndex(crossReferenceState.plusLibrarySupplement);
 
     if (settings && settings->GetLogVerbose()) {
         qInfo() << "[CROSS-REF] Cloud catalog map size:" << cloudCatalogMap.size();
         qInfo() << "[CROSS-REF] Product ID aliases:" << crossReferenceState.productIdAliases.size();
         qInfo() << "[CROSS-REF] Plus library supplement map size:" << plusSupplementMap.size();
+        qInfo() << "[CROSS-REF] Concept-id index (browse/supplement):"
+                << browseByConcept.size() << "/" << supplementByConcept.size();
         qInfo() << "[CROSS-REF] Owned games count:" << crossReferenceState.ownedGames.size();
     }
 
     QJsonArray filteredGames;
     int matchedCount = 0;
-    int t1Count = 0;
-    int t2Count = 0;
-    int t3Count = 0;
-    int t4Count = 0;
+    int productIdMatchCount = 0;
+    int entitlementIdMatchCount = 0;
+    int supplementMatchCount = 0;
+    int conceptIdBrowseMatchCount = 0;
+    int conceptIdSupplementMatchCount = 0;
+    int stableKeyBrowseMatchCount = 0;
+    int stableKeySupplementMatchCount = 0;
     QMap<QString, QJsonObject> ownedByKey;
 
     for (const QJsonValue &ownedGame : crossReferenceState.ownedGames) {
@@ -2288,84 +2667,16 @@ void CloudCatalogBackend::processCrossReferenceComplete()
         const QString entName = ownedGameObj.value(QStringLiteral("game_meta")).toObject()
                                     .value(QStringLiteral("name")).toString();
         const bool skipStableDemo = entName.contains(QStringLiteral("demo"), Qt::CaseInsensitive);
+        const QString stableKey = ps5CloudProductIdStableKey(productId);
+        const QString entStableKey = ps5CloudProductIdStableKey(entitlementId);
+        const QString ownedConceptId = ownedEntitlementConceptId(ownedGameObj);
 
-        QList<QPair<QJsonObject, bool>> matches;
-        int matchTier = 0;
-
-        if (!productId.isEmpty() && cloudCatalogMap.contains(productId)) {
-            matches.append({cloudCatalogMap.value(productId), false});
-            matchTier = 1;
-        } else if (!entitlementId.isEmpty() && cloudCatalogMap.contains(entitlementId)) {
-            matches.append({cloudCatalogMap.value(entitlementId), false});
-            matchTier = 2;
-        } else if (!productId.isEmpty() && !entitlementId.isEmpty()
-                   && entitlementId == productId && plusSupplementMap.contains(productId)) {
-            matches.append({plusSupplementMap.value(productId), true});
-            matchTier = 2;
-        } else {
-            const QString entitlementStableKey = ps5CloudProductIdStableKey(entitlementId);
-            if (!entitlementStableKey.isEmpty() && !skipStableDemo
-                && browseStableKey.contains(entitlementStableKey)) {
-                matches.append({browseStableKey.value(entitlementStableKey), false});
-                matchTier = 3;
-            } else if (!entitlementStableKey.isEmpty() && !skipStableDemo
-                       && supplementStableKey.contains(entitlementStableKey)) {
-                matches.append({supplementStableKey.value(entitlementStableKey), true});
-                matchTier = 3;
-            }
-        }
-
-        if (matches.isEmpty()) {
-            QSet<QString> seenProductIds;
-            for (const QString &siblingId :
-                 crossReferenceState.componentIdsByProductId.value(productId)) {
-                QJsonObject siblingMeta;
-                bool siblingFromSupplement = false;
-                if (cloudCatalogMap.contains(siblingId)) {
-                    siblingMeta = cloudCatalogMap.value(siblingId);
-                } else if (plusSupplementMap.contains(siblingId)) {
-                    siblingMeta = plusSupplementMap.value(siblingId);
-                    siblingFromSupplement = true;
-                } else {
-                    const QString siblingStableKey = ps5CloudProductIdStableKey(siblingId);
-                    if (!siblingStableKey.isEmpty() && !skipStableDemo) {
-                        if (browseStableKey.contains(siblingStableKey)) {
-                            siblingMeta = browseStableKey.value(siblingStableKey);
-                        } else if (supplementStableKey.contains(siblingStableKey)) {
-                            siblingMeta = supplementStableKey.value(siblingStableKey);
-                            siblingFromSupplement = true;
-                        }
-                    }
-                }
-                if (siblingMeta.isEmpty())
-                    continue;
-                const QString matchedPid =
-                    siblingMeta.value(QStringLiteral("productId")).toString();
-                if (matchedPid.isEmpty() || seenProductIds.contains(matchedPid))
-                    continue;
-                seenProductIds.insert(matchedPid);
-                matches.append({siblingMeta, siblingFromSupplement});
-            }
-            if (!matches.isEmpty())
-                matchTier = 4;
-        }
-
-        if (matches.isEmpty())
-            continue;
-
-        switch (matchTier) {
-        case 1: t1Count++; break;
-        case 2: t2Count++; break;
-        case 3: t3Count++; break;
-        case 4: t4Count++; break;
-        default: break;
-        }
-
-        for (const QPair<QJsonObject, bool> &match : matches) {
-            const QJsonObject meta = match.first;
-            const bool fromSupplement = match.second;
+        // Enrich the owned entitlement with a matched catalog row and dedupe it into ownedByKey, in
+        // OUR field convention (catalogProductId = streamable catalog variant, productId = owned
+        // product, conceptId+PLATFORM dedupe, canonical-entitlement rank). Called once for a direct
+        // match, or once per component for a bundle (upstream PR #15 bundle-sibling expansion).
+        auto emitOwned = [&](const QJsonObject &meta, bool fromSupplement) {
             QJsonObject entry = ownedGameObj;
-
             if (meta.contains(QStringLiteral("name"))) {
                 const QString imagicName = meta.value(QStringLiteral("name")).toString();
                 if (!imagicName.isEmpty())
@@ -2378,48 +2689,202 @@ void CloudCatalogBackend::processCrossReferenceComplete()
             if (meta.contains(QStringLiteral("conceptUrl"))) {
                 entry.insert(QStringLiteral("conceptUrl"), meta.value(QStringLiteral("conceptUrl")));
             }
-            // Identify the owned entry by the MATCHED CATALOG ROW (productId +
-            // conceptId) so the QML merge (findPs5CloudCatalogIndexForOwned) can
-            // link it back to the catalog card. Using the entitlement's bundle
-            // product_id here breaks T3/T4 matches whose entitlement id/product_id
-            // do not equal any catalog productId (e.g. RE7 base reached via the
-            // RE7 Gold bundle). The entitlement product_id is retained as
-            // storeProductId for streaming/store lookups.
-            const QString catalogProductId = meta.value(QStringLiteral("productId")).toString();
-            entry.insert(QStringLiteral("productId"),
-                         !catalogProductId.isEmpty() ? catalogProductId : productId);
-            entry.insert(QStringLiteral("storeProductId"), productId);
-
-            // conceptId may be a JSON number or string; normalize to a string.
-            const QJsonValue conceptVal = meta.value(QStringLiteral("conceptId"));
-            const QString conceptId = conceptVal.isString()
-                ? conceptVal.toString()
-                : (conceptVal.isDouble()
-                       ? QString::number(static_cast<qint64>(conceptVal.toDouble()))
-                       : QString());
-            if (!conceptId.isEmpty())
-                entry.insert(QStringLiteral("conceptId"), conceptId);
+            // Carry the catalog device list so the UI can tell PS4 from PS5 and route PS4 via Kamaji.
+            if (meta.contains(QStringLiteral("device"))) {
+                entry.insert(QStringLiteral("device"), meta.value(QStringLiteral("device")));
+            }
+            // Cloud streaming binds to the catalog product variant (carries the PS Plus streaming
+            // offer), not the owned download product (e.g. God of War owned ...GODOFWAR vs catalog
+            // ...GODOFWARN). Keep the catalog productId so PS4 streaming converts the right variant.
+            const QString metaProductId = meta.value(QStringLiteral("productId")).toString();
+            if (!metaProductId.isEmpty())
+                entry.insert(QStringLiteral("catalogProductId"), metaProductId);
+            entry.insert(QStringLiteral("productId"), productId);
             entry.insert(QStringLiteral("streamingSupported"), !fromSupplement);
 
-            // Dedupe by the MATCHED CATALOG identity (conceptId, then catalog
-            // productId). Using the entitlement product_id here collapses every
-            // bundle sibling (e.g. RE7 Gold -> RE7 base + Village) into a single
-            // entry, dropping all but the first match.
-            const QString dedupeKey = !conceptId.isEmpty() ? QStringLiteral("c:") + conceptId
-                                    : !catalogProductId.isEmpty() ? QStringLiteral("p:") + catalogProductId
+            const QString conceptId = ps5CloudConceptIdString(meta.value(QStringLiteral("conceptId")));
+            if (!conceptId.isEmpty())
+                entry.insert(QStringLiteral("conceptId"), conceptId);
+            // Dedupe identity = conceptId + PLATFORM (the catalog edition key): a cross-gen title
+            // owned on PS4 and PS5 stays as two cards; same-platform SKUs (bonus/avatars) merge.
+            const QString platformToken = ps5CloudPlatformToken(productId);
+            const QString dedupeKey = !conceptId.isEmpty() ? QStringLiteral("c:") + conceptId + QLatin1Char(':') + platformToken
+                                    : !productId.isEmpty() ? QStringLiteral("p:") + productId
                                     : !entitlementId.isEmpty() ? QStringLiteral("e:") + entitlementId
-                                    : QStringLiteral("u:") + catalogProductId + QLatin1Char(':') + entitlementId;
-
+                                    : QStringLiteral("u:") + productId + QLatin1Char(':') + entitlementId;
             if (ownedByKey.contains(dedupeKey)) {
                 const QJsonObject existing = ownedByKey.value(dedupeKey);
-                const QString existingEntId = existing.value(QStringLiteral("id")).toString();
-                if (existingEntId.isEmpty() && !entitlementId.isEmpty())
+                // Keep the best streaming candidate: the canonical full-game entitlement (its
+                // product_id is the real streamable game, not a DLC/bonus product Gaikai rejects).
+                if (ps5CloudOwnedStreamRank(entry) > ps5CloudOwnedStreamRank(existing))
                     ownedByKey.insert(dedupeKey, entry);
             } else {
                 ownedByKey.insert(dedupeKey, entry);
             }
             matchedCount++;
+        };
+
+        QJsonObject meta;
+        bool found = false;
+        bool fromSupplement = false;
+
+        if (!productId.isEmpty() && cloudCatalogMap.contains(productId)) {
+            meta = cloudCatalogMap.value(productId);
+            found = true;
+            productIdMatchCount++;
+        } else if (!entitlementId.isEmpty() && cloudCatalogMap.contains(entitlementId)) {
+            meta = cloudCatalogMap.value(entitlementId);
+            found = true;
+            entitlementIdMatchCount++;
+        } else if (!ownedConceptId.isEmpty() && browseByConcept.contains(ownedConceptId)) {
+            meta = browseByConcept.value(ownedConceptId);
+            found = true;
+            conceptIdBrowseMatchCount++;
+        } else if (!ownedConceptId.isEmpty() && supplementByConcept.contains(ownedConceptId)) {
+            meta = supplementByConcept.value(ownedConceptId);
+            found = true;
+            fromSupplement = true;
+            conceptIdSupplementMatchCount++;
+        } else if (!productId.isEmpty() && !entitlementId.isEmpty()
+                   && entitlementId == productId && plusSupplementMap.contains(productId)) {
+            meta = plusSupplementMap.value(productId);
+            found = true;
+            fromSupplement = true;
+            supplementMatchCount++;
+        } else if (!stableKey.isEmpty() && !skipStableDemo && browseStableKey.contains(stableKey)) {
+            meta = browseStableKey.value(stableKey);
+            found = true;
+            stableKeyBrowseMatchCount++;
+        } else if (!stableKey.isEmpty() && !skipStableDemo
+                   && supplementStableKey.contains(stableKey)) {
+            meta = supplementStableKey.value(stableKey);
+            found = true;
+            fromSupplement = true;
+            stableKeySupplementMatchCount++;
+        } else if (!entStableKey.isEmpty() && !skipStableDemo && browseStableKey.contains(entStableKey)) {
+            // Stable-key match on the ENTITLEMENT id (upstream PR #15): catches cross-gen / upgrade
+            // entitlement ids whose stable key matches a catalog row even when product_id did not.
+            meta = browseStableKey.value(entStableKey);
+            found = true;
+            stableKeyBrowseMatchCount++;
+        } else if (!entStableKey.isEmpty() && !skipStableDemo && supplementStableKey.contains(entStableKey)) {
+            meta = supplementStableKey.value(entStableKey);
+            found = true;
+            fromSupplement = true;
+            stableKeySupplementMatchCount++;
         }
+
+        if (found) {
+            emitOwned(meta, fromSupplement);
+            continue;
+        }
+
+        // Bundle-sibling expansion (upstream PR #15): a bundle entitlement (e.g. RE7 Gold) has no
+        // direct catalog row, but its component entitlement ids each map to a component game. Emit
+        // each distinct component as its own owned entry (via emitOwned, so OUR dedupe/rank apply).
+        QStringList seenMetaPids;
+        for (const QString &siblingId : crossReferenceState.componentIdsByProductId.value(productId)) {
+            QJsonObject siblingMeta;
+            bool siblingFromSupplement = false;
+            if (cloudCatalogMap.contains(siblingId)) {
+                siblingMeta = cloudCatalogMap.value(siblingId);
+            } else if (plusSupplementMap.contains(siblingId)) {
+                siblingMeta = plusSupplementMap.value(siblingId);
+                siblingFromSupplement = true;
+            } else {
+                const QString siblingStableKey = ps5CloudProductIdStableKey(siblingId);
+                if (!siblingStableKey.isEmpty() && !skipStableDemo) {
+                    if (browseStableKey.contains(siblingStableKey)) {
+                        siblingMeta = browseStableKey.value(siblingStableKey);
+                    } else if (supplementStableKey.contains(siblingStableKey)) {
+                        siblingMeta = supplementStableKey.value(siblingStableKey);
+                        siblingFromSupplement = true;
+                    }
+                }
+            }
+            if (siblingMeta.isEmpty())
+                continue;
+            const QString siblingPid = siblingMeta.value(QStringLiteral("productId")).toString();
+            if (siblingPid.isEmpty() || seenMetaPids.contains(siblingPid))
+                continue;
+            seenMetaPids.append(siblingPid);
+            emitOwned(siblingMeta, siblingFromSupplement);
+        }
+    }
+
+    // Disc-upgrade rescue. feature_type 5 marks a PS4-disc -> PS5 *disc upgrade* license; Gaikai
+    // refuses to cloud-stream it ("disc-upgrade-unsupported"). The browse catalog often binds a
+    // concept to exactly that SKU (e.g. Horizon Forbidden West concept 10000886 -> PPSA01521), while
+    // the user's streamable full-game entitlement is a DIFFERENT title id (e.g. Complete Edition
+    // PPSA17903) that is absent from the catalog and carries no conceptId -- so the cross-reference
+    // never matches it and only the disc-upgrade SKU survives the dedupe. When a concept winner is a
+    // disc upgrade, adopt the product id of a same-name full-game (feature_type 3) owned SKU so the
+    // card streams the edition Gaikai accepts.
+    //
+    // Entitlements carry no conceptId (the commerce API omits it) and the disc-upgrade SKU shares no
+    // id/sku with the real edition, so the only in-data bridge is the title name. To keep that safe:
+    //   - SAME PLATFORM only (a PS5/PPSA disc upgrade must never pull in a PS4/CUSA SKU of a
+    //     same-named game),
+    //   - prefer the CANONICAL base game (product_id == entitlement id, i.e. not a bundle/add-on SKU),
+    //   - and BAIL on genuine ambiguity (two distinct base games sharing one name) rather than guess.
+    auto normalizeTitle = [](const QString &raw) {
+        return raw.toLower().remove(QChar(0x2122)).remove(QChar(0x00AE)).remove(QChar(0x2120)).simplified();
+    };
+    for (auto it = ownedByKey.begin(); it != ownedByKey.end(); ++it) {
+        QJsonObject entry = it.value();
+        if (entry.value(QStringLiteral("feature_type")).toInt() != 5)
+            continue;
+        const QString discPid = entry.value(QStringLiteral("product_id")).toString();
+        const QString discPlatform = ps5CloudPlatformToken(discPid);
+        const QString discName = normalizeTitle(entry.value(QStringLiteral("game_meta")).toObject()
+                                                     .value(QStringLiteral("name")).toString());
+        if (discName.isEmpty())
+            continue;
+        QStringList canonicalPids; // base-game SKUs (product_id == entitlement id)
+        QStringList otherPids;     // non-canonical full-game SKUs (bundle/edition products)
+        for (const QJsonValue &candVal : crossReferenceState.ownedGames) {
+            if (!candVal.isObject())
+                continue;
+            const QJsonObject cand = candVal.toObject();
+            // Require a standard digital full game (feature_type 3) -- not another disc upgrade,
+            // DLC/add-on (ft 0) or trial (ft 1) -- whose name matches the disc-upgrade title.
+            if (cand.value(QStringLiteral("feature_type")).toInt() != 3)
+                continue;
+            const QString candName = normalizeTitle(cand.value(QStringLiteral("game_meta")).toObject()
+                                                        .value(QStringLiteral("name")).toString());
+            if (candName != discName)
+                continue;
+            const QString candPid = cand.value(QStringLiteral("product_id")).toString();
+            if (candPid.isEmpty() || candPid == discPid)
+                continue;
+            if (ps5CloudPlatformToken(candPid) != discPlatform)
+                continue; // never cross platforms (PS5 disc upgrade must not resolve to a PS4 SKU)
+            const QString candId = cand.value(QStringLiteral("id")).toString();
+            if (candPid == candId) {
+                if (!canonicalPids.contains(candPid)) canonicalPids.append(candPid);
+            } else {
+                if (!otherPids.contains(candPid)) otherPids.append(candPid);
+            }
+        }
+        // A single canonical base game wins; else a single non-canonical full game; else bail.
+        QString replacementPid;
+        if (canonicalPids.size() == 1)
+            replacementPid = canonicalPids.first();
+        else if (canonicalPids.isEmpty() && otherPids.size() == 1)
+            replacementPid = otherPids.first();
+        if (replacementPid.isEmpty()) {
+            if (!canonicalPids.isEmpty() || !otherPids.isEmpty())
+                qWarning() << "[CROSS-REF] disc-upgrade rescue: ambiguous full-game candidates for"
+                           << discName << "canonical=" << canonicalPids << "other=" << otherPids
+                           << "-- leaving disc-upgrade SKU in place";
+            continue;
+        }
+        entry.insert(QStringLiteral("product_id"), replacementPid);
+        entry.insert(QStringLiteral("productId"), replacementPid);
+        entry.insert(QStringLiteral("catalogProductId"), replacementPid);
+        it.value() = entry;
+        qInfo() << "[CROSS-REF] disc-upgrade rescue:" << discName << ":" << discPid
+                << "-> streamable" << replacementPid;
     }
 
     for (const QJsonObject &gameObj : ownedByKey)
@@ -2427,10 +2892,13 @@ void CloudCatalogBackend::processCrossReferenceComplete()
 
     if (settings && settings->GetLogVerbose()) {
         qInfo() << "[CROSS-REF] Matched games (cloud streamable):" << matchedCount;
-        qInfo() << "[CROSS-REF]   T1 (product_id):" << t1Count;
-        qInfo() << "[CROSS-REF]   T2 (entitlement id):" << t2Count;
-        qInfo() << "[CROSS-REF]   T3 (stable key on id):" << t3Count;
-        qInfo() << "[CROSS-REF]   T4 (bundle siblings):" << t4Count;
+        qInfo() << "[CROSS-REF]   By product_id:" << productIdMatchCount;
+        qInfo() << "[CROSS-REF]   By entitlement id (fallback):" << entitlementIdMatchCount;
+        qInfo() << "[CROSS-REF]   By Plus library supplement:" << supplementMatchCount;
+        qInfo() << "[CROSS-REF]   By conceptId (browse):" << conceptIdBrowseMatchCount;
+        qInfo() << "[CROSS-REF]   By conceptId (supplement):" << conceptIdSupplementMatchCount;
+        qInfo() << "[CROSS-REF]   By stable product id key (browse):" << stableKeyBrowseMatchCount;
+        qInfo() << "[CROSS-REF]   By stable product id key (supplement):" << stableKeySupplementMatchCount;
     }
 
     QJsonObject result;
@@ -2457,8 +2925,8 @@ void CloudCatalogBackend::processCrossReferenceComplete()
 void CloudCatalogBackend::invalidatePs5CatalogCache()
 {
     for (const QString &key :
-         {QStringLiteral("ps5_cloud_catalog_v3"), QStringLiteral("ps5_cloud_catalog_v2"),
-          QStringLiteral("ps5_cloud_catalog")}) {
+         {QStringLiteral("ps5_cloud_catalog_v6"), QStringLiteral("ps5_cloud_catalog_v5"), QStringLiteral("ps5_cloud_catalog_v4"), QStringLiteral("ps5_cloud_catalog_v3"),
+          QStringLiteral("ps5_cloud_catalog_v2"), QStringLiteral("ps5_cloud_catalog")}) {
         const QString path = getCacheFilePath(key);
         if (QFile::exists(path)) {
             QFile::remove(path);
@@ -2471,7 +2939,7 @@ void CloudCatalogBackend::invalidateCache()
 {
     // Invalidate specific cache files (PSNOW, PS5 cloud catalog, and PS5 cloud library)
     QString psnowPath = getCacheFilePath("psnow_catalog");
-    QString ps5CatalogPath = getCacheFilePath("ps5_cloud_catalog_v3");
+    QString ps5CatalogPath = getCacheFilePath("ps5_cloud_catalog_v6");
     QString ps5CatalogV2Path = getCacheFilePath("ps5_cloud_catalog_v2");
     QString ps5LibraryPath = getCacheFilePath("ps5_cloud_library");
     

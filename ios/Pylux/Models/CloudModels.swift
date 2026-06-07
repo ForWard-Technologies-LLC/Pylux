@@ -19,11 +19,14 @@ struct CloudGame: Identifiable, Hashable {
     var isOwned: Bool        // Whether user owns this game (PS5)
     var entitlementId: String   // PSCloud: entitlement id for streaming (Qt gameData.id)
     var storeProductId: String  // PSCloud: product_id from entitlements API
+    var plusCatalog: Bool    // In the PS Plus subscription catalog (vs the full streamable universe)
+    var featureType: Int     // PSN entitlement feature_type (owned games): 3=full game, 1=trial/free, 0=add-on
 
     init(productId: String, name: String, imageUrl: String, landscapeImageUrl: String = "",
          platform: String = "ps4", serviceType: String = "psnow",
          conceptUrl: String = "", conceptId: String = "", isOwned: Bool = false,
-         entitlementId: String = "", storeProductId: String = "") {
+         entitlementId: String = "", storeProductId: String = "", plusCatalog: Bool = false,
+         featureType: Int = 0) {
         self.id = productId
         self.name = name
         self.imageUrl = imageUrl
@@ -35,15 +38,49 @@ struct CloudGame: Identifiable, Hashable {
         self.isOwned = isOwned
         self.entitlementId = entitlementId
         self.storeProductId = storeProductId
+        self.plusCatalog = plusCatalog
+        self.featureType = featureType
     }
 
-    /// Mirrors CloudGameCard.qml getStreamingIdentifier() for PSCloud.
+    /// Mirrors CloudGameCard.qml getStreamingIdentifier() for PSCloud. Stream the owned PRODUCT id
+    /// (storeProductId), NOT the entitlement id: for cross-gen titles you upgraded, Sony's entitlement
+    /// id is the stale ORIGINAL SKU (Alan Wake's old CUSA license; Death Stranding's pre-DC SKU) that
+    /// Gaikai's cloud catalog has no game for -> noGameForEntitlementId. product_id is the current SKU.
     var streamingIdentifier: String {
         if serviceType.lowercased() == "pscloud" {
-            if !entitlementId.isEmpty { return entitlementId }
             if !storeProductId.isEmpty { return storeProductId }
+            if !entitlementId.isEmpty { return entitlementId }
         }
         return id
+    }
+
+    // A PlayStation title id encodes its platform: CUSAxxxxx = PS4, PPSAxxxxx = PS5. This is
+    // more reliable than the catalog device list, and decides the streaming path: PS4 goes
+    // through Kamaji (psnow) to acquire the streaming entitlement, PS5 streams directly (pscloud).
+    var streamPlatform: String {
+        // Prefer the OWNED product id (storeProductId): for a cross-gen title you upgraded, the catalog
+        // `id` may be the OTHER generation (Alan Wake's catalog entry is PS4 CUSA, but you own the PS5
+        // PPSA), and the owned product is what decides the streaming path.
+        let p = !storeProductId.isEmpty ? storeProductId : (!id.isEmpty ? id : entitlementId)
+        if p.contains("PPSA") { return "ps5" }
+        if p.contains("CUSA") { return "ps4" }
+        return platform.isEmpty ? "ps5" : platform
+    }
+
+    /// Service type to stream with: real legacy PS Now games stay psnow; otherwise route by the
+    /// title-id platform (PS4 catalog titles need the Kamaji acquire-flow, PS5 stays direct).
+    var streamServiceType: String {
+        if serviceType.lowercased() == "psnow" { return "psnow" }
+        return streamPlatform == "ps4" ? "psnow" : "pscloud"
+    }
+
+    /// Identifier to send to startCompleteCloudSession: PS4/psnow sends the product id (Kamaji
+    /// converts it to an entitlement); PS5/pscloud sends the owned entitlement id (direct).
+    var streamIdentifier: String {
+        if streamServiceType == "psnow" {
+            return id.isEmpty ? streamingIdentifier : id
+        }
+        return streamingIdentifier
     }
 }
 
@@ -135,6 +172,39 @@ enum CloudApiConstants {
     static let accountBase = "https://ca.account.sony.com/api"
 }
 
+// MARK: - PS3 / Classics region (mirrors KamajiConsts in gui/include/cloudstreaming/pskamajisession.h)
+
+/// pcnow (the PS Plus PC "Apollo" backend) has only TWO Classics id families:
+///   * SCEA / Americas  -> store MSF192018, US-region ids (UP*/NPUA*/BLUS*),
+///                         PS3 child container "APOLLOPS3GAMES"
+///   * SCEE / PAL (rest) -> store MSF192014, EU-region ids (EP*/NPEA*/NPEB*/BLES*),
+///                         PS3 child container "APOLLOPS3"
+/// JP / Asia have no Apollo store (the PC app isn't offered there), so they fall back to
+/// PAL. A PS Plus account is authorized at Gaikai only for the id family of its own region
+/// group, so we must browse + resolve in the account's group.
+enum ClassicsRegion {
+    private static let americas: Set<String> = [
+        "US", "CA", "MX", "BR", "AR", "CL", "CO", "PE", "EC", "BO",
+        "PY", "UY", "CR", "GT", "HN", "NI", "PA", "SV", "DO"
+    ]
+
+    static func isAmericasClassicsRegion(_ countryCode: String) -> Bool {
+        return americas.contains(countryCode.uppercased())
+    }
+
+    /// Country path to use for container/conversion calls (US for Americas, GB for PAL).
+    static func classicsStoreCountry(_ accountCountry: String) -> String {
+        return isAmericasClassicsRegion(accountCountry) ? "US" : "GB"
+    }
+
+    /// Fully-qualified PS3 catalog container id for the account's region group.
+    static func classicsPs3ContainerId(_ accountCountry: String) -> String {
+        return isAmericasClassicsRegion(accountCountry)
+            ? "STORE-MSF192018-APOLLOPS3GAMES"
+            : "STORE-MSF192014-APOLLOPS3"
+    }
+}
+
 // MARK: - Gaikai Allocation Result
 
 struct GaikaiAllocationResult {
@@ -191,6 +261,26 @@ enum CloudLocaleSettings {
         return (country, lang)
     }
 
+    /// Ordered store locales to try when fetching the catalog. Sony serves a fixed set of
+    /// language-COUNTRY combinations: the country is always valid but the language may not be
+    /// (a Hungarian-language account yields "hu-HU", which 404s, while "en-HU" works). Fall
+    /// back to English for the same country, then en-US, so the catalog loads in every region.
+    /// Each tuple is (canonical "ll-CC" for storage, lowercased "ll-cc" for the imagic URL).
+    static func fallbackChain() -> [(canonical: String, imagic: String)] {
+        let (country, lang) = parseStorePath(stored)
+        var seen = Set<String>()
+        var chain: [(String, String)] = []
+        func add(_ l: String, _ c: String) {
+            let canonical = "\(l)-\(c)"
+            let imagic = canonical.lowercased()
+            if seen.insert(imagic).inserted { chain.append((canonical, imagic)) }
+        }
+        add(lang, country)
+        add("en", country)
+        add("en", "US")
+        return chain
+    }
+
     static func fromSession(language: String?, country: String?) -> String? {
         let lang = language?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let cty = country?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -204,10 +294,18 @@ enum CloudLocaleSettings {
                    "Kamaji session: no language/country in response (stored=%{public}s)", stored)
             return
         }
-        if isConfigured && locale == stored {
-            os_log(.info, log: cloudLocaleLog,
-                   "Kamaji session locale unchanged: %{public}s", locale)
-            return
+        if isConfigured {
+            // The country is the real region signal; the language part may get auto-corrected
+            // by the imagic fetch (e.g. hu-HU settles on en-HU). Only re-save when the country
+            // changes, otherwise we'd clobber the validated locale on every Kamaji session.
+            let storedCountry = parseStorePath(stored).country
+            let sessionCountry = parseStorePath(locale).country
+            if storedCountry == sessionCountry {
+                os_log(.info, log: cloudLocaleLog,
+                       "Kamaji session country unchanged (%{public}s), keeping validated locale %{public}s",
+                       sessionCountry, stored)
+                return
+            }
         }
         setStored(locale)
     }

@@ -16,11 +16,18 @@ Rectangle {
     property string cachedImageUrl: ""
     property string libraryFilter: "owned" // "owned" or "all" or "favorites" - filter mode for Game Library
     property var qrCodeDialog: null // Reference to QR code dialog
+    // In the modern PS Plus catalog (imagic; isPsnow=false) a game you don't own can't be streamed
+    // until it's added to your library: Gaikai rejects an unowned PS5 entitlement, and the legacy
+    // Kamaji $0-acquire only works for the old PS Now free-SKU titles, not modern Extra/Premium ones
+    // (e.g. Far Cry 5's streaming SKU is paid, so the acquire 500s). So ANY non-owned catalog game
+    // shows "Add Game" (QR to the store / Add-to-Library); owned games stream directly. Legacy
+    // PS Now browse cards (isPsnow) keep one-click Stream — free streaming is the PS Now model.
+    readonly property bool needsAddToLibrary: !isPsnow && gameData && !gameData.isOwned
     property bool isFavorite: false // Whether this game is favorited
     
     // Steam library shortcut: only when Steamworks build + Steam client (same gate as createCloudSteamShortcut usefulness)
     readonly property bool showCloudSteamShortcut: Chiaki.cloudSteamShortcutEnabled
-        && !(!isPsnow && libraryFilter === "all" && gameData && !gameData.isOwned)
+        && !needsAddToLibrary
     
     signal streamGame(string productId, string platform, string serviceType)
     signal createShortcut(string productId, string entitlementId, string platform, string serviceType, string gameName)
@@ -78,16 +85,23 @@ Rectangle {
     // Get the identifier to use for streaming (entitlement ID for PSCloud, product ID for PSNOW)
     function getStreamingIdentifier() {
         if (!gameData) return "";
-        if (isPsnow) {
-            // PSNOW: use product ID (will be converted to entitlement ID by Kamaji)
-            return getProductId();
-        } else {
-            // PSCloud: use entitlement ID (the 'id' field), fallback to product_id if id doesn't exist
-            if (gameData.id) return gameData.id; // Entitlement ID for PSCloud library games
-            if (gameData.product_id) return gameData.product_id; // Fallback
-            if (gameData.productId) return gameData.productId; // Fallback for catalog games
-            return "";
+        if (isPsnow) return getProductId(); // legacy PS Now browse catalog
+        if (streamPlatform() === "ps4") {
+            // PS4 catalog: send the CUSA product id; Kamaji converts it and acquires the
+            // streaming entitlement via PS Plus (PS4 store containers expose the entitlement).
+            let p = streamProductId();
+            return p !== "" ? p : getProductId();
         }
+        // PS5: stream the owned PRODUCT id via the direct Gaikai path -- NOT the entitlement `id`.
+        // For cross-gen titles you upgraded (PS4 purchase + free PS5 copy), Sony's entitlement id
+        // is the stale ORIGINAL SKU (e.g. Alan Wake Remastered's old CUSA24653 license; Death
+        // Stranding's pre-Director's-Cut PPSA02624 SKU). Gaikai's cloud catalog has no game mapped
+        // to that stale id -> noGameForEntitlementId. The owned product_id is the current streamable
+        // PS5 SKU (Alan Wake -> PPSA01925; Death Stranding DC -> PPSA01968), which Gaikai accepts.
+        if (gameData.product_id) return gameData.product_id;
+        if (gameData.productId) return gameData.productId;
+        if (gameData.id) return gameData.id;
+        return "";
     }
     
     function getPlatform() {
@@ -120,12 +134,33 @@ Rectangle {
             }
             return "ps4";
         } else {
-            return "ps5";
+            return streamPlatform();
         }
     }
-    
+
+    // The product id to stream. Cloud streaming binds to the *catalog* product variant (the
+    // streamable representative, e.g. God of War's ...GODOFWARN or Alan Wake's PS5 PPSA id),
+    // not the user's owned download/trial/cross-gen entitlement — so prefer catalogProductId.
+    function streamProductId() {
+        if (!gameData) return "";
+        return gameData.catalogProductId || gameData.product_id || gameData.productId || gameData.id || "";
+    }
+
+    // Platform to stream, from the chosen product's title id: CUSAxxxxx = PS4, PPSAxxxxx = PS5.
+    // This drives the streaming path (PS4 = kratos, PS5 = cronos); both go through the Kamaji
+    // acquire-flow. More reliable than the catalog "device" list (cross-gen titles list both)
+    // or whichever entitlement the user owns. Defaults to PS5 (the modern catalog).
+    function streamPlatform() {
+        let p = String(streamProductId());
+        if (p.indexOf("PPSA") !== -1) return "ps5";
+        if (p.indexOf("CUSA") !== -1) return "ps4";
+        return "ps5";
+    }
+
     function getServiceType() {
-        return isPsnow ? "psnow" : "pscloud";
+        if (isPsnow) return "psnow"; // legacy PS Now browse catalog
+        // serviceType selects the Gaikai spec/consts/virtType: psnow = PS4/kratos, pscloud = PS5/cronos.
+        return (streamPlatform() === "ps4") ? "psnow" : "pscloud";
     }
     
     function getImageUrl() {
@@ -308,8 +343,8 @@ Rectangle {
                 height: 22
                 radius: 4
                 color: gameData && gameData.isOwned ? "#4CAF50" : "#FF9800"
-                visible: !isPsnow && libraryFilter === "all"
-                
+                visible: !isPsnow && (libraryFilter === "all" || libraryFilter === "catalog")
+
                 Label {
                     id: ownedLabel
                     anchors.centerIn: parent
@@ -416,7 +451,7 @@ Rectangle {
                         console.log("[CloudGameCard] qrCodeDialog:", qrCodeDialog);
                         
                         // Check if this is a non-owned game in "All" filter mode
-                        if (!isPsnow && libraryFilter === "all" && gameData && !gameData.isOwned) {
+                        if (needsAddToLibrary) {
                             console.log("[CloudGameCard] Condition met for QR code - showing dialog");
                             // Show QR code dialog with conceptUrl
                             let conceptUrl = gameData.conceptUrl || gameData.concept_url;
@@ -451,7 +486,7 @@ Rectangle {
                 Label {
                     anchors.centerIn: parent
                     text: {
-                        if (!isPsnow && libraryFilter === "all" && gameData && !gameData.isOwned) {
+                        if (needsAddToLibrary) {
                             return qsTr("Add Game")
                         }
                         return qsTr("Stream Game")
@@ -531,7 +566,7 @@ Rectangle {
         // Cross/A button (Enter/Space) - Stream game or show QR code
         if (event.key === Qt.Key_Return || event.key === Qt.Key_Space || event.key === Qt.Key_Enter) {
             // Check if this is a non-owned game in "All" filter mode
-            if (!isPsnow && libraryFilter === "all" && gameData && !gameData.isOwned) {
+            if (needsAddToLibrary) {
                 // Show QR code dialog with conceptUrl
                 let conceptUrl = gameData.conceptUrl || gameData.concept_url;
                 if (conceptUrl && qrCodeDialog) {

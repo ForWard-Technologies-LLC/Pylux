@@ -131,109 +131,58 @@ void CloudStreamingBackend::continueCloudSessionAfterAuth(QString serviceType, Q
         oauthApiPath = "/v1";  // ACCOUNT_BASE already includes /api
     }
     
-    // Determine ChiakiTarget (device/console type used by Chiaki core).
-    // PSCLOUD should be treated as PS5.
-    // PSNOW target will be determined after platform is detected from API response.
-    ChiakiTarget target;
-    if (serviceType == "pscloud") {
-        target = CHIAKI_TARGET_PS5_1;
-    } else { // psnow - will be updated based on detected platform
-        target = CHIAKI_TARGET_PS4_9; // Default, will be updated if PS3 is detected
-    }
-    
+    // ChiakiTarget (console type for the Chiaki core). PSCLOUD = PS5; PSNOW refined after the
+    // Kamaji platform detection.
+    ChiakiTarget target = (serviceType == "pscloud") ? CHIAKI_TARGET_PS5_1 : CHIAKI_TARGET_PS4_9;
     qInfo() << "Using DUID:" << sharedDuid;
-    qInfo() << "Determined ChiakiTarget:" << target;
-    
-    // For PSNOW: Create Kamaji session handler (Steps 0.5a-0.5d)
-    // For PSCLOUD: Skip Kamaji entirely
-    PSKamajiSession *kamajiSession = nullptr;
-    QString finalEntitlementId = gameIdentifier;
-    
+
+    // PS4 / PS3 (PSNOW) titles go through a Kamaji session: the PS4 store container exposes the
+    // streaming/full-game entitlement, which Kamaji converts and acquires via PS Plus.
+    // PS5 (PSCLOUD) titles skip Kamaji: PS5 store containers carry NO entitlements/skus to
+    // convert, so we stream the owned entitlement id directly via Gaikai (cronos).
     if (serviceType == "psnow") {
         qInfo() << "=== PSNOW Flow: Starting Kamaji Session ===";
-        // Create Kamaji session with productId (will be converted to entitlementId)
-        // Platform will be automatically detected from the API response
-        kamajiSession = new PSKamajiSession(
-            settings,
-            sharedDuid,
-            gameIdentifier, // productId for PSNOW
-            CloudConfig::ACCOUNT_BASE,
-            redirectUri,
-            userAgent,
-            this
-        );
-        
-        // When Kamaji completes, continue to Gaikai allocation
-        // Connect PS Plus subscription error signal
+        PSKamajiSession *kamajiSession = new PSKamajiSession(
+            settings, sharedDuid, gameIdentifier, CloudConfig::ACCOUNT_BASE,
+            KamajiConsts::REDIRECT_URI, KamajiConsts::USER_AGENT, this);
+
         connect(kamajiSession, &PSKamajiSession::psPlusSubscriptionError, this, [this]() {
             QmlBackend *qmlBackend = qobject_cast<QmlBackend*>(parent());
-            if (qmlBackend) {
-                qmlBackend->setShowPSPlusSubscriptionDialog(true);
-            }
+            if (qmlBackend) qmlBackend->setShowPSPlusSubscriptionDialog(true);
         });
-        
-        // Connect account privacy settings error signal
         connect(kamajiSession, &PSKamajiSession::accountPrivacySettingsError, this, [this](QString upgradeUrl) {
-            qInfo() << "Account privacy settings error - URL:" << upgradeUrl;
             QmlBackend *qmlBackend = qobject_cast<QmlBackend*>(parent());
             if (qmlBackend) {
                 qmlBackend->setAccountPrivacyUpgradeUrl(upgradeUrl);
                 qmlBackend->setShowAccountPrivacySettingsDialog(true);
-                qInfo() << "Dialog triggered with URL length:" << upgradeUrl.length();
             }
         });
-        
-        connect(kamajiSession, &PSKamajiSession::sessionComplete, this, 
-                [this, kamajiSession, callback, sharedDuid, serviceType, gameIdentifier, target, redirectUri, userAgent, oauthApiPath](bool success, QString message, QString entitlementId) {
+        connect(kamajiSession, &PSKamajiSession::sessionComplete, this,
+                [this, kamajiSession, callback, sharedDuid, serviceType, target, redirectUri, userAgent, oauthApiPath](bool success, QString message, QString entitlementId) {
             if (!success) {
                 qWarning() << "Kamaji session creation failed:" << message;
-                
-                // Clear game image on error
                 setGameImageUrl(QString());
-                
-                // Emit sessionError to dismiss loading screen
                 QmlBackend *qmlBackend = qobject_cast<QmlBackend*>(parent());
-                if (qmlBackend) {
-                    emit qmlBackend->sessionError(tr("Cloud Streaming Failed"), 
+                if (qmlBackend)
+                    emit qmlBackend->sessionError(tr("Cloud Streaming Failed"),
                                                  QString("Session creation failed: %1").arg(message));
-                }
-                
-                if (callback.isCallable()) {
+                if (callback.isCallable())
                     callback.call({false, QString("Session creation failed: %1").arg(message)});
-                }
                 kamajiSession->deleteLater();
                 return;
             }
-            
             qInfo() << "=== Kamaji Session Created, Starting Allocation ===";
             qInfo() << "Converted Entitlement ID:" << entitlementId;
-            
-            // Get platform from Kamaji session (detected from API response)
-            QString detectedPlatform = kamajiSession->getPlatform();
-            qInfo() << "Detected platform from Kamaji session:" << detectedPlatform;
-            
-            // Update target based on detected platform
-            ChiakiTarget platformTarget = target;
-            if (detectedPlatform == "ps3") {
-                platformTarget = CHIAKI_TARGET_PS4_9; // PS3 games use PS4 target for streaming
-            } else {
-                platformTarget = CHIAKI_TARGET_PS4_9; // PS4 games use PS4 target
-            }
-            
-            // Continue to Gaikai allocation with converted entitlementId
+            QString detectedPlatform = kamajiSession->getPlatform(); // ps4 / ps3
+            ChiakiTarget platformTarget = CHIAKI_TARGET_PS4_9; // PS4 and PS3 both stream as PS4
             startGaikaiAllocation(serviceType, detectedPlatform, entitlementId, sharedDuid,
                                   redirectUri, userAgent, oauthApiPath, platformTarget, callback, kamajiSession);
         });
-        
-        // Start the Kamaji authentication flow
         kamajiSession->startSessionCreation();
     } else {
-        // PSCLOUD: Skip Kamaji, start directly with Gaikai
-        // PSCLOUD always uses PS5 platform
-        QString ps5Platform = "ps5";
-        qInfo() << "=== PSCLOUD Flow: Skipping Kamaji, Starting Gaikai Directly ===";
-        qInfo() << "Using PS5 platform for PSCLOUD";
-        startGaikaiAllocation(serviceType, ps5Platform, finalEntitlementId, sharedDuid,
+        // PSCLOUD: stream the owned entitlement id directly (no Kamaji — PS5 containers have none).
+        qInfo() << "=== PSCLOUD Flow: Direct Gaikai (PS5), entitlement:" << gameIdentifier << "===";
+        startGaikaiAllocation(serviceType, QStringLiteral("ps5"), gameIdentifier, sharedDuid,
                               redirectUri, userAgent, oauthApiPath, target, callback, nullptr);
     }
 }

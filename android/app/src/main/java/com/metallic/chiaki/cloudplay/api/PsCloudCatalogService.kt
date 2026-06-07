@@ -124,6 +124,7 @@ class PsCloudCatalogService
 		productIdAliases: LinkedHashMap<String, String>,
 	): Int
 	{
+		val plusCatalog = isPlusCatalogList(categoryList) // subscription catalog vs all-ps5 universe
 		var rows = 0
 		for (i in 0 until jsonArray.length())
 		{
@@ -132,64 +133,80 @@ class PsCloudCatalogService
 			for (j in 0 until games.length())
 			{
 				val gameObj = games.getJSONObject(j)
-				if (!isPs5Game(gameObj))
+				// Accept PS4 and PS5; the old PS5-only gate dropped PS4-only PS-Plus-catalog
+				// titles (e.g. God of War 2018) before they could reach the supplement below.
+				if (!isCloudDeviceGame(gameObj))
 					continue
 
-				if (categoryList == "plus-games-list"
-					&& !gameObj.optBoolean("streamingSupported", false))
+				// Subscription-catalog titles with streamingSupported=false → library-stream
+				// supplement, captured from EVERY subscription list (not just plus-games-list).
+				if (plusCatalog && !gameObj.optBoolean("streamingSupported", false))
 				{
 					val productId = gameObj.optString("productId", "")
 					if (productId.isNotEmpty())
+					{
+						gameObj.put("plusCatalog", true)
 						plusSupplementByProductId.putIfAbsent(productId, gameObj)
+					}
 					continue
 				}
 
-				if (!isPs5StreamingGame(gameObj))
+				if (!isCloudStreamingGame(gameObj))
 					continue
-				val key = conceptKey(gameObj)
+				val key = editionKey(gameObj) // per game per platform (cross-gen split)
 				val productId = gameObj.optString("productId", "")
 				if (key.isEmpty() || productId.isEmpty())
 					continue
 
 				if (byConceptId.containsKey(key))
 				{
-					val canonicalProductId = byConceptId[key]?.optString("productId", "") ?: ""
+					val existing = byConceptId[key]
+					val canonicalProductId = existing?.optString("productId", "") ?: ""
 					if (canonicalProductId.isNotEmpty() && productId != canonicalProductId
 						&& !productIdAliases.containsKey(productId))
 					{
 						productIdAliases[productId] = canonicalProductId
 					}
+					// Lists fetch in parallel; upgrade the flag so subscription membership wins
+					// regardless of arrival order.
+					if (plusCatalog && existing != null && !existing.optBoolean("plusCatalog", false))
+						existing.put("plusCatalog", true)
 					continue
 				}
 
+				gameObj.put("plusCatalog", plusCatalog)
 				byConceptId[key] = gameObj
 			}
 		}
 		return rows
 	}
 
-	private fun isPs5Game(gameObj: JSONObject): Boolean
+	// PS Plus cloud streaming covers PS4 and PS5 titles (PS3 is not in these imagic lists).
+	// A PS4-only title such as God of War (2018) is streamable when owned even though it
+	// carries device ["PS4"], so the catalog must not discard it.
+	// The PS Plus subscription catalog = these curated lists (≈ what Sony lists). all-ps5-list is
+	// the full streamable universe and must NOT count as subscription catalog.
+	private fun isPlusCatalogList(categoryList: String): Boolean =
+		categoryList == "plus-games-list" || categoryList == "plus-classics-list" ||
+			categoryList == "ubisoft-classics-list" || categoryList == "plus-monthly-games-list"
+
+	private fun isCloudDeviceGame(gameObj: JSONObject): Boolean
 	{
 		val devices = gameObj.optJSONArray("device") ?: return false
 		for (i in 0 until devices.length())
 		{
-			if (devices.optString(i) == "PS5")
+			val d = devices.optString(i)
+			if (d == "PS5" || d == "PS4")
 				return true
 		}
 		return false
 	}
 
-	private fun isPs5StreamingGame(gameObj: JSONObject): Boolean
+	private fun isCloudStreamingGame(gameObj: JSONObject): Boolean
 	{
 		if (!gameObj.optBoolean("streamingSupported", false))
 			return false
-		val devices = gameObj.optJSONArray("device") ?: return false
-		for (i in 0 until devices.length())
-		{
-			if (devices.optString(i) == "PS5")
-				return true
-		}
-		return false
+		return isCloudDeviceGame(gameObj)
 	}
 
 	private fun conceptKey(gameObj: JSONObject): String
@@ -203,6 +220,23 @@ class PsCloudCatalogService
 			}
 		}
 		return gameObj.optString("productId", "")
+	}
+
+	// Platform token from a product id (CUSA = PS4, PPSA = PS5).
+	private fun ps5PlatformToken(productId: String): String = when
+	{
+		productId.contains("PPSA") -> "ps5"
+		productId.contains("CUSA") -> "ps4"
+		else -> ""
+	}
+
+	// Dedupe identity: one entry per game PER PLATFORM, so cross-gen PS4/PS5 editions (e.g. Deliver
+	// Us The Moon) both appear, while duplicate same-platform SKUs still collapse.
+	private fun editionKey(gameObj: JSONObject): String
+	{
+		val c = conceptKey(gameObj)
+		if (c.isEmpty()) return ""
+		return c + "|" + ps5PlatformToken(gameObj.optString("productId", ""))
 	}
 
 	private fun jsonToCloudGame(gameObj: JSONObject): CloudGame?
@@ -261,11 +295,12 @@ class PsCloudCatalogService
 			name = gameName,
 			imageUrl = finalCoverUrl,
 			landscapeImageUrl = finalLandscapeUrl,
-			platform = "ps5",
+			platform = ps5PlatformToken(productId).ifEmpty { "ps5" },
 			serviceType = "pscloud",
 			conceptUrl = conceptUrl,
 			conceptId = conceptKey(gameObj),
-			isOwned = false
+			isOwned = false,
+			plusCatalog = gameObj.optBoolean("plusCatalog", false)
 		)
 	}
 	
@@ -315,16 +350,17 @@ class PsCloudCatalogService
 		kotlinx.coroutines.delay(PsCloudOwnership.PAGE_COOLDOWN_MS)
 		
 		val rawEntitlements = fetchEntitlementsPaginated(oauthToken)
-		val componentIdsByProductId = HashMap<String, MutableList<String>>()
-		for (e in rawEntitlements)
-		{
-			if (e.productId.isNotEmpty() && e.id.isNotEmpty())
-				componentIdsByProductId.getOrPut(e.productId) { mutableListOf() }.add(e.id)
-		}
 		val filtered = PsCloudOwnership.filterOwnedPs5Games(rawEntitlements)
 		
+		// Map each bundle product_id -> the entitlement ids sharing it, so a bundle (e.g. RE7 Gold)
+		// expands to its component games during cross-reference (upstream PR #15 bundle-sibling match).
+		val componentIds = mutableMapOf<String, MutableList<String>>()
+		for (ent in rawEntitlements)
+			if (ent.productId.isNotEmpty() && ent.id.isNotEmpty())
+				componentIds.getOrPut(ent.productId) { mutableListOf() }.add(ent.id)
+
 		return PsCloudOwnership.crossReferenceOwnedGames(
-			filtered, publicCatalog, plusLibrarySupplement, productIdAliases, componentIdsByProductId
+			filtered, publicCatalog, plusLibrarySupplement, productIdAliases, componentIds
 		)
 	}
 	
@@ -441,6 +477,124 @@ class PsCloudCatalogService
 		return all
 	}
 	
+	// ---------------------------------------------------------------------------
+	// PS3 Classics catalog (public Apollo container walk)
+	//
+	// The PS Plus PC ("Apollo") app browses the streamable catalog through the public pcnow
+	// container API at psnow.playstation.com. There is a dedicated PS3 container that lists the
+	// streamable PS3 titles with their PS3 product ids (NPUA/NPUB/BLUS/EP9000/...) -- none of
+	// which appear in the imagic gameslist the rest of the catalog uses. The container API needs
+	// no OAuth or per-account session (unlike /user/stores, which 404s in regions where the PC
+	// app is unavailable, e.g. Hungary), so we can walk it directly in any region. The resulting
+	// titles carry playable_platform ["PS3"] and stream via the existing PSNOW -> Gaikai konan
+	// path. Mirrors CloudCatalogBackend::fetchPs3Catalog() (Qt).
+	//
+	// pcnow has two Classics id families (Americas/SCEA and PAL/SCEE); a PS Plus account is
+	// authorized at Gaikai only for the family of its own region group, so the catalog must be
+	// browsed in that group. See KamajiClassics.classicsStoreCountry / classicsPs3ContainerId.
+	// ---------------------------------------------------------------------------
+	suspend fun fetchPs3ClassicsCatalog(accountCountry: String): List<CloudGame>
+	{
+		val storeCountry = com.metallic.chiaki.cloudplay.KamajiClassics.classicsStoreCountry(accountCountry)
+		val containerId = com.metallic.chiaki.cloudplay.KamajiClassics.classicsPs3ContainerId(accountCountry)
+		val containerUrl =
+			"https://psnow.playstation.com/store/api/pcnow/00_09_000/container/$storeCountry/en/19/$containerId"
+
+		Log.i(TAG, "=== Fetching PS3 Classics catalog (region group $storeCountry for account country $accountCountry) ===")
+
+		val games = mutableListOf<CloudGame>()
+		var start = 0
+		var totalResults = -1
+
+		while (true)
+		{
+			val url = "$containerUrl?useOffers=true&gkb=1&gkb2=1&start=$start&size=100"
+			val response = HttpClient.get(
+				url = url,
+				headers = mapOf(
+					"Accept" to "application/json",
+					"User-Agent" to PsnApiConstants.USER_AGENT
+				)
+			)
+
+			if (response.statusCode != 200)
+			{
+				Log.w(TAG, "PS3 catalog page fetch failed (HTTP ${response.statusCode})")
+				if (games.isEmpty())
+					throw Exception("Failed to fetch PS3 Classics catalog: HTTP ${response.statusCode}")
+				break // Partial data already collected: return what we have.
+			}
+
+			val obj = JSONObject(response.body)
+			if (totalResults < 0)
+				totalResults = obj.optInt("total_results", 0)
+
+			val links = obj.optJSONArray("links") ?: JSONArray()
+			var productCount = 0
+			for (i in 0 until links.length())
+			{
+				val g = links.optJSONObject(i) ?: continue
+				if (g.optString("container_type") != "product")
+					continue
+				ps3JsonToCloudGame(g)?.let { games.add(it); productCount++ }
+			}
+
+			Log.i(TAG, "  PS3 page products: $productCount, accumulated: ${games.size} of $totalResults")
+
+			start += 100
+			if (productCount == 0 || start >= totalResults)
+				break
+		}
+
+		Log.i(TAG, "  PS3 Classics catalog complete: ${games.size} titles")
+		return games
+	}
+
+	// Map a single pcnow PS3 container product into a CloudGame. The streaming id is the
+	// product `id` (Kamaji converts it -> entitlement -> Gaikai). Platform is detected from
+	// playable_platform containing "PS3" like the PSNow parser does.
+	private fun ps3JsonToCloudGame(gameObj: JSONObject): CloudGame?
+	{
+		val productId = gameObj.optString("id")
+		val name = gameObj.optString("name")
+		if (productId.isEmpty() || name.isEmpty())
+			return null
+
+		val (coverUrl, landscapeUrl) = extractImageUrls(gameObj)
+		var imageUrl = coverUrl
+		var landscapeImageUrl = landscapeUrl
+		if (imageUrl.startsWith("http://"))
+			imageUrl = imageUrl.replace("http://", "https://")
+		if (landscapeImageUrl.startsWith("http://"))
+			landscapeImageUrl = landscapeImageUrl.replace("http://", "https://")
+
+		// Detect PS3 from playable_platform (matches the PSNow parser); default to ps3 for this
+		// container since every product in it is a streamable PS3 Classic.
+		var platform = "ps3"
+		val playablePlatformArray = gameObj.optJSONArray("playable_platform")
+		if (playablePlatformArray != null && playablePlatformArray.length() > 0)
+		{
+			for (i in 0 until playablePlatformArray.length())
+			{
+				val platformStr = playablePlatformArray.optString(i, "").uppercase()
+				if (platformStr.contains("PS3"))
+				{
+					platform = "ps3"
+					break
+				}
+			}
+		}
+
+		return CloudGame(
+			productId = productId,
+			name = name,
+			imageUrl = imageUrl,
+			landscapeImageUrl = landscapeImageUrl,
+			platform = platform,
+			serviceType = "psnow" // subscription-streamable via the PSNow/Gaikai konan path
+		)
+	}
+
 	/**
 	 * Extract both cover and landscape image URLs from game object
 	 * Returns Pair<coverUrl, landscapeUrl>

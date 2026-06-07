@@ -1206,9 +1206,13 @@ void PSGaikaiStreaming::step11_GetDatacenters()
                     
                     if(pingResultsMap.contains(datacenterName)) {
                         // Use actual ping result
-                        allResults.append(pingResultsMap[datacenterName]);
+                        QJsonObject measured = pingResultsMap[datacenterName];
+                        measured["measured"] = true; // real RTT measurement
+                        allResults.append(measured);
                     } else {
-                        // Use dummy data (999ms RTT) for datacenters that weren't pinged
+                        // Use dummy data (999ms RTT) for datacenters that weren't pinged.
+                        // Mark it unmeasured so the latency gate doesn't treat a failed
+                        // measurement as genuinely-high latency.
                         QJsonObject dummyResult;
                         dummyResult["dataCenter"] = datacenterName;
                         dummyResult["rtt"] = 999;
@@ -1218,6 +1222,7 @@ void PSGaikaiStreaming::step11_GetDatacenters()
                         dummyResult["port"] = dc["port"].toInt();
                         dummyResult["publicIp"] = dc["publicIp"].toString();
                         dummyResult["maxBandwidth"] = dc["maxBandwidth"].toInt();
+                        dummyResult["measured"] = false;
                         allResults.append(dummyResult);
                     }
                 }
@@ -1314,16 +1319,24 @@ void PSGaikaiStreaming::step12_SelectDatacenter(QJsonArray pingResults)
         }
     }
     
-    // Validate ping for auto-selected datacenters (manual selection bypasses this check)
+    // Validate ping for auto-selected datacenters (manual selection bypasses this check).
+    // Only gate on a REAL measurement: when the ping couldn't complete the result is a
+    // fabricated 999ms placeholder (measured=false), which must not be mistaken for genuine
+    // high latency — otherwise a transient ping failure blocks an otherwise-fine datacenter.
     bool isAutoSelected = (selectedDatacenterSetting == "Auto" || selectedDatacenterSetting.isEmpty());
     if (isAutoSelected) {
+        const bool measured = selectedDatacenterPingResult.value("measured").toBool(false);
         int rtt_ms = selectedDatacenterPingResult["rtt"].toInt(0);
-        if (rtt_ms > 80) {
+        if (measured && rtt_ms > 80) {
             qWarning() << "Selected datacenter ping too high:" << selectedDatacenter << "RTT:" << rtt_ms << "ms (max: 80ms)";
             emit pingTimeoutError();
             emit AllocationError("Ping must be < 80ms to start a cloud session");
             emit Finished();
             return;
+        }
+        if (!measured) {
+            qWarning() << "Datacenter latency could not be measured for" << selectedDatacenter
+                       << "- proceeding without the latency gate (ping measurement failed, not necessarily high latency)";
         }
     }
     

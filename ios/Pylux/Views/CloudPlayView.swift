@@ -110,16 +110,26 @@ final class CloudPlayViewModel: ObservableObject {
 
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let self = self else { return }
-            let loadedGames: [CloudGame]
+            var loadedGames: [CloudGame]
 
             switch section {
             case .catalog:
-                loadedGames = self.catalogService.fetchPsnowCatalog(npssoToken: npssoToken)
+                let psnow = self.catalogService.fetchPsnowCatalog(npssoToken: npssoToken)
+                // The legacy PS Now (Kamaji) browse store 404s in many regions. Fall back to the
+                // PS Plus subscription catalog (~630), NOT the full ~4000 universe — the Library
+                // "all" view is the full-universe browse.
+                loadedGames = psnow.isEmpty
+                    ? self.catalogService.fetchPlusCatalogGames(npssoToken: npssoToken)
+                    : psnow
+                // PS3 Classics are subscription-streamable, so they belong in the Game Catalog.
+                loadedGames += self.catalogService.fetchPs3Catalog()
             case .library:
                 if ownedOnly {
                     loadedGames = self.catalogService.fetchOwnedPs5Games(npssoToken: npssoToken)
                 } else {
                     loadedGames = self.catalogService.fetchAllPs5CloudGames(npssoToken: npssoToken)
+                    // PS3 Classics are part of the streamable "all" universe (never the "owned" view).
+                    loadedGames += self.catalogService.fetchPs3Catalog()
                 }
             }
 
@@ -160,7 +170,7 @@ final class CloudPlayViewModel: ObservableObject {
         let ownedOnly = showOwnedOnly
 
         Task.detached(priority: .userInitiated) { [weak self] in
-            let loadedGames: [CloudGame]
+            var loadedGames: [CloudGame] = []
             defer {
                 Task { @MainActor in
                     self?.loading = false
@@ -171,12 +181,21 @@ final class CloudPlayViewModel: ObservableObject {
 
             switch section {
             case .catalog:
-                loadedGames = self.catalogService.fetchPsnowCatalog(npssoToken: npssoToken, forceRefresh: true)
+                let psnow = self.catalogService.fetchPsnowCatalog(npssoToken: npssoToken, forceRefresh: true)
+                // Fall back to the PS Plus subscription catalog when the legacy PS Now store is
+                // unavailable for the region (Library "all" is the full-universe browse).
+                loadedGames = psnow.isEmpty
+                    ? self.catalogService.fetchPlusCatalogGames(npssoToken: npssoToken, forceRefresh: true)
+                    : psnow
+                // PS3 Classics are subscription-streamable, so they belong in the Game Catalog.
+                loadedGames += self.catalogService.fetchPs3Catalog(forceRefresh: true)
             case .library:
                 if ownedOnly {
                     loadedGames = self.catalogService.fetchOwnedPs5Games(npssoToken: npssoToken, forceRefresh: true)
                 } else {
                     loadedGames = self.catalogService.fetchAllPs5CloudGames(npssoToken: npssoToken, forceRefresh: true)
+                    // PS3 Classics are part of the streamable "all" universe (never the "owned" view).
+                    loadedGames += self.catalogService.fetchPs3Catalog(forceRefresh: true)
                 }
             }
 
@@ -195,9 +214,11 @@ final class CloudPlayViewModel: ObservableObject {
 
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let self = self else { return }
-            let gameIdentifier = game.streamingIdentifier
+            // Route by the title-id platform: PS4 catalog titles go through Kamaji (psnow) to
+            // acquire the streaming entitlement; PS5 streams directly (pscloud).
+            let gameIdentifier = game.streamIdentifier
             let gameName = game.name
-            let serviceType = game.serviceType
+            let serviceType = game.streamServiceType
             var cancelled = false
 
             do {
@@ -538,11 +559,12 @@ struct CloudPlayView: View {
         .padding(.vertical, 8)
     }
 
-    /// Matches Android `CloudPlayFragment.onGameClicked`: PS Cloud + All filter + not owned → add-to-library, else stream.
+    /// Any non-owned modern cloud-catalog game (PS4 or PS5) must be added to your library before it
+    /// can stream — Gaikai rejects an unowned PS5 entitlement, and modern PS-Plus PS4 titles (e.g.
+    /// Far Cry 5) have no free Kamaji SKU. Owned games stream directly. (Legacy PS Now is psnow.)
     private func handleGameTap(_ game: CloudGame) {
         let isPscloud = game.serviceType.lowercased() == "pscloud"
-        let isAllGamesFilter = !viewModel.showOwnedOnly
-        if viewModel.currentSection == .library && isPscloud && isAllGamesFilter && !game.isOwned {
+        if isPscloud && !game.isOwned {
             let url = game.conceptUrl.trimmingCharacters(in: .whitespacesAndNewlines)
             if url.isEmpty {
                 showMissingConceptAlert = true
@@ -593,7 +615,7 @@ struct CloudPlayView: View {
                     CloudGameCardView(
                         game: game,
                         isFavorite: viewModel.favoriteIds.contains(game.id),
-                        showOwnershipBadge: viewModel.currentSection == .library,
+                        showOwnershipBadge: true,  // owned/not-owned shown in Library AND Catalog (pscloud cards)
                         onTap: {
                             handleGameTap(game)
                         },

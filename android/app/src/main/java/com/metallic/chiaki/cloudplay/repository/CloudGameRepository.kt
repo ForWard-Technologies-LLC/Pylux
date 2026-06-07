@@ -29,7 +29,7 @@ class CloudGameRepository(
 	companion object
 	{
 		private const val TAG = "CloudGameRepository"
-		private const val CACHE_DIR = "cloud_catalog_cache"
+		private const val CACHE_DIR = "cloud_catalog_cache_v2" // v2: catalog games carry plusCatalog tag
 
 		fun invalidateCatalogCache(context: Context)
 		{
@@ -49,9 +49,13 @@ class CloudGameRepository(
 		}
 		private const val PSNOW_CACHE_FILE = "psnow_catalog.json"
 		private const val PSCLOUD_ALL_CACHE_FILE = "pscloud_catalog.json"
-		private const val PSCLOUD_OWNED_CACHE_FILE = "pscloud_owned.json"
+		private const val PSCLOUD_OWNED_CACHE_FILE = "pscloud_owned_v2.json" // v2: ft0 filter + rank dedupe + featureType
 		private const val PS5_CATALOG_V3_CACHE_FILE = "ps5_cloud_catalog_v3.json"
 		private const val CACHE_DURATION_MS = 24 * 60 * 60 * 1000L // 24 hours
+
+		// Region-group-specific so an Americas/PAL switch doesn't serve stale ids (e.g. "_US"/"_GB").
+		private fun ps3ClassicsCacheFile(accountCountry: String): String =
+			"ps3_classics_catalog_${com.metallic.chiaki.cloudplay.KamajiClassics.classicsStoreCountry(accountCountry)}.json"
 	}
 	
 	private val psnowCatalogService = PsnCatalogService(preferences)
@@ -86,14 +90,60 @@ class CloudGameRepository(
 			// Fetch from network
 			Log.i(TAG, "Fetching fresh PSNow catalog from network")
 			val result = psnowCatalogService.fetchPsnowCatalog(npssoToken)
-			
-			// Cache if successful
-			if (result is PsnResult.Success)
+
+			// Cache and return only if the legacy PS Now browse store actually returned games.
+			if (result is PsnResult.Success && result.data.isNotEmpty())
 			{
 				cacheGames(result.data, PSNOW_CACHE_FILE)
+				return@withContext result
 			}
-			
-			result
+
+			// The legacy PS Now (Kamaji) browse store is region-locked / deprecated and 404s in
+			// many regions (e.g. Hungary). Fall back to the PS Plus subscription catalog (~630),
+			// NOT the full ~4000 streamable universe (that is the Library "all" view).
+			Log.w(TAG, "PSNow catalog unavailable/empty, falling back to PS Plus subscription catalog")
+			fetchPlusCatalog(npssoToken, forceRefresh)
+		}
+	}
+
+	/**
+	 * Fetch the PS Plus subscription catalog (Catalog tab): plusCatalog browse titles + the
+	 * library-stream supplement, NOT the full all-ps5 universe. No ownership merge — every
+	 * subscription title is shown as streamable. Mirrors Qt ps5PlusCatalogGames.
+	 */
+	suspend fun fetchPlusCatalog(npssoToken: String, forceRefresh: Boolean = false): PsnResult<List<CloudGame>>
+	{
+		return withContext(Dispatchers.IO)
+		{
+			CloudLocaleBootstrap.ensureConfigured(preferences, npssoToken)
+			try
+			{
+				val stored = preferences.getCloudLanguage()
+				val catalog = fetchPs5CatalogV3(stored, forceRefresh)
+				var games = (catalog.browseGames.filter { it.plusCatalog } + catalog.plusLibrarySupplement)
+					.sortedBy { it.name.lowercase() }
+				// Mark owned subscription titles so owned -> Stream and non-owned -> Add Game.
+				// addUnmatched=false keeps the Catalog the pure subscription set (mark only).
+				if (npssoToken.isNotEmpty())
+				{
+					try
+					{
+						val ownedCrossRef = pscloudCatalogService.getOwnedPs5CloudGames(
+							npssoToken, catalog.browseGames, catalog.plusLibrarySupplement, catalog.productIdAliases)
+						games = PsCloudOwnership.mergeOwnedIntoBrowseCatalog(games, ownedCrossRef, addUnmatched = false)
+					}
+					catch (e: Exception)
+					{
+						Log.w(TAG, "Catalog ownership marking failed; showing as not owned", e)
+					}
+				}
+				PsnResult.Success(games)
+			}
+			catch (e: Exception)
+			{
+				Log.e(TAG, "Failed to fetch PS Plus subscription catalog", e)
+				PsnResult.Error("Failed to fetch catalog: ${e.message}", e)
+			}
 		}
 	}
 	
@@ -117,19 +167,8 @@ class CloudGameRepository(
 			try
 			{
 				val stored = preferences.getCloudLanguage()
-				val locale = com.metallic.chiaki.cloudplay.CloudLocale.toImagicLocale(stored)
-				Log.i(TAG, "Fetching PS5 Cloud catalog locale=$stored imagic=$locale forceRefresh=$forceRefresh")
-
-				val catalog = (if (!forceRefresh) loadCachedPs5CatalogV3(stored) else null)
-					?: run {
-						lastCatalogFetchWarning = null
-						val fetched = pscloudCatalogService.fetchPs5CloudCatalog(locale)
-						if (fetched.shouldCacheV3)
-							cachePs5CatalogV3(fetched, stored)
-						lastCatalogFetchWarning = fetched.catalogFetchWarning
-						fetched
-					}
-
+				Log.i(TAG, "Fetching PS5 Cloud catalog stored=$stored forceRefresh=$forceRefresh")
+				val catalog = fetchPs5CatalogV3(stored, forceRefresh)
 				val gamesWithOwnership = crossReferenceOwnership(catalog, npssoToken)
 				if (gamesWithOwnership.isNotEmpty())
 					cacheGames(gamesWithOwnership, PSCLOUD_ALL_CACHE_FILE)
@@ -143,6 +182,42 @@ class CloudGameRepository(
 		}
 	}
 	
+	/**
+	 * Fetch the PS5 imagic catalog, trying the store-locale fallback chain
+	 * (session locale -> en-COUNTRY -> en-US) since Sony 404s unsupported locales (e.g. hu-HU).
+	 * Persists the locale that works. Returns the cached v3 catalog when available.
+	 */
+	private suspend fun fetchPs5CatalogV3(stored: String, forceRefresh: Boolean): Ps5CloudCatalogResult
+	{
+		if (!forceRefresh)
+			loadCachedPs5CatalogV3(stored)?.let { return it }
+
+		lastCatalogFetchWarning = null
+		var lastError: Exception? = null
+		for ((canonical, imagic) in com.metallic.chiaki.cloudplay.CloudLocale.fallbackChain(stored))
+		{
+			try
+			{
+				val fetched = pscloudCatalogService.fetchPs5CloudCatalog(imagic)
+				if (canonical != stored)
+				{
+					Log.i(TAG, "PS5 store locale settled on $canonical (was $stored)")
+					preferences.setCloudLanguage(canonical)
+				}
+				if (fetched.shouldCacheV3)
+					cachePs5CatalogV3(fetched, canonical)
+				lastCatalogFetchWarning = fetched.catalogFetchWarning
+				return fetched
+			}
+			catch (e: Exception)
+			{
+				Log.i(TAG, "PS5 imagic locale $imagic failed, trying next tier: ${e.message}")
+				lastError = e
+			}
+		}
+		throw (lastError ?: Exception("All imagic locales failed to load"))
+	}
+
 	/**
 	 * Cross-reference public catalog with owned games to mark ownership status
 	 */
@@ -189,17 +264,7 @@ class CloudGameRepository(
 			try
 			{
 				val stored = preferences.getCloudLanguage()
-				val locale = com.metallic.chiaki.cloudplay.CloudLocale.toImagicLocale(stored)
-
-				val catalog = (if (!forceRefresh) loadCachedPs5CatalogV3(stored) else null)
-					?: run {
-						lastCatalogFetchWarning = null
-						val fetched = pscloudCatalogService.fetchPs5CloudCatalog(locale)
-						if (fetched.shouldCacheV3)
-							cachePs5CatalogV3(fetched, stored)
-						lastCatalogFetchWarning = fetched.catalogFetchWarning
-						fetched
-					}
+				val catalog = fetchPs5CatalogV3(stored, forceRefresh)
 
 				val games = pscloudCatalogService.getOwnedPs5CloudGames(
 					npssoToken,
@@ -219,6 +284,43 @@ class CloudGameRepository(
 		}
 	}
 	
+	/**
+	 * Fetch the streamable PS3 Classics (public Apollo container) with region-keyed caching.
+	 * Subscription-streamable (never "owned"), so callers append these to the Catalog and the
+	 * Library "all" view only. Mirrors CloudCatalogBackend::fetchPs3Catalog() (Qt).
+	 */
+	suspend fun fetchPs3ClassicsCatalog(forceRefresh: Boolean = false): PsnResult<List<CloudGame>>
+	{
+		return withContext(Dispatchers.IO)
+		{
+			CloudLocaleBootstrap.ensureConfigured(preferences, preferences.getNpssoToken())
+			// Account country = country part of the store locale (e.g. "en-HU" -> "HU").
+			val (accountCountry, _) = com.metallic.chiaki.cloudplay.CloudLocale.parseStorePath(preferences.getCloudLanguage())
+			val cacheFile = ps3ClassicsCacheFile(accountCountry)
+
+			if (!forceRefresh)
+			{
+				loadCachedGames(cacheFile)?.let { cached ->
+					Log.i(TAG, "Returning ${cached.size} PS3 Classics from cache ($cacheFile)")
+					return@withContext PsnResult.Success(cached)
+				}
+			}
+
+			try
+			{
+				val games = pscloudCatalogService.fetchPs3ClassicsCatalog(accountCountry)
+				if (games.isNotEmpty())
+					cacheGames(games, cacheFile)
+				PsnResult.Success(games)
+			}
+			catch (e: Exception)
+			{
+				Log.w(TAG, "Failed to fetch PS3 Classics catalog", e)
+				PsnResult.Error("Failed to fetch PS3 Classics catalog: ${e.message}", e)
+			}
+		}
+	}
+
 	/**
 	 * Load games from cache if valid
 	 */
@@ -267,7 +369,9 @@ class CloudGameRepository(
 					conceptId = obj.optString("conceptId", ""),
 					isOwned = obj.optBoolean("isOwned", false),
 					entitlementId = obj.optString("entitlementId", ""),
-					storeProductId = obj.optString("storeProductId", "")
+					storeProductId = obj.optString("storeProductId", ""),
+					plusCatalog = obj.optBoolean("plusCatalog", false),
+					featureType = obj.optInt("featureType", 0)
 				))
 			}
 			
@@ -305,6 +409,8 @@ class CloudGameRepository(
 				obj.put("isOwned", game.isOwned)
 				obj.put("entitlementId", game.entitlementId)
 				obj.put("storeProductId", game.storeProductId)
+				obj.put("plusCatalog", game.plusCatalog)
+				obj.put("featureType", game.featureType)
 				jsonArray.put(obj)
 			}
 			
@@ -420,7 +526,9 @@ class CloudGameRepository(
 					conceptId = obj.optString("conceptId", ""),
 					isOwned = obj.optBoolean("isOwned", false),
 					entitlementId = obj.optString("entitlementId", ""),
-					storeProductId = obj.optString("storeProductId", "")
+					storeProductId = obj.optString("storeProductId", ""),
+					plusCatalog = obj.optBoolean("plusCatalog", false),
+					featureType = obj.optInt("featureType", 0)
 				)
 			)
 		}
@@ -444,6 +552,8 @@ class CloudGameRepository(
 			obj.put("isOwned", game.isOwned)
 			obj.put("entitlementId", game.entitlementId)
 			obj.put("storeProductId", game.storeProductId)
+			obj.put("plusCatalog", game.plusCatalog)
+			obj.put("featureType", game.featureType)
 			jsonArray.put(obj)
 		}
 		return jsonArray

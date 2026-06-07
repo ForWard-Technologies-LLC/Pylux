@@ -32,6 +32,9 @@ Pane {
     property string authErrorMessage: "" // Persistent auth error message
     property string libraryFilter: "all" // "all", "owned", or "favorites" - filter for Game Library
     property string catalogFilter: "all" // "all" or "favorites" - filter for Game Catalog
+    // When the legacy PS Now (Kamaji) browse store is unavailable for the region,
+    // the Game Catalog falls back to the modern imagic cloud catalog (pscloud).
+    property bool catalogImagicFallback: false
     property var ownedProductIds: [] // Set of product IDs that are owned (for filtering)
     property var favoriteProductIds: [] // Set of product IDs that are favorited
     property var qrCodeDialogRef: null // Reference to QR code dialog for child components
@@ -164,6 +167,7 @@ Pane {
         filteredGames = [];
         currentPageGames = [];
         isLoading = true;
+        catalogImagicFallback = false; // attempt the legacy PS Now browse store first
         Chiaki.cloudCatalog.fetchPsnowCatalog(function(success, message, jsonData) {
             isLoading = false;
             if (success && jsonData) {
@@ -176,6 +180,7 @@ Pane {
                             authErrorMessage = "";
                         }
                         applySearchFilter();
+                        appendPs3Catalog();
                         // Set focus after games are loaded
                         Qt.callLater(() => {
                             if (gamesGrid.count > 0) {
@@ -197,15 +202,142 @@ Pane {
                     showErrorToast(qsTr("Parse Error"), qsTr("Failed to parse catalog data: %1").arg(e.toString()));
                 }
             } else {
-                console.error("Failed to fetch PSNOW catalog:", message);
-                allGames = [];
-                filteredGames = [];
-                currentPageGames = [];
-                showErrorToast(qsTr("API Error"), message || qsTr("Failed to fetch game catalog"));
+                // The legacy PS Now (Kamaji) browse store is region-locked / deprecated
+                // and 404s in many regions (e.g. Hungary). Fall back to the modern imagic
+                // cloud catalog so the Game Catalog shows streamable titles everywhere.
+                console.warn("PSNOW catalog unavailable, falling back to imagic cloud catalog:", message);
+                loadCatalogImagicFallback();
             }
         });
     }
-    
+
+    // Game Catalog fallback: source the streamable PS4/PS5 cloud titles from the imagic
+    // catalog (the same source the Library uses) and mark which the user owns, so owned
+    // titles stream and the rest offer "Add Game". Presented as pscloud, not psnow.
+    // The PS Plus subscription catalog (what Sony lists on the PS Plus games page, ~630 in HU):
+    // browse titles tagged plusCatalog + the library-stream supplement (catalog titles with
+    // streamingSupported=false, e.g. God of War). Excludes the full ~7000-title all-ps5 universe,
+    // which is fetched only to match the games you own.
+    function ps5PlusCatalogGames(data) {
+        let games = [];
+        if (data && data.games && Array.isArray(data.games)) {
+            for (let i = 0; i < data.games.length; i++) {
+                if (data.games[i] && data.games[i].plusCatalog)
+                    games.push(data.games[i]);
+            }
+        }
+        if (data && data.plusLibrarySupplement && Array.isArray(data.plusLibrarySupplement)) {
+            for (let i = 0; i < data.plusLibrarySupplement.length; i++)
+                games.push(data.plusLibrarySupplement[i]);
+        }
+        return games;
+    }
+
+    function loadCatalogImagicFallback() {
+        catalogImagicFallback = true;
+        isLoading = true;
+        Chiaki.cloudCatalog.fetchPs5CloudCatalog(function(success, message, jsonData) {
+            if (!success || !jsonData) {
+                isLoading = false;
+                allGames = [];
+                filteredGames = [];
+                currentPageGames = [];
+                console.error("Failed to fetch imagic cloud catalog:", message);
+                showErrorToast(qsTr("API Error"), message || qsTr("Failed to fetch game catalog"));
+                return;
+            }
+            let browseGames = [];
+            try {
+                let data = JSON.parse(jsonData);
+                // Game Catalog = the PS Plus subscription catalog only (not the full streamable universe).
+                browseGames = ps5PlusCatalogGames(data);
+            } catch (e) {
+                isLoading = false;
+                console.error("Failed to parse imagic cloud catalog:", e);
+                showErrorToast(qsTr("Parse Error"), qsTr("Failed to parse catalog data: %1").arg(e.toString()));
+                return;
+            }
+            if (message && message !== "Success" && message !== "Cached")
+                showErrorToast(qsTr("Partial Catalog"), message);
+            // Mark which subscription titles you already own, so a non-owned PS5 catalog game shows
+            // "Add Game" (it must be added to your library before Gaikai will stream it) while PS4
+            // titles and owned games show "Stream". addUnmatchedOwned=false keeps the Catalog the
+            // pure subscription set (we only mark ownership, never add owned-but-uncatalogued games).
+            Chiaki.cloudCatalog.getOwnedPs5CloudGames(function(ownedSuccess, ownedMessage, ownedJsonData) {
+                let ownedGames = [];
+                if (ownedSuccess && ownedJsonData) {
+                    try {
+                        let ownedData = JSON.parse(ownedJsonData);
+                        if (ownedData.games && Array.isArray(ownedData.games))
+                            ownedGames = ownedData.games;
+                    } catch (e) {
+                        console.warn("Catalog: failed to parse owned games for ownership marking:", e);
+                    }
+                }
+                let merged = mergeOwnedPs5CloudIntoBrowseCatalog(browseGames, ownedGames, false);
+                sortPs5CloudLibraryGames(merged.games);
+                allGames = merged.games;
+                ownedProductIds = Array.from(merged.ownedIds);
+                isLoading = false;
+                applySearchFilter();
+                appendPs3Catalog();
+                Qt.callLater(() => {
+                    if (gamesGrid.count > 0) {
+                        gamesGrid.currentIndex = 0;
+                        gamesGrid.forceActiveFocus();
+                    }
+                });
+            });
+        });
+    }
+
+    // True for streamable PS3 Classics (from the public Apollo PS3 container). They carry
+    // playable_platform ["PS3"] and a PS3 product id, and must stream via the PSNOW/konan path.
+    function gameIsPs3(g) {
+        if (!g)
+            return false;
+        let pp = g.playable_platform;
+        if (!pp)
+            return false;
+        let arr = [];
+        if (Array.isArray(pp))
+            arr = pp;
+        else if (typeof pp === "object" && pp.length !== undefined) {
+            for (let i = 0; i < pp.length; i++) arr.push(pp[i]);
+        } else if (typeof pp === "string")
+            arr = [pp];
+        for (let i = 0; i < arr.length; i++)
+            if (String(arr[i]).indexOf("PS3") !== -1) return true;
+        return false;
+    }
+
+    // Fetch the streamable PS3 Classics (public Apollo container) and append them to the
+    // current catalog. Additive: it never replaces the PS4/PS5 catalog already loaded, so
+    // it works regardless of whether the primary catalog came from PS Now or the imagic
+    // fallback. PS3 belongs only in the subscription Catalog (not the owned Library).
+    function appendPs3Catalog() {
+        // PS3 Classics are subscription-streamable, so they belong in the Game Catalog and
+        // in the Library "all" (streamable universe) view -- but NOT the "owned" view.
+        if (currentSection === "library" && libraryFilter !== "all")
+            return;
+        Chiaki.cloudCatalog.fetchPs3Catalog(function(success, message, jsonData) {
+            if (!success || !jsonData) {
+                console.warn("PS3 Classics catalog unavailable:", message);
+                return;
+            }
+            try {
+                let d = JSON.parse(jsonData);
+                if (d.games && Array.isArray(d.games) && d.games.length > 0) {
+                    allGames = allGames.concat(d.games);
+                    applySearchFilter();
+                    console.log("[CloudPlayView] Appended", d.games.length, "PS3 Classics to catalog");
+                }
+            } catch (e) {
+                console.warn("Failed to parse PS3 catalog:", e);
+            }
+        });
+    }
+
     function ps5CloudProductId(game) {
         if (!game)
             return "";
@@ -219,6 +351,28 @@ Pane {
         if (conceptId === undefined || conceptId === null || conceptId === "")
             return "";
         return String(conceptId);
+    }
+
+    // Platform from the title id (PPSA = PS5, CUSA = PS4), falling back to the device array.
+    function ps5CloudPlatformToken(game) {
+        let pid = ps5CloudProductId(game) || ps5CloudStreamingId(game) || "";
+        if (pid.indexOf("PPSA") !== -1) return "ps5";
+        if (pid.indexOf("CUSA") !== -1) return "ps4";
+        let dev = game ? game.device : null;
+        if (Array.isArray(dev)) {
+            if (dev.indexOf("PS5") !== -1) return "ps5";
+            if (dev.indexOf("PS4") !== -1) return "ps4";
+        }
+        return "";
+    }
+
+    // Edition identity = conceptId + platform, so cross-gen editions (PS4 + PS5) of the same
+    // game are treated as distinct entries instead of being merged by conceptId alone.
+    function ps5CloudConceptPlatformKey(game) {
+        let c = ps5CloudConceptId(game);
+        if (!c)
+            return "";
+        return c + "|" + ps5CloudPlatformToken(game);
     }
 
     function ps5CloudStreamingId(game) {
@@ -235,9 +389,9 @@ Pane {
             let productId = ps5CloudProductId(game);
             if (productId)
                 byProductId[productId] = i;
-            let conceptId = ps5CloudConceptId(game);
-            if (conceptId)
-                byConceptId[conceptId] = i;
+            let conceptKey = ps5CloudConceptPlatformKey(game);
+            if (conceptKey)
+                byConceptId[conceptKey] = i;
             let streamId = ps5CloudStreamingId(game);
             if (streamId && streamId !== productId)
                 byProductId[streamId] = i;
@@ -249,9 +403,9 @@ Pane {
         let productId = ps5CloudProductId(game);
         if (productId)
             catalogIndex.byProductId[productId] = index;
-        let conceptId = ps5CloudConceptId(game);
-        if (conceptId)
-            catalogIndex.byConceptId[conceptId] = index;
+        let conceptKey = ps5CloudConceptPlatformKey(game);
+        if (conceptKey)
+            catalogIndex.byConceptId[conceptKey] = index;
         let streamId = ps5CloudStreamingId(game);
         if (streamId && streamId !== productId)
             catalogIndex.byProductId[streamId] = index;
@@ -264,9 +418,11 @@ Pane {
         let streamId = ps5CloudStreamingId(ownedGame);
         if (streamId && catalogIndex.byProductId.hasOwnProperty(streamId))
             return catalogIndex.byProductId[streamId];
-        let conceptId = ps5CloudConceptId(ownedGame);
-        if (conceptId && catalogIndex.byConceptId.hasOwnProperty(conceptId))
-            return catalogIndex.byConceptId[conceptId];
+        // Match by conceptId + platform so an owned PS4 edition does NOT match a PS5-only catalog
+        // entry (and vice-versa); cross-gen editions stay as separate library cards.
+        let conceptKey = ps5CloudConceptPlatformKey(ownedGame);
+        if (conceptKey && catalogIndex.byConceptId.hasOwnProperty(conceptKey))
+            return catalogIndex.byConceptId[conceptKey];
         return -1;
     }
 
@@ -282,7 +438,12 @@ Pane {
         });
     }
 
-    function mergeOwnedPs5CloudIntoBrowseCatalog(browseGames, ownedGames) {
+    // addUnmatchedOwned: when true (Library), owned games not found in the browse list are
+    // appended; when false (Catalog), we only MARK ownership on catalog entries and never add
+    // owned-but-not-in-catalog titles — so the Catalog stays the pure subscription catalog.
+    function mergeOwnedPs5CloudIntoBrowseCatalog(browseGames, ownedGames, addUnmatchedOwned) {
+        if (addUnmatchedOwned === undefined)
+            addUnmatchedOwned = true;
         let games = browseGames.slice();
         let catalogIndex = buildPs5CloudCatalogIndex(games);
         let ownedIds = new Set();
@@ -296,7 +457,12 @@ Pane {
             if (streamId)
                 ownedIds.add(streamId);
 
-            let catalogMatch = findPs5CloudCatalogIndexForOwned(ownedGame, catalogIndex);
+            // Trials / free-to-play (feature_type 1) are kept as their OWN library card so the user
+            // can Stream the trial/free build, while the full version still appears separately as a
+            // not-owned "Add Game" card. So a trial must NOT collapse into the full-game catalog
+            // entry. Full games (ft 3/5) merge normally (mark the catalog entry owned).
+            let isTrialTier = ownedGame && ownedGame.feature_type === 1;
+            let catalogMatch = isTrialTier ? -1 : findPs5CloudCatalogIndexForOwned(ownedGame, catalogIndex);
             if (catalogMatch >= 0) {
                 let existing = games[catalogMatch];
                 existing.isOwned = true;
@@ -304,15 +470,31 @@ Pane {
                 if (streamId)
                     existing.id = streamId;
                 let ownedProductId = ps5CloudProductId(ownedGame);
-                if (ownedProductId) {
-                    if (!existing.product_id)
-                        existing.product_id = ownedProductId;
-                    if (!existing.productId)
-                        existing.productId = ownedProductId;
+                // Carry the OWNED product id onto the catalog card only for PS5 (PPSA): an owned PS5
+                // product IS the streamable entitlement (streamed directly via cronos). For PS4 (CUSA)
+                // the owned DOWNLOAD product (e.g. ...GODOFWAR) has NO PS Now streaming SKU -- the
+                // catalog entry's own productId (e.g. ...GODOFWARN, the "N" variant) is what Kamaji
+                // converts to a streaming entitlement -- so leave the catalog productId intact.
+                //
+                // Override unconditionally for PS5 (matching the iOS/Android merge, which always copy
+                // storeProductId): the catalog card carries one fixed SKU per concept, but you can only
+                // stream the edition you actually own. When they differ -- e.g. the catalog SKU is a
+                // disc-upgrade you can't stream and the cross-reference rescued you to the owned full
+                // game (Horizon: PPSA01521 -> PPSA17903) -- the catalog card's product_id is the wrong
+                // (unstreamable) one, so the owned product id must win.
+                // NOTE: ps5CloudPlatformToken takes a GAME OBJECT, not a product-id string -- passing
+                // the string here made it always return "" so this override never ran (the bug that
+                // broke the "all" view while the "owned" view, which uses the cross-ref directly, worked).
+                if (ownedProductId && ps5CloudPlatformToken(ownedGame) === "ps5") {
+                    existing.product_id = ownedProductId;
+                    existing.productId = ownedProductId;
                 }
                 games[catalogMatch] = existing;
                 continue;
             }
+
+            if (!addUnmatchedOwned)
+                continue; // Catalog: don't add owned titles that aren't in the subscription catalog
 
             let entry = Object.assign({}, ownedGame);
             entry.isOwned = true;
@@ -333,9 +515,12 @@ Pane {
         filteredGames = [];
         currentPageGames = [];
         isLoading = true;
-        
+
+        // Library "all" = the PS Plus catalog with your owned titles merged in (owned ones show
+        // "Stream Game", the rest "Add Game"). Library "owned" = only the games you own. The
+        // Game Catalog tab is the all-streamable view where everything shows "Stream Game".
         if (libraryFilter === "all") {
-            // Fetch all streamable games from game catalog
+            // Fetch the catalog, then merge owned games in (marking ownership + adding owned extras).
             Chiaki.cloudCatalog.fetchPs5CloudCatalog(function(success, message, jsonData) {
                 if (success && jsonData) {
                     try {
@@ -365,10 +550,15 @@ Pane {
                                     ownershipErrorMsg = ownedMessage || qsTr("Failed to verify game ownership");
                                 }
 
-                                let merged = mergeOwnedPs5CloudIntoBrowseCatalog(data.games, ownedGames);
+                                // Library "all" = the full streamable universe (every PS4/PS5 cloud
+                                // title) with owned titles merged in; non-owned show "Add Game".
+                                // (The Game Catalog tab is the curated subscription view.)
+                                let browse = (data.games && Array.isArray(data.games)) ? data.games : [];
+                                let merged = mergeOwnedPs5CloudIntoBrowseCatalog(browse, ownedGames);
                                 ownedProductIds = Array.from(merged.ownedIds);
                                 allGames = merged.games;
                                 isLoading = false;
+                                appendPs3Catalog(); // PS3 Classics are part of the streamable "all" view
                                 
                                 // Handle ownership check failure with user-visible feedback
                                 if (ownershipCheckFailed) {
@@ -1370,8 +1560,22 @@ Pane {
                         gameData: modelData
                         focus: false  // GridView handles focus, not individual cards
                         activeFocusOnTab: false
-                        isPsnow: currentSection === "catalog"
-                        libraryFilter: root.libraryFilter
+                        // The catalog is normally PS Now; when it falls back to the imagic
+                        // cloud catalog the cards are pscloud (correct streaming path/platform).
+                        // PS3 Classics (appended from the Apollo container) are always PS Now:
+                        // isPsnow=true makes the card read playable_platform -> "ps3" and route
+                        // to the PSNOW/konan streaming path regardless of the catalog source.
+                        isPsnow: (currentSection === "catalog" && !catalogImagicFallback)
+                                 || gameIsPs3(modelData)
+                        // Catalog cards: every subscription title is streamable, so use a non-"all"
+                        // value to suppress the "Add Game" state — all of them show "Stream Game".
+                        // Library cards use the real filter ("all" enables Add Game for non-owned).
+                        // PS3 Classics are subscription-streamable (never "owned"), so they always
+                        // show "Stream Game" regardless of section/filter.
+                        libraryFilter: gameIsPs3(modelData)
+                                       ? "catalog"
+                                       : ((currentSection === "catalog" && catalogImagicFallback)
+                                          ? "catalog" : root.libraryFilter)
                         qrCodeDialog: root.qrCodeDialogRef
                         
                         // Bind isFavorite to favoriteProductIds array changes

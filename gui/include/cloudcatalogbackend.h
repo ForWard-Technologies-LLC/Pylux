@@ -41,6 +41,11 @@ public:
 
     // Main catalog fetching methods
     Q_INVOKABLE void fetchPsnowCatalog(const QJSValue &callback);
+    // Streamable PS3 Classics catalog. Walks the PUBLIC pcnow (Apollo) container
+    // STORE-MSF192018-APOLLOPS3GAMES (no OAuth/session needed -- the container API is
+    // open), returning ~300 PS3 titles that imagic/gameslist never lists. These stream
+    // via the PSNOW -> Gaikai konan path the streaming code already supports.
+    Q_INVOKABLE void fetchPs3Catalog(const QJSValue &callback);
     Q_INVOKABLE void fetchPs5CloudCatalog(const QJSValue &callback);
     Q_INVOKABLE void fetchOwnedPs5Games(const QJSValue &callback);
     Q_INVOKABLE void getOwnedPs5CloudGames(const QJSValue &callback);
@@ -95,7 +100,18 @@ private:
         QString duid;
         bool authInProgress;
     } psnowState;
-    
+
+    // PS3 Classics catalog fetching state (public Apollo PS3 container, paginated).
+    // containerUrl is resolved per account region group (Americas vs PAL) at fetch time.
+    struct Ps3FetchState {
+        QJSValue callback;
+        QJsonArray allGames;
+        QString containerUrl;
+        int currentStart = 0;
+        int totalResults = -1;
+        bool inProgress = false;
+    } ps3State;
+
     // PS5 catalog fetching state (six imagic lists, merged like Sony's PS5 cloud finder)
     struct Ps5FetchState {
         QJSValue callback;
@@ -107,6 +123,12 @@ private:
         QMap<QString, QJsonObject> plusLibrarySupplementByProductId;
         QMap<QString, QString> productIdAliases; // alternate imagic productId -> canonical browse productId
         int totalGamesSeen = 0;
+        // Store-locale fallback: Sony serves a fixed set of language-COUNTRY locales.
+        // The country is always valid but the language may not be (e.g. hu-HU 404s,
+        // en-HU works). We try the session locale, then en-COUNTRY, then en-US.
+        QStringList localeChain;
+        int localeTierIndex = 0;
+        QString activeLocale; // canonical "ll-CC" form for the tier currently being fetched
     } ps5State;
     
     // Owned games fetching state
@@ -132,7 +154,9 @@ private:
         QJsonArray plusLibrarySupplement;
         QJsonArray ownedGames;
         QMap<QString, QString> productIdAliases;
-        QMap<QString, QStringList> componentIdsByProductId; // product_id -> all sibling entitlement ids (full list)
+        // Bundle product_id -> its component entitlement ids, for bundle-sibling matching (from
+        // upstream PR #15): a bundle entitlement (e.g. RE7 Gold) expands to its component games.
+        QMap<QString, QStringList> componentIdsByProductId;
         bool catalogFetched;
         bool ownedGamesFetched;
     } crossReferenceState;
@@ -144,6 +168,10 @@ private:
     void ensureCacheDirectory();
     void fetchPsnowCategory(int categoryIndex);
     void processPsnowCatalogComplete();
+    QString ps3AccountCountry() const;
+    void fetchPs3CatalogPage();
+    void handlePs3CatalogPageResponse();
+    void finishPs3Catalog();
     void fetchOwnedGamesOAuthToken();
     void fetchPsnowOAuthToken();
     void fetchPsnowSession();
@@ -153,6 +181,7 @@ private:
     void handlePsnowSessionResponse();
     void handlePsnowStoresResponse();
     void handlePsnowRootContainerResponse();
+    void startPs5ImagicListFetch(); // fires the six imagic list requests for ps5State.activeLocale
     void executeGameDetailsFetch(const QString &productId);
     QJsonArray filterStreamingSupportedGames(const QJsonArray &games);
     QJsonArray filterOwnedPs5Games(const QJsonArray &entitlements);
