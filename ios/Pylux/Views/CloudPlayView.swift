@@ -10,21 +10,21 @@ private let cloudUILog = OSLog(subsystem: "com.pylux.stream", category: "CloudPl
 
 @MainActor
 final class CloudPlayViewModel: ObservableObject {
-    enum Section: String, CaseIterable, Identifiable {
-        case catalog = "Catalog"   // PSNow (PS3/PS4)
-        case library = "Library"   // PS5 Cloud (owned)
-        var id: String { rawValue }
-    }
+    static let tagFilterCategories = [
+        PsCloudOwnership.CATEGORY_OWNED,
+        PsCloudOwnership.CATEGORY_STREAMABLE,
+        PsCloudOwnership.CATEGORY_PURCHASEABLE
+    ]
+    static let tagFilterLabels = ["Owned", "Streamable", "Store"]
 
-    // Sort orders matching Android CloudPlayFragment.kt (3 states: 0, 1, 2)
     enum SortOrder: Int, CaseIterable {
-        case defaultOrder = 0  // Recent for Catalog, Owned First for Library
+        case defaultOrder = 0  // Playable First
         case nameAsc = 1       // Name: A -> Z
         case nameDesc = 2      // Name: Z -> A
 
-        func label(for section: Section) -> String {
+        var label: String {
             switch self {
-            case .defaultOrder: return section == .library ? "Owned First" : "Recent"
+            case .defaultOrder: return "Playable First"
             case .nameAsc:      return "Name: A \u{2192} Z"
             case .nameDesc:     return "Name: Z \u{2192} A"
             }
@@ -36,11 +36,11 @@ final class CloudPlayViewModel: ObservableObject {
     @Published var refreshing = false
     @Published var error: String?
     @Published var warning: String?
-    @Published var currentSection: Section = .library
+    @Published var fallbackRegion: String = SecureStore.shared.cloudFallbackRegion
     @Published var searchQuery = ""
     @Published var sortOrder: SortOrder = .defaultOrder
     @Published var showFavoritesOnly = false
-    @Published var showOwnedOnly = false  // Library: false="All", true="Owned" (matches Android default=false)
+    @Published var activeTagFilters: Set<String> = SecureStore.shared.cloudTagFilters
     @Published var favoriteIds: Set<String> = CloudFavoritesManager.getFavorites()
 
     // Allocation state
@@ -61,31 +61,47 @@ final class CloudPlayViewModel: ObservableObject {
         SecureStore.shared.cloudSortState = sortOrder.rawValue
     }
 
+    var filterSummary: String {
+        if activeTagFilters.isEmpty { return "All games" }
+        return Self.tagFilterCategories
+            .filter { activeTagFilters.contains($0) }
+            .map { tag in
+                Self.tagFilterLabels[Self.tagFilterCategories.firstIndex(of: tag) ?? 0]
+            }
+            .joined(separator: " · ")
+    }
+
     var filteredGames: [CloudGame] {
         var result = games
 
-        // Favorites filter (matches Android CloudPlayFragment lines 772-778)
+        if !activeTagFilters.isEmpty {
+            result = result.filter {
+                let category = $0.category.isEmpty ? PsCloudOwnership.categoryFor($0) : $0.category
+                return activeTagFilters.contains(category)
+            }
+        }
+
         if showFavoritesOnly {
             result = result.filter { favoriteIds.contains($0.id) }
         }
 
-        // Search
         if !searchQuery.isEmpty {
             let q = searchQuery.lowercased()
-            result = result.filter { $0.name.lowercased().contains(q) }
+            result = result.filter {
+                $0.name.lowercased().contains(q) || $0.id.lowercased().contains(q)
+            }
         }
 
-        // Sort (matches Android CloudPlayFragment lines 509-543)
         switch sortOrder {
         case .defaultOrder:
-            if currentSection == .library {
-                // Library default: owned first, then alphabetical
-                result.sort {
-                    if $0.isOwned != $1.isOwned { return $0.isOwned && !$1.isOwned }
-                    return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
-                }
+            result.sort {
+                let c0 = $0.category.isEmpty ? PsCloudOwnership.categoryFor($0) : $0.category
+                let c1 = $1.category.isEmpty ? PsCloudOwnership.categoryFor($1) : $1.category
+                let p0 = c0 != PsCloudOwnership.CATEGORY_PURCHASEABLE
+                let p1 = c1 != PsCloudOwnership.CATEGORY_PURCHASEABLE
+                if p0 != p1 { return p0 && !p1 }
+                return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
             }
-            // Catalog: keep original API order (no sort)
         case .nameAsc:
             result.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         case .nameDesc:
@@ -94,69 +110,66 @@ final class CloudPlayViewModel: ObservableObject {
         return result
     }
 
+    func isTagFilterActive(_ tag: String) -> Bool {
+        activeTagFilters.isEmpty || activeTagFilters.contains(tag)
+    }
+
+    func toggleTagFilter(_ tag: String) {
+        var next = activeTagFilters
+        if activeTagFilters.isEmpty {
+            next = Set(Self.tagFilterCategories.filter { $0 != tag })
+        } else if next.contains(tag) {
+            next.remove(tag)
+        } else {
+            next.insert(tag)
+        }
+        normalizeAndPersistTagFilters(next)
+    }
+
+    func setTagFilters(_ tags: Set<String>) {
+        normalizeAndPersistTagFilters(tags)
+    }
+
+    private func normalizeAndPersistTagFilters(_ tags: Set<String>) {
+        let allTags = Set(Self.tagFilterCategories)
+        activeTagFilters = (tags.isEmpty || tags == allTags) ? [] : tags
+        SecureStore.shared.cloudTagFilters = activeTagFilters
+    }
+
     func toggleFavorite(for game: CloudGame) {
-        let isFav = CloudFavoritesManager.toggleFavorite(game.id)
+        _ = CloudFavoritesManager.toggleFavorite(game.id)
         favoriteIds = CloudFavoritesManager.getFavorites()
-        // If favorites filter active and game was un-favorited, list auto-updates via filteredGames
-        _ = isFav // suppress unused warning
     }
 
     func loadGames(npssoToken: String) {
         loading = true
         error = nil
         warning = nil
-        let section = currentSection
-        let ownedOnly = showOwnedOnly
 
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let self = self else { return }
-            var loadedGames: [CloudGame]
-
-            switch section {
-            case .catalog:
-                let psnow = self.catalogService.fetchPsnowCatalog(npssoToken: npssoToken)
-                // The legacy PS Now (Kamaji) browse store 404s in many regions. Fall back to the
-                // PS Plus subscription catalog (~630), NOT the full ~4000 universe — the Library
-                // "all" view is the full-universe browse.
-                loadedGames = psnow.isEmpty
-                    ? self.catalogService.fetchPlusCatalogGames(npssoToken: npssoToken)
-                    : psnow
-                // PS3 Classics are subscription-streamable, so they belong in the Game Catalog.
-                loadedGames += self.catalogService.fetchPs3Catalog()
-            case .library:
-                if ownedOnly {
-                    loadedGames = self.catalogService.fetchOwnedPs5Games(npssoToken: npssoToken)
-                } else {
-                    loadedGames = self.catalogService.fetchAllPs5CloudGames(npssoToken: npssoToken)
-                    // PS3 Classics are part of the streamable "all" universe (never the "owned" view).
-                    loadedGames += self.catalogService.fetchPs3Catalog()
-                }
-            }
-
+            let loadedGames = self.catalogService.fetchUnifiedCatalog(npssoToken: npssoToken)
             await MainActor.run {
-                self.applyLoadedGames(loadedGames, section: section)
+                self.applyLoadedGames(loadedGames)
             }
         }
     }
 
-    private func applyLoadedGames(_ loadedGames: [CloudGame], section: Section) {
+    private func applyLoadedGames(_ loadedGames: [CloudGame]) {
         games = loadedGames
         loading = false
+        fallbackRegion = SecureStore.shared.cloudFallbackRegion
         if let fetchError = catalogService.lastLibraryFetchError {
             error = fetchError
         } else if loadedGames.isEmpty {
-            error = section == .library
-                ? "No cloud games found. Check your connection."
-                : "Failed to load catalog. Check your connection."
+            error = "No cloud games found. Check your connection."
         }
-        if section == .library {
-            if let catalogWarning = catalogService.lastCatalogFetchWarning {
-                warning = catalogWarning
-            } else if let libraryWarning = catalogService.lastLibraryFetchWarning {
-                warning = libraryWarning
-            } else if !CloudLocaleSettings.isConfigured {
-                warning = CloudLocaleSettings.unconfiguredWarning()
-            }
+        if let catalogWarning = catalogService.lastCatalogFetchWarning {
+            warning = catalogWarning
+        } else if let libraryWarning = catalogService.lastLibraryFetchWarning {
+            warning = libraryWarning
+        } else if !CloudLocaleSettings.isConfigured {
+            warning = CloudLocaleSettings.unconfiguredWarning()
         }
     }
 
@@ -166,11 +179,8 @@ final class CloudPlayViewModel: ObservableObject {
         loading = true
         error = nil
         warning = nil
-        let section = currentSection
-        let ownedOnly = showOwnedOnly
 
         Task.detached(priority: .userInitiated) { [weak self] in
-            var loadedGames: [CloudGame] = []
             defer {
                 Task { @MainActor in
                     self?.loading = false
@@ -178,29 +188,11 @@ final class CloudPlayViewModel: ObservableObject {
                 }
             }
             guard let self = self else { return }
-
-            switch section {
-            case .catalog:
-                let psnow = self.catalogService.fetchPsnowCatalog(npssoToken: npssoToken, forceRefresh: true)
-                // Fall back to the PS Plus subscription catalog when the legacy PS Now store is
-                // unavailable for the region (Library "all" is the full-universe browse).
-                loadedGames = psnow.isEmpty
-                    ? self.catalogService.fetchPlusCatalogGames(npssoToken: npssoToken, forceRefresh: true)
-                    : psnow
-                // PS3 Classics are subscription-streamable, so they belong in the Game Catalog.
-                loadedGames += self.catalogService.fetchPs3Catalog(forceRefresh: true)
-            case .library:
-                if ownedOnly {
-                    loadedGames = self.catalogService.fetchOwnedPs5Games(npssoToken: npssoToken, forceRefresh: true)
-                } else {
-                    loadedGames = self.catalogService.fetchAllPs5CloudGames(npssoToken: npssoToken, forceRefresh: true)
-                    // PS3 Classics are part of the streamable "all" universe (never the "owned" view).
-                    loadedGames += self.catalogService.fetchPs3Catalog(forceRefresh: true)
-                }
-            }
-
+            let loadedGames = self.catalogService.fetchUnifiedCatalog(
+                npssoToken: npssoToken, forceRefresh: true
+            )
             await MainActor.run {
-                self.applyLoadedGames(loadedGames, section: section)
+                self.applyLoadedGames(loadedGames)
             }
         }
     }
@@ -301,8 +293,18 @@ struct CloudPlayView: View {
                     signInPrompt
                 } else {
                     VStack(spacing: 0) {
-                        // Sub-tabs: Catalog / Library
                         cloudSubTabs
+
+                        if !viewModel.fallbackRegion.isEmpty {
+                            Text("Cloud catalog isn't fully available in your region; some titles may not stream.")
+                                .font(.caption)
+                                .foregroundColor(.black.opacity(0.85))
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .frame(maxWidth: .infinity)
+                                .background(Color(red: 1.0, green: 0.92, blue: 0.23))
+                        }
 
                         if let warning = viewModel.warning {
                             Text(warning)
@@ -342,19 +344,6 @@ struct CloudPlayView: View {
         .onAppear {
             viewModel.loadPersistedSortOrder()
             if viewModel.games.isEmpty && !npssoToken.isEmpty {
-                viewModel.loadGames(npssoToken: npssoToken)
-            }
-        }
-        .onChange(of: viewModel.currentSection) { _ in
-            if !npssoToken.isEmpty {
-                viewModel.games = []
-                viewModel.loadGames(npssoToken: npssoToken)
-            }
-        }
-        .onChange(of: viewModel.showOwnedOnly) { _ in
-            // Re-fetch when toggling All/Owned (matches Android applyFilterState)
-            if viewModel.currentSection == .library && !npssoToken.isEmpty {
-                viewModel.games = []
                 viewModel.loadGames(npssoToken: npssoToken)
             }
         }
@@ -417,52 +406,50 @@ struct CloudPlayView: View {
 
     private var cloudSubTabs: some View {
         HStack(spacing: 0) {
-            // Section tabs - fixed width, no wrapping
-            ForEach(CloudPlayViewModel.Section.allCases) { section in
-                let isSelected = viewModel.currentSection == section
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        viewModel.currentSection = section
+            Menu {
+                ForEach(Array(CloudPlayViewModel.tagFilterCategories.enumerated()), id: \.offset) { index, tag in
+                    Button {
+                        viewModel.toggleTagFilter(tag)
+                    } label: {
+                        HStack {
+                            Text(CloudPlayViewModel.tagFilterLabels[index])
+                            if viewModel.isTagFilterActive(tag) {
+                                Image(systemName: "checkmark")
+                            }
+                        }
                     }
-                } label: {
-                    Text(section.rawValue)
-                        .font(.system(size: 13, weight: isSelected ? .bold : .medium))
-                        .foregroundColor(isSelected ? .white : .white.opacity(0.45))
-                        .lineLimit(1)
-                        .fixedSize()
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(
-                            Capsule().fill(isSelected ? Color.white.opacity(0.12) : Color.clear)
-                        )
                 }
-            }
-
-            // Library: All / Owned toggle (matches Android applyFilterState)
-            if viewModel.currentSection == .library {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        viewModel.showOwnedOnly.toggle()
-                    }
-                } label: {
-                    Text(viewModel.showOwnedOnly ? "Owned" : "All")
-                        .font(.system(size: 11, weight: .bold))
-                        .lineLimit(1)
-                        .fixedSize()
-                        .foregroundColor(viewModel.showOwnedOnly ? .green : .white.opacity(0.6))
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 5)
-                        .background(
-                            Capsule().fill(viewModel.showOwnedOnly ? Color.green.opacity(0.15) : Color.white.opacity(0.08))
-                        )
+                Divider()
+                Button("Show all") {
+                    viewModel.setTagFilters([])
                 }
-                .padding(.leading, 4)
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "line.3.horizontal.decrease.circle")
+                        .font(.system(size: 12))
+                    Text(viewModel.filterSummary)
+                        .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
+                }
+                .foregroundColor(viewModel.activeTagFilters.isEmpty ? .white.opacity(0.45) : .blue.opacity(0.9))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
             }
 
             Spacer(minLength: 4)
 
-            // Icon buttons - compact
             HStack(spacing: 0) {
+                // Search toggle (left of favorites, matches Android header order)
+                Button {
+                    withAnimation(.easeInOut(duration: 0.25)) { showSearch.toggle() }
+                    if !showSearch { viewModel.searchQuery = "" }
+                } label: {
+                    Image(systemName: showSearch ? "magnifyingglass.circle.fill" : "magnifyingglass")
+                        .font(.system(size: 12))
+                        .foregroundColor(showSearch ? .white : .white.opacity(0.45))
+                        .frame(width: 28, height: 28)
+                }
+
                 // Favorites filter
                 Button {
                     withAnimation(.easeInOut(duration: 0.2)) {
@@ -483,7 +470,7 @@ struct CloudPlayView: View {
                             viewModel.persistSortOrder()
                         } label: {
                             HStack {
-                                Text(order.label(for: viewModel.currentSection))
+                                Text(order.label)
                                 if viewModel.sortOrder == order {
                                     Image(systemName: "checkmark")
                                 }
@@ -494,17 +481,6 @@ struct CloudPlayView: View {
                     Image(systemName: "arrow.up.arrow.down")
                         .font(.system(size: 12))
                         .foregroundColor(.white.opacity(0.45))
-                        .frame(width: 28, height: 28)
-                }
-
-                // Search toggle
-                Button {
-                    withAnimation(.easeInOut(duration: 0.25)) { showSearch.toggle() }
-                    if !showSearch { viewModel.searchQuery = "" }
-                } label: {
-                    Image(systemName: showSearch ? "magnifyingglass.circle.fill" : "magnifyingglass")
-                        .font(.system(size: 12))
-                        .foregroundColor(showSearch ? .white : .white.opacity(0.45))
                         .frame(width: 28, height: 28)
                 }
 
@@ -559,12 +535,9 @@ struct CloudPlayView: View {
         .padding(.vertical, 8)
     }
 
-    /// Any non-owned modern cloud-catalog game (PS4 or PS5) must be added to your library before it
-    /// can stream — Gaikai rejects an unowned PS5 entitlement, and modern PS-Plus PS4 titles (e.g.
-    /// Far Cry 5) have no free Kamaji SKU. Owned games stream directly. (Legacy PS Now is psnow.)
     private func handleGameTap(_ game: CloudGame) {
-        let isPscloud = game.serviceType.lowercased() == "pscloud"
-        if isPscloud && !game.isOwned {
+        let category = game.category.isEmpty ? PsCloudOwnership.categoryFor(game) : game.category
+        if category == PsCloudOwnership.CATEGORY_PURCHASEABLE {
             let url = game.conceptUrl.trimmingCharacters(in: .whitespacesAndNewlines)
             if url.isEmpty {
                 showMissingConceptAlert = true
@@ -596,8 +569,17 @@ struct CloudPlayView: View {
                         .background(Capsule().fill(Color.yellow.opacity(0.15)))
                 }
 
+                if viewModel.activeTagFilters.count > 0 && viewModel.activeTagFilters.count < CloudPlayViewModel.tagFilterCategories.count {
+                    Text(viewModel.filterSummary)
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.blue.opacity(0.9))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(Color.blue.opacity(0.15)))
+                }
+
                 if viewModel.sortOrder != .defaultOrder {
-                    Text(viewModel.sortOrder.label(for: viewModel.currentSection))
+                    Text(viewModel.sortOrder.label)
                         .font(.system(size: 10, weight: .bold))
                         .foregroundColor(.white.opacity(0.5))
                         .padding(.horizontal, 6)
@@ -615,7 +597,6 @@ struct CloudPlayView: View {
                     CloudGameCardView(
                         game: game,
                         isFavorite: viewModel.favoriteIds.contains(game.id),
-                        showOwnershipBadge: true,  // owned/not-owned shown in Library AND Catalog (pscloud cards)
                         onTap: {
                             handleGameTap(game)
                         },
@@ -823,7 +804,7 @@ struct CloudPlayView: View {
     @ViewBuilder
     private func allocationCoverThumbnail(width: CGFloat, height: CGFloat) -> some View {
         if let game = selectedGame {
-            AsyncImage(url: URL(string: game.imageUrl), transaction: Transaction(animation: nil)) { phase in
+            CachedAsyncImage(url: URL(string: game.imageUrl)) { phase in
                 switch phase {
                 case .success(let image):
                     image
@@ -848,11 +829,18 @@ struct CloudPlayView: View {
 struct CloudGameCardView: View {
     let game: CloudGame
     let isFavorite: Bool
-    let showOwnershipBadge: Bool  // true only in Library section (matches Android adapter.showOwnershipBadge)
     let onTap: () -> Void
     let onFavoriteToggle: () -> Void
 
     @State private var starTapped = false  // debounce visual
+
+    private var displayCategory: String {
+        if !game.category.isEmpty { return game.category }
+        // Fall back through the canonical tagger (streamServiceType-based), not raw serviceType:
+        // a non-owned PS4 cloud-browse row is serviceType="pscloud" but streams via PS Now, so it is
+        // "streamable", not "purchaseable".
+        return PsCloudOwnership.categoryFor(game)
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -866,26 +854,12 @@ struct CloudGameCardView: View {
                     bottomOverlay
                 }
 
-                // Layer 3: Top overlays - ownership badge (left) + star (right)
+                // Layer 3: Top overlays - category badge (left) + star (right)
                 VStack {
                     HStack(alignment: .top, spacing: 0) {
-                        // Top-left: Ownership badge (matches Android item_cloud_game.xml ownershipBadge)
-                        if showOwnershipBadge && game.serviceType == "pscloud" {
-                            Text(game.isOwned ? "Owned" : "Not Owned")
-                                .font(.system(size: 9, weight: .bold))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 3)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                        .fill(game.isOwned
-                                              ? Color(red: 0.30, green: 0.69, blue: 0.31).opacity(0.85)   // #4CAF50 green
-                                              : Color(red: 1.0, green: 0.60, blue: 0.0).opacity(0.85))    // #FF9800 orange
-                                )
-                                .shadow(color: .black.opacity(0.5), radius: 2, y: 1)
-                                .padding(.top, 6)
-                                .padding(.leading, 6)
-                        }
+                        categoryBadge
+                            .padding(.top, 6)
+                            .padding(.leading, 6)
 
                         Spacer()
 
@@ -923,8 +897,32 @@ struct CloudGameCardView: View {
     }
 
     @ViewBuilder
+    private var categoryBadge: some View {
+        let (label, color): (String, Color) = {
+            switch displayCategory {
+            case PsCloudOwnership.CATEGORY_OWNED:
+                return ("Owned", Color(red: 0.30, green: 0.69, blue: 0.31))       // #4CAF50
+            case PsCloudOwnership.CATEGORY_STREAMABLE:
+                return ("Streamable", Color(red: 0.13, green: 0.59, blue: 0.95))    // #2196F3
+            default:
+                return ("Add Game", Color(red: 1.0, green: 0.60, blue: 0.0))        // #FF9800
+            }
+        }()
+        Text(label)
+            .font(.system(size: 9, weight: .bold))
+            .foregroundColor(.white)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(color.opacity(0.85))
+            )
+            .shadow(color: .black.opacity(0.5), radius: 2, y: 1)
+    }
+
+    @ViewBuilder
     private func coverImage(width: CGFloat, height: CGFloat) -> some View {
-        AsyncImage(url: URL(string: game.imageUrl), transaction: Transaction(animation: nil)) { phase in
+        CachedAsyncImage(url: URL(string: game.imageUrl)) { phase in
             switch phase {
             case .success(let image):
                 // Use .fit so the full image is visible (no awkward cropping),
@@ -950,7 +948,6 @@ struct CloudGameCardView: View {
                     }
             }
         }
-        .id(game.imageUrl)
         .allowsHitTesting(false)
     }
 

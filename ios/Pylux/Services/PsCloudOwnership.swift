@@ -14,6 +14,10 @@ struct PsCloudEntitlement {
     let name: String
     let conceptId: String
     let featureType: Int   // PSN feature_type: 3=full game, 1=trial/free, 0=add-on/DLC
+    // Structured platform from entitlement_attributes[].platform_id ("ps5"/"ps4"/"ps3"). This is the
+    // authoritative stream-backend signal -- NOT a CUSA/PPSA id prefix, since a cross-buy PS4 license
+    // can carry a PS5-looking product_id wrapper (Red Dead's PS4 license has product_id ...PPSA30528).
+    let platformId: String
 }
 
 enum PsCloudOwnership {
@@ -78,13 +82,17 @@ enum PsCloudOwnership {
         // direct match, or once per component for a bundle (upstream PR #15 bundle-sibling matching).
         func emit(_ meta: CloudGame, _ ent: PsCloudEntitlement) {
             let displayName = meta.name.isEmpty ? ent.name : meta.name
+            // The owned card's serviceType comes from the ENTITLEMENT's platform_id (pscloud == PS5,
+            // psnow == PS3/PS4), not the matched catalog row's: a cross-buy PS4 license can match a
+            // PS5 catalog row by shared product_id, but it must still route as PS4/Kamaji.
+            let ownedService = ownedServiceType(ent, meta)
             let game = CloudGame(
                 productId: meta.id,
                 name: displayName,
                 imageUrl: meta.imageUrl,
                 landscapeImageUrl: meta.landscapeImageUrl,
                 platform: meta.platform,
-                serviceType: meta.serviceType,
+                serviceType: ownedService,
                 conceptUrl: meta.conceptUrl,
                 conceptId: meta.conceptId,
                 isOwned: true,
@@ -116,6 +124,8 @@ enum PsCloudOwnership {
                 meta = g
             } else if !ent.id.isEmpty, let g = catalogMap[ent.id] {
                 meta = g
+            // Inert in practice: PSN entitlements carry no conceptId (see findCatalogIndexForOwned note), so this
+            // platform-blind concept lookup almost never fires; owned games match by exact id above.
             } else if !ent.conceptId.isEmpty, let g = browseByConcept[ent.conceptId] {
                 // conceptId is region-stable; product IDs are region-prefixed (EP9000 vs UP9000).
                 meta = g
@@ -228,7 +238,16 @@ enum PsCloudOwnership {
     // title owned on both PS4 and PS5 stays as two separate library entries instead of collapsing
     // into one. Same-platform duplicate SKUs (a remaster's add-ons) still merge.
     private static func ownedDedupeKey(meta: CloudGame, ent: PsCloudEntitlement) -> String {
-        if !meta.conceptId.isEmpty { return "c:\(meta.conceptId):\(platformToken(ent.productId))" }
+        // Platform from the ENTITLEMENT's structured platform_id (NOT the matched catalog row's, and NOT
+        // a product-id prefix): a cross-buy title gives the user up to three entitlements that resolve to
+        // ONE catalog row -- a clean PS4 (CUSA, platform_id ps4), a real PS5 (PPSA, platform_id ps5), and
+        // a PS5-wrapper PS4 license (id CUSA, product_id ...PPSA..., platform_id ps4). The real PS5 and
+        // the PS5-wrapper PS4 must stay in SEPARATE buckets (ps5 vs ps4) so the PS5 entitlement is not
+        // discarded by a same-key collision; the merge then stamps the PS5 card from the PS5 entitlement
+        // and DROPS the PS4 wrapper (it can't claim a PS5 card). Collapsing by the catalog row's platform
+        // instead let the wrapper win and threw away the real PS5 license (the Blood Omen / GTA V PS5
+        // streaming failure).
+        if !meta.conceptId.isEmpty { return "c:\(meta.conceptId):\(entPlatform(ent))" }
         if !meta.id.isEmpty { return "p:\(meta.id)" }
         if !ent.id.isEmpty { return "e:\(ent.id)" }
         return "u:\(meta.id):\(ent.id)"
@@ -270,12 +289,44 @@ enum PsCloudOwnership {
         return rank
     }
 
-    // conceptId + platform for an owned/catalog game; the owned product id (storeProductId) takes
-    // precedence so the owned edition's platform is used, else the catalog product id.
+    // conceptId + platform for an owned/catalog game. Platform comes from the canonical serviceType
+    // (pscloud == ps5, psnow == ps4-class) -- filled for owned cards from the entitlement's
+    // platform_id -- so an owned cross-buy PS4 license whose product_id is a PS5-looking wrapper
+    // buckets to the PS4 edition, not the PS5 one. Falls back to the product-id token when serviceType
+    // is absent (non-owned imagic browse rows, whose ids are clean).
     private static func conceptPlatformKey(_ game: CloudGame) -> String {
         guard !game.conceptId.isEmpty else { return "" }
-        let pid = game.storeProductId.isEmpty ? game.id : game.storeProductId
-        return "\(game.conceptId)|\(platformToken(pid))"
+        return "\(game.conceptId)|\(platformClassForCard(game))"
+    }
+
+    /// Platform CLASS of a catalog/owned card (ps5 or ps4). serviceType is canonical when present;
+    /// non-owned imagic browse rows may only have a clean product-id token (PPSA/CUSA). Mirrors Qt
+    /// gamePlatformStructured + ps5CloudPlatformToken fallback in mergeOwnedIntoBrowseCatalog.
+    private static func platformClassForCard(_ game: CloudGame) -> String {
+        let st = game.serviceType.lowercased()
+        if st == "pscloud" { return "ps5" }
+        if st == "psnow" { return "ps4" }
+        return platformToken(game.storeProductId.isEmpty ? game.id : game.storeProductId)
+    }
+
+    /// Rebuild a catalog row after merge stamping (serviceType is let, so we must replace the struct).
+    private static func stampMergedCard(_ existing: CloudGame, from owned: CloudGame, serviceType: String) -> CloudGame {
+        CloudGame(
+            productId: existing.id,
+            name: existing.name,
+            imageUrl: existing.imageUrl,
+            landscapeImageUrl: existing.landscapeImageUrl,
+            platform: existing.platform,
+            serviceType: serviceType,
+            conceptUrl: existing.conceptUrl,
+            conceptId: existing.conceptId,
+            isOwned: true,
+            entitlementId: owned.entitlementId.isEmpty ? existing.entitlementId : owned.entitlementId,
+            storeProductId: owned.storeProductId.isEmpty ? existing.storeProductId : owned.storeProductId,
+            plusCatalog: existing.plusCatalog,
+            featureType: owned.featureType != 0 ? owned.featureType : existing.featureType,
+            category: existing.category
+        )
     }
 
     /// Tokenize on '-' and '_'; identity is all tokens except the last (store SKU).
@@ -335,12 +386,26 @@ enum PsCloudOwnership {
             let isTrialTier = owned.featureType == 1
             let catalogMatch = isTrialTier ? -1 : findCatalogIndexForOwned(owned, catalogIndex: catalogIndex)
             if catalogMatch >= 0 {
-                var existing = games[catalogMatch]
-                existing.isOwned = true
-                if !owned.entitlementId.isEmpty { existing.entitlementId = owned.entitlementId }
-                if !owned.storeProductId.isEmpty { existing.storeProductId = owned.storeProductId }
-                games[catalogMatch] = existing
-                continue
+                let existing = games[catalogMatch]
+                let ownedService = owned.serviceType.lowercased()
+                let existingService = existing.serviceType.lowercased()
+                let existingClass = platformClassForCard(existing)
+                // The card's stream identity must come from the OWNED entitlement of THIS card's
+                // platform. Cross-buy editions share one product_id (Red Dead's PS4 license and PS5
+                // license both carry ...PPSA30528...), so matching by product_id alone lets a PS4
+                // entitlement land on the PS5 card. Rule: a PS5 (pscloud) claim is authoritative; a
+                // PS4/PS3 (psnow) entitlement must NEVER overwrite a PS5-class card. Mirrors Qt
+                // mergeOwnedIntoBrowseCatalog exactly (cloudcatalogbackend.cpp).
+                if ownedService == "pscloud" {
+                    games[catalogMatch] = stampMergedCard(existing, from: owned, serviceType: "pscloud")
+                    continue
+                }
+                if ownedService == "psnow" && existingService != "pscloud" && existingClass != "ps5" {
+                    games[catalogMatch] = stampMergedCard(existing, from: owned, serviceType: "psnow")
+                    continue
+                }
+                // psnow entitlement whose matched card is PS5-class: not this card's edition -- fall
+                // through to addUnmatched; streamability gate drops non-viable wrappers (Qt path).
             }
 
             guard addUnmatched else { continue }
@@ -364,6 +429,17 @@ enum PsCloudOwnership {
             ?? conceptIdString(gameMeta["concept_id"])
             ?? conceptIdString(obj["conceptId"])
             ?? ""
+        // Structured platform from entitlement_attributes[].platform_id. Sony also returns a numeric
+        // top-level "serviceType" here that is unrelated to our routing -- we never read it.
+        var platformId = ""
+        if let attrs = obj["entitlement_attributes"] as? [[String: Any]] {
+            // Scan for the first RECOGNIZED platform (ps5/ps4/ps3); skip any unknown value so a junk
+            // attribute ordered first can't shadow a real one (mirrors Qt ownedEntitlementServiceType).
+            for a in attrs {
+                guard let p = (a["platform_id"] as? String)?.lowercased() else { continue }
+                if p == "ps5" || p == "ps4" || p == "ps3" { platformId = p; break }
+            }
+        }
         return PsCloudEntitlement(
             id: id,
             productId: (obj["product_id"] as? String) ?? "",
@@ -371,8 +447,47 @@ enum PsCloudOwnership {
             packageType: (gameMeta["package_type"] as? String) ?? "",
             name: name,
             conceptId: conceptId,
-            featureType: (obj["feature_type"] as? NSNumber)?.intValue ?? 0
+            featureType: (obj["feature_type"] as? NSNumber)?.intValue ?? 0,
+            platformId: platformId
         )
+    }
+
+    // Canonical stream service for an owned entitlement from its structured platform_id:
+    // ps5 -> pscloud (cronos), ps4/ps3 -> psnow (Kamaji). Empty if platform_id is absent.
+    static func entServiceType(_ ent: PsCloudEntitlement) -> String {
+        switch ent.platformId {
+        case "ps5": return "pscloud"
+        case "ps4", "ps3": return "psnow"
+        default: return ""
+        }
+    }
+
+    // Stream backend for an owned entitlement, with Qt's exact fallback (streamServiceTypeForGame):
+    // 1) the structured platform_id (authoritative -- a cross-buy PS4 wrapper has platform_id "ps4"
+    //    even though its product_id is a PS5-looking PPSA, so it correctly stays psnow/Kamaji); else
+    // 2) the entitlement's own product-id TOKEN (CUSA = PS4/Kamaji, PPSA = PS5/cronos). PS Plus classics
+    //    (e.g. Blood Omen, product ...PPSA24270...) carry NO platform_id and match a PS Now/Apollo
+    //    (psnow) browse row by concept -- inheriting meta.serviceType would mis-route them to Kamaji and
+    //    fail. The product-id token routes them to cronos like Qt. Only when neither token is present do
+    //    we fall back to the matched row's serviceType.
+    private static func ownedServiceType(_ ent: PsCloudEntitlement, _ meta: CloudGame) -> String {
+        let svc = entServiceType(ent)
+        if !svc.isEmpty { return svc }
+        let tok = ent.productId + " " + ent.id
+        if tok.contains("CUSA") { return "psnow" }
+        if tok.contains("PPSA") { return "pscloud" }
+        return meta.serviceType
+    }
+
+    // Platform class (ps5/ps4) for owned dedupe, from platform_id; falls back to the product-id token
+    // only when platform_id is absent (never relied on for the CUSA/PPSA wrapper-prone cross-buy case,
+    // which always carries a platform_id).
+    private static func entPlatform(_ ent: PsCloudEntitlement) -> String {
+        switch ent.platformId {
+        case "ps5": return "ps5"
+        case "ps4", "ps3": return "ps4"
+        default: return platformToken(ent.productId)
+        }
     }
 
     private static func buildCatalogIndex(_ games: [CloudGame]) -> CatalogIndex {
@@ -396,6 +511,17 @@ enum PsCloudOwnership {
         }
     }
 
+    // IMPORTANT (this cost real debugging time): PSN *owned entitlements* carry NO conceptId in practice
+    // -- their game_meta is just { name, package_type, icon_url }. So every conceptId-based step below is
+    // effectively INERT for owned games: an owned entitlement resolves to a catalog row by EXACT ID ONLY
+    // (product_id -> entitlement id -> store product id). The conceptId machinery's live job is catalog-row
+    // edition dedup (edition / conceptPlatformKey), NOT owned->catalog matching.
+    //
+    // Also: a PS4 CROSS-BUY license can carry a PS5-looking PPSA *product_id* wrapper while its real PS4
+    // component is the CUSA *id* (platform_id stays "ps4"). product_id is matched against the catalog FIRST,
+    // so such a ps4 license can land on a PS5 (PPSA) row. NEVER infer platform from a product-id prefix for
+    // owned entitlements -- use the platform_id-derived serviceType (pscloud=PS5, psnow=PS3/PS4). The merge
+    // guard keys on the matched card's platform CLASS so a ps4 license can never corrupt a PS5 card.
     private static func findCatalogIndexForOwned(_ owned: CloudGame, catalogIndex: CatalogIndex) -> Int {
         if !owned.id.isEmpty, let idx = catalogIndex.byProductId[owned.id] { return idx }
         if !owned.entitlementId.isEmpty, let idx = catalogIndex.byProductId[owned.entitlementId] { return idx }
@@ -405,5 +531,85 @@ enum PsCloudOwnership {
         let conceptKey = conceptPlatformKey(owned)
         if !conceptKey.isEmpty, let idx = catalogIndex.byConceptId[conceptKey] { return idx }
         return -1
+    }
+
+    // MARK: - Unified-page assembly: acquisition tag + concept-sibling streamability gate
+
+    static let CATEGORY_OWNED = "owned"
+    static let CATEGORY_STREAMABLE = "streamable"
+    static let CATEGORY_PURCHASEABLE = "purchaseable"
+
+    static func categoryFor(_ game: CloudGame) -> String {
+        if game.isOwned { return CATEGORY_OWNED }
+        if game.streamServiceType == "psnow" { return CATEGORY_STREAMABLE }
+        return CATEGORY_PURCHASEABLE
+    }
+
+    /// Concept-sibling streamability gate index, built from the ACTUAL streamable catalog.
+    struct StreamabilityIndex {
+        private let productKeys: Set<String>
+        private let streamableConceptIds: Set<String>
+
+        init(
+            apolloCatalog: [CloudGame],
+            imagicBrowse: [CloudGame],
+            imagicConceptRows: [CloudGame]
+        ) {
+            var keys = Set<String>()
+            var conceptIds = Set<String>()
+
+            func addProduct(_ productId: String) {
+                guard !productId.isEmpty else { return }
+                keys.insert(productId)
+                if let stable = PsCloudOwnership.productIdStableKey(productId) {
+                    keys.insert(stable)
+                }
+            }
+
+            for game in apolloCatalog { addProduct(game.id) }
+            for game in imagicBrowse {
+                addProduct(game.id)
+                if !game.conceptId.isEmpty { conceptIds.insert(game.conceptId) }
+            }
+            for row in imagicConceptRows {
+                guard !row.conceptId.isEmpty else { continue }
+                let rowKeys = [row.id, PsCloudOwnership.productIdStableKey(row.id)].compactMap { $0 }
+                if rowKeys.contains(where: { keys.contains($0) }) {
+                    conceptIds.insert(row.conceptId)
+                }
+            }
+
+            productKeys = keys
+            streamableConceptIds = conceptIds
+        }
+
+        func isStreamable(_ game: CloudGame) -> Bool {
+            for p in [game.id, game.storeProductId, game.entitlementId] {
+                guard !p.isEmpty else { continue }
+                if productKeys.contains(p) { return true }
+                if let stable = PsCloudOwnership.productIdStableKey(p), productKeys.contains(stable) { return true }
+            }
+            return !game.conceptId.isEmpty && streamableConceptIds.contains(game.conceptId)
+        }
+    }
+
+    static func applyStreamabilityGate(_ games: [CloudGame], index: StreamabilityIndex) -> [CloudGame] {
+        var kept: [CloudGame] = []
+        var dropped = 0
+        for game in games {
+            if !game.isOwned || index.isStreamable(game) {
+                kept.append(game)
+            } else {
+                dropped += 1
+                os_log(.info, log: ownershipLog,
+                       "streamability gate: dropped owned non-streamable '%{public}s' (%{public}s)",
+                       game.name, game.id)
+            }
+        }
+        if dropped > 0 {
+            os_log(.info, log: ownershipLog,
+                   "streamability gate: dropped %d owned non-streamable titles", dropped)
+        }
+        return kept
     }
 }

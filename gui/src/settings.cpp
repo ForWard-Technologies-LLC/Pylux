@@ -1024,6 +1024,41 @@ void Settings::SetCloudCatalogFilter(QString filter)
 	settings.setValue("settings/cloud_catalog_filter", filter);
 }
 
+QString Settings::GetCloudFallbackRegion() const
+{
+	return settings.value("settings/cloud_fallback_region", "").toString();
+}
+
+void Settings::SetCloudFallbackRegion(const QString &region)
+{
+	settings.setValue("settings/cloud_fallback_region", region);
+}
+
+bool Settings::IsCloudFallbackMode() const
+{
+	return !GetCloudFallbackRegion().isEmpty();
+}
+
+QString Settings::GetCloudTagFilters() const
+{
+	return settings.value("settings/cloud_tag_filters", "[]").toString();
+}
+
+void Settings::SetCloudTagFilters(const QString &filtersJson)
+{
+	settings.setValue("settings/cloud_tag_filters", filtersJson);
+}
+
+int Settings::GetCloudSortState() const
+{
+	return settings.value("settings/cloud_sort_state", 0).toInt();
+}
+
+void Settings::SetCloudSortState(int sortState)
+{
+	settings.setValue("settings/cloud_sort_state", sortState);
+}
+
 QString Settings::GetCloudFavorites() const
 {
 	return settings.value("settings/cloud_favorites", "[]").toString();

@@ -49,6 +49,8 @@ public:
     Q_INVOKABLE void fetchPs5CloudCatalog(const QJSValue &callback);
     Q_INVOKABLE void fetchOwnedPs5Games(const QJSValue &callback);
     Q_INVOKABLE void getOwnedPs5CloudGames(const QJSValue &callback);
+    /** Unified cloud catalog: PS Now APOLLOROOT (PS3+PS4) + imagic PS5, tagged by category. */
+    Q_INVOKABLE void fetchUnifiedCatalog(const QJSValue &callback);
     Q_INVOKABLE void fetchGameDetails(const QString &productId, const QJSValue &callback);
 
     // Steam shortcut creation for cloud games
@@ -75,6 +77,8 @@ private slots:
     void handleOwnedGamesResponse();
     void handleGameDetailsResponse();
     void processCrossReferenceComplete();
+    void handleUnifiedApolloPageResponse();
+    void finishUnifiedFetch(bool success, const QString &message, const QJsonObject &payload = QJsonObject());
 
 private:
     Settings *settings;
@@ -99,7 +103,25 @@ private:
         QString baseUrl;
         QString duid;
         bool authInProgress;
+        bool unifiedMode = false;
     } psnowState;
+
+    // Unified catalog fetch orchestration (mirrors Android CloudGameRepository.fetchUnifiedCatalog).
+    struct UnifiedFetchState {
+        bool active = false;
+        QJSValue callback;
+        QJsonArray apolloGames;
+        bool nativeMode = false;
+        bool authError = false;
+        QString fallbackRegion;
+        QString warning;
+        QString apolloContainerUrl;
+        int apolloStart = 0;
+        int apolloTotal = -1;
+        QJsonArray imagicBrowse;
+        QJsonArray imagicSupplement;
+        QMap<QString, QString> productIdAliases;
+    } unifiedState;
 
     // PS3 Classics catalog fetching state (public Apollo PS3 container, paginated).
     // containerUrl is resolved per account region group (Americas vs PAL) at fetch time.
@@ -159,6 +181,8 @@ private:
         QMap<QString, QStringList> componentIdsByProductId;
         bool catalogFetched;
         bool ownedGamesFetched;
+        QJsonArray psnowCatalogGames;
+        bool unifiedMode = false;
     } crossReferenceState;
     
     // Helper methods
@@ -181,6 +205,12 @@ private:
     void handlePsnowSessionResponse();
     void handlePsnowStoresResponse();
     void handlePsnowRootContainerResponse();
+    void unifiedNativeProbeFailed(bool authError);
+    void startUnifiedApolloFallback();
+    void fetchUnifiedApolloPage();
+    void continueUnifiedAfterApollo();
+    void startUnifiedOwnedCrossRef();
+    void assembleUnifiedCatalog(const QJsonArray &ownedCrossRef);
     void startPs5ImagicListFetch(); // fires the six imagic list requests for ps5State.activeLocale
     void executeGameDetailsFetch(const QString &productId);
     QJsonArray filterStreamingSupportedGames(const QJsonArray &games);

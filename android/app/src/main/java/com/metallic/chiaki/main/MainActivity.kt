@@ -212,7 +212,7 @@ class MainActivity : AppCompatActivity()
 		}
 
 		val secondaryIds = setOf(
-			R.id.catalogTabButton, R.id.libraryTabButton, R.id.ownedToggleButton,
+			R.id.filterSummary, R.id.headerFilterButton,
 			R.id.headerFavoritesButton, R.id.headerSortButton,
 			R.id.headerSearchButton, R.id.headerRefreshButton
 		)
@@ -243,7 +243,7 @@ class MainActivity : AppCompatActivity()
 		}
 
 		fun focusSecondaryHeader() {
-			window.decorView.findViewById<View>(R.id.catalogTabButton)?.requestFocus()
+			window.decorView.findViewById<View>(R.id.headerFilterButton)?.requestFocus()
 		}
 
 		fun focusFab() {
@@ -380,7 +380,7 @@ class MainActivity : AppCompatActivity()
 		val hostRv = if (currentPage == 0) window.decorView.findViewById<RecyclerView>(R.id.hostsRecyclerView) else null
 
 		val secondaryIds = setOf(
-			R.id.catalogTabButton, R.id.libraryTabButton, R.id.ownedToggleButton,
+			R.id.filterSummary, R.id.headerFilterButton,
 			R.id.headerFavoritesButton, R.id.headerSortButton,
 			R.id.headerSearchButton, R.id.headerRefreshButton
 		)

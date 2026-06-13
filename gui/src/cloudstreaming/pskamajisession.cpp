@@ -326,19 +326,15 @@ void PSKamajiSession::step0_5d_ConvertProductId()
     QString country = localeParts.size() > 1 ? localeParts[1].toUpper() : "US";
     QString language = localeParts[0].toLower();
 
-    // PS3 / Classics product ids (NPEA/NPEB/BLES/BCES or NPUA/NPUB/BLUS/BCUS -- anything
-    // that isn't a modern CUSA/PPSA id) come from the public Apollo catalog, which we walk
-    // in the account's region group (Americas -> US store, everything else -> PAL/GB).
-    // Resolve them against that SAME region's container so the lookup finds the product and
-    // returns the PSNW entitlement the account is authorized for at Gaikai. The account's
-    // own locale country can be a region with no pcnow storefront (e.g. Hungary -> "Storefront
-    // not found"), and the wrong region's ids return 401 "invalidEntitlement", so map to the
-    // region-group store. Must match CloudCatalogBackend's PS3 catalog source.
-    const bool isLegacyClassicsId = !productId.contains(QLatin1String("CUSA"))
-                                 && !productId.contains(QLatin1String("PPSA"));
-    if (isLegacyClassicsId) {
-        country = KamajiConsts::classicsStoreCountry(country);
+    // Region-group fallback: when /user/stores has no storefront for the account's region, the
+    // PS Now catalog (PS3 + PS4) was browsed from the public region-group APOLLOROOT container
+    // (US for Americas, GB for PAL), so its product ids must be RESOLVED against that same
+    // region-group store. Driven by the account-level fallback flag; PS3 and PS4 behave identically.
+    if (settings && settings->IsCloudFallbackMode()) {
+        country = settings->GetCloudFallbackRegion();
         language = QStringLiteral("en");
+        qInfo() << "Kamaji Step 0.5d: Fallback mode -> region-group container: country="
+                << country << "language=" << language;
     }
 
     QString url = QString("https://psnow.playstation.com/store/api/pcnow/00_09_000/container/%1/%2/19/%3?useOffers=true&gkb=1&gkb2=1")
@@ -919,23 +915,14 @@ void PSKamajiSession::handleCheckEntitlementResponse(QNetworkReply *reply)
         step5_GetAuthCode();
         return;
     } else if (statusCode == 404) {
-        // User doesn't have the per-game entitlement on the account.
-        const bool isLegacyClassicsId = !productId.contains(QLatin1String("CUSA"))
-                                     && !productId.contains(QLatin1String("PPSA"));
-        if (isLegacyClassicsId) {
-            // PS3 / Classics: the streaming entitlement is granted by the PS Plus
-            // subscription (a free 100%-off checkout), but that checkout requires a
-            // pcnow storefront in the account's region -- which many regions (e.g.
-            // Hungary) don't have, so the acquire fails with "Against Eligibility Rule".
-            // On a real PS5 the subscription alone grants streaming with no purchase, so
-            // skip the acquire and let Gaikai validate the Premium subscription directly.
-            // If Gaikai genuinely needs the entitlement on the account, it returns
-            // noGameForEntitlementId downstream and we learn the wall is at Gaikai.
-            qInfo() << "Kamaji Step 0.5e.2 - Entitlement not found (404); legacy Classics id -> skipping acquire, proceeding to Gaikai";
+        // Region-group fallback: unsupported regions have no pcnow storefront, so the
+        // free checkout-acquire fails. Skip it and let Gaikai validate the subscription.
+        // Native (supported region): run the normal checkout-acquire for PS3 + PS4 + PS5 alike.
+        if (settings && settings->IsCloudFallbackMode()) {
+            qInfo() << "Kamaji Step 0.5e.2 - Entitlement not found (404); fallback region -> skipping acquire, proceeding to Gaikai";
             step5_GetAuthCode();
             return;
         }
-        // PS4/PS5 catalog: try to acquire it via checkout.
         qInfo() << "Kamaji Step 0.5e.2 - Entitlement not found (404), will attempt to acquire";
         step0_5e_CheckoutPreview();
         return;

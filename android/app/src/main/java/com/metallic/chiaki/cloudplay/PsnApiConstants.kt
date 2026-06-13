@@ -27,18 +27,21 @@ object PsnApiConstants
 }
 
 /**
- * PS3 / Classics pcnow store helpers, by account region group.
+ * pcnow ("Apollo") PS Now store helpers, by account region group.
  * Mirrors KamajiConsts (gui/include/cloudstreaming/pskamajisession.h) exactly.
  *
- * pcnow (the PS Plus PC "Apollo" backend) has only TWO Classics id families:
- *   - SCEA / Americas  -> store MSF192018, US-region ids (UP/NPUA/BLUS),
- *                         PS3 child container "APOLLOPS3GAMES"
- *   - SCEE / PAL (rest) -> store MSF192014, EU-region ids (EP/NPEA/NPEB/BLES),
- *                         PS3 child container "APOLLOPS3"
+ * pcnow (the PS Plus PC "Apollo" backend) has only TWO region-group store families:
+ *   - SCEA / Americas  -> store MSF192018, US-region ids (UP/NPUA/BLUS)
+ *   - SCEE / PAL (rest) -> store MSF192014, EU-region ids (EP/NPEA/NPEB/BLES)
  * JP / Asia have no Apollo store (the PC app isn't offered there), so they fall back to
  * PAL. A PS Plus account is authorized at Gaikai only for the id family of its own region
  * group, so the catalog must be browsed + resolved in the account's group. Region is keyed
  * by the ACCOUNT's region group, NOT by parsing the product-id prefix.
+ *
+ * The APOLLOROOT container is the single PS Now catalog root: ONE walk returns both PS3 and
+ * PS4 (distinguished only by playable_platform). It is browsed natively via /user/stores
+ * (session base_url) in supported regions, or directly via the public region-group container
+ * (no OAuth/session) as a fallback in regions where /user/stores has no storefront (e.g. HU).
  */
 object KamajiClassics
 {
@@ -47,6 +50,10 @@ object KamajiClassics
 		"CR", "GT", "HN", "NI", "PA", "SV", "DO"
 	)
 
+	// PS Now catalog root store ids per region group (returns PS3 + PS4 in one walk).
+	const val APOLLOROOT_AMERICAS = "STORE-MSF192018-APOLLOROOT"
+	const val APOLLOROOT_PAL = "STORE-MSF192014-APOLLOROOT"
+
 	fun isAmericasClassicsRegion(countryCode: String): Boolean =
 		AMERICAS.contains(countryCode.uppercase())
 
@@ -54,11 +61,8 @@ object KamajiClassics
 	fun classicsStoreCountry(accountCountry: String): String =
 		if (isAmericasClassicsRegion(accountCountry)) "US" else "GB"
 
-	/** Fully-qualified PS3 catalog container id for the account's region group. */
-	fun classicsPs3ContainerId(accountCountry: String): String =
-		if (isAmericasClassicsRegion(accountCountry))
-			"STORE-MSF192018-APOLLOPS3GAMES"
-		else
-			"STORE-MSF192014-APOLLOPS3"
+	/** Fully-qualified APOLLOROOT (PS Now: PS3 + PS4) container id for the account's region group. */
+	fun apolloRootContainerId(accountCountry: String): String =
+		if (isAmericasClassicsRegion(accountCountry)) APOLLOROOT_AMERICAS else APOLLOROOT_PAL
 }
 

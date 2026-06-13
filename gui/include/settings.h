@@ -450,6 +450,18 @@ class Settings : public QObject
 		QString GetCloudCatalogFilter() const;
 		void SetCloudCatalogFilter(QString filter);
 
+		/** PS Now region-group fallback. Empty = native mode; "US"/"GB" = fallback mode. */
+		QString GetCloudFallbackRegion() const;
+		void SetCloudFallbackRegion(const QString &region);
+		bool IsCloudFallbackMode() const;
+
+		/** Persisted acquisition-tag filter JSON array; empty/[] = show all. */
+		QString GetCloudTagFilters() const;
+		void SetCloudTagFilters(const QString &filtersJson);
+
+		int GetCloudSortState() const;
+		void SetCloudSortState(int sortState);
+
 		QString GetCloudFavorites() const;
 		void SetCloudFavorites(QString favorites);
 

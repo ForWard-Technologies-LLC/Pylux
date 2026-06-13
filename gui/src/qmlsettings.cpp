@@ -838,6 +838,39 @@ void QmlSettings::setCloudCatalogFilter(const QString &filter)
 	emit cloudCatalogFilterChanged();
 }
 
+QString QmlSettings::cloudFallbackRegion() const
+{
+	return settings->GetCloudFallbackRegion();
+}
+
+void QmlSettings::setCloudFallbackRegion(const QString &region)
+{
+	settings->SetCloudFallbackRegion(region);
+	emit cloudFallbackRegionChanged();
+}
+
+QString QmlSettings::cloudTagFilters() const
+{
+	return settings->GetCloudTagFilters();
+}
+
+void QmlSettings::setCloudTagFilters(const QString &filtersJson)
+{
+	settings->SetCloudTagFilters(filtersJson);
+	emit cloudTagFiltersChanged();
+}
+
+int QmlSettings::cloudSortState() const
+{
+	return settings->GetCloudSortState();
+}
+
+void QmlSettings::setCloudSortState(int sortState)
+{
+	settings->SetCloudSortState(sortState);
+	emit cloudSortStateChanged();
+}
+
 QString QmlSettings::cloudFavorites() const
 {
 	return settings->GetCloudFavorites();

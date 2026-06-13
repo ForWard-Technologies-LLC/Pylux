@@ -20,7 +20,13 @@ final class CloudCatalogService {
     private static let psnowCacheFile = "psnow_catalog.json"
     private static let ps5PublicCacheFile = "ps5_cloud_catalog_v4.json" // v4: adds plusCatalog tag + broader supplement
     private static let pscloudAllCacheFile = "pscloud_catalog_v2.json"
-    private static let pscloudOwnedCacheFile = "pscloud_owned_v3.json" // v3: ft0 filter + rank dedupe + featureType
+    private static let pscloudOwnedCacheFile = "pscloud_owned_v4.json" // v4: serviceType from platform_id
+    private static let unifiedCacheFile = "unified_catalog_v4.json" // v4: Qt-aligned merge (existingClass guard + explicit pscloud/psnow serviceType stamp)
+
+    private static let ownershipSessionWarning =
+        "Your PlayStation session has expired. Please log in again to see your owned games."
+    private static let ownershipNetworkWarning =
+        "Couldn't verify your owned games (network error). Pull to refresh to try again."
 
     private static var cacheDir: URL = {
         let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
@@ -96,7 +102,8 @@ final class CloudCatalogService {
             "conceptUrl": g.conceptUrl, "conceptId": g.conceptId,
             "isOwned": g.isOwned,
             "entitlementId": g.entitlementId, "storeProductId": g.storeProductId,
-            "plusCatalog": g.plusCatalog, "featureType": g.featureType
+            "plusCatalog": g.plusCatalog, "featureType": g.featureType,
+            "category": g.category
         ]
     }
 
@@ -115,7 +122,8 @@ final class CloudCatalogService {
             entitlementId: d["entitlementId"] as? String ?? "",
             storeProductId: d["storeProductId"] as? String ?? "",
             plusCatalog: d["plusCatalog"] as? Bool ?? false,
-            featureType: (d["featureType"] as? NSNumber)?.intValue ?? 0
+            featureType: (d["featureType"] as? NSNumber)?.intValue ?? 0,
+            category: d["category"] as? String ?? ""
         )
     }
 
@@ -407,6 +415,11 @@ final class CloudCatalogService {
         return CloudGame(
             productId: productId, name: name,
             imageUrl: imageUrl, landscapeImageUrl: imageUrl,
+            // Deliberate Qt<->mobile divergence: Qt leaves imagic browse rows with NO serviceType and derives
+            // platform from the clean catalog product-id token. Mobile instead blanket-tags imagic rows "pscloud"
+            // and COMPENSATES with an isOwned gate in streamPlatform (a non-owned "pscloud" row falls back to the
+            // product-id token, so a non-owned PS4 imagic title still routes to PS Now, not cronos). Both reach the
+            // same routing -- do NOT naively "fix" one side to match the other.
             platform: { let p = ps5PlatformToken(productId); return p.isEmpty ? "ps5" : p }(), serviceType: "pscloud",
             conceptUrl: conceptUrl, conceptId: conceptKey(for: gameObj),
             isOwned: false,
@@ -523,7 +536,8 @@ final class CloudCatalogService {
         npssoToken: String,
         publicCatalog: [CloudGame],
         plusLibrarySupplement: [CloudGame] = [],
-        productIdAliases: [String: String] = [:]
+        productIdAliases: [String: String] = [:],
+        psnowCatalog: [CloudGame] = []
     ) -> [CloudGame]? {
         guard !npssoToken.isEmpty,
               let oauthToken = fetchOwnedGamesOAuthToken(npssoToken: npssoToken) else {
@@ -544,9 +558,10 @@ final class CloudCatalogService {
             componentIds[ent.productId, default: []].append(ent.id)
         }
 
+        let combinedCatalog = psnowCatalog.isEmpty ? publicCatalog : psnowCatalog + publicCatalog
         return PsCloudOwnership.crossReferenceOwnedGames(
             filteredEntitlements: filtered,
-            publicCatalog: publicCatalog,
+            publicCatalog: combinedCatalog,
             plusLibrarySupplement: plusLibrarySupplement,
             productIdAliases: productIdAliases,
             componentIdsByProductId: componentIds
@@ -599,9 +614,243 @@ final class CloudCatalogService {
         return all
     }
 
+    // MARK: - Unified Catalog
+
+    /// Unified cloud catalog: ONE merged, deduped, tagged list across PS3/PS4 (PS Now/Kamaji) and
+    /// PS5 (imagic/Gaikai). Mirrors Android CloudGameRepository.fetchUnifiedCatalog().
+    func fetchUnifiedCatalog(npssoToken: String, forceRefresh: Bool = false) -> [CloudGame] {
+        lastLibraryFetchError = nil
+        lastLibraryFetchWarning = nil
+        lastCatalogFetchWarning = nil
+        CloudLocaleSettings.ensureConfigured(npssoToken: npssoToken)
+
+        if !forceRefresh, let cached = loadCachedGames(Self.unifiedCacheFile) {
+            os_log(.info, log: catalogLog, "Returning %d unified games from cache", cached.count)
+            return cached
+        }
+
+        let accountCountry = CloudLocaleSettings.parseStorePath(CloudLocaleSettings.stored).country
+
+        // --- 1) PS Now APOLLOROOT (PS3 + PS4): native, else region-group fallback ----------
+        let native = fetchNativeCatalog(npssoToken: npssoToken)
+        var apolloGames: [CloudGame] = []
+        var nativeMode = false
+        var fallbackRegion = ""
+        if native.storesAvailable && !native.games.isEmpty {
+            apolloGames = native.games
+            nativeMode = true
+        } else if native.authError {
+            lastCatalogFetchWarning = Self.ownershipSessionWarning
+            apolloGames = tryApolloRootFallback(accountCountry: accountCountry)
+        } else {
+            apolloGames = tryApolloRootFallback(accountCountry: accountCountry)
+            if !apolloGames.isEmpty {
+                fallbackRegion = ClassicsRegion.classicsStoreCountry(accountCountry)
+            }
+        }
+        SecureStore.shared.cloudFallbackRegion = fallbackRegion
+        os_log(.info, log: catalogLog,
+               "PS Now APOLLOROOT: %d games (nativeMode=%{public}s, fallbackRegion='%{public}s')",
+               apolloGames.count, nativeMode ? "true" : "false", fallbackRegion)
+
+        // --- 2) imagic PS5 catalog (browse + supplement + aliases) -------------------------
+        let imagic: Ps5CloudCatalogResult
+        do {
+            imagic = try fetchPs5CatalogV3(stored: CloudLocaleSettings.stored, forceRefresh: forceRefresh)
+        } catch {
+            os_log(.error, log: catalogLog, "imagic PS5 catalog fetch failed: %{public}s", error.localizedDescription)
+            if apolloGames.isEmpty {
+                lastLibraryFetchError = "Failed to fetch catalog: \(error.localizedDescription)"
+                return []
+            }
+            imagic = Ps5CloudCatalogResult(
+                browseGames: [], plusLibrarySupplement: [], productIdAliases: [:],
+                shouldCacheV3: false
+            )
+        }
+
+        // --- 3) owned cross-reference (skip on expired token) ------------------------------
+        var owned: [CloudGame] = []
+        if !npssoToken.isEmpty && !native.authError {
+            if let crossRef = getOwnedPs5CloudGames(
+                npssoToken: npssoToken,
+                publicCatalog: imagic.browseGames,
+                plusLibrarySupplement: imagic.plusLibrarySupplement,
+                productIdAliases: imagic.productIdAliases,
+                psnowCatalog: apolloGames
+            ) {
+                owned = crossRef
+            } else {
+                os_log(.info, log: catalogLog,
+                       "Ownership cross-reference failed; showing as not owned")
+                lastCatalogFetchWarning = Self.ownershipNetworkWarning
+            }
+        }
+
+        // --- 4) assemble the streamable universe (PS Now PS3/PS4 + imagic PS5) -------------
+        let ps5Browse = imagic.browseGames.filter { $0.streamPlatform == "ps5" }
+        let universe = apolloGames + ps5Browse
+        var games = PsCloudOwnership.mergeOwnedIntoBrowseCatalog(
+            browseCatalog: universe, ownedCrossRef: owned, addUnmatched: true
+        )
+
+        // --- 5) concept-sibling streamability gate (native mode only) ----------------------
+        if nativeMode {
+            let index = PsCloudOwnership.StreamabilityIndex(
+                apolloCatalog: apolloGames,
+                imagicBrowse: imagic.browseGames,
+                imagicConceptRows: imagic.browseGames + imagic.plusLibrarySupplement
+            )
+            games = PsCloudOwnership.applyStreamabilityGate(games, index: index)
+        }
+
+        // --- 6) tag + cache ----------------------------------------------------------------
+        games = games.map { game in
+            var tagged = game
+            tagged.category = PsCloudOwnership.categoryFor(game)
+            return tagged
+        }
+        if !games.isEmpty && !isOwnershipVerificationFailure(lastCatalogFetchWarning) {
+            cacheGames(games, filename: Self.unifiedCacheFile)
+        }
+        if let warning = imagic.catalogFetchWarning, lastCatalogFetchWarning == nil {
+            lastCatalogFetchWarning = warning
+        }
+        return games
+    }
+
+    private func fetchPs5CatalogV3(stored: String, forceRefresh: Bool) throws -> Ps5CloudCatalogResult {
+        if !forceRefresh, let cached = loadCachedPs5CatalogV3(expectedLocale: stored) {
+            return cached
+        }
+        lastCatalogFetchWarning = nil
+        for tier in CloudLocaleSettings.fallbackChain() {
+            guard let fetched = fetchPs5CloudCatalogFromNetwork(locale: tier.imagic) else { continue }
+            if tier.canonical != stored {
+                CloudLocaleSettings.setStored(tier.canonical)
+            }
+            if fetched.shouldCacheV3,
+               !fetched.browseGames.isEmpty || !fetched.plusLibrarySupplement.isEmpty {
+                cachePs5CatalogV3(fetched, locale: tier.canonical)
+            }
+            return fetched
+        }
+        throw NSError(domain: "CloudCatalog", code: 1,
+                      userInfo: [NSLocalizedDescriptionKey: "All imagic locales failed to load"])
+    }
+
+    private func tryApolloRootFallback(accountCountry: String) -> [CloudGame] {
+        do {
+            return try fetchApolloRootCatalog(accountCountry: accountCountry)
+        } catch {
+            os_log(.info, log: catalogLog, "APOLLOROOT region-group fallback failed: %{public}s",
+                   error.localizedDescription)
+            return []
+        }
+    }
+
+    private func isOwnershipVerificationFailure(_ warning: String?) -> Bool {
+        warning == Self.ownershipSessionWarning || warning == Self.ownershipNetworkWarning
+    }
+
     // MARK: - PSNow Catalog
 
-    /// Fetch PSNow catalog (PS3/PS4 games)
+    /// Native PS Now catalog fetch (one APOLLOROOT walk: PS3 + PS4) using the account's own
+    /// /user/stores base_url. Mirrors Android PsnCatalogService.fetchNativeCatalog().
+    func fetchNativeCatalog(npssoToken: String) -> (storesAvailable: Bool, authError: Bool, games: [CloudGame]) {
+        os_log(.info, log: catalogLog, "=== Starting PSNow (APOLLOROOT) native catalog fetch ===")
+        let duid = generateDuid()
+
+        guard let oauthCode = fetchPsnowOAuthCode(npssoToken: npssoToken, duid: duid) else {
+            return (false, true, [])
+        }
+        guard let sessionId = createPsnowKamajiSession(oauthCode: oauthCode, duid: duid) else {
+            return (false, true, [])
+        }
+        guard let baseUrl = fetchPsnowStores(sessionId: sessionId) else {
+            return (false, false, [])
+        }
+        guard let categoryUrls = fetchPsnowRootContainer(baseUrl: baseUrl, sessionId: sessionId) else {
+            return (true, false, [])
+        }
+
+        var allGames: [CloudGame] = []
+        for (name, url) in categoryUrls {
+            os_log(.info, log: catalogLog, "Fetching category: %{public}s", name)
+            allGames += fetchPsnowCategoryGames(url: url)
+        }
+
+        os_log(.info, log: catalogLog, "=== PSNow native catalog complete: %d games ===", allGames.count)
+        return (true, false, allGames)
+    }
+
+    /// Fallback PS Now catalog fetch: walk the PUBLIC region-group APOLLOROOT container directly
+    /// (no OAuth/session). Mirrors Android PsnCatalogService.fetchApolloRootCatalog().
+    func fetchApolloRootCatalog(accountCountry: String) throws -> [CloudGame] {
+        let storeCountry = ClassicsRegion.classicsStoreCountry(accountCountry)
+        let containerId = ClassicsRegion.apolloRootContainerId(accountCountry)
+        let containerUrl = "\(CloudApiConstants.storeBase)/container/\(storeCountry)/en/19/\(containerId)"
+
+        os_log(.info, log: catalogLog,
+               "=== Fetching APOLLOROOT catalog (region group %{public}s for account %{public}s) ===",
+               storeCountry, accountCountry)
+
+        var games: [CloudGame] = []
+        var start = 0
+        var totalResults = -1
+
+        while true {
+            let url = "\(containerUrl)?useOffers=true&gkb=1&gkb2=1&start=\(start)&size=100"
+            guard let response = CloudHttpClient.get(url: url, headers: [
+                "Accept": "application/json",
+                "User-Agent": CloudApiConstants.kamajiUserAgent
+            ]) else {
+                if games.isEmpty {
+                    throw NSError(domain: "CloudCatalog", code: 2,
+                                  userInfo: [NSLocalizedDescriptionKey: "Failed to fetch APOLLOROOT catalog"])
+                }
+                break
+            }
+
+            if response.statusCode != 200 {
+                os_log(.info, log: catalogLog, "APOLLOROOT page fetch failed (HTTP %d)", response.statusCode)
+                if games.isEmpty {
+                    throw NSError(domain: "CloudCatalog", code: response.statusCode,
+                                  userInfo: [NSLocalizedDescriptionKey: "Failed to fetch APOLLOROOT catalog: HTTP \(response.statusCode)"])
+                }
+                break
+            }
+
+            guard let data = response.body.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { break }
+
+            if totalResults < 0 {
+                totalResults = (json["total_results"] as? Int)
+                    ?? (json["total_results"] as? NSNumber)?.intValue ?? 0
+            }
+
+            let links = json["links"] as? [[String: Any]] ?? []
+            var productCount = 0
+            for link in links {
+                guard (link["container_type"] as? String) == "product" else { continue }
+                guard let game = parsePsnowGameObject(link) else { continue }
+                games.append(game)
+                productCount += 1
+            }
+
+            os_log(.info, log: catalogLog,
+                   "APOLLOROOT page products: %d, accumulated: %d of %d",
+                   productCount, games.count, totalResults)
+
+            start += 100
+            if productCount == 0 || start >= totalResults { break }
+        }
+
+        os_log(.info, log: catalogLog, "APOLLOROOT catalog complete: %d titles", games.count)
+        return games
+    }
+
+    /// Fetch PSNow catalog (PS3/PS4 games) — legacy per-tab path; prefer fetchUnifiedCatalog().
     func fetchPsnowCatalog(npssoToken: String, forceRefresh: Bool = false) -> [CloudGame] {
         if !forceRefresh, let cached = loadCachedGames(Self.psnowCacheFile) {
             return cached
@@ -658,7 +907,8 @@ final class CloudCatalogService {
     }
 
     /// Fetch the streamable PS3 Classics from the public Apollo container for the account's
-    /// region group. Mirrors Qt CloudCatalogBackend::fetchPs3Catalog. PUBLIC API: no auth.
+    /// region group. Deprecated: APOLLOROOT already includes PS3; use fetchUnifiedCatalog().
+    @available(*, deprecated, message: "Use fetchUnifiedCatalog(); APOLLOROOT includes PS3")
     func fetchPs3Catalog(forceRefresh: Bool = false) -> [CloudGame] {
         let country = ps3AccountCountry()
         let storeCountry = ClassicsRegion.classicsStoreCountry(country)

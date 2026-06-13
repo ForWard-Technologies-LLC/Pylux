@@ -156,6 +156,8 @@ final class SecureStore {
     // Cloud
     private let kCloudFavorites = "favorite_games"
     private let kCloudSortState = "cloud_sort_state"
+    private let kCloudFallbackRegion = "cloud_fallback_region"
+    private let kCloudTagFilters = "cloud_tag_filters"
 
     // Donation / support paywall
     private let kTotalStreamTimeMs       = "pylux.totalStreamTimeMs"
@@ -275,6 +277,20 @@ final class SecureStore {
         set { KC.writeInt(kCloudSortState, newValue) }
     }
 
+    /// PS Now region-group fallback. Empty = native mode; "US" or "GB" = fallback mode.
+    var cloudFallbackRegion: String {
+        get { KC.readString(kCloudFallbackRegion) ?? "" }
+        set { newValue.isEmpty ? KC.delete(kCloudFallbackRegion) : KC.writeString(kCloudFallbackRegion, newValue) }
+    }
+
+    var isCloudFallbackMode: Bool { !cloudFallbackRegion.isEmpty }
+
+    /// Persisted acquisition-tag filter selection (empty = show all).
+    var cloudTagFilters: Set<String> {
+        get { KC.readStringSet(kCloudTagFilters) }
+        set { KC.writeStringSet(kCloudTagFilters, newValue) }
+    }
+
     // MARK: - Donation / Support Paywall
 
     var totalStreamTimeMs: Int64 {
@@ -359,7 +375,7 @@ final class SecureStore {
             kRegisteredHosts, kManualHosts, kDiscoveryActive,
             kStreamPrefs,
             kDcPscloud, kDcPsnow,
-            kCloudFavorites, kCloudSortState,
+            kCloudFavorites, kCloudSortState, kCloudFallbackRegion, kCloudTagFilters,
             kTotalStreamTimeMs, kLastDonationPromptWallMs, kDonationPaywallShowCount,
             kLastAppReviewPromptTotalStreamMs,
             kLastHost, kLastRegistKey, kLastMorning, kLastPs5,

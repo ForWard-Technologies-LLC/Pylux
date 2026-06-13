@@ -62,6 +62,15 @@ namespace KamajiConsts {
             ? QStringLiteral("STORE-MSF192018-APOLLOPS3GAMES")
             : QStringLiteral("STORE-MSF192014-APOLLOPS3");
     }
+
+    // PS Now catalog root store ids per region group (returns PS3 + PS4 in one walk).
+    static const QString APOLLOROOT_AMERICAS = QStringLiteral("STORE-MSF192018-APOLLOROOT");
+    static const QString APOLLOROOT_PAL = QStringLiteral("STORE-MSF192014-APOLLOROOT");
+
+    /** Fully-qualified APOLLOROOT (PS Now: PS3 + PS4) container id for the account's region group. */
+    inline QString apolloRootContainerId(const QString &accountCountry) {
+        return isAmericasClassicsRegion(accountCountry) ? APOLLOROOT_AMERICAS : APOLLOROOT_PAL;
+    }
 }
 
 /**

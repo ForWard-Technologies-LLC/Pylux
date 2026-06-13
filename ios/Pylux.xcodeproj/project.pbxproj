@@ -55,6 +55,7 @@
 		A3000016 /* CloudCatalogService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000006 /* CloudCatalogService.swift */; };
 		A3000018 /* PsCloudOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000008 /* PsCloudOwnership.swift */; };
 		A3000017 /* CloudPlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000007 /* CloudPlayView.swift */; };
+		A3000060 /* CachedAsyncImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000050 /* CachedAsyncImage.swift */; };
 		A4000011 /* DonationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4000001 /* DonationStore.swift */; };
 		A4000012 /* DonationPhrasePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4000002 /* DonationPhrasePicker.swift */; };
 		A4000013 /* DonationPromptCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4000003 /* DonationPromptCoordinator.swift */; };
@@ -127,6 +128,7 @@
 		A3000006 /* CloudCatalogService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudCatalogService.swift; sourceTree = "<group>"; };
 		A3000008 /* PsCloudOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PsCloudOwnership.swift; sourceTree = "<group>"; };
 		A3000007 /* CloudPlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudPlayView.swift; sourceTree = "<group>"; };
+		A3000050 /* CachedAsyncImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CachedAsyncImage.swift; sourceTree = "<group>"; };
 		A4000001 /* DonationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DonationStore.swift; sourceTree = "<group>"; };
 		A4000002 /* DonationPhrasePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DonationPhrasePicker.swift; sourceTree = "<group>"; };
 		A4000003 /* DonationPromptCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DonationPromptCoordinator.swift; sourceTree = "<group>"; };
@@ -257,6 +259,7 @@
 			children = (
 				A1000125 /* AutoRegistrationView.swift */,
 				A3000007 /* CloudPlayView.swift */,
+				A3000050 /* CachedAsyncImage.swift */,
 				A1000036 /* ConnectInfoEntryView.swift */,
 				A1000105 /* HostCardView.swift */,
 				A1000108 /* ManualHostView.swift */,
@@ -410,6 +413,7 @@
 				A3000016 /* CloudCatalogService.swift in Sources */,
 				A3000018 /* PsCloudOwnership.swift in Sources */,
 				A3000017 /* CloudPlayView.swift in Sources */,
+				A3000060 /* CachedAsyncImage.swift in Sources */,
 				A4000011 /* DonationStore.swift in Sources */,
 				A4000012 /* DonationPhrasePicker.swift in Sources */,
 				A4000013 /* DonationPromptCoordinator.swift in Sources */,

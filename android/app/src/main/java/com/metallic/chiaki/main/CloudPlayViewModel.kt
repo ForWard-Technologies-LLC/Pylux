@@ -9,6 +9,7 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.metallic.chiaki.cloudplay.CloudLocale
+import com.metallic.chiaki.cloudplay.api.PsCloudOwnership
 import com.metallic.chiaki.cloudplay.model.CloudGame
 import com.metallic.chiaki.cloudplay.model.PsnResult
 import com.metallic.chiaki.cloudplay.repository.CloudGameRepository
@@ -16,53 +17,60 @@ import com.metallic.chiaki.common.Preferences
 import kotlinx.coroutines.launch
 
 /**
- * ViewModel for Cloud Play tab
- * Manages PSNow catalog data and UI state
+ * ViewModel for the unified Cloud Play page.
+ *
+ * One catalog source (repository.fetchUnifiedCatalog) feeds a single tagged list. The UI filters
+ * that list by acquisition tag (owned / streamable / purchaseable) plus the search query; an empty
+ * tag set means "show all". The region-group fallback flag is surfaced for the banner.
  */
 class CloudPlayViewModel(
 	private val context: Context,
-	val preferences: Preferences // Made public for access from CloudPlayFragment
+	val preferences: Preferences
 ) : ViewModel()
 {
 	companion object
 	{
 		private const val TAG = "CloudPlayViewModel"
 	}
-	
+
 	private val repository = CloudGameRepository(context, preferences)
-	
+
 	private val _games = MutableLiveData<List<CloudGame>>()
 	val games: LiveData<List<CloudGame>> get() = _games
-	
+
 	private val _loading = MutableLiveData<Boolean>()
 	val loading: LiveData<Boolean> get() = _loading
-	
+
 	private val _error = MutableLiveData<String?>()
 	val error: LiveData<String?> get() = _error
 
 	private val _warning = MutableLiveData<String?>()
 	val warning: LiveData<String?> get() = _warning
-	
+
+	private val _fallbackRegion = MutableLiveData<String>()
+	val fallbackRegion: LiveData<String> get() = _fallbackRegion
+
 	private val _searchQuery = MutableLiveData<String>()
 	val searchQuery: LiveData<String> get() = _searchQuery
-	
+
 	private var allGames: List<CloudGame> = emptyList()
-	private var currentSection: String = "psnow" // "psnow" or "pscloud"
-	
+
+	// Active acquisition-tag filters; empty = show all. Restored from prefs, persisted on change.
+	var activeTagFilters: Set<String> = preferences.getCloudTagFilters()
+		private set
+
 	init
 	{
 		_loading.value = false
 		_error.value = null
 		_searchQuery.value = ""
-		
-		// Load last selected section from preferences
-		currentSection = preferences.getLastCloudSection()
+		_fallbackRegion.value = preferences.getCloudFallbackRegion()
 	}
-	
+
 	/**
-	 * Fetch PSNow catalog from network/cache
+	 * Fetch the unified cloud catalog (PS Now PS3/PS4 + PS5), tagged by acquisition category.
 	 */
-	fun fetchPsnowCatalog(forceRefresh: Boolean = false, appendPs3Classics: Boolean = false)
+	fun fetchCatalog(forceRefresh: Boolean = false)
 	{
 		viewModelScope.launch {
 			try
@@ -71,21 +79,17 @@ class CloudPlayViewModel(
 				_error.value = null
 				_warning.value = null
 
-				Log.i(TAG, "Fetching PSNow catalog (forceRefresh=$forceRefresh)")
-
 				val npssoToken = preferences.getNpssoToken()
+				Log.i(TAG, "Fetching unified cloud catalog (forceRefresh=$forceRefresh)")
 
-				when (val result = repository.fetchPsnowCatalog(npssoToken, forceRefresh))
+				when (val result = repository.fetchUnifiedCatalog(npssoToken, forceRefresh))
 				{
 					is PsnResult.Success ->
 					{
 						allGames = result.data
-						Log.i(TAG, "Successfully loaded ${allGames.size} games")
+						Log.i(TAG, "Loaded ${allGames.size} unified games")
 						repository.lastCatalogFetchWarning?.let { _warning.value = it }
-						applySearchFilter()
-						// PS3 Classics are subscription-streamable -> always shown in the Catalog.
-						if (appendPs3Classics)
-							fetchPs3ClassicsCatalog(forceRefresh)
+						applyFilters()
 					}
 					is PsnResult.Error ->
 					{
@@ -101,184 +105,57 @@ class CloudPlayViewModel(
 			}
 			finally
 			{
-				_loading.value = false
-			}
-		}
-	}
-	
-	/**
-	 * Fetch PS5 Cloud catalog from network/cache
-	 * @param showOnlyOwned If true, fetches only user's owned games; if false, fetches all PS5 games
-	 */
-	fun fetchPs5CloudCatalog(showOnlyOwned: Boolean = false, forceRefresh: Boolean = false, appendPs3Classics: Boolean = false)
-	{
-		viewModelScope.launch {
-			try
-			{
-				_loading.value = true
-				_error.value = null
-				_warning.value = null
-				
-				val npssoToken = preferences.getNpssoToken()
-				
-				if (showOnlyOwned)
-				{
-					Log.i(TAG, "Fetching owned PS5 games (forceRefresh=$forceRefresh)")
-					
-					when (val result = repository.fetchOwnedPs5Games(npssoToken, forceRefresh))
-					{
-						is PsnResult.Success ->
-						{
-							allGames = result.data
-							Log.i(TAG, "Successfully loaded ${allGames.size} owned PS5 games")
-							repository.lastCatalogFetchWarning?.let { _warning.value = it }
-							applySearchFilter()
-						}
-						is PsnResult.Error ->
-						{
-							Log.e(TAG, "Failed to fetch owned PS5 games: ${result.message}", result.exception)
-							_error.value = result.message
-						}
-					}
-				}
-				else
-				{
-					Log.i(TAG, "Fetching all PS5 Cloud catalog (forceRefresh=$forceRefresh)")
-					
-					when (val result = repository.fetchPs5CloudCatalog(npssoToken, forceRefresh))
-					{
-						is PsnResult.Success ->
-						{
-							allGames = result.data
-							Log.i(TAG, "Successfully loaded ${allGames.size} PS5 games")
-							repository.lastCatalogFetchWarning?.let { _warning.value = it }
-							applySearchFilter()
-							// Library "all" (streamable universe) includes PS3 Classics; "owned" does not.
-							if (appendPs3Classics)
-								fetchPs3ClassicsCatalog(forceRefresh)
-						}
-						is PsnResult.Error ->
-						{
-							Log.e(TAG, "Failed to fetch PS5 catalog: ${result.message}", result.exception)
-							_error.value = result.message
-						}
-					}
-				}
-			}
-			catch (e: Exception)
-			{
-				Log.e(TAG, "Unexpected error fetching PS5 catalog", e)
-				_error.value = "Unexpected error: ${e.message}"
-			}
-			finally
-			{
+				_fallbackRegion.value = preferences.getCloudFallbackRegion()
 				updateLocaleWarningIfNeeded()
 				_loading.value = false
 			}
 		}
 	}
-	
-	/**
-	 * Fetch the streamable PS3 Classics (public Apollo container) and APPEND them to the
-	 * already-displayed list. Additive: it never replaces the PS4/PS5 catalog already loaded,
-	 * so it works whether the primary catalog came from PS Now or the imagic fallback. PS3
-	 * Classics are subscription-streamable, so they belong in the Game Catalog and in the
-	 * Library "all" view -- but NOT the "owned" view. Mirrors CloudPlayView.qml appendPs3Catalog().
-	 */
-	fun fetchPs3ClassicsCatalog(forceRefresh: Boolean = false)
+
+	fun toggleTagFilter(tag: String)
 	{
-		viewModelScope.launch {
-			try
-			{
-				when (val result = repository.fetchPs3ClassicsCatalog(forceRefresh))
-				{
-					is PsnResult.Success ->
-					{
-						if (result.data.isNotEmpty())
-						{
-							// De-dupe by productId in case of a re-entrant append.
-							val existingIds = allGames.mapTo(HashSet()) { it.productId }
-							val toAdd = result.data.filter { existingIds.add(it.productId) }
-							if (toAdd.isNotEmpty())
-							{
-								allGames = allGames + toAdd
-								Log.i(TAG, "Appended ${toAdd.size} PS3 Classics to catalog")
-								applySearchFilter()
-							}
-						}
-					}
-					is PsnResult.Error ->
-					{
-						// Non-fatal: PS3 Classics are supplementary to the primary catalog.
-						Log.w(TAG, "PS3 Classics catalog unavailable: ${result.message}")
-					}
-				}
-			}
-			catch (e: Exception)
-			{
-				Log.w(TAG, "Unexpected error fetching PS3 Classics catalog", e)
-			}
-		}
+		activeTagFilters = if (tag in activeTagFilters) activeTagFilters - tag else activeTagFilters + tag
+		preferences.setCloudTagFilters(activeTagFilters)
+		applyFilters()
 	}
 
-	/**
-	 * Get current section
-	 */
-	fun getCurrentSection(): String
+	fun setTagFilters(tags: Set<String>)
 	{
-		return currentSection
+		activeTagFilters = tags
+		preferences.setCloudTagFilters(activeTagFilters)
+		applyFilters()
 	}
-	
-	/**
-	 * Set current section and save to preferences
-	 */
-	fun setCurrentSection(section: String)
-	{
-		currentSection = section
-		preferences.setLastCloudSection(section)
-		Log.i(TAG, "Current section set to: $section")
-	}
-	
-	/**
-	 * Update search query and filter results
-	 */
+
+	fun isTagFilterActive(tag: String): Boolean = tag in activeTagFilters
+
 	fun setSearchQuery(query: String)
 	{
 		_searchQuery.value = query
-		applySearchFilter()
+		applyFilters()
 	}
-	
-	/**
-	 * Apply current search filter to games
-	 */
-	private fun applySearchFilter()
+
+	private fun applyFilters()
 	{
 		val query = _searchQuery.value ?: ""
-		if (query.isEmpty())
-		{
-			_games.value = allGames
-		}
-		else
-		{
-			val filtered = allGames.filter { game ->
+		var filtered = allGames
+
+		if (activeTagFilters.isNotEmpty())
+			filtered = filtered.filter { it.category in activeTagFilters }
+
+		if (query.isNotEmpty())
+			filtered = filtered.filter { game ->
 				game.name.contains(query, ignoreCase = true) ||
 					game.productId.contains(query, ignoreCase = true)
 			}
-			_games.value = filtered
-		}
+
+		_games.value = filtered
 	}
-	
-	/**
-	 * Clear current error message
-	 */
+
 	fun clearError()
 	{
 		_error.value = null
 	}
-	
-	/**
-	 * Clear cached catalog data
-	 */
+
 	fun clearCache()
 	{
 		viewModelScope.launch {
@@ -286,34 +163,22 @@ class CloudPlayViewModel(
 			Log.i(TAG, "Cache cleared")
 		}
 	}
-	
-	/**
-	 * Clear current games list (used when logging out or when token is invalid)
-	 */
+
 	fun clearGames()
 	{
 		allGames = emptyList()
 		_games.value = emptyList()
 		Log.i(TAG, "Games list cleared")
 	}
-	
-	/**
-	 * Update games with a sorted list
-	 */
+
+	/** Apply an externally sorted ordering (search/tag filters re-applied on top is not needed). */
 	fun setSortedGames(sortedGames: List<CloudGame>)
 	{
 		allGames = sortedGames
-		applySearchFilter()
-		Log.i(TAG, "Games list updated with sorted data")
+		applyFilters()
 	}
-	
-	/**
-	 * Get all cached games (for filtering favorites)
-	 */
-	fun getAllCachedGames(): List<CloudGame>
-	{
-		return allGames
-	}
+
+	fun getAllCachedGames(): List<CloudGame> = allGames
 
 	private fun updateLocaleWarningIfNeeded()
 	{
@@ -323,4 +188,3 @@ class CloudPlayViewModel(
 			_warning.value = CloudLocale.unconfiguredWarning()
 	}
 }
-

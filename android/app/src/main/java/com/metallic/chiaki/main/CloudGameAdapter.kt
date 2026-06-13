@@ -138,14 +138,27 @@ class CloudGameAdapter(
 				}
 			}
 
-			if (showOwnershipBadge && game.serviceType == "pscloud") {
+			// Acquisition-tag badge (unified page): Owned (green) / Streamable (blue) /
+			// Purchaseable (orange). Fall back through the canonical tagger (streamServiceType-based),
+			// not raw serviceType, so a non-owned PS4 cloud-browse row isn't mislabeled "Add Game".
+			val category = game.category.ifEmpty {
+				com.metallic.chiaki.cloudplay.api.PsCloudOwnership.categoryFor(game)
+			}
+			if (showOwnershipBadge) {
 				binding.ownershipBadge.visibility = android.view.View.VISIBLE
-				if (game.isOwned) {
-					binding.ownershipBadge.text = "Owned"
-					binding.ownershipBadge.setBackgroundColor(0xCC4CAF50.toInt())
-				} else {
-					binding.ownershipBadge.text = "Not Owned"
-					binding.ownershipBadge.setBackgroundColor(0xCCFF9800.toInt())
+				when (category) {
+					"owned" -> {
+						binding.ownershipBadge.text = "Owned"
+						binding.ownershipBadge.setBackgroundColor(0xCC4CAF50.toInt())
+					}
+					"streamable" -> {
+						binding.ownershipBadge.text = "Streamable"
+						binding.ownershipBadge.setBackgroundColor(0xCC2196F3.toInt())
+					}
+					else -> {
+						binding.ownershipBadge.text = "Add Game"
+						binding.ownershipBadge.setBackgroundColor(0xCCFF9800.toInt())
+					}
 				}
 			} else {
 				binding.ownershipBadge.visibility = android.view.View.GONE

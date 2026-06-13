@@ -12,7 +12,7 @@ Rectangle {
     property bool isHovered: false
     property bool isCurrentItem: GridView.isCurrentItem || false
     property bool hasFocus: isCurrentItem && GridView.view.activeFocus
-    property bool isPsnow: true // true for PSNOW, false for PS5 Cloud
+    property bool isPsnow: isPsnowGame()
     property string cachedImageUrl: ""
     property string libraryFilter: "owned" // "owned" or "all" or "favorites" - filter mode for Game Library
     property var qrCodeDialog: null // Reference to QR code dialog
@@ -22,7 +22,7 @@ Rectangle {
     // (e.g. Far Cry 5's streaming SKU is paid, so the acquire 500s). So ANY non-owned catalog game
     // shows "Add Game" (QR to the store / Add-to-Library); owned games stream directly. Legacy
     // PS Now browse cards (isPsnow) keep one-click Stream — free streaming is the PS Now model.
-    readonly property bool needsAddToLibrary: !isPsnow && gameData && !gameData.isOwned
+    readonly property bool needsAddToLibrary: gameData && gameData.category === "purchaseable"
     property bool isFavorite: false // Whether this game is favorited
     
     // Steam library shortcut: only when Steamworks build + Steam client (same gate as createCloudSteamShortcut usefulness)
@@ -45,6 +45,21 @@ Rectangle {
         return `image://svg/button-${type}#${buttonName}`;
     }
     
+    function isPsnowGame() {
+        if (!gameData) return false;
+        if (gameData.serviceType === "psnow" || gameData.category === "streamable")
+            return true;
+        let p = String(streamProductId());
+        if (p.indexOf("CUSA") !== -1) return true;
+        let pp = gameData.playable_platform;
+        if (pp) {
+            let arr = Array.isArray(pp) ? pp : (typeof pp === "string" ? [pp] : []);
+            for (let i = 0; i < arr.length; i++)
+                if (String(arr[i]).indexOf("PS3") !== -1) return true;
+        }
+        return false;
+    }
+
     // Extract game information
     function getGameName() {
         if (!gameData) return qsTr("Unknown Game");
@@ -92,15 +107,16 @@ Rectangle {
             let p = streamProductId();
             return p !== "" ? p : getProductId();
         }
-        // PS5: stream the owned PRODUCT id via the direct Gaikai path -- NOT the entitlement `id`.
-        // For cross-gen titles you upgraded (PS4 purchase + free PS5 copy), Sony's entitlement id
-        // is the stale ORIGINAL SKU (e.g. Alan Wake Remastered's old CUSA24653 license; Death
-        // Stranding's pre-Director's-Cut PPSA02624 SKU). Gaikai's cloud catalog has no game mapped
-        // to that stale id -> noGameForEntitlementId. The owned product_id is the current streamable
-        // PS5 SKU (Alan Wake -> PPSA01925; Death Stranding DC -> PPSA01968), which Gaikai accepts.
+        // PS5 (cronos): stream the owned PS5 entitlement `id`, which the backend resolved from the
+        // entitlement's structured platform_id (the catalog merge stamps the platform-matching PS5
+        // license here). For a classic like Blood Omen that id is ...PPSA24270_00-SLUS000270000000
+        // (NOT the ...-0499... store wrapper product_id, which Gaikai has no game for ->
+        // noGameForEntitlementId). For a cross-gen upgrade (Alan Wake, Death Stranding) the PS5
+        // entitlement id equals its product_id (PPSA01925 / PPSA01968), so it is absent here and we
+        // fall through to the product id. No id-prefix guessing, no force-to-PS5.
+        if (gameData.id) return gameData.id;
         if (gameData.product_id) return gameData.product_id;
         if (gameData.productId) return gameData.productId;
-        if (gameData.id) return gameData.id;
         return "";
     }
     
@@ -146,11 +162,14 @@ Rectangle {
         return gameData.catalogProductId || gameData.product_id || gameData.productId || gameData.id || "";
     }
 
-    // Platform to stream, from the chosen product's title id: CUSAxxxxx = PS4, PPSAxxxxx = PS5.
-    // This drives the streaming path (PS4 = kratos, PS5 = cronos); both go through the Kamaji
-    // acquire-flow. More reliable than the catalog "device" list (cross-gen titles list both)
-    // or whichever entitlement the user owns. Defaults to PS5 (the modern catalog).
+    // Platform that drives the streaming path (PS4 = kratos/Kamaji, PS5 = cronos). The canonical
+    // signal is serviceType (pscloud == PS5, psnow == PS3/PS4 -> ps4-class), which the backend sets
+    // on PS Now browse rows and fills in for owned cards from PSN's platform_id -- so a cross-buy PS4
+    // entitlement carrying a PS5-looking product_id wrapper is NOT mis-classified. Falls back to the
+    // clean catalog id token only when serviceType is absent. Defaults to PS5 (the modern catalog).
     function streamPlatform() {
+        if (gameData && gameData.serviceType === "pscloud") return "ps5";
+        if (gameData && gameData.serviceType === "psnow") return "ps4";
         let p = String(streamProductId());
         if (p.indexOf("PPSA") !== -1) return "ps5";
         if (p.indexOf("CUSA") !== -1) return "ps4";
@@ -158,6 +177,8 @@ Rectangle {
     }
 
     function getServiceType() {
+        if (gameData && (gameData.serviceType === "psnow" || gameData.serviceType === "pscloud"))
+            return gameData.serviceType; // canonical value (set on browse rows / from platform_id)
         if (isPsnow) return "psnow"; // legacy PS Now browse catalog
         // serviceType selects the Gaikai spec/consts/virtType: psnow = PS4/kratos, pscloud = PS5/cronos.
         return (streamPlatform() === "ps4") ? "psnow" : "pscloud";
@@ -333,22 +354,32 @@ Rectangle {
                 }
             }
             
-            // Owned/Not Owned badge - Top Right
+            // Category badge - Top Right (owned / streamable / purchaseable)
             Rectangle {
                 anchors.top: parent.top
                 anchors.right: parent.right
                 anchors.topMargin: 8
                 anchors.rightMargin: 8
-                width: ownedLabel.implicitWidth + 12
+                width: categoryLabel.implicitWidth + 12
                 height: 22
                 radius: 4
-                color: gameData && gameData.isOwned ? "#4CAF50" : "#FF9800"
-                visible: !isPsnow && (libraryFilter === "all" || libraryFilter === "catalog")
+                visible: gameData && gameData.category
+                color: {
+                    if (!gameData) return "#FF9800";
+                    if (gameData.category === "owned") return "#4CAF50";
+                    if (gameData.category === "streamable") return "#2196F3";
+                    return "#FF9800";
+                }
 
                 Label {
-                    id: ownedLabel
+                    id: categoryLabel
                     anchors.centerIn: parent
-                    text: gameData && gameData.isOwned ? qsTr("OWNED") : qsTr("NOT OWNED")
+                    text: {
+                        if (!gameData || !gameData.category) return "";
+                        if (gameData.category === "owned") return qsTr("OWNED");
+                        if (gameData.category === "streamable") return qsTr("STREAMABLE");
+                        return qsTr("ADD GAME");
+                    }
                     font.pixelSize: 10
                     font.weight: Font.Bold
                     color: "white"

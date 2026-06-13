@@ -424,8 +424,10 @@ class Preferences(context: Context)
 	// Cloud Play UI state
 	private val LAST_CLOUD_SECTION_KEY = "last_cloud_section"
 	private val PSCLOUD_FILTER_OWNED_KEY = "pscloud_filter_owned"
+	private val CLOUD_FALLBACK_REGION_KEY = "cloud_fallback_region"
 	private val LAST_MAIN_TAB_KEY = "last_main_tab"
 	private val CLOUD_SORT_STATE_KEY = "cloud_sort_state"
+	private val CLOUD_TAG_FILTERS_KEY = "cloud_tag_filters"
 	private val FAVORITE_GAMES_KEY = "favorite_games"
 	private val PSNOW_FILTER_FAVORITES_KEY = "psnow_filter_favorites"
 	private val PSCLOUD_FILTER_FAVORITES_KEY = "pscloud_filter_favorites"
@@ -458,6 +460,25 @@ class Preferences(context: Context)
 		sharedPreferences.edit().putString(LAST_CLOUD_SECTION_KEY, section).apply()
 	}
 
+	/**
+	 * PS Now region-group fallback. Empty string = native mode (account's own /user/stores
+	 * storefront is authoritative). A non-empty value (the region-group store country, "US"
+	 * or "GB") = fallback mode: the catalog came from a foreign region group, so the
+	 * concept-sibling streamability gate is skipped and stream-conversion/acquire remap to
+	 * the region-group store. Recomputed on every catalog refresh (self-healing).
+	 */
+	fun getCloudFallbackRegion(): String
+	{
+		return sharedPreferences.getString(CLOUD_FALLBACK_REGION_KEY, "") ?: ""
+	}
+
+	fun setCloudFallbackRegion(region: String)
+	{
+		sharedPreferences.edit().putString(CLOUD_FALLBACK_REGION_KEY, region).apply()
+	}
+
+	fun isCloudFallbackMode(): Boolean = getCloudFallbackRegion().isNotEmpty()
+
 	fun getPsCloudFilterOwned(): Boolean
 	{
 		return sharedPreferences.getBoolean(PSCLOUD_FILTER_OWNED_KEY, false)
@@ -486,6 +507,17 @@ class Preferences(context: Context)
 	fun setCloudSortState(sortState: Int)
 	{
 		sharedPreferences.edit().putInt(CLOUD_SORT_STATE_KEY, sortState).apply()
+	}
+
+	/** Persisted acquisition-tag filter selection for the unified cloud page (empty = show all). */
+	fun getCloudTagFilters(): Set<String>
+	{
+		return sharedPreferences.getStringSet(CLOUD_TAG_FILTERS_KEY, emptySet()) ?: emptySet()
+	}
+
+	fun setCloudTagFilters(tags: Set<String>)
+	{
+		sharedPreferences.edit().putStringSet(CLOUD_TAG_FILTERS_KEY, tags).apply()
 	}
 	
 	// Favorite games management

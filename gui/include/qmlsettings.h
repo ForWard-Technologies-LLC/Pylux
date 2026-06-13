@@ -95,6 +95,9 @@ class QmlSettings : public QObject
     Q_PROPERTY(QString lastSelectedCloudSection READ lastSelectedCloudSection WRITE setLastSelectedCloudSection NOTIFY lastSelectedCloudSectionChanged)
     Q_PROPERTY(QString cloudLibraryFilter READ cloudLibraryFilter WRITE setCloudLibraryFilter NOTIFY cloudLibraryFilterChanged)
     Q_PROPERTY(QString cloudCatalogFilter READ cloudCatalogFilter WRITE setCloudCatalogFilter NOTIFY cloudCatalogFilterChanged)
+    Q_PROPERTY(QString cloudFallbackRegion READ cloudFallbackRegion WRITE setCloudFallbackRegion NOTIFY cloudFallbackRegionChanged)
+    Q_PROPERTY(QString cloudTagFilters READ cloudTagFilters WRITE setCloudTagFilters NOTIFY cloudTagFiltersChanged)
+    Q_PROPERTY(int cloudSortState READ cloudSortState WRITE setCloudSortState NOTIFY cloudSortStateChanged)
     Q_PROPERTY(QString cloudFavorites READ cloudFavorites WRITE setCloudFavorites NOTIFY cloudFavoritesChanged)
     Q_PROPERTY(bool mouseTouchEnabled READ mouseTouchEnabled WRITE setMouseTouchEnabled NOTIFY mouseTouchEnabledChanged)
     Q_PROPERTY(bool keyboardEnabled READ keyboardEnabled WRITE setKeyboardEnabled NOTIFY keyboardEnabledChanged)
@@ -569,6 +572,15 @@ public:
     QString cloudCatalogFilter() const;
     void setCloudCatalogFilter(const QString &filter);
 
+    QString cloudFallbackRegion() const;
+    void setCloudFallbackRegion(const QString &region);
+
+    QString cloudTagFilters() const;
+    void setCloudTagFilters(const QString &filtersJson);
+
+    int cloudSortState() const;
+    void setCloudSortState(int sortState);
+
     QString cloudFavorites() const;
     void setCloudFavorites(const QString &favorites);
 
@@ -725,6 +737,9 @@ signals:
     void lastSelectedCloudSectionChanged();
     void cloudLibraryFilterChanged();
     void cloudCatalogFilterChanged();
+    void cloudFallbackRegionChanged();
+    void cloudTagFiltersChanged();
+    void cloudSortStateChanged();
     void cloudFavoritesChanged();
     void mouseTouchEnabledChanged();
     void keyboardEnabledChanged();

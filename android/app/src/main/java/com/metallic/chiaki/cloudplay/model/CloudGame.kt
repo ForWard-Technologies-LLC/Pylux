@@ -19,7 +19,12 @@ data class CloudGame(
 	val entitlementId: String = "", // PSCloud: entitlement id for streaming (Qt gameData.id)
 	val storeProductId: String = "", // PSCloud: product_id from entitlements API
 	val plusCatalog: Boolean = false, // In the PS Plus subscription catalog (vs full streamable universe)
-	val featureType: Int = 0 // PSN entitlement feature_type (owned games): 3=full game, 1=trial/free, 0=add-on
+	val featureType: Int = 0, // PSN entitlement feature_type (owned games): 3=full game, 1=trial/free, 0=add-on
+	// Unified-page acquisition tag, assigned once at catalog-assembly time:
+	//   "owned"        -> entitlement resolves to a streamable row (Stream)
+	//   "streamable"   -> not owned, PS Now subscription title (Stream)
+	//   "purchaseable" -> not owned, PS Plus catalog title (Add to Library, then Stream)
+	val category: String = ""
 )
 
 /**

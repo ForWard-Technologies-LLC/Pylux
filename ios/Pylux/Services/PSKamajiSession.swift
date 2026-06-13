@@ -143,24 +143,21 @@ final class PSKamajiSession {
         let sku: String
     }
 
-    // PS3 / Classics product ids (NPEA/NPEB/BLES/BCES or NPUA/NPUB/BLUS/BCUS — anything that
-    // isn't a modern CUSA/PPSA id) come from the public Apollo catalog, which we walk in the
-    // account's region group (Americas -> US store, everything else -> PAL/GB). Resolve them
-    // against that SAME region's container so the lookup finds the product and returns the PSNW
-    // entitlement the account is authorized for at Gaikai. The account's own locale country can
-    // be a region with no pcnow storefront (e.g. Hungary -> "Storefront not found"), so map to
-    // the region-group store. Must match CloudCatalogService's PS3 catalog source.
-    private var isLegacyClassicsId: Bool {
-        return !productId.contains("CUSA") && !productId.contains("PPSA")
-    }
-
+    // Region-group fallback: when /user/stores has no storefront for the account's region, the
+    // PS Now catalog (PS3 + PS4) was browsed from the public region-group APOLLOROOT container
+    // (US for Americas, GB for PAL), so its product ids must be RESOLVED against that same
+    // region-group store. Driven by the account-level fallback flag; PS3 and PS4 behave identically.
     private func step0_5d_ConvertProductId(sessionId: String) -> ProductConversion? {
         let storePath = CloudLocaleSettings.parseStorePath(CloudLocaleSettings.stored)
         var country = storePath.country
         var language = storePath.language
-        if isLegacyClassicsId {
-            country = ClassicsRegion.classicsStoreCountry(country)
+        let fallbackRegion = SecureStore.shared.cloudFallbackRegion
+        if !fallbackRegion.isEmpty {
+            country = fallbackRegion
             language = "en"
+            os_log(.info, log: kamajiLog,
+                   "Fallback mode -> region-group container: country=%{public}s, language=%{public}s",
+                   country, language)
         }
         let url = "\(storeBase)/container/\(country)/\(language)/19/\(productId)?useOffers=true&gkb=1&gkb2=1"
         os_log(.info, log: kamajiLog, "Store container locale: %{public}s", CloudLocaleSettings.stored)
@@ -247,20 +244,15 @@ final class PSKamajiSession {
         if hasEntitlement == nil { return false }
         if hasEntitlement == true { return true }
 
-        // Entitlement not found (404). For PS3 / Classics (legacy non-CUSA/PPSA ids) the streaming
-        // entitlement is granted by the PS Plus subscription via a free 100%-off checkout, but that
-        // checkout requires a pcnow storefront in the account's region — which many regions (e.g.
-        // Hungary) don't have, so the acquire fails with "Against Eligibility Rule". On a real PS5
-        // the subscription alone grants streaming with no purchase, so skip the acquire and let
-        // Gaikai validate the Premium subscription directly. If Gaikai genuinely needs the
-        // entitlement, it returns noGameForEntitlementId downstream and we learn the wall is there.
-        if isLegacyClassicsId {
+        // Entitlement not found (404). Region-group fallback: skip acquire and proceed to Gaikai.
+        // Native (supported region): run the normal checkout-acquire for PS3 and PS4 alike.
+        if SecureStore.shared.isCloudFallbackMode {
             os_log(.info, log: kamajiLog,
-                   "Entitlement not found (404); legacy Classics id -> skipping acquire, proceeding to Gaikai")
+                   "Entitlement not found (404); fallback region -> skipping acquire, proceeding to Gaikai")
             return true
         }
 
-        // PS4/PS5 catalog: try to acquire it via checkout.
+        // Native mode: try to acquire it via checkout.
         // Step 0.5e.3: Checkout preview
         guard step0_5e3_CheckoutPreview(sessionId: sessionId) else { return false }
 

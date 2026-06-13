@@ -6,7 +6,6 @@ import android.util.Log
 import com.metallic.chiaki.cloudplay.DuidUtil
 import com.metallic.chiaki.cloudplay.PsnApiConstants
 import com.metallic.chiaki.cloudplay.model.CloudGame
-import com.metallic.chiaki.cloudplay.model.PsnResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -34,38 +33,50 @@ class PsnCatalogService(
 	private var country: String? = null
 	private var language: String? = null
 	private val duid = DuidUtil.generateDuid()
-	
+
 	/**
-	 * Fetch PSNow catalog with complete authentication flow
-	 * Matches: CloudCatalogBackend::fetchPsnowCatalog()
+	 * Outcome of the native PS Now (APOLLOROOT) catalog fetch.
+	 *  - storesAvailable=false, authError=false  -> /user/stores had no storefront for this account's
+	 *    region (unsupported region, e.g. HU): caller should fall back to the public region-group walk.
+	 *  - authError=true                          -> OAuth/session failed (expired NPSSO token).
 	 */
-	suspend fun fetchPsnowCatalog(npssoToken: String): PsnResult<List<CloudGame>> = withContext(Dispatchers.IO)
+	data class NativeCatalogOutcome(
+		val games: List<CloudGame>,
+		val storesAvailable: Boolean,
+		val authError: Boolean
+	)
+
+	/**
+	 * Native PS Now catalog fetch (one APOLLOROOT walk: PS3 + PS4) using the account's own
+	 * /user/stores base_url. Matches: CloudCatalogBackend::fetchPsnowCatalog().
+	 */
+	suspend fun fetchNativeCatalog(npssoToken: String): NativeCatalogOutcome = withContext(Dispatchers.IO)
 	{
 		try
 		{
 			gameLogCounter = 0 // Reset counter for new catalog fetch
-			Log.i(TAG, "=== Starting PSNow Catalog Fetch ===")
-			
-			// Step 1: OAuth authentication
+			Log.i(TAG, "=== Starting PSNow (APOLLOROOT) Catalog Fetch ===")
+
+			// Step 1: OAuth authentication (failure here = expired token)
 			val oauthCode = fetchOAuthCode(npssoToken)
-				?: return@withContext PsnResult.Error("OAuth authentication failed")
-			
-			// Step 2: Create Kamaji session
+				?: return@withContext NativeCatalogOutcome(emptyList(), storesAvailable = false, authError = true)
+
+			// Step 2: Create Kamaji session (failure here = expired token)
 			val sessionId = createKamajiSession(oauthCode)
-				?: return@withContext PsnResult.Error("Failed to create Kamaji session")
-			
+				?: return@withContext NativeCatalogOutcome(emptyList(), storesAvailable = false, authError = true)
+
 			jsessionId = sessionId
-			
-			// Step 3: Fetch stores to get base URL
+
+			// Step 3: Fetch stores to get base URL. No base_url => region not supported (fallback).
 			val storesBaseUrl = fetchStores()
-				?: return@withContext PsnResult.Error("Failed to fetch stores")
-			
+				?: return@withContext NativeCatalogOutcome(emptyList(), storesAvailable = false, authError = false)
+
 			baseUrl = storesBaseUrl
-			
+
 			// Step 4: Fetch root container to get category links
 			val categoryUrls = fetchRootContainer()
-				?: return@withContext PsnResult.Error("Failed to fetch root container")
-			
+				?: return@withContext NativeCatalogOutcome(emptyList(), storesAvailable = true, authError = false)
+
 			// Step 5: Fetch all category pages
 			val allGames = mutableListOf<CloudGame>()
 			for ((categoryName, categoryUrl) in categoryUrls)
@@ -74,15 +85,77 @@ class PsnCatalogService(
 				val games = fetchCategoryGames(categoryUrl)
 				allGames.addAll(games)
 			}
-			
-			Log.i(TAG, "=== PSNow Catalog Fetch Complete: ${allGames.size} games ===")
-			PsnResult.Success(allGames)
+
+			Log.i(TAG, "=== PSNow Catalog Fetch Complete: ${allGames.size} games (native) ===")
+			NativeCatalogOutcome(allGames, storesAvailable = true, authError = false)
 		}
 		catch (e: Exception)
 		{
-			Log.e(TAG, "Error fetching PSNow catalog", e)
-			PsnResult.Error("Failed to fetch catalog: ${e.message}", e)
+			Log.e(TAG, "Error fetching native PSNow catalog", e)
+			NativeCatalogOutcome(emptyList(), storesAvailable = false, authError = false)
 		}
+	}
+
+	/**
+	 * Fallback PS Now catalog fetch: walk the PUBLIC region-group APOLLOROOT container directly
+	 * (no OAuth/session), used when /user/stores has no storefront for the account's region.
+	 * Returns the same PS3 + PS4 set as the native walk. Mirrors the public-container technique
+	 * previously used for the dedicated PS3 fetch; APOLLOROOT already includes PS3.
+	 */
+	suspend fun fetchApolloRootCatalog(accountCountry: String): List<CloudGame> = withContext(Dispatchers.IO)
+	{
+		val storeCountry = com.metallic.chiaki.cloudplay.KamajiClassics.classicsStoreCountry(accountCountry)
+		val containerId = com.metallic.chiaki.cloudplay.KamajiClassics.apolloRootContainerId(accountCountry)
+		val containerUrl = "${PsnApiConstants.STORE_BASE}/container/$storeCountry/en/19/$containerId"
+
+		Log.i(TAG, "=== Fetching APOLLOROOT catalog (region group $storeCountry for account $accountCountry) ===")
+
+		val games = mutableListOf<CloudGame>()
+		var start = 0
+		var totalResults = -1
+
+		while (true)
+		{
+			val url = "$containerUrl?useOffers=true&gkb=1&gkb2=1&start=$start&size=100"
+			val response = HttpClient.get(
+				url = url,
+				headers = mapOf(
+					"Accept" to "application/json",
+					"User-Agent" to PsnApiConstants.USER_AGENT
+				)
+			)
+
+			if (response.statusCode != 200)
+			{
+				Log.w(TAG, "APOLLOROOT page fetch failed (HTTP ${response.statusCode})")
+				if (games.isEmpty())
+					throw Exception("Failed to fetch APOLLOROOT catalog: HTTP ${response.statusCode}")
+				break // Partial data already collected: return what we have.
+			}
+
+			val obj = JSONObject(response.body)
+			if (totalResults < 0)
+				totalResults = obj.optInt("total_results", 0)
+
+			val links = obj.optJSONArray("links") ?: JSONArray()
+			var productCount = 0
+			for (i in 0 until links.length())
+			{
+				val g = links.optJSONObject(i) ?: continue
+				if (g.optString("container_type") != "product")
+					continue
+				parseGameObject(g)?.let { games.add(it); productCount++ }
+			}
+
+			Log.i(TAG, "  APOLLOROOT page products: $productCount, accumulated: ${games.size} of $totalResults")
+
+			start += 100
+			if (productCount == 0 || start >= totalResults)
+				break
+		}
+
+		Log.i(TAG, "  APOLLOROOT catalog complete: ${games.size} titles")
+		games
 	}
 	
 	/**

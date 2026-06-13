@@ -21,12 +21,17 @@ struct CloudGame: Identifiable, Hashable {
     var storeProductId: String  // PSCloud: product_id from entitlements API
     var plusCatalog: Bool    // In the PS Plus subscription catalog (vs the full streamable universe)
     var featureType: Int     // PSN entitlement feature_type (owned games): 3=full game, 1=trial/free, 0=add-on
+    // Unified-page acquisition tag, assigned once at catalog-assembly time:
+    //   "owned"        -> entitlement resolves to a streamable row (Stream)
+    //   "streamable"   -> not owned, PS Now subscription title (Stream)
+    //   "purchaseable" -> not owned, PS Plus catalog title (Add to Library, then Stream)
+    var category: String
 
     init(productId: String, name: String, imageUrl: String, landscapeImageUrl: String = "",
          platform: String = "ps4", serviceType: String = "psnow",
          conceptUrl: String = "", conceptId: String = "", isOwned: Bool = false,
          entitlementId: String = "", storeProductId: String = "", plusCatalog: Bool = false,
-         featureType: Int = 0) {
+         featureType: Int = 0, category: String = "") {
         self.id = productId
         self.name = name
         self.imageUrl = imageUrl
@@ -40,35 +45,45 @@ struct CloudGame: Identifiable, Hashable {
         self.storeProductId = storeProductId
         self.plusCatalog = plusCatalog
         self.featureType = featureType
+        self.category = category
     }
 
-    /// Mirrors CloudGameCard.qml getStreamingIdentifier() for PSCloud. Stream the owned PRODUCT id
-    /// (storeProductId), NOT the entitlement id: for cross-gen titles you upgraded, Sony's entitlement
-    /// id is the stale ORIGINAL SKU (Alan Wake's old CUSA license; Death Stranding's pre-DC SKU) that
-    /// Gaikai's cloud catalog has no game for -> noGameForEntitlementId. product_id is the current SKU.
+    /// Mirrors CloudGameCard.qml getStreamingIdentifier() for PSCloud. PS5/cronos streams the owned
+    /// PS5 entitlement's OWN id (entitlementId), resolved from the entitlement's platform_id during
+    /// cross-reference. For a canonical SKU (Red Dead, Alan Wake) that id == product_id == ...PPSA...;
+    /// for a classic whose product_id is a non-streamable wrapper (Blood Omen) it is the ...PPSA..SLUS
+    /// license. Never a PS4/CUSA cross-buy id (the platform-disciplined merge guarantees this).
     var streamingIdentifier: String {
         if serviceType.lowercased() == "pscloud" {
-            if !storeProductId.isEmpty { return storeProductId }
             if !entitlementId.isEmpty { return entitlementId }
+            if !storeProductId.isEmpty { return storeProductId }
         }
         return id
     }
 
-    // A PlayStation title id encodes its platform: CUSAxxxxx = PS4, PPSAxxxxx = PS5. This is
-    // more reliable than the catalog device list, and decides the streaming path: PS4 goes
-    // through Kamaji (psnow) to acquire the streaming entitlement, PS5 streams directly (pscloud).
+    // Platform that drives the streaming path (PS4 = Kamaji, PS5 = cronos). serviceType is the
+    // canonical signal but with one asymmetry: `psnow` is always PS3/PS4-class (set on PS Now browse
+    // rows and filled for owned PS3/PS4 cards from platform_id), while `pscloud` is authoritative ONLY
+    // for OWNED cards (filled from the entitlement's platform_id) -- non-owned imagic browse rows are
+    // blanket-labeled `pscloud` yet include a few PS4 titles, so for those we use the clean id token
+    // (PS4 there streams via PS Now/Kamaji, not cronos). Mirrors canonical Qt, whose non-owned imagic
+    // rows simply carry no serviceType and so fall through to the same token path.
     var streamPlatform: String {
-        // Prefer the OWNED product id (storeProductId): for a cross-gen title you upgraded, the catalog
-        // `id` may be the OTHER generation (Alan Wake's catalog entry is PS4 CUSA, but you own the PS5
-        // PPSA), and the owned product is what decides the streaming path.
+        let st = serviceType.lowercased()
+        if st == "psnow" { return "ps4" }
+        // isOwned gate: imagic browse rows are blanket-tagged serviceType="pscloud" (see catalog parse), so
+        // only treat "pscloud" as PS5/cronos when actually OWNED; non-owned rows fall through to the product-id
+        // token below, routing non-owned PS4 imagic titles to PS Now (matches Qt, whose imagic rows carry no
+        // serviceType at all).
+        if st == "pscloud" && isOwned { return "ps5" }
         let p = !storeProductId.isEmpty ? storeProductId : (!id.isEmpty ? id : entitlementId)
         if p.contains("PPSA") { return "ps5" }
         if p.contains("CUSA") { return "ps4" }
         return platform.isEmpty ? "ps5" : platform
     }
 
-    /// Service type to stream with: real legacy PS Now games stay psnow; otherwise route by the
-    /// title-id platform (PS4 catalog titles need the Kamaji acquire-flow, PS5 stays direct).
+    /// Service type to stream with: route by the (platform_id-disciplined) streaming platform --
+    /// PS3/PS4 via Kamaji (psnow), PS5 direct (pscloud).
     var streamServiceType: String {
         if serviceType.lowercased() == "psnow" { return "psnow" }
         return streamPlatform == "ps4" ? "psnow" : "pscloud"
@@ -202,6 +217,13 @@ enum ClassicsRegion {
         return isAmericasClassicsRegion(accountCountry)
             ? "STORE-MSF192018-APOLLOPS3GAMES"
             : "STORE-MSF192014-APOLLOPS3"
+    }
+
+    /// Fully-qualified APOLLOROOT (PS Now: PS3 + PS4) container id for the account's region group.
+    static func apolloRootContainerId(_ accountCountry: String) -> String {
+        return isAmericasClassicsRegion(accountCountry)
+            ? "STORE-MSF192018-APOLLOROOT"
+            : "STORE-MSF192014-APOLLOROOT"
     }
 }
 
