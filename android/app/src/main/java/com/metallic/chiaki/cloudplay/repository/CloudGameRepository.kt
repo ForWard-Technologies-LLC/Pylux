@@ -47,7 +47,7 @@ class CloudGameRepository(
 				Log.w(TAG, "Error invalidating catalog cache", e)
 			}
 		}
-		private const val UNIFIED_CACHE_FILE = "unified_catalog_v4.json" // v4: Qt-aligned merge (existingClass guard + explicit pscloud/psnow serviceType stamp)
+		private const val UNIFIED_CACHE_FILE = "unified_catalog_v5.json" // v5: Qt emitOwned productId + QMap-sorted cross-ref merge order
 		private const val PS5_CATALOG_V3_CACHE_FILE = "ps5_cloud_catalog_v3.json"
 		private const val CACHE_DURATION_MS = 24 * 60 * 60 * 1000L // 24 hours
 

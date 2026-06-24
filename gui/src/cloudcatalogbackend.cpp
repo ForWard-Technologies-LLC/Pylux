@@ -1482,6 +1482,47 @@ static int ps5CloudOwnedStreamRank(const QJsonObject &ownedGameObj)
     return rank;
 }
 
+// Is this a "Game Streaming" (GS) package? PSN labels the cloud-streamable SKU *GS (e.g. PS4GS) and
+// the installable download *GD (PS4GD / PSGD). For a cross-buy title the GS entitlement carries the
+// clean, streamable product for its platform, while the GD cross-buy entitlement can carry a
+// cross-generation *wrapper* product. So when two same-platform SKUs collapse to one edition, the GS
+// SKU is the right streaming candidate. Uses the structured game_meta.package_type field (the same
+// field ps5CloudIsFullGameEntitlement reads) -- no product-id prefix guessing.
+static bool ps5CloudIsStreamingPackage(const QJsonObject &ownedGameObj)
+{
+    const QString pt = ownedGameObj.value(QStringLiteral("game_meta")).toObject()
+                           .value(QStringLiteral("package_type")).toString();
+    return pt.endsWith(QStringLiteral("GS"));
+}
+
+// Deterministic total order over owned entitlements that collapse to the same edition (conceptId +
+// platform). MUST be independent of the PSN entitlements response order so the assembled catalog is
+// stable across refreshes (cross-buy titles with equal stream rank routinely tie). Returns true if
+// `cand` should replace `cur` as the edition's representative. Signals, in priority order, all from
+// structured API fields: (1) higher stream rank (canonical full-game product); (2) the cloud-
+// streaming (GS) package over a download (GD) SKU; (3) stable unique sku_id, then product_id, then
+// entitlement id, purely to guarantee a single deterministic winner.
+static bool ps5CloudOwnedEntitlementBetter(const QJsonObject &cand, const QJsonObject &cur)
+{
+    const int rc = ps5CloudOwnedStreamRank(cand);
+    const int ru = ps5CloudOwnedStreamRank(cur);
+    if (rc != ru)
+        return rc > ru;
+    const bool gc = ps5CloudIsStreamingPackage(cand);
+    const bool gu = ps5CloudIsStreamingPackage(cur);
+    if (gc != gu)
+        return gc; // prefer the cloud-streaming (GS) SKU
+    const QString sc = cand.value(QStringLiteral("sku_id")).toString();
+    const QString su = cur.value(QStringLiteral("sku_id")).toString();
+    if (sc != su)
+        return sc < su;
+    const QString pc = cand.value(QStringLiteral("product_id")).toString();
+    const QString pu = cur.value(QStringLiteral("product_id")).toString();
+    if (pc != pu)
+        return pc < pu;
+    return cand.value(QStringLiteral("id")).toString() < cur.value(QStringLiteral("id")).toString();
+}
+
 static QString ps5CloudProductIdStableKey(const QString &productId)
 {
     if (productId.isEmpty())
@@ -1735,11 +1776,56 @@ static QJsonArray mergeOwnedIntoBrowseCatalog(const QJsonArray &browseCatalog,
     QJsonArray games = browseCatalog;
     CatalogIndexMaps catalogIndex = buildCatalogIndex(games);
 
+    // Products the user FULLY owns (feature_type 3/5, i.e. not a trial). A trial (ft1) is normally
+    // kept as its own card so the free/trial build streams while the full game shows "Add Game" --
+    // but only when the full game is NOT owned. When the SAME product is also held as a full license
+    // (common for F2P cross-buy titles: a PS4 free/trial entitlement whose product_id is the PS5 PPSA
+    // wrapper, e.g. Trackmania / Super Animal Royale / Fantasy Beauties), the trial card is redundant
+    // AND broken -- it routes to Kamaji (psnow, from its CUSA id) while carrying a PS5 PPSA product
+    // id, which Kamaji rejects. Suppress those trials below. Order-independent pre-pass.
+    QSet<QString> fullyOwnedProductIds;
     for (const QJsonValue &ownedVal : ownedCrossRef) {
+        if (!ownedVal.isObject())
+            continue;
+        const QJsonObject o = ownedVal.toObject();
+        if (o.value(QStringLiteral("feature_type")).toInt() == 1)
+            continue;
+        const QString pid = gameProductId(o);
+        if (!pid.isEmpty())
+            fullyOwnedProductIds.insert(pid);
+    }
+
+    // Process pscloud (PS5) owned claims BEFORE psnow (PS3/PS4). A PS5 (pscloud) claim is
+    // authoritative and stamps the PS5 browse row in place; doing it first means the row is already
+    // owned by the time any PS4 cross-buy license (whose product_id is the SAME PPSA wrapper) is
+    // seen, so the wrapper can be dropped cleanly instead of appending a duplicate / orphaning the
+    // browse row as a "ghost". Without this, Qt's owned set arrives QMap-sorted (c:<concept>:ps4
+    // before c:<concept>:ps5), so the wrapper is processed first and shadows the index. Stable
+    // partition: relative order is otherwise preserved.
+    QList<QJsonValue> ownedOrdered;
+    ownedOrdered.reserve(ownedCrossRef.size());
+    for (const QJsonValue &ownedVal : ownedCrossRef) {
+        if (ownedVal.isObject()
+                && ownedVal.toObject().value(QStringLiteral("serviceType")).toString().toLower()
+                       == QLatin1String("pscloud"))
+            ownedOrdered.append(ownedVal);
+    }
+    for (const QJsonValue &ownedVal : ownedCrossRef) {
+        if (ownedVal.isObject()
+                && ownedVal.toObject().value(QStringLiteral("serviceType")).toString().toLower()
+                       != QLatin1String("pscloud"))
+            ownedOrdered.append(ownedVal);
+    }
+
+    for (const QJsonValue &ownedVal : ownedOrdered) {
         if (!ownedVal.isObject())
             continue;
         QJsonObject ownedGame = ownedVal.toObject();
         const bool isTrialTier = ownedGame.value(QStringLiteral("feature_type")).toInt() == 1;
+        // A trial whose product is also fully owned is superseded by the full license -- drop it
+        // (it would otherwise append a redundant, unstreamable PS4/Kamaji card for a PS5 product).
+        if (isTrialTier && fullyOwnedProductIds.contains(gameProductId(ownedGame)))
+            continue;
         const int catalogMatch = isTrialTier ? -1 : findCatalogIndexForOwned(ownedGame, catalogIndex);
 
         if (catalogMatch >= 0) {
@@ -1791,10 +1877,18 @@ static QJsonArray mergeOwnedIntoBrowseCatalog(const QJsonArray &browseCatalog,
                 continue;
             }
             // psnow entitlement whose matched card is PS5-class (serviceType=pscloud, OR an unstamped
-            // imagic browse row whose product-id token is PPSA): this PS4 cross-buy license is not this
-            // card's edition. Leave the PS5 card untouched and fall through to add it as its own (PS4)
-            // card / register it for a later same-platform match. (Without the platform-class check, an
-            // empty serviceType on an imagic PS5 row would let a CUSA id be stamped onto a cronos card.)
+            // imagic browse row whose product-id token is PPSA): this is a PS4 CROSS-BUY license whose
+            // product_id is the shared PS5 (PPSA) wrapper. It is NOT a separate streamable edition --
+            // the real PS4 variant (if any) matches its own CUSA catalog row independently, and the PS5
+            // card is claimed by the PS5 (pscloud) license (processed first, above). DROP it: appending
+            // it produces a bogus duplicate PS4 card and, depending on merge order, orphans the browse
+            // row as a "ghost" purchaseable card. Streaming such a wrapper would fail anyway
+            // (noGameForEntitlementId), since the PS5 cloud variant needs a PS5 entitlement.
+            if (ownedService == QLatin1String("psnow")) {
+                continue;
+            }
+            // Any other matched-but-unstamped case (e.g. owned entitlement with no serviceType): fall
+            // through to add it as its own card / register it for a later same-platform match.
         }
 
         if (!addUnmatched)
@@ -2014,16 +2108,36 @@ static void mergeImagicListIntoPs5Catalog(const QString &categoryList,
 
 void CloudCatalogBackend::assembleUnifiedCatalog(const QJsonArray &ownedCrossRef)
 {
+    // Routing source of truth for browse rows: an imagic PS5 row is streamed via cronos (pscloud)
+    // UNLESS the same product also appears in the Apollo (PS Now) catalog, in which case it is a
+    // Kamaji (psnow) title. Apollo membership is the authoritative psnow signal; everything else
+    // PS5 defaults to pscloud. (A/B testing proved the ghost cards are a separate merge-order bug,
+    // not caused by this stamping, so it is restored: it is required for correct Worms-style routing
+    // and PS5 badges.)
     QJsonArray apolloNormalized;
+    QSet<QString> apolloProductIds;
     for (const QJsonValue &v : unifiedState.apolloGames) {
-        if (v.isObject())
-            apolloNormalized.append(normalizeApolloGame(v.toObject()));
+        if (v.isObject()) {
+            const QJsonObject g = normalizeApolloGame(v.toObject());
+            apolloNormalized.append(g);
+            const QString pid = gameProductId(g);
+            if (!pid.isEmpty())
+                apolloProductIds.insert(pid);
+        }
     }
 
     QJsonArray ps5Browse;
     for (const QJsonValue &v : unifiedState.imagicBrowse) {
-        if (v.isObject() && isPs5PlatformGame(v.toObject()))
-            ps5Browse.append(v);
+        if (!v.isObject() || !isPs5PlatformGame(v.toObject()))
+            continue;
+        QJsonObject g = v.toObject();
+        const QString existing = g.value(QStringLiteral("serviceType")).toString().toLower();
+        if (existing != QLatin1String("psnow") && existing != QLatin1String("pscloud")) {
+            const bool inApollo = apolloProductIds.contains(gameProductId(g));
+            g.insert(QStringLiteral("serviceType"),
+                     inApollo ? QStringLiteral("psnow") : QStringLiteral("pscloud"));
+        }
+        ps5Browse.append(g);
     }
 
     QJsonArray universe = apolloNormalized;
@@ -3505,7 +3619,14 @@ void CloudCatalogBackend::processCrossReferenceComplete()
                 const QJsonObject existing = ownedByKey.value(dedupeKey);
                 // Keep the best streaming candidate: the canonical full-game entitlement (its
                 // product_id is the real streamable game, not a DLC/bonus product Gaikai rejects).
-                if (ps5CloudOwnedStreamRank(entry) > ps5CloudOwnedStreamRank(existing))
+                // The choice MUST be deterministic -- the PSN entitlements response order is NOT
+                // guaranteed, so a plain rank ">" (first-inserted wins on a tie) would let the
+                // catalog flip between refreshes (cross-buy titles with no platform_id routinely tie).
+                // Total order: (1) higher stream rank; (2) prefer a product_id whose platform token
+                // matches the entitlement's own platform (a psnow/PS4 license prefers its CUSA product
+                // over a cross-buy PPSA wrapper, so the card streams a product the backend accepts);
+                // (3) lexicographically smallest product_id; (4) smallest entitlement id.
+                if (ps5CloudOwnedEntitlementBetter(entry, existing))
                     ownedByKey.insert(dedupeKey, entry);
             } else {
                 ownedByKey.insert(dedupeKey, entry);

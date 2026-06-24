@@ -15,6 +15,7 @@ object PsCloudOwnership
 	data class Entitlement(
 		val id: String,
 		val productId: String,
+		val skuId: String,      // PSN sku_id -- stable unique key for deterministic dedupe tie-breaking
 		val activeFlag: Boolean,
 		val packageType: String,
 		val name: String,
@@ -81,6 +82,7 @@ object PsCloudOwnership
 		return Entitlement(
 			id = id,
 			productId = obj.optString("product_id", ""),
+			skuId = obj.optString("sku_id", ""),
 			activeFlag = obj.optBoolean("active_flag", false),
 			packageType = gameMeta.optString("package_type", ""),
 			name = name,
@@ -151,7 +153,7 @@ object PsCloudOwnership
 		val browseByConcept = buildConceptIdIndex(publicCatalog)
 		val supplementByConcept = buildConceptIdIndex(plusLibrarySupplement)
 		val byKey = linkedMapOf<String, CloudGame>()
-		val byKeyRank = mutableMapOf<String, Int>()
+		val byKeyEnt = mutableMapOf<String, Entitlement>()
 
 		// Enrich one matched catalog row into an owned CloudGame and dedupe it into byKey, keeping OUR
 		// convention (conceptId+PLATFORM dedupe, canonical-entitlement rank). Called once for a direct
@@ -163,27 +165,35 @@ object PsCloudOwnership
 			// psnow == PS3/PS4), not the matched catalog row's: a cross-buy PS4 license can match a PS5
 			// catalog row by shared product_id, but it must still route as PS4/Kamaji.
 			val ownedService = ownedServiceType(ent, meta)
-			val game = meta.copy(
+			// Qt emitOwned: productId = entitlement.product_id (NOT catalog meta.productId).
+			val streamProductId = ent.productId.ifEmpty { meta.productId }
+			val game = CloudGame(
+				productId = streamProductId,
 				name = displayName,
+				imageUrl = meta.imageUrl,
+				landscapeImageUrl = meta.landscapeImageUrl,
+				thumbnailUrl = meta.thumbnailUrl,
+				platform = meta.platform,
 				serviceType = ownedService,
+				conceptUrl = meta.conceptUrl,
+				conceptId = meta.conceptId,
 				isOwned = true,
 				entitlementId = ent.id,
 				storeProductId = ent.productId,
-				featureType = ent.featureType
+				plusCatalog = meta.plusCatalog,
+				featureType = ent.featureType,
+				category = meta.category
 			)
 			val key = ownedDedupeKey(meta, ent)
-			val candidateRank = ownedStreamRank(ent)
-			if (byKey[key] == null)
+			// Keep the best streaming candidate via a DETERMINISTIC total order (ownedEntitlementBetter),
+			// independent of the PSN entitlements response order, so the catalog is stable across
+			// refreshes (cross-buy titles with equal stream rank routinely tie). Mirrors Qt
+			// ps5CloudOwnedEntitlementBetter in cloudcatalogbackend.cpp.
+			val existingEnt = byKeyEnt[key]
+			if (existingEnt == null || ownedEntitlementBetter(ent, existingEnt))
 			{
 				byKey[key] = game
-				byKeyRank[key] = candidateRank
-			}
-			// Keep the best streaming candidate: the canonical full-game entitlement (its product_id is
-			// the real streamable game, not a DLC/bonus product Gaikai rejects).
-			else if (candidateRank > (byKeyRank[key] ?: -1))
-			{
-				byKey[key] = game
-				byKeyRank[key] = candidateRank
+				byKeyEnt[key] = ent
 			}
 		}
 
@@ -303,7 +313,8 @@ object PsCloudOwnership
 			Log.i(TAG, "disc-upgrade rescue: $discName $discPid -> $replacement")
 		}
 
-		return byKey.values.toList()
+		// QMap iteration is sorted by dedupe key; merge depends on :ps4 before :ps5 (cloudcatalogbackend.cpp).
+		return byKey.keys.sorted().mapNotNull { byKey[it] }
 	}
 
 	// Edition identity = conceptId + PLATFORM (matching the catalog's edition key), so a cross-gen
@@ -357,6 +368,31 @@ object PsCloudOwnership
 		if (isFullGameEntitlement(ent)) rank += 2
 		if (ent.id.isNotEmpty()) rank += 1
 		return rank
+	}
+
+	// Is this a "Game Streaming" (GS) package? PSN labels the cloud-streamable SKU *GS (e.g. PS4GS) and
+	// the installable download *GD (PS4GD / PSGD). For a cross-buy title the GS entitlement carries the
+	// clean, streamable product for its platform, while the GD cross-buy SKU can carry a cross-gen
+	// *wrapper* product. So when two same-platform SKUs collapse to one edition, the GS SKU is the right
+	// streaming candidate. Uses the structured package_type field -- no product-id prefix guessing.
+	private fun isStreamingPackage(ent: Entitlement): Boolean = ent.packageType.endsWith("GS")
+
+	// Deterministic total order over owned entitlements that collapse to the same edition (conceptId +
+	// platform). MUST be independent of the PSN entitlements response order so the assembled catalog is
+	// stable across refreshes. Returns true if `cand` should replace `cur` as the edition's
+	// representative. Signals, in priority order, all from structured API fields: (1) higher stream rank
+	// (canonical full-game product); (2) the cloud-streaming (GS) package over a download (GD) SKU;
+	// (3) stable unique sku_id, then product_id, then entitlement id, to guarantee one deterministic
+	// winner. Mirrors Qt ps5CloudOwnedEntitlementBetter (cloudcatalogbackend.cpp).
+	private fun ownedEntitlementBetter(cand: Entitlement, cur: Entitlement): Boolean
+	{
+		val rc = ownedStreamRank(cand); val ru = ownedStreamRank(cur)
+		if (rc != ru) return rc > ru
+		val gc = isStreamingPackage(cand); val gu = isStreamingPackage(cur)
+		if (gc != gu) return gc
+		if (cand.skuId != cur.skuId) return cand.skuId < cur.skuId
+		if (cand.productId != cur.productId) return cand.productId < cur.productId
+		return cand.id < cur.id
 	}
 
 	/** conceptId + platform. Platform comes from the canonical serviceType (pscloud == ps5, psnow ==
@@ -441,12 +477,31 @@ object PsCloudOwnership
 		val games = browseCatalog.toMutableList()
 		val catalogIndex = buildCatalogIndex(games)
 
-		for (owned in ownedCrossRef)
+		// Products the user FULLY owns (feature_type != 1). A trial (ft1) is kept as its own card ONLY
+		// when the full game is NOT owned; when the SAME product is also held as a full license (common
+		// for F2P cross-buy titles: a PS4 trial whose product_id is the PS5 PPSA wrapper, e.g. Trackmania
+		// / Super Animal Royale / Fantasy Beauties) the trial card is redundant AND broken -- it routes
+		// to Kamaji (psnow) while carrying a PS5 product. Suppress those trials. Order-independent
+		// pre-pass. Mirrors Qt mergeOwnedIntoBrowseCatalog (cloudcatalogbackend.cpp).
+		val fullyOwnedProductIds = ownedCrossRef
+			.filter { it.featureType != 1 && it.productId.isNotEmpty() }
+			.map { it.productId }
+			.toHashSet()
+
+		// Process pscloud (PS5) owned claims BEFORE psnow (PS3/PS4). A PS5 (pscloud) claim is
+		// authoritative and stamps the PS5 browse row in place; doing it first means the row is already
+		// owned by the time any PS4 cross-buy license (whose product_id is the SAME PPSA wrapper) is
+		// seen, so the wrapper is dropped cleanly instead of appending a duplicate / orphaning the
+		// browse row as a "ghost". Deterministic, order-independent. Stable partition. (Qt parity.)
+		val ownedOrdered = ownedCrossRef.filter { it.serviceType.lowercase() == "pscloud" } +
+			ownedCrossRef.filter { it.serviceType.lowercase() != "pscloud" }
+
+		for (owned in ownedOrdered)
 		{
-			// Trials / free-to-play (feature_type 1) are kept as their OWN card so the user can Stream
-			// the trial/free build, while the full version still shows separately as a not-owned
-			// "Add Game" card -- so a trial must NOT collapse into the full-game catalog entry.
-			val catalogMatch = if (owned.featureType == 1) -1 else findCatalogIndexForOwned(owned, catalogIndex)
+			val isTrialTier = owned.featureType == 1
+			// A trial whose product is also fully owned is superseded by the full license -- drop it.
+			if (isTrialTier && fullyOwnedProductIds.contains(owned.productId)) continue
+			val catalogMatch = if (isTrialTier) -1 else findCatalogIndexForOwned(owned, catalogIndex)
 			if (catalogMatch >= 0)
 			{
 				val existing = games[catalogMatch]
@@ -479,8 +534,12 @@ object PsCloudOwnership
 					)
 					continue
 				}
-				// psnow entitlement whose matched card is PS5-class: not this card's edition -- fall
-				// through to addUnmatched; streamability gate drops non-viable wrappers (Qt path).
+				// psnow entitlement whose matched card is PS5-class: this is a PS4 CROSS-BUY license
+				// whose product_id is the shared PS5 (PPSA) wrapper. DROP it (Qt parity): the PS5 card
+				// is claimed by the PS5 (pscloud) license processed first, the real PS4 variant matches
+				// its own CUSA row independently, and appending here would create a bogus duplicate /
+				// ghost that can't stream (a PS5 cloud product needs a PS5 entitlement).
+				if (ownedService == "psnow") continue
 			}
 
 			if (!addUnmatched) continue
@@ -586,7 +645,8 @@ object PsCloudOwnership
 	{
 		if (owned.productId.isNotEmpty() && catalogIndex.byProductId.containsKey(owned.productId))
 			return catalogIndex.byProductId.getValue(owned.productId)
-		if (owned.entitlementId.isNotEmpty() && catalogIndex.byProductId.containsKey(owned.entitlementId))
+		if (owned.entitlementId.isNotEmpty() && owned.entitlementId != owned.productId
+			&& catalogIndex.byProductId.containsKey(owned.entitlementId))
 			return catalogIndex.byProductId.getValue(owned.entitlementId)
 		if (owned.storeProductId.isNotEmpty() && catalogIndex.byProductId.containsKey(owned.storeProductId))
 			return catalogIndex.byProductId.getValue(owned.storeProductId)

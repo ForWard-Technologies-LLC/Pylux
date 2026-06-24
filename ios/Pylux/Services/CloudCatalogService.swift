@@ -21,7 +21,7 @@ final class CloudCatalogService {
     private static let ps5PublicCacheFile = "ps5_cloud_catalog_v4.json" // v4: adds plusCatalog tag + broader supplement
     private static let pscloudAllCacheFile = "pscloud_catalog_v2.json"
     private static let pscloudOwnedCacheFile = "pscloud_owned_v4.json" // v4: serviceType from platform_id
-    private static let unifiedCacheFile = "unified_catalog_v4.json" // v4: Qt-aligned merge (existingClass guard + explicit pscloud/psnow serviceType stamp)
+    private static let unifiedCacheFile = "unified_catalog_v5.json" // v5: Qt emitOwned productId + QMap-sorted cross-ref merge order
 
     private static let ownershipSessionWarning =
         "Your PlayStation session has expired. Please log in again to see your owned games."

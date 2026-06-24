@@ -47,6 +47,11 @@ Rectangle {
     
     function isPsnowGame() {
         if (!gameData) return false;
+        // Canonical serviceType is authoritative. A pscloud row streams via Gaikai (PS5/cronos)
+        // and is NEVER PS Now, even for PS1-classic CUSA store wrappers (e.g. Worms World Party,
+        // whose owned row is serviceType=pscloud but carries a ...CUSA... productId). The CUSA/PPSA
+        // token heuristic below is only a fallback for rows that have no serviceType.
+        if (gameData.serviceType === "pscloud") return false;
         if (gameData.serviceType === "psnow" || gameData.category === "streamable")
             return true;
         let p = String(streamProductId());
