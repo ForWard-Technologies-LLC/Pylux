@@ -103,7 +103,7 @@ final class CloudCatalogService {
             "isOwned": g.isOwned,
             "entitlementId": g.entitlementId, "storeProductId": g.storeProductId,
             "plusCatalog": g.plusCatalog, "featureType": g.featureType,
-            "category": g.category
+            "category": g.category, "isPs5Platform": g.isPs5Platform
         ]
     }
 
@@ -123,7 +123,10 @@ final class CloudCatalogService {
             storeProductId: d["storeProductId"] as? String ?? "",
             plusCatalog: d["plusCatalog"] as? Bool ?? false,
             featureType: (d["featureType"] as? NSNumber)?.intValue ?? 0,
-            category: d["category"] as? String ?? ""
+            category: d["category"] as? String ?? "",
+            isPs5Platform: (d["isPs5Platform"] as? Bool)
+                // Back-compat for caches written before this field existed: fall back to the token.
+                ?? (pid.contains("PPSA"))
         )
     }
 
@@ -423,8 +426,21 @@ final class CloudCatalogService {
             platform: { let p = ps5PlatformToken(productId); return p.isEmpty ? "ps5" : p }(), serviceType: "pscloud",
             conceptUrl: conceptUrl, conceptId: conceptKey(for: gameObj),
             isOwned: false,
-            plusCatalog: gameObj["plusCatalog"] as? Bool ?? false
+            plusCatalog: gameObj["plusCatalog"] as? Bool ?? false,
+            // Authoritative PS5-platform membership from the imagic `device` array (NOT the CUSA/PPSA
+            // token). A cross-gen title with a PS4 CUSA SKU but "PS5" in `device` is a PS5 browse row
+            // and must enter the streamable universe (mirrors Qt isPs5PlatformGame).
+            isPs5Platform: isPs5PlatformGame(gameObj)
         )
+    }
+
+    // PS5-platform membership for an imagic browse object: a PPSA product id OR "PS5" in the
+    // authoritative `device` array. Mirrors Qt isPs5PlatformGame() (cloudcatalogbackend.cpp).
+    private func isPs5PlatformGame(_ gameObj: [String: Any]) -> Bool {
+        let pid = (gameObj["productId"] as? String) ?? ""
+        if pid.contains("PPSA") { return true }
+        if let devices = gameObj["device"] as? [String], devices.contains("PS5") { return true }
+        return false
     }
 
     // MARK: - PS5 Cloud Library: All Games (matches Android fetchPs5CloudCatalog with ownership)
@@ -640,8 +656,10 @@ final class CloudCatalogService {
             apolloGames = native.games
             nativeMode = true
         } else if native.authError {
+            // Expired session: surface the re-login prompt. Do NOT fall back to the public
+            // APOLLOROOT walk -- that path is only for region-unsupported accounts (auth OK,
+            // /user/stores 404). Falling back here would mask the expired token.
             lastCatalogFetchWarning = Self.ownershipSessionWarning
-            apolloGames = tryApolloRootFallback(accountCountry: accountCountry)
         } else {
             apolloGames = tryApolloRootFallback(accountCountry: accountCountry)
             if !apolloGames.isEmpty {
@@ -688,7 +706,17 @@ final class CloudCatalogService {
         }
 
         // --- 4) assemble the streamable universe (PS Now PS3/PS4 + imagic PS5) -------------
-        let ps5Browse = imagic.browseGames.filter { $0.streamPlatform == "ps5" }
+        // Browse rows enter the universe when PS5-platform by the authoritative `device` array
+        // (isPs5Platform), NOT the CUSA/PPSA productId token -- the token drops cross-gen titles
+        // that carry a PS4 CUSA SKU but list "PS5" in `device` (e.g. the indie bundles). Skip rows
+        // already in the Apollo (PS Now) catalog: the apollo row already represents them, so adding
+        // the imagic browse copy would emit a duplicate streamable row (Crow Country / Grandia /
+        // HUMANITY appear in BOTH the APOLLOROOT walk and the imagic PS5 list). Mirrors Qt
+        // assembleUnifiedCatalog (cloudcatalogbackend.cpp).
+        let apolloProductIds = Set(apolloGames.map { $0.id })
+        let ps5Browse = imagic.browseGames.filter {
+            $0.isPs5Platform && !apolloProductIds.contains($0.id)
+        }
         let universe = apolloGames + ps5Browse
         var games = PsCloudOwnership.mergeOwnedIntoBrowseCatalog(
             browseCatalog: universe, ownedCrossRef: owned, addUnmatched: true
@@ -710,7 +738,7 @@ final class CloudCatalogService {
             tagged.category = PsCloudOwnership.categoryFor(game)
             return tagged
         }
-        if !games.isEmpty && !isOwnershipVerificationFailure(lastCatalogFetchWarning) {
+        if !games.isEmpty && !native.authError && !isOwnershipVerificationFailure(lastCatalogFetchWarning) {
             cacheGames(games, filename: Self.unifiedCacheFile)
         }
         if let warning = imagic.catalogFetchWarning, lastCatalogFetchWarning == nil {
@@ -723,7 +751,10 @@ final class CloudCatalogService {
         if !forceRefresh, let cached = loadCachedPs5CatalogV3(expectedLocale: stored) {
             return cached
         }
-        lastCatalogFetchWarning = nil
+        // NOTE: do not reset lastCatalogFetchWarning here. The unified fetch already cleared it
+        // at the top, and an ownership/session warning set earlier (e.g. expired-token) must
+        // survive this call so the re-login prompt reaches the UI. The imagic warning is still
+        // surfaced by the caller via imagic.catalogFetchWarning when no higher-priority warning.
         for tier in CloudLocaleSettings.fallbackChain() {
             guard let fetched = fetchPs5CloudCatalogFromNetwork(locale: tier.imagic) else { continue }
             if tier.canonical != stored {

@@ -598,8 +598,22 @@ enum PsCloudOwnership {
 
     static func categoryFor(_ game: CloudGame) -> String {
         if game.isOwned { return CATEGORY_OWNED }
-        if game.streamServiceType == "psnow" { return CATEGORY_STREAMABLE }
-        return CATEGORY_PURCHASEABLE
+        // Category is a CATALOG classification and mirrors Qt categoryForGame + streamServiceTypeForGame
+        // EXACTLY: the canonical serviceType wins (BOTH "psnow" and "pscloud" short-circuit); only a row
+        // with no serviceType derives from the CUSA/PPSA token. This is deliberately independent of
+        // `streamServiceType`, whose isOwned gate re-routes non-owned pscloud rows to Kamaji for STREAMING
+        // only -- using it here mis-tags non-owned pscloud PS4 titles (e.g. cross-gen indie bundles) as
+        // "streamable" instead of "purchaseable".
+        let st = game.serviceType.lowercased()
+        let svc: String
+        if st == "psnow" || st == "pscloud" {
+            svc = st
+        } else {
+            let p = !game.storeProductId.isEmpty ? game.storeProductId
+                : (!game.id.isEmpty ? game.id : game.entitlementId)
+            svc = p.contains("CUSA") ? "psnow" : "pscloud"
+        }
+        return svc == "psnow" ? CATEGORY_STREAMABLE : CATEGORY_PURCHASEABLE
     }
 
     /// Concept-sibling streamability gate index, built from the ACTUAL streamable catalog.

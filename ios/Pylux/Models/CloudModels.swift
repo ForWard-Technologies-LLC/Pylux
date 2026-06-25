@@ -26,12 +26,17 @@ struct CloudGame: Identifiable, Hashable {
     //   "streamable"   -> not owned, PS Now subscription title (Stream)
     //   "purchaseable" -> not owned, PS Plus catalog title (Add to Library, then Stream)
     var category: String
+    // PS5-platform membership from the imagic catalog's authoritative `device` array (contains
+    // "PS5") OR a PPSA product id. Mirrors Qt's isPs5PlatformGame() and is used to decide which
+    // browse rows enter the streamable universe -- NOT the CUSA/PPSA productId token, which
+    // mis-classifies cross-gen titles (a PS4 CUSA SKU that also lists "PS5" in `device`).
+    var isPs5Platform: Bool
 
     init(productId: String, name: String, imageUrl: String, landscapeImageUrl: String = "",
          platform: String = "ps4", serviceType: String = "psnow",
          conceptUrl: String = "", conceptId: String = "", isOwned: Bool = false,
          entitlementId: String = "", storeProductId: String = "", plusCatalog: Bool = false,
-         featureType: Int = 0, category: String = "") {
+         featureType: Int = 0, category: String = "", isPs5Platform: Bool = false) {
         self.id = productId
         self.name = name
         self.imageUrl = imageUrl
@@ -46,6 +51,7 @@ struct CloudGame: Identifiable, Hashable {
         self.plusCatalog = plusCatalog
         self.featureType = featureType
         self.category = category
+        self.isPs5Platform = isPs5Platform
     }
 
     /// Mirrors CloudGameCard.qml getStreamingIdentifier() for PSCloud. PS5/cronos streams the owned

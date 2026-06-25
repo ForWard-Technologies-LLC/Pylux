@@ -676,8 +676,22 @@ object PsCloudOwnership
 	fun categoryFor(game: CloudGame): String = when
 	{
 		game.isOwned -> CATEGORY_OWNED
-		streamServiceType(game) == "psnow" -> CATEGORY_STREAMABLE
+		catalogServiceType(game) == "psnow" -> CATEGORY_STREAMABLE
 		else -> CATEGORY_PURCHASEABLE
+	}
+
+	// Category is a CATALOG classification, mirroring Qt categoryForGame + streamServiceTypeForGame
+	// EXACTLY: the canonical serviceType wins (BOTH "psnow" and "pscloud" short-circuit); only a row
+	// with no serviceType derives from the CUSA/PPSA token. Deliberately independent of
+	// streamServiceType, whose isOwned gate re-routes non-owned pscloud rows to Kamaji for STREAMING
+	// only -- using it here mis-tags non-owned pscloud PS4 titles (e.g. cross-gen indie bundles) as
+	// "streamable" instead of "purchaseable".
+	private fun catalogServiceType(game: CloudGame): String
+	{
+		val st = game.serviceType.lowercase()
+		if (st == "psnow" || st == "pscloud") return st
+		val p = game.storeProductId.ifEmpty { game.productId.ifEmpty { game.entitlementId } }
+		return if (p.contains("CUSA")) "psnow" else "pscloud"
 	}
 
 	/**

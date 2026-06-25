@@ -300,8 +300,24 @@ class PsCloudCatalogService
 			conceptUrl = conceptUrl,
 			conceptId = conceptKey(gameObj),
 			isOwned = false,
-			plusCatalog = gameObj.optBoolean("plusCatalog", false)
+			plusCatalog = gameObj.optBoolean("plusCatalog", false),
+			// Authoritative PS5-platform membership from the imagic `device` array (NOT the CUSA/PPSA
+			// token). A cross-gen title with a PS4 CUSA SKU but "PS5" in `device` is a PS5 browse row
+			// and must enter the streamable universe (mirrors Qt isPs5PlatformGame).
+			isPs5Platform = isPs5PlatformGame(gameObj)
 		)
+	}
+
+	// PS5-platform membership for an imagic browse object: a PPSA product id OR "PS5" in the
+	// authoritative `device` array. Mirrors Qt isPs5PlatformGame() (cloudcatalogbackend.cpp).
+	private fun isPs5PlatformGame(gameObj: JSONObject): Boolean
+	{
+		val pid = gameObj.optString("productId", "")
+		if (pid.contains("PPSA")) return true
+		val devices = gameObj.optJSONArray("device") ?: return false
+		for (i in 0 until devices.length())
+			if (devices.optString(i) == "PS5") return true
+		return false
 	}
 	
 	/**

@@ -113,9 +113,11 @@ class CloudGameRepository(
 				}
 				native.authError ->
 				{
-					// Expired token: can't verify owned games. Still show a public catalog.
+					// Expired session: surface the re-login prompt. Do NOT fall back to the public
+					// APOLLOROOT walk -- that path is only for region-unsupported accounts (auth OK,
+					// /user/stores 404). Falling back here would mask the expired token. apolloGames
+					// stays empty; the user still sees the PS5 catalog plus the warning.
 					lastCatalogFetchWarning = OWNERSHIP_SESSION_WARNING
-					apolloGames = tryApolloRootFallback(accountCountry)
 				}
 				else ->
 				{
@@ -160,7 +162,17 @@ class CloudGameRepository(
 			}
 
 			// --- 4) assemble the streamable universe (PS Now PS3/PS4 + imagic PS5) -------------
-			val ps5Browse = imagic.browseGames.filter { PsCloudOwnership.streamPlatform(it) == "ps5" }
+			// Browse rows enter the universe when PS5-platform by the authoritative `device` array
+			// (isPs5Platform), NOT the CUSA/PPSA productId token -- the token drops cross-gen titles
+			// that carry a PS4 CUSA SKU but list "PS5" in `device` (e.g. the indie bundles). Skip rows
+			// already in the Apollo (PS Now) catalog: the apollo row already represents them, so adding
+			// the imagic browse copy would emit a duplicate streamable row (Crow Country / Grandia /
+			// HUMANITY appear in BOTH the APOLLOROOT walk and the imagic PS5 list). Mirrors Qt
+			// assembleUnifiedCatalog (cloudcatalogbackend.cpp).
+			val apolloProductIds = apolloGames.map { it.productId }.toSet()
+			val ps5Browse = imagic.browseGames.filter {
+				it.isPs5Platform && !apolloProductIds.contains(it.productId)
+			}
 			val universe = apolloGames + ps5Browse
 			var games = PsCloudOwnership.mergeOwnedIntoBrowseCatalog(universe, owned, addUnmatched = true)
 
@@ -177,7 +189,7 @@ class CloudGameRepository(
 
 			// --- 6) tag + cache ----------------------------------------------------------------
 			games = games.map { it.copy(category = PsCloudOwnership.categoryFor(it)) }
-			if (games.isNotEmpty() && !isOwnershipVerificationFailure(lastCatalogFetchWarning))
+			if (games.isNotEmpty() && !native.authError && !isOwnershipVerificationFailure(lastCatalogFetchWarning))
 				cacheGames(games, UNIFIED_CACHE_FILE)
 			PsnResult.Success(games)
 		}
@@ -205,7 +217,9 @@ class CloudGameRepository(
 		if (!forceRefresh)
 			loadCachedPs5CatalogV3(stored)?.let { return it }
 
-		lastCatalogFetchWarning = null
+		// NOTE: do not reset lastCatalogFetchWarning here. An ownership/session warning set by the
+		// unified fetch (e.g. expired-token) must survive this call so the re-login prompt reaches
+		// the UI. The imagic warning is only applied below when no higher-priority warning is set.
 		var lastError: Exception? = null
 		for ((canonical, imagic) in com.metallic.chiaki.cloudplay.CloudLocale.fallbackChain(stored))
 		{
@@ -219,7 +233,9 @@ class CloudGameRepository(
 				}
 				if (fetched.shouldCacheV3)
 					cachePs5CatalogV3(fetched, canonical)
-				lastCatalogFetchWarning = fetched.catalogFetchWarning
+				// Don't overwrite a higher-priority ownership/session warning set by the unified fetch.
+				if (lastCatalogFetchWarning == null)
+					lastCatalogFetchWarning = fetched.catalogFetchWarning
 				return fetched
 			}
 			catch (e: Exception)
@@ -280,9 +296,10 @@ class CloudGameRepository(
 				val obj = jsonArray.getJSONObject(i)
 				// Handle landscapeImageUrl (may be missing in old cache)
 				val landscapeImageUrl = obj.optString("landscapeImageUrl", obj.getString("imageUrl"))
+				val productId = obj.getString("productId")
 				
 				games.add(CloudGame(
-					productId = obj.getString("productId"),
+					productId = productId,
 					name = obj.getString("name"),
 					imageUrl = obj.getString("imageUrl"),
 					landscapeImageUrl = landscapeImageUrl,
@@ -296,7 +313,9 @@ class CloudGameRepository(
 					storeProductId = obj.optString("storeProductId", ""),
 					plusCatalog = obj.optBoolean("plusCatalog", false),
 					featureType = obj.optInt("featureType", 0),
-					category = obj.optString("category", "")
+					category = obj.optString("category", ""),
+					// Back-compat for caches written before this field existed: fall back to the token.
+					isPs5Platform = obj.optBoolean("isPs5Platform", productId.contains("PPSA"))
 				))
 			}
 			
@@ -337,6 +356,7 @@ class CloudGameRepository(
 				obj.put("plusCatalog", game.plusCatalog)
 				obj.put("featureType", game.featureType)
 				obj.put("category", game.category)
+				obj.put("isPs5Platform", game.isPs5Platform)
 				jsonArray.put(obj)
 			}
 			
@@ -440,9 +460,10 @@ class CloudGameRepository(
 		{
 			val obj = jsonArray.getJSONObject(i)
 			val landscapeImageUrl = obj.optString("landscapeImageUrl", obj.getString("imageUrl"))
+			val productId = obj.getString("productId")
 			games.add(
 				CloudGame(
-					productId = obj.getString("productId"),
+					productId = productId,
 					name = obj.getString("name"),
 					imageUrl = obj.getString("imageUrl"),
 					landscapeImageUrl = landscapeImageUrl,
@@ -459,7 +480,9 @@ class CloudGameRepository(
 					entitlementId = obj.optString("entitlementId", ""),
 					storeProductId = obj.optString("storeProductId", ""),
 					plusCatalog = obj.optBoolean("plusCatalog", false),
-					featureType = obj.optInt("featureType", 0)
+					featureType = obj.optInt("featureType", 0),
+					// Back-compat for caches written before this field existed: fall back to the token.
+					isPs5Platform = obj.optBoolean("isPs5Platform", productId.contains("PPSA"))
 				)
 			)
 		}
@@ -485,6 +508,7 @@ class CloudGameRepository(
 			obj.put("storeProductId", game.storeProductId)
 			obj.put("plusCatalog", game.plusCatalog)
 			obj.put("featureType", game.featureType)
+			obj.put("isPs5Platform", game.isPs5Platform)
 			jsonArray.put(obj)
 		}
 		return jsonArray

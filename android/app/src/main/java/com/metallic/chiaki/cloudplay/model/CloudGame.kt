@@ -24,7 +24,12 @@ data class CloudGame(
 	//   "owned"        -> entitlement resolves to a streamable row (Stream)
 	//   "streamable"   -> not owned, PS Now subscription title (Stream)
 	//   "purchaseable" -> not owned, PS Plus catalog title (Add to Library, then Stream)
-	val category: String = ""
+	val category: String = "",
+	// PS5-platform membership from the imagic catalog's authoritative `device` array (contains
+	// "PS5") OR a PPSA product id. Mirrors Qt's isPs5PlatformGame() and is used to decide which
+	// browse rows enter the streamable universe -- NOT the CUSA/PPSA productId token, which
+	// mis-classifies cross-gen titles (a PS4 CUSA SKU that also lists "PS5" in `device`).
+	val isPs5Platform: Boolean = false
 )
 
 /**

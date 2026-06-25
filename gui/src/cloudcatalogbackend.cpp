@@ -981,12 +981,23 @@ void CloudCatalogBackend::unifiedNativeProbeFailed(bool authError)
     psnowState.unifiedMode = false;
     unifiedState.authError = authError;
 
-    if (authError)
+    if (authError) {
+        // Expired session: surface the re-login prompt. Do NOT walk the public APOLLOROOT
+        // fallback -- that path is only for region-unsupported accounts (auth OK, /user/stores
+        // 404). Falling back here would mask the expired token. Continue straight to the PS5
+        // catalog with empty apolloGames; continueUnifiedAfterApollo() skips the empty-catalog
+        // failure because authError is set, so the user still sees PS5 titles plus the warning.
         unifiedState.warning = QStringLiteral(
-            "Your PSN session may have expired. Owned-game status could not be verified.");
+            "Your PlayStation session has expired. Please log in again to see your owned games.");
+        unifiedState.apolloGames = QJsonArray();
+        qInfo() << "[UNIFIED] Native APOLLOROOT probe failed (auth error); skipping public "
+                   "fallback, prompting re-login";
+        continueUnifiedAfterApollo();
+        return;
+    }
 
-    qInfo() << "[UNIFIED] Native APOLLOROOT probe failed (authError=" << authError
-            << "), trying region-group fallback";
+    qInfo() << "[UNIFIED] Native APOLLOROOT probe failed (region unsupported), trying "
+               "region-group fallback";
     startUnifiedApolloFallback();
 }
 
@@ -2131,11 +2142,18 @@ void CloudCatalogBackend::assembleUnifiedCatalog(const QJsonArray &ownedCrossRef
         if (!v.isObject() || !isPs5PlatformGame(v.toObject()))
             continue;
         QJsonObject g = v.toObject();
+        // If this product is already in the Apollo (PS Now) catalog, that native row already
+        // represents it as a psnow/streamable title. Appending the imagic browse copy here emits a
+        // SECOND identical streamable row -- this happens for cross-gen titles that appear in BOTH
+        // the APOLLOROOT walk and the imagic PS5 list (e.g. Crow Country, Grandia, HUMANITY). Skip
+        // it: the Apollo row is authoritative for psnow titles. Non-Apollo PS5 titles (including
+        // cross-gen browse-only games like the indie bundles) still pass through below.
+        if (apolloProductIds.contains(gameProductId(g)))
+            continue;
         const QString existing = g.value(QStringLiteral("serviceType")).toString().toLower();
         if (existing != QLatin1String("psnow") && existing != QLatin1String("pscloud")) {
-            const bool inApollo = apolloProductIds.contains(gameProductId(g));
-            g.insert(QStringLiteral("serviceType"),
-                     inApollo ? QStringLiteral("psnow") : QStringLiteral("pscloud"));
+            // Not in Apollo (guaranteed by the skip above) -> imagic PS5 rows stream via cronos.
+            g.insert(QStringLiteral("serviceType"), QStringLiteral("pscloud"));
         }
         ps5Browse.append(g);
     }
