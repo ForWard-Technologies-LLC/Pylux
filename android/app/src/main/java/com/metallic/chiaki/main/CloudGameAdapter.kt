@@ -122,28 +122,18 @@ class CloudGameAdapter(
 				card.strokeColor = android.graphics.Color.TRANSPARENT
 				card.strokeWidth = 0
 			}
-			// Derive the badge from the title id (PPSA = PS5, CUSA = PS4) like the Qt client does,
-			// since the catalog parser tags everything "ps5"; fall back to the platform field.
-			binding.gamePlatformTextView.text = run {
-				val pid = game.productId.ifEmpty { game.storeProductId }
-				when {
-					pid.contains("PPSA") -> "5"
-					pid.contains("CUSA") -> "4"
-					else -> when (game.platform.lowercase()) {
-						"ps3" -> "3"
-						"ps4" -> "4"
-						"ps5" -> "5"
-						else -> game.platform.takeLast(1)
-					}
-				}
+			// Platform badge: the lib derives the authoritative platform from the catalog's device[]
+			// array (NOT the CUSA/PPSA productId token), so just render it.
+			binding.gamePlatformTextView.text = when (game.platform.lowercase()) {
+				"ps3" -> "3"
+				"ps4" -> "4"
+				"ps5" -> "5"
+				else -> game.platform.takeLast(1)
 			}
 
 			// Acquisition-tag badge (unified page): Owned (green) / Streamable (blue) /
-			// Purchaseable (orange). Fall back through the canonical tagger (streamServiceType-based),
-			// not raw serviceType, so a non-owned PS4 cloud-browse row isn't mislabeled "Add Game".
-			val category = game.category.ifEmpty {
-				com.metallic.chiaki.cloudplay.api.PsCloudOwnership.categoryFor(game)
-			}
+			// Purchaseable (orange). The lib precomputes the category; render it verbatim.
+			val category = game.category
 			if (showOwnershipBadge) {
 				binding.ownershipBadge.visibility = android.view.View.VISIBLE
 				when (category) {

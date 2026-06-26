@@ -1380,9 +1380,13 @@ catch (e: Exception)
 	spec.put("entitlementId", entitlementId)
 	spec.put("npEnv", "np")
 	
-	// Read language from unified settings (Qt lines 153, 161)
-	// Use unified language setting for both PSCloud and PSNOW
-	val language = preferences.getCloudLanguage()
+	// Prefer the user's manual streaming-language pick; fall back to the
+	// auto-detected catalog locale when the picker is left on default. The manual
+	// pick lives in its own setting so the catalog locale can never clobber it.
+	// Gaikai expects the bare language code ("de"), not the stored locale
+	// ("de-DE"); the lib helper is the single source of truth across platforms.
+	val chosenLocale = preferences.getStreamLanguage().ifEmpty { preferences.getCloudLanguage() }
+	val language = com.metallic.chiaki.lib.cloudGaikaiLanguage(chosenLocale)
 	spec.put("language", language)
 	
 	spec.put("cloudEndpoint", "https://cc.prod.gaikai.com")

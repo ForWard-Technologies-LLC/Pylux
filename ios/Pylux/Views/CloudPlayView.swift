@@ -11,9 +11,9 @@ private let cloudUILog = OSLog(subsystem: "com.pylux.stream", category: "CloudPl
 @MainActor
 final class CloudPlayViewModel: ObservableObject {
     static let tagFilterCategories = [
-        PsCloudOwnership.CATEGORY_OWNED,
-        PsCloudOwnership.CATEGORY_STREAMABLE,
-        PsCloudOwnership.CATEGORY_PURCHASEABLE
+        CloudCategory.owned,
+        CloudCategory.streamable,
+        CloudCategory.purchaseable
     ]
     static let tagFilterLabels = ["Owned", "Streamable", "Store"]
 
@@ -75,10 +75,7 @@ final class CloudPlayViewModel: ObservableObject {
         var result = games
 
         if !activeTagFilters.isEmpty {
-            result = result.filter {
-                let category = $0.category.isEmpty ? PsCloudOwnership.categoryFor($0) : $0.category
-                return activeTagFilters.contains(category)
-            }
+            result = result.filter { activeTagFilters.contains($0.category) }
         }
 
         if showFavoritesOnly {
@@ -95,10 +92,8 @@ final class CloudPlayViewModel: ObservableObject {
         switch sortOrder {
         case .defaultOrder:
             result.sort {
-                let c0 = $0.category.isEmpty ? PsCloudOwnership.categoryFor($0) : $0.category
-                let c1 = $1.category.isEmpty ? PsCloudOwnership.categoryFor($1) : $1.category
-                let p0 = c0 != PsCloudOwnership.CATEGORY_PURCHASEABLE
-                let p1 = c1 != PsCloudOwnership.CATEGORY_PURCHASEABLE
+                let p0 = $0.category != CloudCategory.purchaseable
+                let p1 = $1.category != CloudCategory.purchaseable
                 if p0 != p1 { return p0 && !p1 }
                 return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
             }
@@ -166,8 +161,6 @@ final class CloudPlayViewModel: ObservableObject {
         }
         if let catalogWarning = catalogService.lastCatalogFetchWarning {
             warning = catalogWarning
-        } else if let libraryWarning = catalogService.lastLibraryFetchWarning {
-            warning = libraryWarning
         } else if !CloudLocaleSettings.isConfigured {
             warning = CloudLocaleSettings.unconfiguredWarning()
         }
@@ -206,8 +199,8 @@ final class CloudPlayViewModel: ObservableObject {
 
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let self = self else { return }
-            // Route by the title-id platform: PS4 catalog titles go through Kamaji (psnow) to
-            // acquire the streaming entitlement; PS5 streams directly (pscloud).
+            // Stream routing is precomputed by libchiaki: streamServiceType picks the endpoint
+            // (psnow/Kamaji vs pscloud/cronos) and streamIdentifier is the exact id to launch.
             let gameIdentifier = game.streamIdentifier
             let gameName = game.name
             let serviceType = game.streamServiceType
@@ -536,8 +529,7 @@ struct CloudPlayView: View {
     }
 
     private func handleGameTap(_ game: CloudGame) {
-        let category = game.category.isEmpty ? PsCloudOwnership.categoryFor(game) : game.category
-        if category == PsCloudOwnership.CATEGORY_PURCHASEABLE {
+        if game.category == CloudCategory.purchaseable {
             let url = game.conceptUrl.trimmingCharacters(in: .whitespacesAndNewlines)
             if url.isEmpty {
                 showMissingConceptAlert = true
@@ -834,13 +826,7 @@ struct CloudGameCardView: View {
 
     @State private var starTapped = false  // debounce visual
 
-    private var displayCategory: String {
-        if !game.category.isEmpty { return game.category }
-        // Fall back through the canonical tagger (streamServiceType-based), not raw serviceType:
-        // a non-owned PS4 cloud-browse row is serviceType="pscloud" but streams via PS Now, so it is
-        // "streamable", not "purchaseable".
-        return PsCloudOwnership.categoryFor(game)
-    }
+    private var displayCategory: String { game.category }
 
     var body: some View {
         GeometryReader { geo in
@@ -900,9 +886,9 @@ struct CloudGameCardView: View {
     private var categoryBadge: some View {
         let (label, color): (String, Color) = {
             switch displayCategory {
-            case PsCloudOwnership.CATEGORY_OWNED:
+            case CloudCategory.owned:
                 return ("Owned", Color(red: 0.30, green: 0.69, blue: 0.31))       // #4CAF50
-            case PsCloudOwnership.CATEGORY_STREAMABLE:
+            case CloudCategory.streamable:
                 return ("Streamable", Color(red: 0.13, green: 0.59, blue: 0.95))    // #2196F3
             default:
                 return ("Add Game", Color(red: 1.0, green: 0.60, blue: 0.0))        // #FF9800

@@ -18,6 +18,7 @@ class QmlSettings : public QObject
     // PSCloud settings
     Q_PROPERTY(int cloudResolutionPSCloud READ cloudResolutionPSCloud WRITE setCloudResolutionPSCloud NOTIFY cloudResolutionPSCloudChanged)
     Q_PROPERTY(QString cloudLanguagePSCloud READ cloudLanguagePSCloud WRITE setCloudLanguagePSCloud NOTIFY cloudLanguagePSCloudChanged)
+    Q_PROPERTY(QString cloudStreamLanguage READ cloudStreamLanguage WRITE setCloudStreamLanguage NOTIFY cloudStreamLanguageChanged)
     Q_PROPERTY(QString cloudDatacenterPSCloud READ cloudDatacenterPSCloud WRITE setCloudDatacenterPSCloud NOTIFY cloudDatacenterPSCloudChanged)
     Q_PROPERTY(QString cloudDatacentersJsonPSCloud READ cloudDatacentersJsonPSCloud NOTIFY cloudDatacentersJsonPSCloudChanged)
     Q_PROPERTY(int cloudBitratePSCloud READ cloudBitratePSCloud WRITE setCloudBitratePSCloud NOTIFY cloudBitratePSCloudChanged)
@@ -230,6 +231,8 @@ public:
     void setCloudResolutionPSCloud(int resolution);
     QString cloudLanguagePSCloud() const;
     void setCloudLanguagePSCloud(const QString &language);
+    QString cloudStreamLanguage() const;
+    void setCloudStreamLanguage(const QString &language);
     QString cloudDatacenterPSCloud() const;
     void setCloudDatacenterPSCloud(const QString &datacenter);
     QString cloudDatacentersJsonPSCloud() const;
@@ -655,6 +658,11 @@ public:
     Q_INVOKABLE QString stringForStreamMenuShortcut() const;
     Q_INVOKABLE QString getLicenseText() const;
 
+    // Cloud streaming language picker, backed by the shared libchiaki table
+    // (chiaki/cloudcatalog.h). Game language is tied to the datacenter region.
+    Q_INVOKABLE QStringList cloudSupportedLanguages() const;
+    Q_INVOKABLE bool cloudDatacenterServesLanguage(const QString &datacenterName, const QString &locale) const;
+
 signals:
     void resolutionLocalPS4Changed();
     void resolutionRemotePS4Changed();
@@ -662,6 +670,7 @@ signals:
     void resolutionRemotePS5Changed();
     void cloudResolutionPSCloudChanged();
     void cloudLanguagePSCloudChanged();
+    void cloudStreamLanguageChanged();
     void cloudDatacenterPSCloudChanged();
     void cloudDatacentersJsonPSCloudChanged();
     void cloudBitratePSCloudChanged();

@@ -4,22 +4,22 @@ package com.metallic.chiaki.cloudplay.repository
 
 import android.content.Context
 import android.util.Log
-import com.metallic.chiaki.cloudplay.CloudLocaleBootstrap
-import com.metallic.chiaki.cloudplay.api.Ps5CloudCatalogResult
-import com.metallic.chiaki.cloudplay.api.PsCloudOwnership
-import com.metallic.chiaki.cloudplay.api.PsnCatalogService
-import com.metallic.chiaki.cloudplay.api.PsCloudCatalogService
 import com.metallic.chiaki.cloudplay.model.CloudGame
 import com.metallic.chiaki.cloudplay.model.PsnResult
+import com.metallic.chiaki.lib.cloudCatalogFetchUnified
+import com.metallic.chiaki.lib.cloudCatalogInvalidateCache
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
 /**
- * Repository for cloud game catalog data
- * Handles caching and data fetching
+ * Thin wrapper over libchiaki's unified cloud catalog (chiaki/cloudcatalog.h). ALL fetching,
+ * OAuth/session exchanges, dedup, ownership cross-reference and tagging happen once in the lib
+ * (shared with Qt and iOS). Android supplies npsso/locale/cache dir and renders the returned
+ * contract verbatim — no client-side catalog logic.
  */
 class CloudGameRepository(
 	private val context: Context,
@@ -29,17 +29,32 @@ class CloudGameRepository(
 	companion object
 	{
 		private const val TAG = "CloudGameRepository"
-		private const val CACHE_DIR = "cloud_catalog_cache_v2" // v2: catalog games carry plusCatalog tag
+		// Dir handed to the lib; the lib owns every file inside it (browse/library/unified caches).
+		private const val CACHE_DIR = "cloud_catalog_cache"
 
+		// The lib's catalog calls are documented single-threaded and it owns the cache dir; serialize
+		// every fetch/clear across all repository instances so a cache invalidation can't race a
+		// concurrent fetch on the same files. Shared (companion) because logout creates its own
+		// repository instance to clear the cache.
+		private val catalogLock = Mutex()
+
+		private fun cacheDir(context: Context): File =
+			File(context.cacheDir, CACHE_DIR).apply { if (!exists()) mkdirs() }
+
+		/**
+		 * Drop the lib-owned caches (e.g. on locale change). Synchronous on purpose: callers (e.g.
+		 * [com.metallic.chiaki.common.Preferences.setCloudLanguage]) need the cache gone before the
+		 * next fetch so it can't serve stale-locale data. It deliberately does NOT take [catalogLock]
+		 * — that lock is held across a full fetch (including network), so a blocking acquire here
+		 * could ANR. A delete racing an in-flight fetch is safe: the lib writes caches atomically
+		 * (temp file + rename) and reads whole files (open fds survive unlink on POSIX), so the worst
+		 * case is a benign cache miss, never a torn read or corruption.
+		 */
 		fun invalidateCatalogCache(context: Context)
 		{
 			try
 			{
-				val cacheDir = File(context.cacheDir, CACHE_DIR)
-				cacheDir.listFiles()?.forEach { file ->
-					if (file.isFile)
-						file.delete()
-				}
+				cloudCatalogInvalidateCache(cacheDir(context).absolutePath)
 				Log.i(TAG, "Catalog cache invalidated (locale change)")
 			}
 			catch (e: Exception)
@@ -47,487 +62,104 @@ class CloudGameRepository(
 				Log.w(TAG, "Error invalidating catalog cache", e)
 			}
 		}
-		private const val UNIFIED_CACHE_FILE = "unified_catalog_v5.json" // v5: Qt emitOwned productId + QMap-sorted cross-ref merge order
-		private const val PS5_CATALOG_V3_CACHE_FILE = "ps5_cloud_catalog_v3.json"
-		private const val CACHE_DURATION_MS = 24 * 60 * 60 * 1000L // 24 hours
-
-		private const val OWNERSHIP_SESSION_WARNING =
-			"Your PlayStation session has expired. Please log in again to see your owned games."
-		private const val OWNERSHIP_NETWORK_WARNING =
-			"Couldn't verify your owned games (network error). Pull to refresh to try again."
-	}
-	
-	private val psnowCatalogService = PsnCatalogService(preferences)
-	private val pscloudCatalogService = PsCloudCatalogService()
-	private val cacheDir: File by lazy {
-		File(context.cacheDir, CACHE_DIR).apply {
-			if (!exists()) mkdirs()
-		}
 	}
 
 	var lastCatalogFetchWarning: String? = null
 		private set
-	
+
 	/**
-	 * Unified cloud catalog: ONE merged, deduped, tagged list across PS3/PS4 (PS Now/Kamaji) and
-	 * PS5 (imagic/Gaikai). Each game carries a `category` tag (owned / streamable / purchaseable).
-	 *
-	 * Sources:
-	 *  - PS Now APOLLOROOT walk (PS3 + PS4): native via /user/stores, or public region-group
-	 *    fallback when the account's region has no storefront.
-	 *  - imagic browse (PS5, streamingSupported=true) = purchaseable universe.
-	 * Owned entitlements (PS4 + PS5) are cross-referenced against both (supplement + aliases +
-	 * conceptId recognition retained). In native mode the concept-sibling streamability gate drops
-	 * owned titles with no streamable path (e.g. FOR HONOR); in fallback mode the gate is skipped
-	 * so nothing is hidden when the catalog isn't authoritative.
+	 * Unified cloud catalog: ONE merged, deduped, tagged list across PS3/PS4 (PS Now) and PS5
+	 * (cloud). Blocking — runs on [Dispatchers.IO]. The lib serves an on-disk cache hit with no
+	 * network I/O; [forceRefresh] bypasses it. A degraded-but-usable result (e.g. expired npsso)
+	 * still returns games plus a non-empty warning.
 	 */
 	suspend fun fetchUnifiedCatalog(npssoToken: String, forceRefresh: Boolean = false): PsnResult<List<CloudGame>>
 	{
 		return withContext(Dispatchers.IO)
 		{
 			lastCatalogFetchWarning = null
-			CloudLocaleBootstrap.ensureConfigured(preferences, npssoToken)
 
-			if (!forceRefresh)
+			val fetched = try
 			{
-				loadCachedGames(UNIFIED_CACHE_FILE)?.let { cached ->
-					Log.i(TAG, "Returning ${cached.size} unified games from cache")
-					return@withContext PsnResult.Success(cached)
+				catalogLock.withLock {
+					cloudCatalogFetchUnified(
+						npsso = npssoToken.ifEmpty { null },
+						locale = preferences.getCloudLanguage(),
+						cacheDir = cacheDir(context).absolutePath,
+						forceRefresh = forceRefresh
+					)
 				}
-			}
-
-			val (accountCountry, _) =
-				com.metallic.chiaki.cloudplay.CloudLocale.parseStorePath(preferences.getCloudLanguage())
-
-			// --- 1) PS Now APOLLOROOT (PS3 + PS4): native, else region-group fallback ----------
-			val native = psnowCatalogService.fetchNativeCatalog(npssoToken)
-			var apolloGames: List<CloudGame> = emptyList()
-			var nativeMode = false
-			var fallbackRegion = ""
-			when
-			{
-				native.storesAvailable && native.games.isNotEmpty() ->
-				{
-					apolloGames = native.games
-					nativeMode = true
-				}
-				native.authError ->
-				{
-					// Expired session: surface the re-login prompt. Do NOT fall back to the public
-					// APOLLOROOT walk -- that path is only for region-unsupported accounts (auth OK,
-					// /user/stores 404). Falling back here would mask the expired token. apolloGames
-					// stays empty; the user still sees the PS5 catalog plus the warning.
-					lastCatalogFetchWarning = OWNERSHIP_SESSION_WARNING
-				}
-				else ->
-				{
-					// /user/stores has no storefront for this region: public region-group walk.
-					apolloGames = tryApolloRootFallback(accountCountry)
-					if (apolloGames.isNotEmpty())
-						fallbackRegion = com.metallic.chiaki.cloudplay.KamajiClassics.classicsStoreCountry(accountCountry)
-				}
-			}
-			preferences.setCloudFallbackRegion(fallbackRegion)
-			Log.i(TAG, "PS Now APOLLOROOT: ${apolloGames.size} games (nativeMode=$nativeMode, fallbackRegion='$fallbackRegion')")
-
-			// --- 2) imagic PS5 catalog (browse + supplement + aliases) -------------------------
-			val imagic = try
-			{
-				fetchPs5CatalogV3(preferences.getCloudLanguage(), forceRefresh)
 			}
 			catch (e: Exception)
 			{
-				Log.e(TAG, "imagic PS5 catalog fetch failed", e)
-				if (apolloGames.isEmpty())
-					return@withContext PsnResult.Error("Failed to fetch catalog: ${e.message}", e)
-				Ps5CloudCatalogResult(emptyList(), emptyList(), emptyMap())
+				Log.e(TAG, "Unified catalog fetch threw", e)
+				return@withContext PsnResult.Error("Failed to fetch catalog: ${e.message}", e)
 			}
 
-			// --- 3) owned cross-reference (skip on expired token) ------------------------------
-			var owned: List<CloudGame> = emptyList()
-			if (npssoToken.isNotEmpty() && !native.authError)
+			val json = fetched.json
+			if (json == null)
 			{
-				try
-				{
-					owned = pscloudCatalogService.getOwnedPs5CloudGames(
-						npssoToken, imagic.browseGames, imagic.plusLibrarySupplement,
-						imagic.productIdAliases, psnowCatalog = apolloGames
-					)
-				}
-				catch (e: Exception)
-				{
-					Log.w(TAG, "Ownership cross-reference failed; showing as not owned", e)
-					lastCatalogFetchWarning = ownershipFailureWarning(e)
-				}
+				val detail = fetched.errorMessage ?: "Failed to fetch cloud catalog. Check your connection."
+				Log.e(TAG, "Unified catalog fetch returned null: $detail")
+				return@withContext PsnResult.Error(detail)
 			}
 
-			// --- 4) assemble the streamable universe (PS Now PS3/PS4 + imagic PS5) -------------
-			// Browse rows enter the universe when PS5-platform by the authoritative `device` array
-			// (isPs5Platform), NOT the CUSA/PPSA productId token -- the token drops cross-gen titles
-			// that carry a PS4 CUSA SKU but list "PS5" in `device` (e.g. the indie bundles). Skip rows
-			// already in the Apollo (PS Now) catalog: the apollo row already represents them, so adding
-			// the imagic browse copy would emit a duplicate streamable row (Crow Country / Grandia /
-			// HUMANITY appear in BOTH the APOLLOROOT walk and the imagic PS5 list). Mirrors Qt
-			// assembleUnifiedCatalog (cloudcatalogbackend.cpp).
-			val apolloProductIds = apolloGames.map { it.productId }.toSet()
-			val ps5Browse = imagic.browseGames.filter {
-				it.isPs5Platform && !apolloProductIds.contains(it.productId)
-			}
-			val universe = apolloGames + ps5Browse
-			var games = PsCloudOwnership.mergeOwnedIntoBrowseCatalog(universe, owned, addUnmatched = true)
-
-			// --- 5) concept-sibling streamability gate (native mode only) ----------------------
-			if (nativeMode)
-			{
-				val index = PsCloudOwnership.StreamabilityIndex(
-					apolloCatalog = apolloGames,
-					imagicBrowse = imagic.browseGames,
-					imagicConceptRows = imagic.browseGames + imagic.plusLibrarySupplement
-				)
-				games = PsCloudOwnership.applyStreamabilityGate(games, index)
-			}
-
-			// --- 6) tag + cache ----------------------------------------------------------------
-			games = games.map { it.copy(category = PsCloudOwnership.categoryFor(it)) }
-			if (games.isNotEmpty() && !native.authError && !isOwnershipVerificationFailure(lastCatalogFetchWarning))
-				cacheGames(games, UNIFIED_CACHE_FILE)
-			PsnResult.Success(games)
+			parseUnifiedCatalog(json)
 		}
 	}
 
-	/** Best-effort public region-group APOLLOROOT walk (no session). Empty list on failure. */
-	private suspend fun tryApolloRootFallback(accountCountry: String): List<CloudGame> =
-		try
+	private fun parseUnifiedCatalog(json: String): PsnResult<List<CloudGame>>
+	{
+		val root = try
 		{
-			psnowCatalogService.fetchApolloRootCatalog(accountCountry)
+			JSONObject(json)
 		}
 		catch (e: Exception)
 		{
-			Log.w(TAG, "APOLLOROOT region-group fallback failed", e)
-			emptyList()
+			Log.e(TAG, "Failed to parse unified catalog JSON", e)
+			return PsnResult.Error("Failed to parse cloud catalog.", e)
 		}
 
-	/**
-	 * Fetch the PS5 imagic catalog, trying the store-locale fallback chain
-	 * (session locale -> en-COUNTRY -> en-US) since Sony 404s unsupported locales (e.g. hu-HU).
-	 * Persists the locale that works. Returns the cached v3 catalog when available.
-	 */
-	private suspend fun fetchPs5CatalogV3(stored: String, forceRefresh: Boolean): Ps5CloudCatalogResult
-	{
-		if (!forceRefresh)
-			loadCachedPs5CatalogV3(stored)?.let { return it }
+		// The lib resolves the working store locale and region group; reflect them back so the
+		// streaming path (which reads the cloud language) and the region banner agree. Persist the
+		// settled locale WITHOUT wiping the cache (the lib owns its own invalidation).
+		root.optString("settledLocale", "").takeIf { it.isNotEmpty() }?.let {
+			preferences.noteCloudLanguageSettled(it)
+		}
+		preferences.setCloudFallbackRegion(root.optString("fallbackRegion", ""))
 
-		// NOTE: do not reset lastCatalogFetchWarning here. An ownership/session warning set by the
-		// unified fetch (e.g. expired-token) must survive this call so the re-login prompt reaches
-		// the UI. The imagic warning is only applied below when no higher-priority warning is set.
-		var lastError: Exception? = null
-		for ((canonical, imagic) in com.metallic.chiaki.cloudplay.CloudLocale.fallbackChain(stored))
+		root.optString("warning", "").takeIf { it.isNotEmpty() }?.let {
+			lastCatalogFetchWarning = it
+		}
+
+		val gamesArray = root.optJSONArray("games")
+		val rowCount = gamesArray?.length() ?: 0
+		val games = ArrayList<CloudGame>(rowCount)
+		if (gamesArray != null)
+			for (i in 0 until rowCount)
+				CloudGame.fromContract(gamesArray.getJSONObject(i))?.let { games.add(it) }
+
+		val dropped = rowCount - games.size
+		if (dropped > 0)
+			Log.w(TAG, "Dropped $dropped malformed catalog row(s) (missing productId/name)")
+		Log.i(TAG, "Unified catalog: ${games.size} games (${games.count { it.isOwned }} owned)")
+		return PsnResult.Success(games)
+	}
+
+	/** Clear all lib-owned cached data. Serialized against an in-flight fetch via [catalogLock]. */
+	suspend fun clearCache()
+	{
+		withContext(Dispatchers.IO)
 		{
 			try
 			{
-				val fetched = pscloudCatalogService.fetchPs5CloudCatalog(imagic)
-				if (canonical != stored)
-				{
-					Log.i(TAG, "PS5 store locale settled on $canonical (was $stored)")
-					preferences.setCloudLanguage(canonical)
-				}
-				if (fetched.shouldCacheV3)
-					cachePs5CatalogV3(fetched, canonical)
-				// Don't overwrite a higher-priority ownership/session warning set by the unified fetch.
-				if (lastCatalogFetchWarning == null)
-					lastCatalogFetchWarning = fetched.catalogFetchWarning
-				return fetched
+				catalogLock.withLock { cloudCatalogInvalidateCache(cacheDir(context).absolutePath) }
+				Log.i(TAG, "Cache cleared")
 			}
 			catch (e: Exception)
 			{
-				Log.i(TAG, "PS5 imagic locale $imagic failed, trying next tier: ${e.message}")
-				lastError = e
+				Log.w(TAG, "Error clearing cache", e)
 			}
-		}
-		throw (lastError ?: Exception("All imagic locales failed to load"))
-	}
-
-	private fun ownershipFailureWarning(e: Exception): String
-	{
-		val msg = e.message?.lowercase() ?: ""
-		val isAuth = msg.contains("login_required")
-			|| msg.contains("failed to extract oauth token")
-			|| msg.contains("no location header in oauth")
-			|| (msg.contains("oauth") && Regex("http 4\\d\\d").containsMatchIn(msg))
-			|| (msg.contains("entitlements") && (msg.contains("http 401") || msg.contains("http 403")))
-		return if (isAuth) OWNERSHIP_SESSION_WARNING else OWNERSHIP_NETWORK_WARNING
-	}
-
-	private fun isOwnershipVerificationFailure(warning: String?): Boolean =
-		warning == OWNERSHIP_SESSION_WARNING || warning == OWNERSHIP_NETWORK_WARNING
-
-	/**
-	 * Load games from cache if valid
-	 */
-	private fun loadCachedGames(cacheFileName: String): List<CloudGame>?
-	{
-		try
-		{
-			val cacheFile = File(cacheDir, cacheFileName)
-			
-			if (!cacheFile.exists())
-			{
-				Log.d(TAG, "No cache file found: $cacheFileName at ${cacheFile.absolutePath}")
-				Log.d(TAG, "Cache directory exists: ${cacheDir.exists()}, contents: ${cacheDir.listFiles()?.map { it.name }}")
-				return null
-			}
-			
-			// Check if cache is still valid
-			val cacheAge = System.currentTimeMillis() - cacheFile.lastModified()
-			if (cacheAge > CACHE_DURATION_MS)
-			{
-				Log.d(TAG, "Cache expired (age: ${cacheAge / 1000}s, max: ${CACHE_DURATION_MS / 1000}s)")
-				cacheFile.delete()
-				return null
-			}
-			
-			// Read and parse cache
-			val json = cacheFile.readText()
-			val jsonArray = JSONArray(json)
-			val games = mutableListOf<CloudGame>()
-			
-			for (i in 0 until jsonArray.length())
-			{
-				val obj = jsonArray.getJSONObject(i)
-				// Handle landscapeImageUrl (may be missing in old cache)
-				val landscapeImageUrl = obj.optString("landscapeImageUrl", obj.getString("imageUrl"))
-				val productId = obj.getString("productId")
-				
-				games.add(CloudGame(
-					productId = productId,
-					name = obj.getString("name"),
-					imageUrl = obj.getString("imageUrl"),
-					landscapeImageUrl = landscapeImageUrl,
-					thumbnailUrl = obj.optString("thumbnailUrl", obj.getString("imageUrl")),
-					platform = obj.optString("platform", "ps4"),
-					serviceType = obj.optString("serviceType", "psnow"),
-					conceptUrl = obj.optString("conceptUrl", ""),
-					conceptId = obj.optString("conceptId", ""),
-					isOwned = obj.optBoolean("isOwned", false),
-					entitlementId = obj.optString("entitlementId", ""),
-					storeProductId = obj.optString("storeProductId", ""),
-					plusCatalog = obj.optBoolean("plusCatalog", false),
-					featureType = obj.optInt("featureType", 0),
-					category = obj.optString("category", ""),
-					// Back-compat for caches written before this field existed: fall back to the token.
-					isPs5Platform = obj.optBoolean("isPs5Platform", productId.contains("PPSA"))
-				))
-			}
-			
-			Log.i(TAG, "Loaded ${games.size} games from cache: $cacheFileName")
-			return games
-		}
-		catch (e: Exception)
-		{
-			Log.w(TAG, "Error loading cache: $cacheFileName", e)
-			return null
-		}
-	}
-	
-	/**
-	 * Save games to cache
-	 */
-	private fun cacheGames(games: List<CloudGame>, cacheFileName: String)
-	{
-		try
-		{
-			val jsonArray = JSONArray()
-			
-			for (game in games)
-			{
-				val obj = JSONObject()
-				obj.put("productId", game.productId)
-				obj.put("name", game.name)
-				obj.put("imageUrl", game.imageUrl)
-				obj.put("landscapeImageUrl", game.landscapeImageUrl)
-				obj.put("thumbnailUrl", game.thumbnailUrl)
-				obj.put("platform", game.platform)
-				obj.put("serviceType", game.serviceType)
-				obj.put("conceptUrl", game.conceptUrl)
-				obj.put("conceptId", game.conceptId)
-				obj.put("isOwned", game.isOwned)
-				obj.put("entitlementId", game.entitlementId)
-				obj.put("storeProductId", game.storeProductId)
-				obj.put("plusCatalog", game.plusCatalog)
-				obj.put("featureType", game.featureType)
-				obj.put("category", game.category)
-				obj.put("isPs5Platform", game.isPs5Platform)
-				jsonArray.put(obj)
-			}
-			
-			val cacheFile = File(cacheDir, cacheFileName)
-			cacheFile.writeText(jsonArray.toString())
-			
-			Log.i(TAG, "Cached ${games.size} games to: ${cacheFile.absolutePath}")
-			Log.d(TAG, "Cache file size: ${cacheFile.length()} bytes, lastModified: ${cacheFile.lastModified()}")
-		}
-		catch (e: Exception)
-		{
-			Log.e(TAG, "Error caching games to $cacheFileName", e)
-		}
-	}
-	
-	private fun loadCachedPs5CatalogV3(expectedLocale: String): Ps5CloudCatalogResult?
-	{
-		try
-		{
-			val cacheFile = File(cacheDir, PS5_CATALOG_V3_CACHE_FILE)
-			if (!cacheFile.exists())
-				return null
-
-			val cacheAge = System.currentTimeMillis() - cacheFile.lastModified()
-			if (cacheAge > CACHE_DURATION_MS)
-			{
-				cacheFile.delete()
-				return null
-			}
-
-			val root = JSONObject(cacheFile.readText())
-			val cachedLocale = root.optString("locale", "")
-			if (cachedLocale.isNotEmpty() && cachedLocale != expectedLocale)
-			{
-				Log.i(TAG, "PS5 catalog v3 cache locale mismatch ($cachedLocale != $expectedLocale), refetching")
-				cacheFile.delete()
-				return null
-			}
-
-			val browse = parseGameArray(root.optJSONArray("games") ?: JSONArray())
-			val supplement = parseGameArray(root.optJSONArray("plusLibrarySupplement") ?: JSONArray())
-			val aliases = parseProductIdAliases(root.optJSONObject("productIdAliases"))
-			Log.i(TAG, "Loaded PS5 catalog v3 from cache: ${browse.size} browse, ${supplement.size} supplement, ${aliases.size} aliases")
-			return Ps5CloudCatalogResult(browse, supplement, aliases)
-		}
-		catch (e: Exception)
-		{
-			Log.w(TAG, "Error loading PS5 catalog v3 cache", e)
-			return null
-		}
-	}
-
-	private fun cachePs5CatalogV3(catalog: Ps5CloudCatalogResult, locale: String)
-	{
-		try
-		{
-			val root = JSONObject()
-			root.put("locale", locale)
-			root.put("games", gamesToJsonArray(catalog.browseGames))
-			root.put("plusLibrarySupplement", gamesToJsonArray(catalog.plusLibrarySupplement))
-			root.put("total", catalog.browseGames.size)
-			if (catalog.productIdAliases.isNotEmpty())
-				root.put("productIdAliases", productIdAliasesToJson(catalog.productIdAliases))
-
-			val cacheFile = File(cacheDir, PS5_CATALOG_V3_CACHE_FILE)
-			cacheFile.writeText(root.toString())
-			Log.i(TAG, "Cached PS5 catalog v3: ${catalog.browseGames.size} browse, ${catalog.plusLibrarySupplement.size} supplement, ${catalog.productIdAliases.size} aliases")
-		}
-		catch (e: Exception)
-		{
-			Log.e(TAG, "Error caching PS5 catalog v3", e)
-		}
-	}
-
-	private fun parseProductIdAliases(obj: JSONObject?): Map<String, String>
-	{
-		if (obj == null)
-			return emptyMap()
-		val aliases = linkedMapOf<String, String>()
-		for (key in obj.keys())
-		{
-			val canonical = obj.optString(key, "")
-			if (canonical.isNotEmpty())
-				aliases[key] = canonical
-		}
-		return aliases
-	}
-
-	private fun productIdAliasesToJson(aliases: Map<String, String>): JSONObject
-	{
-		val obj = JSONObject()
-		for ((alias, canonical) in aliases)
-			obj.put(alias, canonical)
-		return obj
-	}
-
-	private fun parseGameArray(jsonArray: JSONArray): List<CloudGame>
-	{
-		val games = mutableListOf<CloudGame>()
-		for (i in 0 until jsonArray.length())
-		{
-			val obj = jsonArray.getJSONObject(i)
-			val landscapeImageUrl = obj.optString("landscapeImageUrl", obj.getString("imageUrl"))
-			val productId = obj.getString("productId")
-			games.add(
-				CloudGame(
-					productId = productId,
-					name = obj.getString("name"),
-					imageUrl = obj.getString("imageUrl"),
-					landscapeImageUrl = landscapeImageUrl,
-					platform = obj.optString("platform", "ps5"),
-					// Deliberate Qt<->mobile divergence: Qt leaves imagic browse rows with NO serviceType and derives
-					// platform from the clean catalog product-id token. Mobile instead blanket-tags imagic rows "pscloud"
-					// and COMPENSATES with an isOwned gate in streamPlatform (a non-owned "pscloud" row falls back to the
-					// product-id token, so a non-owned PS4 imagic title still routes to PS Now, not cronos). Both reach the
-					// same routing -- do NOT naively "fix" one side to match the other.
-					serviceType = obj.optString("serviceType", "pscloud"),
-					conceptUrl = obj.optString("conceptUrl", ""),
-					conceptId = obj.optString("conceptId", ""),
-					isOwned = obj.optBoolean("isOwned", false),
-					entitlementId = obj.optString("entitlementId", ""),
-					storeProductId = obj.optString("storeProductId", ""),
-					plusCatalog = obj.optBoolean("plusCatalog", false),
-					featureType = obj.optInt("featureType", 0),
-					// Back-compat for caches written before this field existed: fall back to the token.
-					isPs5Platform = obj.optBoolean("isPs5Platform", productId.contains("PPSA"))
-				)
-			)
-		}
-		return games
-	}
-
-	private fun gamesToJsonArray(games: List<CloudGame>): JSONArray
-	{
-		val jsonArray = JSONArray()
-		for (game in games)
-		{
-			val obj = JSONObject()
-			obj.put("productId", game.productId)
-			obj.put("name", game.name)
-			obj.put("imageUrl", game.imageUrl)
-			obj.put("landscapeImageUrl", game.landscapeImageUrl)
-			obj.put("platform", game.platform)
-			obj.put("serviceType", game.serviceType)
-			obj.put("conceptUrl", game.conceptUrl)
-			obj.put("conceptId", game.conceptId)
-			obj.put("isOwned", game.isOwned)
-			obj.put("entitlementId", game.entitlementId)
-			obj.put("storeProductId", game.storeProductId)
-			obj.put("plusCatalog", game.plusCatalog)
-			obj.put("featureType", game.featureType)
-			obj.put("isPs5Platform", game.isPs5Platform)
-			jsonArray.put(obj)
-		}
-		return jsonArray
-	}
-
-	/**
-	 * Clear all cached data
-	 */
-	fun clearCache()
-	{
-		try
-		{
-			cacheDir.listFiles()?.forEach { it.delete() }
-			Log.i(TAG, "Cache cleared")
-		}
-		catch (e: Exception)
-		{
-			Log.w(TAG, "Error clearing cache", e)
 		}
 	}
 }
-

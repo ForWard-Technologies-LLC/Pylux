@@ -144,6 +144,16 @@ private class ChiakiNative
 		@JvmStatic external fun holepunchGetRegistInfoData2(sessionPtr: Long): ByteArray?
 		@JvmStatic external fun holepunchGetRegistInfoCustomData1(sessionPtr: Long): ByteArray?
 		@JvmStatic external fun holepunchGetRegistInfoLocalIp(sessionPtr: Long): String?
+
+		// Unified cloud catalog (chiaki/cloudcatalog.h) — single source of truth shared with Qt/iOS.
+		// Returns the UTF-8 JSON contract as raw bytes (decoded to String by the wrapper, since the
+		// payload contains non-ASCII names that JNI's modified-UTF-8 NewStringUTF can't represent).
+		// errorOut[0] receives the lib's failure detail when the result is null.
+		@JvmStatic external fun cloudCatalogFetchUnified(npsso: String?, locale: String?, cacheDir: String, forceRefresh: Boolean, errorOut: Array<String?>): ByteArray?
+		@JvmStatic external fun cloudCatalogInvalidateCache(cacheDir: String)
+		@JvmStatic external fun cloudGaikaiLanguage(locale: String?): String
+		@JvmStatic external fun cloudSupportedLanguages(): Array<String>
+		@JvmStatic external fun cloudDatacenterServesLanguage(datacenterName: String, locale: String): Boolean
 	}
 }
 
@@ -264,6 +274,41 @@ class HolepunchSession(token: String)
 
 /** Initialize native SSL CA bundle for curl+mbedTLS on Android. Call once at app startup. */
 fun initNativeSsl(cacheDir: String) = ChiakiNative.initNativeSsl(cacheDir)
+
+/** Result of [cloudCatalogFetchUnified]: [json] is non-null on success (including degraded-but-
+ *  usable results such as expired npsso); on hard failure [json] is null and [errorMessage] carries
+ *  the lib's human-readable detail. */
+data class CloudCatalogFetch(val json: String?, val errorMessage: String?)
+
+/**
+ * Fetch (or load from the lib-owned on-disk cache) the unified cloud catalog as a JSON string.
+ * Blocking — call from a background thread. All OAuth/session exchanges, fetch, dedup, ownership
+ * cross-reference and tagging happen inside libchiaki (shared with Qt and iOS); the caller just
+ * parses and renders the contract.
+ */
+fun cloudCatalogFetchUnified(npsso: String?, locale: String?, cacheDir: String, forceRefresh: Boolean): CloudCatalogFetch
+{
+	val errorOut = arrayOfNulls<String>(1)
+	val bytes = ChiakiNative.cloudCatalogFetchUnified(npsso, locale, cacheDir, forceRefresh, errorOut)
+	return CloudCatalogFetch(bytes?.let { String(it, Charsets.UTF_8) }, errorOut[0])
+}
+
+/** Delete every lib-owned cache file under [cacheDir] (e.g. on locale change). */
+fun cloudCatalogInvalidateCache(cacheDir: String) = ChiakiNative.cloudCatalogInvalidateCache(cacheDir)
+
+// Cloud streaming language helpers, backed by the shared libchiaki table. Game
+// language is tied to the datacenter region (Gaikai ignores a language whose
+// datacenter is not selected).
+
+/** Bare lowercase language code Gaikai expects ("de-DE" -> "de"); "en" default. */
+fun cloudGaikaiLanguage(locale: String?): String = ChiakiNative.cloudGaikaiLanguage(locale)
+
+/** Locales offered in the language picker (BCP-47, e.g. "en-GB"). */
+fun cloudSupportedLanguages(): List<String> = ChiakiNative.cloudSupportedLanguages().toList()
+
+/** True if [datacenterName] (4-letter ping name, e.g. "fraa") serves [locale]. */
+fun cloudDatacenterServesLanguage(datacenterName: String, locale: String): Boolean =
+	ChiakiNative.cloudDatacenterServesLanguage(datacenterName, locale)
 
 class ErrorCode(val value: Int)
 {

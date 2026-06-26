@@ -9,7 +9,6 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.metallic.chiaki.cloudplay.CloudLocale
-import com.metallic.chiaki.cloudplay.api.PsCloudOwnership
 import com.metallic.chiaki.cloudplay.model.CloudGame
 import com.metallic.chiaki.cloudplay.model.PsnResult
 import com.metallic.chiaki.cloudplay.repository.CloudGameRepository
@@ -55,6 +54,10 @@ class CloudPlayViewModel(
 
 	private var allGames: List<CloudGame> = emptyList()
 
+	// The lib's catalog fetch is blocking and single-threaded; never run two at once (a double-tap
+	// on refresh, or a refresh during the initial load, would hit the same cache dir concurrently).
+	private var fetchInProgress = false
+
 	// Active acquisition-tag filters; empty = show all. Restored from prefs, persisted on change.
 	var activeTagFilters: Set<String> = preferences.getCloudTagFilters()
 		private set
@@ -72,6 +75,12 @@ class CloudPlayViewModel(
 	 */
 	fun fetchCatalog(forceRefresh: Boolean = false)
 	{
+		if (fetchInProgress)
+		{
+			Log.i(TAG, "Catalog fetch already in progress; ignoring request")
+			return
+		}
+		fetchInProgress = true
 		viewModelScope.launch {
 			try
 			{
@@ -89,6 +98,10 @@ class CloudPlayViewModel(
 						allGames = result.data
 						Log.i(TAG, "Loaded ${allGames.size} unified games")
 						repository.lastCatalogFetchWarning?.let { _warning.value = it }
+						// Match iOS: an empty list with no warning means the fetch effectively
+						// failed (e.g. network) — tell the user instead of a blank screen.
+						if (allGames.isEmpty() && _warning.value.isNullOrEmpty())
+							_error.value = "No cloud games found. Check your connection."
 						applyFilters()
 					}
 					is PsnResult.Error ->
@@ -108,6 +121,7 @@ class CloudPlayViewModel(
 				_fallbackRegion.value = preferences.getCloudFallbackRegion()
 				updateLocaleWarningIfNeeded()
 				_loading.value = false
+				fetchInProgress = false
 			}
 		}
 	}
@@ -158,6 +172,7 @@ class CloudPlayViewModel(
 
 	fun clearCache()
 	{
+		// repository.clearCache() runs its file I/O off-main and serializes against an in-flight fetch.
 		viewModelScope.launch {
 			repository.clearCache()
 			Log.i(TAG, "Cache cleared")

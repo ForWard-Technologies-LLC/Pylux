@@ -21,8 +21,6 @@ Pane {
     readonly property Item searchContainerItem: searchContainer
     readonly property Item refreshButtonItem: refreshButton
     
-    property int currentPage: 0
-    property int gamesPerPage: 25
     property var allGames: []
     property var filteredGames: []
     property var currentPageGames: []
@@ -325,26 +323,6 @@ Pane {
         
         // Re-apply filter to update view
         applySearchFilter();
-    }
-    
-    function updateCurrentPage() {
-        let startIdx = currentPage * gamesPerPage;
-        let endIdx = Math.min(startIdx + gamesPerPage, filteredGames.length);
-        currentPageGames = filteredGames.slice(startIdx, endIdx);
-    }
-    
-    function nextPage() {
-        if ((currentPage + 1) * gamesPerPage < filteredGames.length) {
-            currentPage++;
-            updateCurrentPage();
-        }
-    }
-    
-    function previousPage() {
-        if (currentPage > 0) {
-            currentPage--;
-            updateCurrentPage();
-        }
     }
     
     function showShortcutToast(title, message) {

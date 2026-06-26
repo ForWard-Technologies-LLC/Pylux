@@ -12,6 +12,7 @@
 #include <chiaki/senkusha.h>
 #include <chiaki/remote/holepunch.h>
 #include <chiaki/base64.h>
+#include <chiaki/cloudcatalog.h>
 
 #include <string.h>
 #include <stdlib.h>
@@ -1494,4 +1495,131 @@ JNIEXPORT jobject JNICALL Java_com_metallic_chiaki_cloudplay_ping_DatacenterPing
 	jobject result = (*env)->NewObject(env, pingResultClass, constructor, result_rtt_us, result_mtu_in, result_mtu_out);
 	
 	return result;
+}
+
+// Unified cloud catalog (chiaki/cloudcatalog.h): one fetch+dedup+ownership+tagging pass shared
+// with Qt and iOS. Returns the UTF-8 JSON contract as a byte[] (the payload has non-ASCII names
+// that JNI's modified-UTF-8 NewStringUTF can't safely carry; Kotlin decodes the bytes as UTF-8).
+// On hard failure returns NULL and, if error_out is a non-empty String[], stores the lib's
+// human-readable detail in error_out[0] so the caller can surface it (mirrors iOS).
+JNIEXPORT jbyteArray JNICALL JNI_FCN(cloudCatalogFetchUnified)(JNIEnv *env, jobject obj,
+	jstring npsso_str, jstring locale_str, jstring cache_dir_str, jboolean force_refresh,
+	jobjectArray error_out)
+{
+	const char *npsso = npsso_str ? E->GetStringUTFChars(env, npsso_str, NULL) : NULL;
+	const char *locale = locale_str ? E->GetStringUTFChars(env, locale_str, NULL) : NULL;
+	const char *cache_dir = cache_dir_str ? E->GetStringUTFChars(env, cache_dir_str, NULL) : NULL;
+
+	// The lib requires a non-null cache dir; bail (releasing whatever succeeded) if a requested
+	// string failed to materialize (only under OOM).
+	if((cache_dir_str && !cache_dir) || (npsso_str && !npsso) || (locale_str && !locale))
+	{
+		CHIAKI_LOGE(&global_log, "[CloudCatalog] GetStringUTFChars failed (out of memory?)");
+		if(npsso) E->ReleaseStringUTFChars(env, npsso_str, npsso);
+		if(locale) E->ReleaseStringUTFChars(env, locale_str, locale);
+		if(cache_dir) E->ReleaseStringUTFChars(env, cache_dir_str, cache_dir);
+		return NULL;
+	}
+
+	ChiakiCloudCatalogConfig cfg;
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.npsso = (npsso && npsso[0]) ? npsso : NULL;
+	cfg.locale = (locale && locale[0]) ? locale : NULL;
+	cfg.cache_dir = cache_dir;
+	cfg.force_refresh = force_refresh ? true : false;
+
+	ChiakiCloudCatalogResult res;
+	memset(&res, 0, sizeof(res));
+	ChiakiErrorCode err = chiaki_cloudcatalog_fetch_unified(&cfg, &res, &global_log);
+
+	jbyteArray result = NULL;
+	const char *fail_detail = NULL; // non-NULL => report via error_out[0]
+	if(res.json)
+	{
+		size_t len = strlen(res.json);
+		result = E->NewByteArray(env, (jsize)len);
+		if(result)
+			E->SetByteArrayRegion(env, result, 0, (jsize)len, (const jbyte *)res.json);
+		else
+			fail_detail = "Out of memory building cloud catalog payload"; // alloc failed despite valid json
+	}
+	else
+	{
+		CHIAKI_LOGE(&global_log, "[CloudCatalog] fetch failed (err=%d): %s",
+			(int)err, res.error_message ? res.error_message : "no detail");
+		fail_detail = res.error_message ? res.error_message : chiaki_error_string(err);
+	}
+
+	if(!result && fail_detail && error_out && E->GetArrayLength(env, error_out) > 0)
+	{
+		jstring jdetail = E->NewStringUTF(env, fail_detail);
+		if(jdetail)
+		{
+			E->SetObjectArrayElement(env, error_out, 0, jdetail);
+			E->DeleteLocalRef(env, jdetail);
+		}
+	}
+
+	chiaki_cloudcatalog_result_fini(&res);
+	if(npsso_str) E->ReleaseStringUTFChars(env, npsso_str, npsso);
+	if(locale_str) E->ReleaseStringUTFChars(env, locale_str, locale);
+	if(cache_dir_str) E->ReleaseStringUTFChars(env, cache_dir_str, cache_dir);
+	return result;
+}
+
+JNIEXPORT void JNICALL JNI_FCN(cloudCatalogInvalidateCache)(JNIEnv *env, jobject obj, jstring cache_dir_str)
+{
+	const char *cache_dir = cache_dir_str ? E->GetStringUTFChars(env, cache_dir_str, NULL) : NULL;
+	if(cache_dir)
+	{
+		chiaki_cloudcatalog_invalidate_cache(cache_dir);
+		E->ReleaseStringUTFChars(env, cache_dir_str, cache_dir);
+	}
+}
+
+// Cloud streaming language helpers (chiaki/cloudcatalog.h): the shared lib table
+// is the single source of truth across Qt/iOS/Android. Game language is tied to
+// the datacenter region (Gaikai ignores a language whose datacenter is unselected).
+
+JNIEXPORT jstring JNICALL JNI_FCN(cloudGaikaiLanguage)(JNIEnv *env, jobject obj, jstring locale_str)
+{
+	(void)obj;
+	const char *locale = locale_str ? E->GetStringUTFChars(env, locale_str, NULL) : NULL;
+	char buf[16];
+	chiaki_cloud_gaikai_language((locale && locale[0]) ? locale : NULL, buf, sizeof(buf));
+	if(locale_str && locale) E->ReleaseStringUTFChars(env, locale_str, locale);
+	return E->NewStringUTF(env, buf);
+}
+
+JNIEXPORT jobjectArray JNICALL JNI_FCN(cloudSupportedLanguages)(JNIEnv *env, jobject obj)
+{
+	(void)obj;
+	size_t n = chiaki_cloud_supported_locale_count();
+	jclass str_class = E->FindClass(env, "java/lang/String");
+	if(!str_class)
+		return NULL;
+	jobjectArray arr = E->NewObjectArray(env, (jsize)n, str_class, NULL);
+	if(!arr)
+		return NULL;
+	for(size_t i = 0; i < n; i++)
+	{
+		jstring s = E->NewStringUTF(env, chiaki_cloud_supported_locale(i));
+		if(s)
+		{
+			E->SetObjectArrayElement(env, arr, (jsize)i, s);
+			E->DeleteLocalRef(env, s);
+		}
+	}
+	return arr;
+}
+
+JNIEXPORT jboolean JNICALL JNI_FCN(cloudDatacenterServesLanguage)(JNIEnv *env, jobject obj, jstring dc_str, jstring locale_str)
+{
+	(void)obj;
+	const char *dc = dc_str ? E->GetStringUTFChars(env, dc_str, NULL) : NULL;
+	const char *locale = locale_str ? E->GetStringUTFChars(env, locale_str, NULL) : NULL;
+	bool served = (dc && locale) ? chiaki_cloud_datacenter_serves_locale(dc, locale) : false;
+	if(dc_str && dc) E->ReleaseStringUTFChars(env, dc_str, dc);
+	if(locale_str && locale) E->ReleaseStringUTFChars(env, locale_str, locale);
+	return served ? JNI_TRUE : JNI_FALSE;
 }

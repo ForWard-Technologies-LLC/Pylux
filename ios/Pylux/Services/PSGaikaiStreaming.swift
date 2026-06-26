@@ -753,7 +753,15 @@ final class PSGaikaiStreaming {
         // Common fields
         spec["entitlementId"] = entitlementId
         spec["npEnv"] = "np"
-        let cloudLanguage = CloudLocaleSettings.stored
+        // Gaikai expects the bare language code ("de"), not the stored locale
+        // ("de-DE"); the lib helper is the single source of truth across platforms.
+        // Use the user's chosen streaming language, falling back to the detected
+        // catalog locale when unset.
+        let chosenLocale = {
+            let l = StreamPreferences.load().cloudLanguage
+            return l.isEmpty ? CloudLocaleSettings.stored : l
+        }()
+        let cloudLanguage = PyluxCloudCatalog.gaikaiLanguage(forLocale: chosenLocale)
         spec["language"] = cloudLanguage
         os_log(.info, log: gkLog, "Gaikai request language: %{public}s", cloudLanguage)
         spec["cloudEndpoint"] = "https://cc.prod.gaikai.com"

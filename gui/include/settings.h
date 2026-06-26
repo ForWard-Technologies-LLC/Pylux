@@ -310,6 +310,8 @@ class Settings : public QObject
 		void SetCloudResolutionPSCloud(int resolution);
 		QString GetCloudLanguagePSCloud() const;
 		void SetCloudLanguagePSCloud(const QString &language);
+		QString GetCloudStreamLanguage() const;
+		void SetCloudStreamLanguage(const QString &language);
 		QString GetCloudDatacenterPSCloud() const;
 		void SetCloudDatacenterPSCloud(const QString &datacenter);
 		QString GetCloudDatacentersJsonPSCloud() const;  // JSON array of datacenters with ping results

@@ -87,3 +87,4 @@ macos/fastlane/report.xml
 # Local Flatpak testing (throwaway, never commit)
 scripts/flatpak/test-flatpak-local.sh
 pylux-test.flatpak
+lib/test_cloudcatalog/.npsso

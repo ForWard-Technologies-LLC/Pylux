@@ -6,6 +6,7 @@
 #include "cloudstreaming/nsurlsession_oauth.h"
 #include "chiaki/remote/holepunch.h"
 #include "chiaki/common.h"
+#include "chiaki/cloudcatalog.h"
 
 #include <QObject>
 #include <QJsonDocument>
@@ -149,9 +150,17 @@ QJsonObject PSGaikaiStreaming::buildRequestGameSpec(QString entitlementId)
     spec["entitlementId"] = entitlementId;
     spec["npEnv"] = "np";
     
-    // Read resolution and language from settings fresh each time (not cached)
-    // Use unified language setting for both PSCloud and PSNOW
-    QString language = settings->GetCloudLanguagePSCloud();
+    // Read resolution and language from settings fresh each time (not cached).
+    // Prefer the user's manual streaming-language pick; fall back to the
+    // auto-detected catalog locale when the picker is left on default. The
+    // manual pick lives in its own setting so the catalog's settledLocale write
+    // can never clobber it. Gaikai expects the bare language code ("de"), not
+    // the stored locale ("de-DE"); the lib helper is the single source of truth.
+    QString locale = settings->GetCloudStreamLanguage();
+    if (locale.isEmpty())
+        locale = settings->GetCloudLanguagePSCloud();
+    char gaikaiLang[16];
+    chiaki_cloud_gaikai_language(locale.toUtf8().constData(), gaikaiLang, sizeof(gaikaiLang));
     int resolution;
     if (serviceType == "pscloud") {
         resolution = settings->GetCloudResolutionPSCloud();
@@ -159,7 +168,7 @@ QJsonObject PSGaikaiStreaming::buildRequestGameSpec(QString entitlementId)
         // PSNOW
         resolution = settings->GetCloudResolutionPSNOW();
     }
-    spec["language"] = language;
+    spec["language"] = QString::fromUtf8(gaikaiLang);
     
     // Cloud Infrastructure
     spec["cloudEndpoint"] = "https://cc.prod.gaikai.com";

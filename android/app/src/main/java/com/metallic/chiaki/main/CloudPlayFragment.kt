@@ -37,7 +37,7 @@ import com.metallic.chiaki.common.ext.alertDialogBuilder
 import com.pylux.stream.R
 import com.metallic.chiaki.cloudplay.PsnLoginActivity
 import com.metallic.chiaki.cloudplay.api.CloudStreamingBackend
-import com.metallic.chiaki.cloudplay.api.PsCloudOwnership
+import com.metallic.chiaki.cloudplay.model.CloudCategory
 import com.metallic.chiaki.cloudplay.model.CloudError
 import com.metallic.chiaki.cloudplay.model.CloudGame
 import com.metallic.chiaki.common.Preferences
@@ -422,9 +422,9 @@ class CloudPlayFragment : Fragment()
 	
 	// Acquisition-tag filter categories and their display labels (dropdown order).
 	private val tagFilterCategories = listOf(
-		PsCloudOwnership.CATEGORY_OWNED,
-		PsCloudOwnership.CATEGORY_STREAMABLE,
-		PsCloudOwnership.CATEGORY_PURCHASEABLE
+		CloudCategory.OWNED,
+		CloudCategory.STREAMABLE,
+		CloudCategory.PURCHASEABLE
 	)
 	private val tagFilterLabels = listOf("Owned", "Streamable", "Store")
 
@@ -548,7 +548,7 @@ class CloudPlayFragment : Fragment()
 	/** Games you can play right now (owned + subscription/trial streamable) sort ahead of
 	 *  store titles that must first be added to your library. */
 	private fun isPlayableNow(game: CloudGame): Boolean =
-		game.category != PsCloudOwnership.CATEGORY_PURCHASEABLE
+		game.category != CloudCategory.PURCHASEABLE
 
 	private fun sortGames(games: List<CloudGame>): List<CloudGame> = when (sortState) {
 		1 -> games.sortedBy { it.name.lowercase() }
@@ -848,12 +848,9 @@ class CloudPlayFragment : Fragment()
 
 	private fun onGameClicked(game: CloudGame)
 	{
-		// Route on the canonical acquisition tag, not raw serviceType: only a "purchaseable" title
-		// (not owned, PS Plus catalog / PS5) needs Add-to-Library; "streamable" (PS Now) and owned
-		// titles stream directly. Raw serviceType=="pscloud" would mis-handle a non-owned PS4
-		// cloud-browse row (which streams via PS Now).
-		val category = game.category.ifEmpty { PsCloudOwnership.categoryFor(game) }
-		if (category == PsCloudOwnership.CATEGORY_PURCHASEABLE)
+		// Route on the lib's acquisition tag: only a "purchaseable" title (not owned, PS Plus
+		// catalog / PS5) needs Add-to-Library; "streamable" (PS Now) and owned titles stream directly.
+		if (game.category == CloudCategory.PURCHASEABLE)
 		{
 			// Show dialog to add game to library
 			showAddToLibraryDialog(game)
@@ -1072,11 +1069,11 @@ class CloudPlayFragment : Fragment()
 			try
 			{
 				val backend = CloudStreamingBackend(requireContext(), viewModel.preferences)
-				// Route by the title-id platform: PS4 catalog titles go through Kamaji (psnow) to
-				// acquire the streaming entitlement; PS5 streams directly (pscloud).
+				// Stream routing is precomputed by libchiaki: streamServiceType picks the endpoint
+				// (psnow/Kamaji vs pscloud/cronos) and streamIdentifier is the exact id to launch.
 				val result = backend.startCompleteCloudSession(
-					serviceType = PsCloudOwnership.streamServiceType(game),
-					gameIdentifier = PsCloudOwnership.streamIdentifier(game),
+					serviceType = game.streamServiceType,
+					gameIdentifier = game.streamIdentifier,
 					gameName = game.name,
 					npssoToken = npssoToken,
 					onProgress = { message ->

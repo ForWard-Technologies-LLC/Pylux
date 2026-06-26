@@ -81,6 +81,10 @@ struct StreamPreferences: Codable {
     var cloudDatacenterPsnow: String = "Auto"       // matches Android default
     var cloudBitratePsnow: Int = 20000              // kbps, matches Qt/Android default 20 Mbps
 
+    /// Cloud streaming game language (BCP-47, e.g. "de-DE"). Empty = follow the
+    /// detected catalog locale. Game language is tied to the datacenter region.
+    var cloudLanguage: String = ""
+
     static let cloudBitrateMinKbps = 2000
     static let cloudBitrateMaxKbps = 200_000
     static let cloudBitrateDefaultKbps = 20000
@@ -91,6 +95,7 @@ struct StreamPreferences: Codable {
         case onScreenControlsEnabled, touchpadOnlyEnabled
         case cloudResolutionPscloud, cloudDatacenterPscloud, cloudBitratePscloud
         case cloudResolutionPsnow, cloudDatacenterPsnow, cloudBitratePsnow
+        case cloudLanguage
     }
 
     init(
@@ -110,7 +115,8 @@ struct StreamPreferences: Codable {
         cloudBitratePscloud: Int = StreamPreferences.cloudBitrateDefaultKbps,
         cloudResolutionPsnow: String = "720",
         cloudDatacenterPsnow: String = "Auto",
-        cloudBitratePsnow: Int = StreamPreferences.cloudBitrateDefaultKbps
+        cloudBitratePsnow: Int = StreamPreferences.cloudBitrateDefaultKbps,
+        cloudLanguage: String = ""
     ) {
         self.resolutionIndex = resolutionIndex
         self.fps = fps
@@ -129,6 +135,7 @@ struct StreamPreferences: Codable {
         self.cloudResolutionPsnow = cloudResolutionPsnow
         self.cloudDatacenterPsnow = cloudDatacenterPsnow
         self.cloudBitratePsnow = Self.clampCloudBitrateKbps(cloudBitratePsnow)
+        self.cloudLanguage = cloudLanguage
     }
 
     init(from decoder: Decoder) throws {
@@ -154,6 +161,7 @@ struct StreamPreferences: Codable {
         cloudBitratePsnow = Self.clampCloudBitrateKbps(
             try c.decodeIfPresent(Int.self, forKey: .cloudBitratePsnow) ?? Self.cloudBitrateDefaultKbps
         )
+        cloudLanguage = try c.decodeIfPresent(String.self, forKey: .cloudLanguage) ?? ""
     }
 
     func encode(to encoder: Encoder) throws {
@@ -175,6 +183,7 @@ struct StreamPreferences: Codable {
         try c.encode(cloudResolutionPsnow, forKey: .cloudResolutionPsnow)
         try c.encode(cloudDatacenterPsnow, forKey: .cloudDatacenterPsnow)
         try c.encode(cloudBitratePsnow, forKey: .cloudBitratePsnow)
+        try c.encode(cloudLanguage, forKey: .cloudLanguage)
     }
 
     static func clampCloudBitrateKbps(_ kbps: Int) -> Int {
@@ -286,6 +295,7 @@ struct SettingsView: View {
     @State private var prefs = StreamPreferences.load()
     @State private var bitrateText = ""
     @State private var showResetAlert = false
+    @State private var showLanguageInfo = false
     @State private var psnLoggedIn = PsnTokenStore.shared.hasTokens
     /// Bumped when cloud ping results are saved so datacenter pickers reload from `SecureStore`.
     @State private var datacenterStoreRevision = 0
@@ -304,7 +314,10 @@ struct SettingsView: View {
             // 3. Remote Play Settings
             remotePlaySection
 
-            // 3. Cloud Game Library (PSCloud)
+            // 4. Cloud Settings (shared across cloud library + catalog)
+            cloudSettingsSection
+
+            // 5. Cloud Game Library (PSCloud)
             cloudLibrarySection
 
             // 4. Cloud Game Catalog (PSNow)
@@ -524,6 +537,28 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: - Cloud Settings (shared)
+
+    private var cloudSettingsSection: some View {
+        Section {
+            // Game language (manual override, stored separately from the
+            // auto-detected catalog locale). Shared across cloud library +
+            // catalog, so it lives in its own section above both.
+            languagePicker()
+        } header: {
+            Text("Cloud Settings")
+        } footer: {
+            Text("Language availability depends on your datacenter's region.")
+        }
+        // Full caveat shown as a popup only when a specific language is chosen,
+        // keeping the inline section short.
+        .alert("Game Language", isPresented: $showLanguageInfo) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("Not all regions support every language. A language only works on datacenters that offer it — if your chosen language isn't applied, pick a datacenter in a matching region.")
+        }
+    }
+
     // MARK: - 4. Cloud Game Catalog (PSNow)
 
     private var cloudCatalogSection: some View {
@@ -568,6 +603,55 @@ struct SettingsView: View {
         }
         .id("\(serviceType)-\(datacenterStoreRevision)")
         .onChange(of: selection.wrappedValue) { _ in prefs.save() }
+    }
+
+    // MARK: - Game Language Picker Helper
+
+    /// Human-readable name for a cloud-language locale. Display names are the
+    /// platform's responsibility; the locale list itself comes from libchiaki.
+    private static func cloudLanguageName(_ locale: String) -> String {
+        switch locale {
+        case "en-US": return "English"
+        case "en-GB": return "English (UK)"
+        case "de-DE": return "Deutsch"
+        case "fr-FR": return "Français"
+        case "fi-FI": return "Suomi"
+        case "it-IT": return "Italiano"
+        case "es-ES": return "Español"
+        case "nl-NL": return "Nederlands"
+        case "pt-BR": return "Português (BR)"
+        case "ja-JP": return "日本語"
+        case "ko-KR": return "한국어"
+        default: return locale
+        }
+    }
+
+    private func languagePicker() -> some View {
+        // Show every supported language (datacenter language support can't be
+        // reliably enumerated). The manual pick is stored separately from the
+        // auto-detected catalog locale and never auto-changes the datacenter;
+        // the user picks a matching datacenter themselves.
+        let supported = PyluxCloudCatalog.supportedCloudLanguages()
+        let catalogLocale = CloudLocaleSettings.stored.isEmpty ? "en-US" : CloudLocaleSettings.stored
+        let current = prefs.cloudLanguage
+        let selection = Binding<String>(
+            // Empty override selects "Auto"; an unknown value also falls back to Auto.
+            get: { (current.isEmpty || supported.contains(current)) ? current : "" },
+            set: { newValue in
+                prefs.cloudLanguage = newValue
+                prefs.save()
+                // Surface the datacenter caveat only when overriding to a
+                // specific language (Auto needs no warning).
+                if !newValue.isEmpty { showLanguageInfo = true }
+            }
+        )
+        return Picker("Game Language", selection: selection) {
+            Text("Auto (\(catalogLocale))").tag("")
+            ForEach(supported, id: \.self) { loc in
+                Text("\(Self.cloudLanguageName(loc)) (\(loc))").tag(loc)
+            }
+        }
+        .id("lang-\(datacenterStoreRevision)")
     }
 
     // MARK: - 5. Reset

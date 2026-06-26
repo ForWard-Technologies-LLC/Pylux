@@ -448,6 +448,19 @@ void Settings::SetCloudLanguagePSCloud(const QString &language)
 	settings.setValue("settings/cloud_language_pscloud", language);
 }
 
+QString Settings::GetCloudStreamLanguage() const
+{
+	// Manual streaming-language override chosen in the language picker. Empty
+	// means "use the catalog locale" (cloud_language_pscloud). Kept separate so
+	// the auto-detected catalog locale never clobbers the user's pick.
+	return settings.value("settings/cloud_stream_language", "").toString();
+}
+
+void Settings::SetCloudStreamLanguage(const QString &language)
+{
+	settings.setValue("settings/cloud_stream_language", language);
+}
+
 QString Settings::GetCloudDatacenterPSCloud() const
 {
 	// Fallback to legacy cloud_datacenter if not set (for migration)

@@ -14,7 +14,6 @@ Rectangle {
     property bool hasFocus: isCurrentItem && GridView.view.activeFocus
     property bool isPsnow: isPsnowGame()
     property string cachedImageUrl: ""
-    property string libraryFilter: "owned" // "owned" or "all" or "favorites" - filter mode for Game Library
     property var qrCodeDialog: null // Reference to QR code dialog
     // In the modern PS Plus catalog (imagic; isPsnow=false) a game you don't own can't be streamed
     // until it's added to your library: Gaikai rejects an unowned PS5 entitlement, and the legacy
@@ -45,24 +44,10 @@ Rectangle {
         return `image://svg/button-${type}#${buttonName}`;
     }
     
+    // The unified catalog (libchiaki) precomputes serviceType for every row; this is a
+    // read-only convenience, NOT a re-derivation.
     function isPsnowGame() {
-        if (!gameData) return false;
-        // Canonical serviceType is authoritative. A pscloud row streams via Gaikai (PS5/cronos)
-        // and is NEVER PS Now, even for PS1-classic CUSA store wrappers (e.g. Worms World Party,
-        // whose owned row is serviceType=pscloud but carries a ...CUSA... productId). The CUSA/PPSA
-        // token heuristic below is only a fallback for rows that have no serviceType.
-        if (gameData.serviceType === "pscloud") return false;
-        if (gameData.serviceType === "psnow" || gameData.category === "streamable")
-            return true;
-        let p = String(streamProductId());
-        if (p.indexOf("CUSA") !== -1) return true;
-        let pp = gameData.playable_platform;
-        if (pp) {
-            let arr = Array.isArray(pp) ? pp : (typeof pp === "string" ? [pp] : []);
-            for (let i = 0; i < arr.length; i++)
-                if (String(arr[i]).indexOf("PS3") !== -1) return true;
-        }
-        return false;
+        return !!(gameData && gameData.serviceType === "psnow");
     }
 
     // Extract game information
@@ -83,110 +68,35 @@ Rectangle {
         return "";
     }
     
-    // Get product ID specifically for API calls (fetchGameDetails)
-    // For PSCloud: returns product_id (not entitlement id)
-    // For PSNOW: returns id (which is the product ID)
+    // productId for the per-game details API (fetchGameDetails). The unified contract
+    // exposes the canonical catalog productId; no platform guessing needed.
     function getProductIdForApi() {
         if (!gameData) return "";
-        if (isPsnow) {
-            // PSNOW: use id as productId
-            return gameData.id || "";
-        } else {
-            // PSCloud: use product_id for API calls (not the entitlement id)
-            if (gameData.product_id) {
-                return gameData.product_id;
-            } else if (gameData.productId) {
-                return gameData.productId;
-            }
-            return "";
-        }
+        return gameData.productId || gameData.product_id || gameData.id || "";
     }
-    
-    // Get the identifier to use for streaming (entitlement ID for PSCloud, product ID for PSNOW)
+
+    // Exact id handed to the streaming session. Precomputed by libchiaki
+    // (chiaki/cloudcatalog.h "streamIdentifier"); read it verbatim.
     function getStreamingIdentifier() {
         if (!gameData) return "";
-        if (isPsnow) return getProductId(); // legacy PS Now browse catalog
-        if (streamPlatform() === "ps4") {
-            // PS4 catalog: send the CUSA product id; Kamaji converts it and acquires the
-            // streaming entitlement via PS Plus (PS4 store containers expose the entitlement).
-            let p = streamProductId();
-            return p !== "" ? p : getProductId();
-        }
-        // PS5 (cronos): stream the owned PS5 entitlement `id`, which the backend resolved from the
-        // entitlement's structured platform_id (the catalog merge stamps the platform-matching PS5
-        // license here). For a classic like Blood Omen that id is ...PPSA24270_00-SLUS000270000000
-        // (NOT the ...-0499... store wrapper product_id, which Gaikai has no game for ->
-        // noGameForEntitlementId). For a cross-gen upgrade (Alan Wake, Death Stranding) the PS5
-        // entitlement id equals its product_id (PPSA01925 / PPSA01968), so it is absent here and we
-        // fall through to the product id. No id-prefix guessing, no force-to-PS5.
-        if (gameData.id) return gameData.id;
-        if (gameData.product_id) return gameData.product_id;
-        if (gameData.productId) return gameData.productId;
-        return "";
+        return gameData.streamIdentifier || getProductId();
     }
-    
+
+    // Platform badge, precomputed (ps3/ps4/ps5).
     function getPlatform() {
-        if (!gameData) return "ps4";
-        if (isPsnow) {
-            // PSNOW games - check playable_platform
-            // Note: When passed from C++ to QML, JSON arrays become QVariantList objects,
-            // not true JavaScript arrays, so we need to handle both cases
-            let playablePlatform = gameData.playable_platform || gameData["playable_platform"];
-            
-            if (playablePlatform) {
-                // Convert to array if it's not already (handles QVariantList from C++)
-                let platformArray = [];
-                if (Array.isArray(playablePlatform)) {
-                    platformArray = playablePlatform;
-                } else if (typeof playablePlatform === "object" && playablePlatform.length !== undefined) {
-                    for (let i = 0; i < playablePlatform.length; i++) {
-                        platformArray.push(playablePlatform[i]);
-                    }
-                } else if (typeof playablePlatform === "string") {
-                    platformArray = [playablePlatform];
-                }
-                
-                // Check each platform in the array
-                for (let i = 0; i < platformArray.length; i++) {
-                    let platform = String(platformArray[i]);
-                    if (platform.indexOf("PS3") !== -1) return "ps3";
-                    if (platform.indexOf("PS4") !== -1) return "ps4";
-                }
-            }
-            return "ps4";
-        } else {
-            return streamPlatform();
-        }
+        return (gameData && gameData.platform) ? gameData.platform : "ps4";
     }
 
-    // The product id to stream. Cloud streaming binds to the *catalog* product variant (the
-    // streamable representative, e.g. God of War's ...GODOFWARN or Alan Wake's PS5 PPSA id),
-    // not the user's owned download/trial/cross-gen entitlement — so prefer catalogProductId.
-    function streamProductId() {
-        if (!gameData) return "";
-        return gameData.catalogProductId || gameData.product_id || gameData.productId || gameData.id || "";
-    }
-
-    // Platform that drives the streaming path (PS4 = kratos/Kamaji, PS5 = cronos). The canonical
-    // signal is serviceType (pscloud == PS5, psnow == PS3/PS4 -> ps4-class), which the backend sets
-    // on PS Now browse rows and fills in for owned cards from PSN's platform_id -- so a cross-buy PS4
-    // entitlement carrying a PS5-looking product_id wrapper is NOT mis-classified. Falls back to the
-    // clean catalog id token only when serviceType is absent. Defaults to PS5 (the modern catalog).
-    function streamPlatform() {
-        if (gameData && gameData.serviceType === "pscloud") return "ps5";
-        if (gameData && gameData.serviceType === "psnow") return "ps4";
-        let p = String(streamProductId());
-        if (p.indexOf("PPSA") !== -1) return "ps5";
-        if (p.indexOf("CUSA") !== -1) return "ps4";
-        return "ps5";
-    }
-
+    // serviceType selects the catalog/shortcut routing (psnow vs pscloud); precomputed.
     function getServiceType() {
-        if (gameData && (gameData.serviceType === "psnow" || gameData.serviceType === "pscloud"))
-            return gameData.serviceType; // canonical value (set on browse rows / from platform_id)
-        if (isPsnow) return "psnow"; // legacy PS Now browse catalog
-        // serviceType selects the Gaikai spec/consts/virtType: psnow = PS4/kratos, pscloud = PS5/cronos.
-        return (streamPlatform() === "ps4") ? "psnow" : "pscloud";
+        return (gameData && gameData.serviceType) ? gameData.serviceType : "pscloud";
+    }
+
+    // The endpoint the stream action targets (may differ from catalog serviceType for
+    // some owned cross-buy rows). Precomputed by libchiaki.
+    function getStreamServiceType() {
+        if (gameData && gameData.streamServiceType) return gameData.streamServiceType;
+        return getServiceType();
     }
     
     function getImageUrl() {
@@ -236,14 +146,6 @@ Rectangle {
                 }
             }
         }
-        return "";
-    }
-    
-    function getPlatformBadge() {
-        let platform = getPlatform();
-        if (platform === "ps5") return "PS5";
-        if (platform === "ps4") return "PS4";
-        if (platform === "ps3") return "PS3";
         return "";
     }
     
@@ -483,7 +385,7 @@ Rectangle {
                     cursorShape: Qt.PointingHandCursor
                     
                     onClicked: {
-                        console.log("[CloudGameCard] Button clicked - isPsnow:", isPsnow, "libraryFilter:", libraryFilter, "gameData:", gameData, "isOwned:", gameData ? gameData.isOwned : "N/A");
+                        console.log("[CloudGameCard] Button clicked - isPsnow:", isPsnow, "gameData:", gameData, "isOwned:", gameData ? gameData.isOwned : "N/A");
                         console.log("[CloudGameCard] qrCodeDialog:", qrCodeDialog);
                         
                         // Check if this is a non-owned game in "All" filter mode
@@ -513,7 +415,7 @@ Rectangle {
                             let platform = getPlatform();
                             let serviceType = getServiceType();
                             if (streamingId !== "") {
-                                streamGame(streamingId, platform, serviceType);
+                                streamGame(streamingId, platform, getStreamServiceType());
                             }
                         }
                     }
@@ -615,7 +517,7 @@ Rectangle {
                 let platform = getPlatform();
                 let serviceType = getServiceType();
                 if (streamingId !== "") {
-                    streamGame(streamingId, platform, serviceType);
+                    streamGame(streamingId, platform, getStreamServiceType());
                     event.accepted = true;
                 }
             }

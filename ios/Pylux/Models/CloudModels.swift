@@ -6,103 +6,63 @@ import os
 
 // MARK: - CloudGame (matches Android CloudGame.kt)
 
-/// Represents a game in the cloud catalog (PSNow or PSCloud)
+/// One game from libchiaki's unified cloud catalog. EVERY field is precomputed by
+/// the lib (chiaki/cloudcatalog.h) — category, serviceType, platform, ownership and
+/// the stream routing values. iOS parses the contract and renders it; it must NOT
+/// re-derive any of these (that logic now lives in one place: lib/src/cloudcatalog_*).
 struct CloudGame: Identifiable, Hashable {
-    let id: String           // catalog productId (PSCloud) or product id (PSNOW)
+    let id: String           // canonical catalog productId + stable dedup key
     let name: String
-    let imageUrl: String     // Cover/box art (type 10)
-    let landscapeImageUrl: String  // Landscape (type 12/13)
-    let platform: String     // "ps4", "ps3", or "ps5"
-    let serviceType: String  // "psnow" or "pscloud"
-    let conceptUrl: String   // URL to add game to library (PS5)
-    let conceptId: String    // Imagic conceptId for catalog dedupe (PS5 cloud)
-    var isOwned: Bool        // Whether user owns this game (PS5)
-    var entitlementId: String   // PSCloud: entitlement id for streaming (Qt gameData.id)
-    var storeProductId: String  // PSCloud: product_id from entitlements API
-    var plusCatalog: Bool    // In the PS Plus subscription catalog (vs the full streamable universe)
-    var featureType: Int     // PSN entitlement feature_type (owned games): 3=full game, 1=trial/free, 0=add-on
-    // Unified-page acquisition tag, assigned once at catalog-assembly time:
-    //   "owned"        -> entitlement resolves to a streamable row (Stream)
-    //   "streamable"   -> not owned, PS Now subscription title (Stream)
-    //   "purchaseable" -> not owned, PS Plus catalog title (Add to Library, then Stream)
-    var category: String
-    // PS5-platform membership from the imagic catalog's authoritative `device` array (contains
-    // "PS5") OR a PPSA product id. Mirrors Qt's isPs5PlatformGame() and is used to decide which
-    // browse rows enter the streamable universe -- NOT the CUSA/PPSA productId token, which
-    // mis-classifies cross-gen titles (a PS4 CUSA SKU that also lists "PS5" in `device`).
-    var isPs5Platform: Bool
+    let imageUrl: String     // portrait / box art
+    let landscapeImageUrl: String
+    let platform: String     // "ps3" | "ps4" | "ps5" (badge; derived from device[])
+    let serviceType: String  // "psnow" | "pscloud" (catalog routing)
+    let conceptUrl: String   // purchase / add-to-library deep link
+    let conceptId: String
+    let isOwned: Bool
+    let entitlementId: String
+    let storeProductId: String
+    let plusCatalog: Bool
+    // Acquisition tag: "owned" (Stream) | "streamable" (Stream) | "purchaseable" (Add to Library).
+    let category: String
+    // Endpoint + exact id the stream action uses (lib-computed; PS3/PS4 -> Kamaji/psnow,
+    // PS5 -> cronos/pscloud). The UI hands these straight to the streaming backend.
+    let streamServiceType: String
+    let streamIdentifier: String
 
-    init(productId: String, name: String, imageUrl: String, landscapeImageUrl: String = "",
-         platform: String = "ps4", serviceType: String = "psnow",
-         conceptUrl: String = "", conceptId: String = "", isOwned: Bool = false,
-         entitlementId: String = "", storeProductId: String = "", plusCatalog: Bool = false,
-         featureType: Int = 0, category: String = "", isPs5Platform: Bool = false) {
-        self.id = productId
+    /// Build from one element of the lib unified-catalog "games" array.
+    init?(contract g: [String: Any]) {
+        guard let pid = g["productId"] as? String, !pid.isEmpty,
+              let name = g["name"] as? String, !name.isEmpty else { return nil }
+        self.id = pid
         self.name = name
-        self.imageUrl = imageUrl
-        self.landscapeImageUrl = landscapeImageUrl.isEmpty ? imageUrl : landscapeImageUrl
-        self.platform = platform
-        self.serviceType = serviceType
-        self.conceptUrl = conceptUrl
-        self.conceptId = conceptId
-        self.isOwned = isOwned
-        self.entitlementId = entitlementId
-        self.storeProductId = storeProductId
-        self.plusCatalog = plusCatalog
-        self.featureType = featureType
-        self.category = category
-        self.isPs5Platform = isPs5Platform
+        let cover = g["imageUrl"] as? String ?? ""
+        self.imageUrl = cover
+        let landscape = g["landscapeImageUrl"] as? String ?? ""
+        self.landscapeImageUrl = landscape.isEmpty ? cover : landscape
+        self.platform = g["platform"] as? String ?? "ps4"
+        // Contract always sets serviceType; default matches Qt's getServiceType() ("pscloud").
+        self.serviceType = g["serviceType"] as? String ?? "pscloud"
+        self.conceptUrl = g["conceptUrl"] as? String ?? ""
+        self.conceptId = g["conceptId"] as? String ?? ""
+        self.isOwned = g["isOwned"] as? Bool ?? false
+        self.entitlementId = g["entitlementId"] as? String ?? ""
+        self.storeProductId = g["storeProductId"] as? String ?? ""
+        self.plusCatalog = g["plusCatalog"] as? Bool ?? false
+        self.category = g["category"] as? String ?? ""
+        let sst = g["streamServiceType"] as? String ?? ""
+        self.streamServiceType = sst.isEmpty ? self.serviceType : sst
+        let sid = g["streamIdentifier"] as? String ?? ""
+        self.streamIdentifier = sid.isEmpty ? pid : sid
     }
+}
 
-    /// Mirrors CloudGameCard.qml getStreamingIdentifier() for PSCloud. PS5/cronos streams the owned
-    /// PS5 entitlement's OWN id (entitlementId), resolved from the entitlement's platform_id during
-    /// cross-reference. For a canonical SKU (Red Dead, Alan Wake) that id == product_id == ...PPSA...;
-    /// for a classic whose product_id is a non-streamable wrapper (Blood Omen) it is the ...PPSA..SLUS
-    /// license. Never a PS4/CUSA cross-buy id (the platform-disciplined merge guarantees this).
-    var streamingIdentifier: String {
-        if serviceType.lowercased() == "pscloud" {
-            if !entitlementId.isEmpty { return entitlementId }
-            if !storeProductId.isEmpty { return storeProductId }
-        }
-        return id
-    }
+// MARK: - Cloud catalog acquisition categories (lib contract "category" values)
 
-    // Platform that drives the streaming path (PS4 = Kamaji, PS5 = cronos). serviceType is the
-    // canonical signal but with one asymmetry: `psnow` is always PS3/PS4-class (set on PS Now browse
-    // rows and filled for owned PS3/PS4 cards from platform_id), while `pscloud` is authoritative ONLY
-    // for OWNED cards (filled from the entitlement's platform_id) -- non-owned imagic browse rows are
-    // blanket-labeled `pscloud` yet include a few PS4 titles, so for those we use the clean id token
-    // (PS4 there streams via PS Now/Kamaji, not cronos). Mirrors canonical Qt, whose non-owned imagic
-    // rows simply carry no serviceType and so fall through to the same token path.
-    var streamPlatform: String {
-        let st = serviceType.lowercased()
-        if st == "psnow" { return "ps4" }
-        // isOwned gate: imagic browse rows are blanket-tagged serviceType="pscloud" (see catalog parse), so
-        // only treat "pscloud" as PS5/cronos when actually OWNED; non-owned rows fall through to the product-id
-        // token below, routing non-owned PS4 imagic titles to PS Now (matches Qt, whose imagic rows carry no
-        // serviceType at all).
-        if st == "pscloud" && isOwned { return "ps5" }
-        let p = !storeProductId.isEmpty ? storeProductId : (!id.isEmpty ? id : entitlementId)
-        if p.contains("PPSA") { return "ps5" }
-        if p.contains("CUSA") { return "ps4" }
-        return platform.isEmpty ? "ps5" : platform
-    }
-
-    /// Service type to stream with: route by the (platform_id-disciplined) streaming platform --
-    /// PS3/PS4 via Kamaji (psnow), PS5 direct (pscloud).
-    var streamServiceType: String {
-        if serviceType.lowercased() == "psnow" { return "psnow" }
-        return streamPlatform == "ps4" ? "psnow" : "pscloud"
-    }
-
-    /// Identifier to send to startCompleteCloudSession: PS4/psnow sends the product id (Kamaji
-    /// converts it to an entitlement); PS5/pscloud sends the owned entitlement id (direct).
-    var streamIdentifier: String {
-        if streamServiceType == "psnow" {
-            return id.isEmpty ? streamingIdentifier : id
-        }
-        return streamingIdentifier
-    }
+enum CloudCategory {
+    static let owned = "owned"
+    static let streamable = "streamable"
+    static let purchaseable = "purchaseable"
 }
 
 // MARK: - CloudStreamSession (matches Android CloudStreamSession.kt)
@@ -128,13 +88,6 @@ struct CloudStreamSession {
 
 /// PS Plus subscription required
 struct PsPlusSubscriptionError: Error, LocalizedError {
-    let message: String
-    var errorDescription: String? { message }
-}
-
-/// Account privacy settings issue
-struct AccountPrivacySettingsError: Error, LocalizedError {
-    let upgradeUrl: String
     let message: String
     var errorDescription: String? { message }
 }
@@ -193,45 +146,8 @@ enum CloudApiConstants {
     static let accountBase = "https://ca.account.sony.com/api"
 }
 
-// MARK: - PS3 / Classics region (mirrors KamajiConsts in gui/include/cloudstreaming/pskamajisession.h)
-
-/// pcnow (the PS Plus PC "Apollo" backend) has only TWO Classics id families:
-///   * SCEA / Americas  -> store MSF192018, US-region ids (UP*/NPUA*/BLUS*),
-///                         PS3 child container "APOLLOPS3GAMES"
-///   * SCEE / PAL (rest) -> store MSF192014, EU-region ids (EP*/NPEA*/NPEB*/BLES*),
-///                         PS3 child container "APOLLOPS3"
-/// JP / Asia have no Apollo store (the PC app isn't offered there), so they fall back to
-/// PAL. A PS Plus account is authorized at Gaikai only for the id family of its own region
-/// group, so we must browse + resolve in the account's group.
-enum ClassicsRegion {
-    private static let americas: Set<String> = [
-        "US", "CA", "MX", "BR", "AR", "CL", "CO", "PE", "EC", "BO",
-        "PY", "UY", "CR", "GT", "HN", "NI", "PA", "SV", "DO"
-    ]
-
-    static func isAmericasClassicsRegion(_ countryCode: String) -> Bool {
-        return americas.contains(countryCode.uppercased())
-    }
-
-    /// Country path to use for container/conversion calls (US for Americas, GB for PAL).
-    static func classicsStoreCountry(_ accountCountry: String) -> String {
-        return isAmericasClassicsRegion(accountCountry) ? "US" : "GB"
-    }
-
-    /// Fully-qualified PS3 catalog container id for the account's region group.
-    static func classicsPs3ContainerId(_ accountCountry: String) -> String {
-        return isAmericasClassicsRegion(accountCountry)
-            ? "STORE-MSF192018-APOLLOPS3GAMES"
-            : "STORE-MSF192014-APOLLOPS3"
-    }
-
-    /// Fully-qualified APOLLOROOT (PS Now: PS3 + PS4) container id for the account's region group.
-    static func apolloRootContainerId(_ accountCountry: String) -> String {
-        return isAmericasClassicsRegion(accountCountry)
-            ? "STORE-MSF192018-APOLLOROOT"
-            : "STORE-MSF192014-APOLLOROOT"
-    }
-}
+// Region-group / Classics-container logic now lives in libchiaki (lib/src/cloudcatalog_consts.c)
+// and is reflected back to the client via the unified catalog's "fallbackRegion" field.
 
 // MARK: - Gaikai Allocation Result
 
@@ -274,8 +190,6 @@ enum CloudLocaleSettings {
         UserDefaults.standard.string(forKey: preferencesKey) ?? defaultStored
     }
 
-    static var imagicLocale: String { stored.lowercased() }
-
     static func unconfiguredWarning() -> String {
         "Could not detect your PlayStation region. The catalog may not match your store."
     }
@@ -287,26 +201,6 @@ enum CloudLocaleSettings {
         var country = parts.count > 1 ? String(parts[1]).uppercased() : "US"
         if country.isEmpty { country = "US" }
         return (country, lang)
-    }
-
-    /// Ordered store locales to try when fetching the catalog. Sony serves a fixed set of
-    /// language-COUNTRY combinations: the country is always valid but the language may not be
-    /// (a Hungarian-language account yields "hu-HU", which 404s, while "en-HU" works). Fall
-    /// back to English for the same country, then en-US, so the catalog loads in every region.
-    /// Each tuple is (canonical "ll-CC" for storage, lowercased "ll-cc" for the imagic URL).
-    static func fallbackChain() -> [(canonical: String, imagic: String)] {
-        let (country, lang) = parseStorePath(stored)
-        var seen = Set<String>()
-        var chain: [(String, String)] = []
-        func add(_ l: String, _ c: String) {
-            let canonical = "\(l)-\(c)"
-            let imagic = canonical.lowercased()
-            if seen.insert(imagic).inserted { chain.append((canonical, imagic)) }
-        }
-        add(lang, country)
-        add("en", country)
-        add("en", "US")
-        return chain
     }
 
     static func fromSession(language: String?, country: String?) -> String? {
@@ -336,6 +230,17 @@ enum CloudLocaleSettings {
             }
         }
         setStored(locale)
+    }
+
+    /// Persist the locale the lib actually settled on (unified catalog "settledLocale"),
+    /// WITHOUT wiping the cache. The lib owns its own cache invalidation; this only keeps
+    /// the locale we pass next time (and the streaming language) in sync with the lib.
+    /// Writes when not yet configured (even when it equals the en-US default, so the
+    /// "couldn't detect region" banner clears) or when the value changed.
+    static func noteSettledLocale(_ value: String) {
+        guard !value.isEmpty, !isConfigured || value != stored else { return }
+        UserDefaults.standard.set(value, forKey: preferencesKey)
+        os_log(.info, log: cloudLocaleLog, "Cloud locale settled by lib: %{public}s", value)
     }
 
     static func setStored(_ value: String) {

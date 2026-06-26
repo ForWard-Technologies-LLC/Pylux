@@ -22,47 +22,5 @@ object PsnApiConstants
 	const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) playstation-now/0.0.0 Chrome/83.0.4103.104 Electron/9.0.4 Safari/537.36 gkApollo"
 	
 	const val PS4_SCOPES = "kamaji:commerce_native kamaji:commerce_container kamaji:lists kamaji:s2s.subscriptionsPremium.get"
-
-	const val ROOT_CONTAINER_ID = "STORE-MSF75508-PSNOWALLGAMES"
-}
-
-/**
- * pcnow ("Apollo") PS Now store helpers, by account region group.
- * Mirrors KamajiConsts (gui/include/cloudstreaming/pskamajisession.h) exactly.
- *
- * pcnow (the PS Plus PC "Apollo" backend) has only TWO region-group store families:
- *   - SCEA / Americas  -> store MSF192018, US-region ids (UP/NPUA/BLUS)
- *   - SCEE / PAL (rest) -> store MSF192014, EU-region ids (EP/NPEA/NPEB/BLES)
- * JP / Asia have no Apollo store (the PC app isn't offered there), so they fall back to
- * PAL. A PS Plus account is authorized at Gaikai only for the id family of its own region
- * group, so the catalog must be browsed + resolved in the account's group. Region is keyed
- * by the ACCOUNT's region group, NOT by parsing the product-id prefix.
- *
- * The APOLLOROOT container is the single PS Now catalog root: ONE walk returns both PS3 and
- * PS4 (distinguished only by playable_platform). It is browsed natively via /user/stores
- * (session base_url) in supported regions, or directly via the public region-group container
- * (no OAuth/session) as a fallback in regions where /user/stores has no storefront (e.g. HU).
- */
-object KamajiClassics
-{
-	private val AMERICAS = setOf(
-		"US", "CA", "MX", "BR", "AR", "CL", "CO", "PE", "EC", "BO", "PY", "UY",
-		"CR", "GT", "HN", "NI", "PA", "SV", "DO"
-	)
-
-	// PS Now catalog root store ids per region group (returns PS3 + PS4 in one walk).
-	const val APOLLOROOT_AMERICAS = "STORE-MSF192018-APOLLOROOT"
-	const val APOLLOROOT_PAL = "STORE-MSF192014-APOLLOROOT"
-
-	fun isAmericasClassicsRegion(countryCode: String): Boolean =
-		AMERICAS.contains(countryCode.uppercase())
-
-	/** Country path to use for container/conversion calls (US for Americas, GB for PAL). */
-	fun classicsStoreCountry(accountCountry: String): String =
-		if (isAmericasClassicsRegion(accountCountry)) "US" else "GB"
-
-	/** Fully-qualified APOLLOROOT (PS Now: PS3 + PS4) container id for the account's region group. */
-	fun apolloRootContainerId(accountCountry: String): String =
-		if (isAmericasClassicsRegion(accountCountry)) APOLLOROOT_AMERICAS else APOLLOROOT_PAL
 }
 

@@ -67,6 +67,7 @@ class DataStore(val preferences: Preferences): PreferenceDataStore()
 		preferences.codecKey -> preferences.codec.value
 		preferences.cloudDatacenterPsnowKey -> preferences.getCloudDatacenterPsnow()
 		preferences.cloudDatacenterPscloudKey -> preferences.getCloudDatacenterPscloud()
+		preferences.cloudLanguageKey -> preferences.getStreamLanguage()
 		preferences.cloudResolutionPscloudKey -> preferences.getCloudResolutionPscloud().toString()
 		preferences.cloudResolutionPsnowKey -> preferences.getCloudResolutionPsnow().toString()
 		preferences.dpadTouchShortcut1Key -> preferences.dpadTouchShortcut1.toString()
@@ -98,6 +99,10 @@ class DataStore(val preferences: Preferences): PreferenceDataStore()
 			}
 			preferences.cloudDatacenterPsnowKey -> preferences.setCloudDatacenterPsnow(value ?: "Auto")
 			preferences.cloudDatacenterPscloudKey -> preferences.setCloudDatacenterPscloud(value ?: "Auto")
+			// Manual streaming-language override. Stored separately from the
+			// catalog locale and does not touch the datacenter; the user picks a
+			// matching datacenter themselves.
+			preferences.cloudLanguageKey -> preferences.setStreamLanguage(value ?: "")
 			preferences.cloudResolutionPscloudKey -> preferences.setCloudResolutionPscloud(value?.toIntOrNull() ?: 720)
 			preferences.cloudResolutionPsnowKey -> preferences.setCloudResolutionPsnow(value?.toIntOrNull() ?: 720)
 			preferences.dpadTouchShortcut1Key -> preferences.dpadTouchShortcut1 = value?.toIntOrNull() ?: Preferences.DPAD_TOUCH_SHORTCUT1_DEFAULT
@@ -124,6 +129,7 @@ class DataStore(val preferences: Preferences): PreferenceDataStore()
 			preferences.dpadTouchIncrementKey -> preferences.dpadTouchIncrement = value
 		}
 	}
+
 }
 
 class SettingsFragment: PreferenceFragmentCompat(), TitleFragment
@@ -207,6 +213,12 @@ class SettingsFragment: PreferenceFragmentCompat(), TitleFragment
 		populateCloudDatacenterPreference(
 			preferenceScreen.findPreference(getString(R.string.preferences_cloud_datacenter_pscloud_key)),
 			preferences.getCloudDatacentersJsonPscloud()
+		)
+
+		// Game language list (Auto + all supported languages).
+		populateCloudLanguagePreference(
+			preferenceScreen.findPreference(getString(R.string.preferences_cloud_language_key)),
+			preferences.getCloudLanguage()
 		)
 
 		bindCloudBitratePreference(
@@ -487,5 +499,43 @@ class SettingsFragment: PreferenceFragmentCompat(), TitleFragment
 			preference.entries = arrayOf("Auto (Best Ping)")
 			preference.entryValues = arrayOf("Auto")
 		}
+	}
+
+	// Display names for cloud-language locales. The locale list itself comes from
+	// libchiaki (chiaki/cloudcatalog.h); only the human-readable names live here.
+	private val cloudLanguageDisplayNames = mapOf(
+		"en-US" to "English",
+		"en-GB" to "English (UK)",
+		"de-DE" to "Deutsch",
+		"fr-FR" to "Français",
+		"fi-FI" to "Suomi",
+		"it-IT" to "Italiano",
+		"es-ES" to "Español",
+		"nl-NL" to "Nederlands",
+		"pt-BR" to "Português (BR)",
+		"ja-JP" to "日本語",
+		"ko-KR" to "한국어"
+	)
+
+	/**
+	 * Populate the game-language dropdown with "Auto" + every supported language.
+	 * Datacenter language support can't be reliably enumerated, so we don't filter
+	 * the list. "Auto" (empty value) clears the override so the auto-detected
+	 * catalog/region locale [catalogLocale] is used instead. Locale list comes from
+	 * libchiaki; the manual pick is stored separately and never auto-overwritten.
+	 */
+	private fun populateCloudLanguagePreference(preference: ListPreference?, catalogLocale: String)
+	{
+		if (preference == null) return
+		val entries = mutableListOf(getString(R.string.preferences_cloud_language_auto, catalogLocale))
+		val values = mutableListOf("")
+		for (loc in com.metallic.chiaki.lib.cloudSupportedLanguages())
+		{
+			entries.add("${cloudLanguageDisplayNames[loc] ?: loc} ($loc)")
+			values.add(loc)
+		}
+		preference.entries = entries.toTypedArray()
+		preference.entryValues = values.toTypedArray()
+		preference.dialogMessage = getString(R.string.preferences_cloud_language_dialog_message)
 	}
 }

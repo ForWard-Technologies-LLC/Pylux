@@ -1,6 +1,8 @@
 #include "qmlsettings.h"
 #include "sessionlog.h"
 
+#include <chiaki/cloudcatalog.h>
+
 #include <QSet>
 #include <QKeySequence>
 #include <QFutureWatcher>
@@ -204,6 +206,32 @@ void QmlSettings::setCloudLanguagePSCloud(const QString &language)
 {
     settings->SetCloudLanguagePSCloud(language);
     emit cloudLanguagePSCloudChanged();
+}
+
+QString QmlSettings::cloudStreamLanguage() const
+{
+    return settings->GetCloudStreamLanguage();
+}
+
+void QmlSettings::setCloudStreamLanguage(const QString &language)
+{
+    settings->SetCloudStreamLanguage(language);
+    emit cloudStreamLanguageChanged();
+}
+
+QStringList QmlSettings::cloudSupportedLanguages() const
+{
+    QStringList list;
+    size_t n = chiaki_cloud_supported_locale_count();
+    for(size_t i = 0; i < n; i++)
+        list.append(QString::fromUtf8(chiaki_cloud_supported_locale(i)));
+    return list;
+}
+
+bool QmlSettings::cloudDatacenterServesLanguage(const QString &datacenterName, const QString &locale) const
+{
+    return chiaki_cloud_datacenter_serves_locale(datacenterName.toUtf8().constData(),
+                                                 locale.toUtf8().constData());
 }
 
 QString QmlSettings::cloudDatacenterPSCloud() const
