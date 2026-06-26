@@ -536,6 +536,20 @@ class SettingsFragment: PreferenceFragmentCompat(), TitleFragment
 		}
 		preference.entries = entries.toTypedArray()
 		preference.entryValues = values.toTypedArray()
-		preference.dialogMessage = getString(R.string.preferences_cloud_language_dialog_message)
+
+		// Keep the inline note short; show the full caveat as a popup only when a
+		// specific language is chosen (matches iOS Cloud Settings behavior).
+		preference.setOnPreferenceChangeListener { _, newValue ->
+			val selected = newValue as? String ?: ""
+			if (selected.isNotEmpty())
+			{
+				context?.alertDialogBuilder()
+					?.setTitle(R.string.preferences_cloud_language_title)
+					?.setMessage(R.string.preferences_cloud_language_dialog_message)
+					?.setPositiveButton(android.R.string.ok, null)
+					?.show()
+			}
+			true
+		}
 	}
 }

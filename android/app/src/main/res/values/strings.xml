@@ -297,6 +297,7 @@
     <string name="preferences_cloud_language_title">Game Language</string>
     <string name="preferences_cloud_language_auto">Auto (%1$s)</string>
     <string name="preferences_cloud_language_dialog_message">Not all regions support every language. A language only works on datacenters that offer it — if your chosen language isn\'t applied, pick a datacenter in a matching region.</string>
+    <string name="preferences_cloud_language_note">Language availability depends on your datacenter\'s region.</string>
     <string name="preferences_pip_enabled_key">pip_enabled</string>
 
     <string name="donation_dialog_title">Support Pylux</string>

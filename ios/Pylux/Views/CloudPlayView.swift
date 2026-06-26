@@ -840,7 +840,20 @@ struct CloudGameCardView: View {
                     bottomOverlay
                 }
 
-                // Layer 3: Top overlays - category badge (left) + star (right)
+                // Layer 3: Platform "console coin" pinned to the bottom-right corner,
+                // mirroring the star in the top-right. Its own layer (not in the name
+                // row) so it never competes with the title for horizontal space.
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        platformCoin
+                            .padding(.trailing, 8)
+                            .padding(.bottom, 8)
+                    }
+                }
+
+                // Layer 4: Top overlays - category badge (left) + star (right)
                 VStack {
                     HStack(alignment: .top, spacing: 0) {
                         categoryBadge
@@ -870,7 +883,7 @@ struct CloudGameCardView: View {
                     Spacer()
                 }
 
-                // Layer 4: Full-card invisible tap target for launching (behind star button)
+                // Layer 5: Full-card invisible tap target for launching (behind star button)
                 Color.clear
                     .contentShape(Rectangle())
                     .onTapGesture(perform: onTap)
@@ -938,25 +951,20 @@ struct CloudGameCardView: View {
     }
 
     private var bottomOverlay: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(platformLabel)
-                .font(.system(size: 9, weight: .heavy))
-                .foregroundColor(platformColor)
-                .padding(.horizontal, 5)
-                .padding(.vertical, 2)
-                .background(
-                    Capsule().fill(platformColor.opacity(0.2))
-                )
-
+        // Name spans the full width; the platform coin lives in its own bottom-right
+        // corner layer, so we just reserve a little trailing inset here to keep a long
+        // 2-line title from running under the coin.
+        HStack(spacing: 0) {
             Text(game.name)
                 .font(.system(size: 12, weight: .bold))
                 .foregroundColor(.white)
                 .lineLimit(2)
                 .multilineTextAlignment(.leading)
                 .shadow(color: .black.opacity(0.8), radius: 2, y: 1)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 8)
+        .padding(.leading, 8)
+        .padding(.trailing, 34)
         .padding(.bottom, 8)
         .padding(.top, 40)
         .background(
@@ -970,6 +978,29 @@ struct CloudGameCardView: View {
             )
         )
         .allowsHitTesting(false)
+    }
+
+    /// Neon platform tag pinned to the bottom-right corner. A flat, translucent
+    /// rounded-rect with a glowing platform-colored outline + text glow, so it reads
+    /// as part of the app's electric-blue theme instead of a floating coin.
+    private var platformCoin: some View {
+        Text(platformLabel)
+            .font(.system(size: 11, weight: .black, design: .rounded))
+            .foregroundColor(.white)
+            .shadow(color: platformColor.opacity(0.95), radius: 3.5) // inner text glow
+            .frame(minWidth: 10)
+            .padding(.horizontal, 4.5)
+            .padding(.vertical, 1.5)
+            .background(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(.black.opacity(0.40))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 5, style: .continuous)
+                            .stroke(platformColor.opacity(0.95), lineWidth: 1)
+                    )
+            )
+            .shadow(color: platformColor.opacity(0.75), radius: 5)   // outer neon glow
+            .allowsHitTesting(false)
     }
 
     /// Platform label without "PS" prefix to avoid trademark

@@ -6,6 +6,49 @@
 // (unified_catalog_v3 [contract schema; was v2 pre-migration], ps5_cloud_catalog_v6,
 // ps5_cloud_library) are shared across platforms so files stay byte-comparable, and
 // the unified read is guarded by schemaVersion so a stale older payload is never served.
+//
+// =============================================================================
+// CONTRIBUTOR NOTES — read this before changing how the catalog is built
+// =============================================================================
+// This file (and its cloudcatalog_*.c siblings) is THE one place where the cloud
+// game library is assembled. Edits here are welcome, but please keep to a few
+// ground rules so the three clients (Qt, Android, iOS) stay in lockstep.
+//
+// 1. ALL catalog logic lives HERE, in libchiaki — never in a client.
+//    Qt/QML, the Android Kotlin layer, and the iOS Swift layer must stay "dumb":
+//    they call chiaki_cloudcatalog_fetch_unified() and render the JSON it returns.
+//    Do NOT re-derive platform, ownership, service type, or identifiers in a
+//    client. If a client needs a new field, ADD IT TO THE CONTRACT HERE (see
+//    cloudcatalog_merge.c) and emit it for everyone — don't special-case one OS.
+//
+// 2. The two sources, and what each is authoritative for:
+//      - imagic  -> owned PS5 cloud games (the PS5 browse universe + your
+//                   entitlements / "plus library" supplement).
+//      - Apollo  -> the PS3/PS4 (PS Now classics) catalog.
+//    Treat them as the source of truth for their own domain. When in doubt about
+//    where a game should come from, prefer imagic for PS5-owned and Apollo for
+//    the PS3/PS4 classics, rather than inventing a heuristic.
+//
+// 3. Apollo can legitimately be unavailable (region not served, expired session).
+//    That is NOT a fatal error. The chain already degrades gracefully: native
+//    APOLLOROOT probe -> public fallback for the account's country -> still serve
+//    the imagic PS5 universe (+ a re-login warning on auth failure). If you touch
+//    the fetch/fallback path, KEEP these fallbacks working — losing your owned PS5
+//    list because Apollo 404'd in someone's region is the exact bug we avoid here.
+//
+// 4. DO NOT pattern-match / regex on title IDs to infer platform or anything else.
+//    Product/title IDs (CUSA####, PPSA####, etc.) vary by region and over time, so
+//    "starts with CUSA" / "looks like PPSA" style checks are brittle and unsafe.
+//    When you must parse an identifier, split on its real structural separators
+//    ('-' and '_') and use the resulting parts — never a regex over the raw ID.
+//    Platform/ownership decisions should come from the source data (device lists,
+//    serviceType, entitlements), not from how an ID happens to be spelled.
+//
+// 5. Keep the cache keys and emitted contract fields stable and shared. The cache
+//    files are meant to be byte-comparable across platforms; if you change the
+//    shape, bump the schema/key version (see CHIAKI_CLOUDCATALOG_SCHEMA_VERSION
+//    and the versioned key names) so stale payloads are never served.
+// =============================================================================
 
 #include "cloudcatalog_internal.h"
 

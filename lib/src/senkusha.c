@@ -485,6 +485,19 @@ static ChiakiErrorCode senkusha_run_rtt_test(ChiakiSenkusha *senkusha, uint16_t 
 	*rtt_us = rtt_us_acc / pings_successful;
 	CHIAKI_LOGI(senkusha->log, "Senkusha determined average RTT = %.3f ms", (float)(*rtt_us) * 0.001f);
 
+	// Cloud-only RTT safety offset. Applied at the single measurement source so every
+	// downstream consumer (latency gate, /datacenters/select, /allocate, settings) sees
+	// the adjusted value with no per-platform call-site changes. Scoped to cloud via the
+	// session's service_type (PSNOW/PSCLOUD) so Remote Play RTT is left untouched.
+	if(senkusha->session && chiaki_service_type_is_cloud(senkusha->session->service_type))
+	{
+		uint64_t offset_us = (uint64_t)CHIAKI_CLOUD_RTT_SAFETY_OFFSET_MS * 1000;
+		uint64_t floor_us = (uint64_t)CHIAKI_CLOUD_RTT_MIN_MS * 1000;
+		*rtt_us = (*rtt_us >= offset_us + floor_us) ? (*rtt_us - offset_us) : floor_us;
+		CHIAKI_LOGI(senkusha->log, "Applied cloud RTT safety offset (-%d ms) -> %.3f ms",
+			CHIAKI_CLOUD_RTT_SAFETY_OFFSET_MS, (float)(*rtt_us) * 0.001f);
+	}
+
 	return CHIAKI_ERR_SUCCESS;
 }
 

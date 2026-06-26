@@ -1124,12 +1124,25 @@ void PSGaikaiStreaming::step11_GetDatacenters()
             return;
         }
         
-        // Save datacenters to settings (without ping results yet) - use service-specific method
-        QJsonDocument datacentersDoc(datacenters);
-        if (serviceType == "pscloud") {
-            settings->SetCloudDatacentersJsonPSCloud(datacentersDoc.toJson(QJsonDocument::Compact));
-        } else {
-            settings->SetCloudDatacentersJsonPSNOW(datacentersDoc.toJson(QJsonDocument::Compact));
+        // Seed the picker with the raw datacenter list ONLY when nothing is saved
+        // yet. Never overwrite a previously-saved list here: it carries real ping
+        // RTTs from a prior Auto run, and manual mode below won't re-ping, so
+        // clobbering it with this no-RTT list would drop the ms from the picker.
+        QString existingDatacentersJson = (serviceType == "pscloud")
+            ? settings->GetCloudDatacentersJsonPSCloud()
+            : settings->GetCloudDatacentersJsonPSNOW();
+        bool hasExistingDatacenters = false;
+        if (!existingDatacentersJson.isEmpty()) {
+            QJsonDocument existingDoc = QJsonDocument::fromJson(existingDatacentersJson.toUtf8());
+            hasExistingDatacenters = existingDoc.isArray() && !existingDoc.array().isEmpty();
+        }
+        if (!hasExistingDatacenters) {
+            QJsonDocument datacentersDoc(datacenters);
+            if (serviceType == "pscloud") {
+                settings->SetCloudDatacentersJsonPSCloud(datacentersDoc.toJson(QJsonDocument::Compact));
+            } else {
+                settings->SetCloudDatacentersJsonPSNOW(datacentersDoc.toJson(QJsonDocument::Compact));
+            }
         }
 
         // Check if a specific datacenter is selected (non-auto)

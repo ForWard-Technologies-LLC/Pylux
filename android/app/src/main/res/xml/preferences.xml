@@ -113,6 +113,13 @@
             app:summary="%s"
             app:defaultValue=""
             app:icon="@drawable/ic_resolution"/>
+
+        <Preference
+            app:key="cloud_language_note"
+            app:summary="@string/preferences_cloud_language_note"
+            app:selectable="false"
+            app:iconSpaceReserved="false"
+            app:persistent="false"/>
     </PreferenceCategory>
 
     <PreferenceCategory

@@ -1017,16 +1017,27 @@ catch (e: Exception)
 		{
 			if (datacenters.length() == 0) return null
 			
-			// Save datacenters to settings (Qt lines 1194-1200)
-			// This saves the raw datacenter list before pinging
-			val datacentersJsonString = datacenters.toString()
-			if (serviceType == "pscloud")
+			// Seed the picker with the raw datacenter list ONLY when nothing is saved
+			// yet. Never overwrite a previously-saved list here: it carries real ping
+			// RTTs from a prior Auto run, and manual mode below won't re-ping, so
+			// clobbering it with this no-RTT list would drop the ms from the picker.
+			val existingDatacentersJson = if (serviceType == "pscloud")
+				preferences.getCloudDatacentersJsonPscloud()
+			else
+				preferences.getCloudDatacentersJsonPsnow()
+			val hasExistingDatacenters = existingDatacentersJson.isNotEmpty() &&
+				try { org.json.JSONArray(existingDatacentersJson).length() > 0 } catch (e: Exception) { false }
+			if (!hasExistingDatacenters)
 			{
-				preferences.setCloudDatacentersJsonPscloud(datacentersJsonString)
-			}
-			else  // psnow
-			{
-				preferences.setCloudDatacentersJsonPsnow(datacentersJsonString)
+				val datacentersJsonString = datacenters.toString()
+				if (serviceType == "pscloud")
+				{
+					preferences.setCloudDatacentersJsonPscloud(datacentersJsonString)
+				}
+				else  // psnow
+				{
+					preferences.setCloudDatacentersJsonPsnow(datacentersJsonString)
+				}
 			}
 			
 			// Check if a specific datacenter is selected (Qt lines 1203-1228)

@@ -415,8 +415,13 @@ final class PSGaikaiStreaming {
                    dc["dataCenter"] as? String ?? "", dc["publicIp"] as? String ?? "", dc["port"] as? Int ?? 0)
         }
 
-        // Raw list for Settings (matches Android step 11 — before ping)
-        CloudDatacenterStore.saveDatacenters(arr, for: serviceType)
+        // Seed the picker with the raw list ONLY when nothing is saved yet. Never
+        // overwrite a previously-saved list here: it carries real ping RTTs from a
+        // prior Auto run, and manual mode won't re-ping, so clobbering it with this
+        // no-RTT list would drop the ms from the picker.
+        if !CloudDatacenterStore.hasStoredDatacenters(for: serviceType) {
+            CloudDatacenterStore.saveDatacenters(arr, for: serviceType)
+        }
 
         return arr
     }
@@ -446,8 +451,13 @@ final class PSGaikaiStreaming {
                 "publicIp": selectedDc["publicIp"] as? String ?? "",
                 "maxBandwidth": maxBw
             ]
-            let forStore = Self.datacenterRowsForManualStore(datacenters: datacenters, selectedName: userChoice, dummyPing: dummyPing)
-            CloudDatacenterStore.saveDatacenters(forStore, for: serviceType)
+            // Only persist the manual/dummy rows when no real measurements exist yet.
+            // Otherwise keep the previously-measured RTTs so the picker still shows the
+            // real ms (manual mode uses a dummy 20ms purely for this stream).
+            if !CloudDatacenterStore.hasStoredDatacenters(for: serviceType) {
+                let forStore = Self.datacenterRowsForManualStore(datacenters: datacenters, selectedName: userChoice, dummyPing: dummyPing)
+                CloudDatacenterStore.saveDatacenters(forStore, for: serviceType)
+            }
             return try submitDatacenterSelection(pingResult: dummyPing, validatePing: false)
         }
 

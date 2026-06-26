@@ -249,6 +249,17 @@ struct StreamPreferences: Codable {
 // MARK: - Datacenter list storage (matches Android cloud_datacenters_json_*)
 
 enum CloudDatacenterStore {
+    /// Whether a non-empty datacenter list is already persisted. Used to avoid
+    /// clobbering previously-measured ping RTTs with a no-RTT/dummy list.
+    static func hasStoredDatacenters(for serviceType: String) -> Bool {
+        let data = serviceType == "pscloud"
+            ? SecureStore.shared.pscloudDatacentersData
+            : SecureStore.shared.psnowDatacentersData
+        guard let data,
+              let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return false }
+        return !arr.isEmpty
+    }
+
     /// Save datacenter list after allocation (called from PSGaikaiStreaming)
     static func saveDatacenters(_ datacenters: [[String: Any]], for serviceType: String) {
         guard let data = try? JSONSerialization.data(withJSONObject: datacenters) else { return }
