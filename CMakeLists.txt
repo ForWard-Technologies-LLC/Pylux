@@ -74,7 +74,7 @@ tri_option(CHIAKI_USE_SYSTEM_CURL "Use system-provided curl instead of submodule
 # CI injects real values from the CHIAKI_VERSION_* lines below at archive time (.github/workflows/deploy-ios.yml).
 set(CHIAKI_VERSION_MAJOR 2)
 set(CHIAKI_VERSION_MINOR 10)
-set(CHIAKI_VERSION_PATCH 21)
+set(CHIAKI_VERSION_PATCH 22)
 set(CHIAKI_VERSION ${CHIAKI_VERSION_MAJOR}.${CHIAKI_VERSION_MINOR}.${CHIAKI_VERSION_PATCH})
 
 configure_file(
