@@ -273,6 +273,53 @@ static MunitResult test_cloud_language_helpers(const MunitParameter params[], vo
 	return MUNIT_OK;
 }
 
+// Phase 2 store-country resolution: parse /container/{COUNTRY}/{lang}/ out of the
+// Sony store base_url. The country drives step0_5d's product->entitlement lookup, so
+// a wrong/partial parse must fail closed (return false, leave outputs empty) rather
+// than feed a malformed container URL.
+static MunitResult test_parse_container_store_locale(const MunitParameter p[], void *data)
+{
+	(void)p; (void)data;
+	char cc[8], lang[8];
+
+	// Happy path: US/en.
+	munit_assert_true(cc_parse_container_store_locale(
+		"https://store.example/container/US/en/19/PPSA01234_00?x=1", cc, sizeof(cc), lang, sizeof(lang)));
+	munit_assert_string_equal(cc, "US");
+	munit_assert_string_equal(lang, "en");
+
+	// Non-English native account (the regression the store_lang fix protects): country
+	// and language are both taken verbatim from the server base_url.
+	munit_assert_true(cc_parse_container_store_locale(
+		"https://store.example/container/FI/fi/19/EP9000-NPEA_00", cc, sizeof(cc), lang, sizeof(lang)));
+	munit_assert_string_equal(cc, "FI");
+	munit_assert_string_equal(lang, "fi");
+
+	// No /container/ segment -> fail closed, outputs empty.
+	munit_assert_false(cc_parse_container_store_locale(
+		"https://store.example/foo/bar/baz", cc, sizeof(cc), lang, sizeof(lang)));
+	munit_assert_string_equal(cc, "");
+	munit_assert_string_equal(lang, "");
+
+	// Empty country segment (//) -> fail.
+	munit_assert_false(cc_parse_container_store_locale(
+		"https://store.example/container//en/19/x", cc, sizeof(cc), lang, sizeof(lang)));
+
+	// Country present but the language segment has no closing slash -> fail.
+	munit_assert_false(cc_parse_container_store_locale(
+		"https://store.example/container/US/en", cc, sizeof(cc), lang, sizeof(lang)));
+
+	// Country segment longer than its buffer -> fail (bounds guard), not truncate.
+	{
+		char tiny[3]; // holds 2 chars + NUL
+		munit_assert_false(cc_parse_container_store_locale(
+			"https://store.example/container/USA/en/19/x", tiny, sizeof(tiny), lang, sizeof(lang)));
+		munit_assert_string_equal(tiny, "");
+	}
+
+	return MUNIT_OK;
+}
+
 MunitTest tests_cloudcatalog_merge[] = {
 	{ "/apollo_dedup", test_apollo_dedup, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/device_based_ps5", test_device_based_ps5, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
@@ -280,5 +327,6 @@ MunitTest tests_cloudcatalog_merge[] = {
 	{ "/crossbuy_sku_sibling", test_crossbuy_sku_sibling, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/sort_and_envelope", test_sort_and_envelope, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/cloud_language_helpers", test_cloud_language_helpers, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
+	{ "/parse_container_store_locale", test_parse_container_store_locale, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ NULL, NULL, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL }
 };

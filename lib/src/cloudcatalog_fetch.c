@@ -214,7 +214,8 @@ static CCNativeResult psnow_session(ChiakiLog *log, const char *code, const char
 }
 
 // Parse .../container/{CC}/{lang}/19/... from a store base_url.
-static bool cc_parse_container_store_locale(const char *base_url,
+// Declared in cloudcatalog_internal.h (exposed for unit tests).
+bool cc_parse_container_store_locale(const char *base_url,
 	char *out_country, size_t cc_sz, char *out_lang, size_t lang_sz)
 {
 	if(out_country && cc_sz)

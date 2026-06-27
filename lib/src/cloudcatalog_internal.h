@@ -180,6 +180,14 @@ typedef enum cc_native_result_t
 } CCNativeResult;
 
 /**
+ * Parse the /container/{COUNTRY}/{lang}/ segments out of a Sony store base_url.
+ * out_country / out_lang are set to "" on failure (each may be NULL to skip).
+ * Returns true only when both segments were present and fit their buffers.
+ */
+bool cc_parse_container_store_locale(const char *base_url,
+	char *out_country, size_t cc_sz, char *out_lang, size_t lang_sz);
+
+/**
  * Authenticated PS Now APOLLOROOT probe. On CC_NATIVE_OK, *out_games is a new array.
  * Also reports the account region signal from the Kamaji session: out_country /
  * out_language receive data.country / data.language (each may be NULL to skip, and
