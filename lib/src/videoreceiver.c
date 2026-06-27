@@ -158,6 +158,19 @@ CHIAKI_EXPORT void chiaki_video_receiver_av_packet(ChiakiVideoReceiver *video_re
 	}
 }
 
+// Account a frame loss in both counters at the moment it happens: frames_lost is
+// consumed by the decoder callback (for concealment) and reset after each delivered
+// frame, while cumulative_frames_lost is the never-reset session total shown by the
+// stats overlay. Counting here keeps that total accurate even on loss paths that
+// return before the next successful flush. No effect on decode/FEC/flush behavior.
+static inline void video_receiver_account_lost(ChiakiVideoReceiver *video_receiver, int32_t lost)
+{
+	if(lost < 0)
+		lost = 0;
+	video_receiver->frames_lost += lost;
+	video_receiver->cumulative_frames_lost += (uint64_t)lost;
+}
+
 static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *video_receiver)
 {
 	uint8_t *frame;
@@ -168,7 +181,7 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 	{
 		ChiakiSeqNum16 next_frame_expected = (ChiakiSeqNum16)(video_receiver->frame_index_prev_complete + 1);
 		stream_connection_send_corrupt_frame(&video_receiver->session->stream_connection, next_frame_expected, video_receiver->frame_index_cur);
-		video_receiver->frames_lost += video_receiver->frame_index_cur - next_frame_expected + 1;
+		video_receiver_account_lost(video_receiver, video_receiver->frame_index_cur - next_frame_expected + 1);
 		video_receiver->frame_index_prev_complete = video_receiver->frame_index_cur;
 		video_receiver->frame_index_prev = video_receiver->frame_index_cur;
 		CHIAKI_LOGW(video_receiver->log, "FEC failed for frame %d, requesting resend", (int)video_receiver->frame_index_cur);
@@ -207,7 +220,7 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 				}
 				if(!recovered)
 				{
-					video_receiver->frames_lost++;
+					video_receiver_account_lost(video_receiver, 1);
 					CHIAKI_LOGW(video_receiver->log, "Missing reference frame %d for decoding frame %d", (int)ref_frame_index, (int)video_receiver->frame_index_cur);
 					video_receiver->frame_index_prev = video_receiver->frame_index_cur;
 					video_receiver->frame_index_prev_complete = video_receiver->frame_index_cur;
@@ -220,7 +233,8 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 	if(succ && video_receiver->session->video_sample_cb)
 	{
 		bool cb_succ = video_receiver->session->video_sample_cb(frame, frame_size, video_receiver->frames_lost, recovered, video_receiver->session->video_sample_cb_user);
-		video_receiver->cumulative_frames_lost += (uint64_t)video_receiver->frames_lost;
+		// cumulative_frames_lost is incremented at each loss site (video_receiver_account_lost),
+		// so only reset the per-callback counter here to avoid double-counting.
 		video_receiver->frames_lost = 0;
 		if(!cb_succ)
 		{

@@ -149,16 +149,23 @@ jobs:
         if: ${{ inputs.build_apk }}
         working-directory: android
         run: |
+          # abiFilters produces per-ABI split APKs; pin to arm64-v8a (covers virtually
+          # all modern phones/tablets/TV) so we never ship a stray x86_64 split to testers.
+          ABI=arm64-v8a
           if [ "$SIGNING_CONFIGURED" = "true" ]; then
-            echo "Signing configured — building signed release APK"
+            echo "Signing configured — building signed release APK ($ABI)"
             ./gradlew assembleRelease \
+              -Pandroid.injected.build.abi="$ABI" \
               --parallel --build-cache -Dorg.gradle.java.home="$JAVA_HOME"
           else
-            echo "::warning::No signing configured — building debug APK (self-signed, still installable for testing)"
+            echo "::warning::No signing configured — building debug APK ($ABI, self-signed, still installable for testing)"
             ./gradlew assembleDebug \
+              -Pandroid.injected.build.abi="$ABI" \
               --parallel --build-cache -Dorg.gradle.java.home="$JAVA_HOME"
           fi
-          APK="$(find app/build/outputs/apk -name '*.apk' | sort | tail -1)"
+          # Prefer the arm64-v8a APK; fall back to the newest APK by mtime if naming differs.
+          APK="$(find app/build -name "*${ABI}*.apk" -print0 2>/dev/null | xargs -0 ls -t 2>/dev/null | head -1)"
+          [ -n "$APK" ] || APK="$(find app/build -name '*.apk' -print0 2>/dev/null | xargs -0 ls -t 2>/dev/null | head -1)"
           test -n "$APK" || { echo "::error::No APK produced"; exit 1; }
           SHORT_SHA="$(git rev-parse --short HEAD)"
           DEST="pylux-${{ steps.extract_version.outputs.version }}-${SHORT_SHA}.apk"
@@ -192,7 +199,7 @@ jobs:
           fi
 
       - name: Determine Google Play track
-        if: env.UPLOAD_ENABLED == 'true'
+        if: ${{ env.UPLOAD_ENABLED == 'true' && !inputs.build_apk }}
         run: |
           if [ "${{ github.ref_name }}" = "master" ]; then
             TRACK=production
@@ -204,7 +211,7 @@ jobs:
 
       - name: Upload AAB to Google Play
         id: upload_play
-        if: env.UPLOAD_ENABLED == 'true'
+        if: ${{ env.UPLOAD_ENABLED == 'true' && !inputs.build_apk }}
         working-directory: android
         env:
           # Same value Gradle uses (extract-version semver_build_id); avoids Fastlane relying on a solo Gradle invoke.
