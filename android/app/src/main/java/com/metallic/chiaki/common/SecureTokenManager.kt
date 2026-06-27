@@ -60,13 +60,20 @@ class SecureTokenManager(context: Context)
 	{
 		try
 		{
+			// Only drop the cached catalog when the token actually changes. Re-auth paths
+			// can re-save the same npsso (e.g. token re-exchange after an expired access
+			// token), which is not an account change and must not wipe the 24h cache.
+			val changed = (encryptedPrefs.getString(KEY_NPSSO_TOKEN, "") ?: "") != token
 			encryptedPrefs.edit()
 				.putString(KEY_NPSSO_TOKEN, token)
 				.apply()
 			Log.i(TAG, "NPSSO token saved securely")
-			// Account changed (login / token re-entry): drop the cached catalog so the next
-			// fetch re-resolves owned games for this account instead of serving the old one's.
-			CloudGameRepository.invalidateCatalogCache(appContext, "account login")
+			if (changed)
+			{
+				// Account changed (login / token re-entry): drop the cached catalog so the next
+				// fetch re-resolves owned games for this account instead of serving the old one's.
+				CloudGameRepository.invalidateCatalogCache(appContext, "account login")
+			}
 		}
 		catch (e: Exception)
 		{

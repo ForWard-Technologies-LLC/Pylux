@@ -982,6 +982,11 @@ QString Settings::GetNpssoToken() const
 
 void Settings::SetNpssoToken(QString npsso_token)
 {
+	// No-op when the token is unchanged so we don't needlessly drop the cloud catalog
+	// cache. Re-auth paths can re-write the same npsso (e.g. token re-exchange after an
+	// expired access token), and that is not an account change.
+	if(settings.value("settings/psn_npsso_token").toString() == npsso_token)
+		return;
 	settings.setValue("settings/psn_npsso_token", npsso_token);
 	// Fires on login, logout, and token re-entry (not on periodic auth/refresh-token
 	// renewals, which don't touch the npsso). Listeners use this to drop the cached
