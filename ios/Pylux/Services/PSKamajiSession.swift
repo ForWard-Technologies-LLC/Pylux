@@ -149,13 +149,13 @@ final class PSKamajiSession {
     // region-group store. Driven by the account-level fallback flag; PS3 and PS4 behave identically.
     private func step0_5d_ConvertProductId(sessionId: String) -> ProductConversion? {
         let resolvedCountry = SecureStore.shared.cloudResolvedStoreCountry
+        let storePath = CloudLocaleSettings.parseStorePath(CloudLocaleSettings.stored)
         let country: String
         let language: String
         if !resolvedCountry.isEmpty {
             country = resolvedCountry
-            language = "en"
+            language = storePath.language
         } else {
-            let storePath = CloudLocaleSettings.parseStorePath(CloudLocaleSettings.stored)
             country = storePath.country
             language = storePath.language
         }

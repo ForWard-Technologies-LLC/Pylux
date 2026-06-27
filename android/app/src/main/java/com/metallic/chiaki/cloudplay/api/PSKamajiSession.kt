@@ -309,11 +309,12 @@ class PSKamajiSession(
 		try
 		{
 		val resolvedCountry = preferences.getCloudResolvedStoreCountry()
+		val localeSetting = preferences.getCloudStoreLocale()
+		val parsedLocale = com.metallic.chiaki.cloudplay.CloudLocale.parseStorePath(localeSetting)
 		val (country, language) = if (resolvedCountry.isNotEmpty()) {
-			resolvedCountry to "en"
+			resolvedCountry to parsedLocale.second
 		} else {
-			val localeSetting = preferences.getCloudStoreLocale()
-			com.metallic.chiaki.cloudplay.CloudLocale.parseStorePath(localeSetting)
+			parsedLocale
 		}
 		Log.i(TAG, "step0_5d: using resolvedStoreCountry=$country (lang=$language) for container URL")
 		val url = "$storeBase/container/$country/$language/19/$productId?useOffers=true&gkb=1&gkb2=1"

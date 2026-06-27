@@ -318,18 +318,20 @@ void PSKamajiSession::handleAnonSessionResponse(QNetworkReply *reply)
 void PSKamajiSession::step0_5d_ConvertProductId()
 {
     // Server-authoritative store country from unified catalog (fallbackRegion).
+    QString localeSetting = settings ? settings->GetCloudStoreLocale() : QStringLiteral("en-US");
+    QString locale = localeSetting.toLower();
+    QStringList localeParts = locale.split("-");
+    const QString localeLang = localeParts.size() > 0 ? localeParts[0].toLower() : QStringLiteral("en");
+    const QString localeCountry = localeParts.size() > 1 ? localeParts[1].toUpper() : QStringLiteral("US");
     QString resolvedCountry = settings ? settings->GetCloudResolvedStoreCountry() : QString();
     QString country;
     QString language;
     if (!resolvedCountry.isEmpty()) {
         country = resolvedCountry;
-        language = QStringLiteral("en");
+        language = localeLang;
     } else {
-        QString localeSetting = settings ? settings->GetCloudStoreLocale() : "en-US";
-        QString locale = localeSetting.toLower();
-        QStringList localeParts = locale.split("-");
-        country = localeParts.size() > 1 ? localeParts[1].toUpper() : "US";
-        language = localeParts[0].toLower();
+        country = localeCountry;
+        language = localeLang;
     }
     qInfo() << "Kamaji step0_5d: using resolvedStoreCountry=" << country << "(lang=" << language << ") for container URL";
 
