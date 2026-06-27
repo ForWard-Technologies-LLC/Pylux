@@ -317,25 +317,21 @@ void PSKamajiSession::handleAnonSessionResponse(QNetworkReply *reply)
 // ============================================================================
 void PSKamajiSession::step0_5d_ConvertProductId()
 {
-    // Get locale from unified language setting
-    QString localeSetting = settings ? settings->GetCloudStoreLocale() : "en-US";
-    QString locale = localeSetting.toLower(); // Convert "en-US" to "en-us"
-    
-    // Extract country and language from locale (e.g., "en-us" -> "US", "en")
-    QStringList localeParts = locale.split("-");
-    QString country = localeParts.size() > 1 ? localeParts[1].toUpper() : "US";
-    QString language = localeParts[0].toLower();
-
-    // Region-group fallback: when /user/stores has no storefront for the account's region, the
-    // PS Now catalog (PS3 + PS4) was browsed from the public region-group APOLLOROOT container
-    // (US for Americas, GB for PAL), so its product ids must be RESOLVED against that same
-    // region-group store. Driven by the account-level fallback flag; PS3 and PS4 behave identically.
-    if (settings && settings->IsCloudCatalogIsForeign()) {
-        country = settings->GetCloudResolvedStoreCountry();
+    // Server-authoritative store country from unified catalog (fallbackRegion).
+    QString resolvedCountry = settings ? settings->GetCloudResolvedStoreCountry() : QString();
+    QString country;
+    QString language;
+    if (!resolvedCountry.isEmpty()) {
+        country = resolvedCountry;
         language = QStringLiteral("en");
-        qInfo() << "Kamaji Step 0.5d: Fallback mode -> region-group container: country="
-                << country << "language=" << language;
+    } else {
+        QString localeSetting = settings ? settings->GetCloudStoreLocale() : "en-US";
+        QString locale = localeSetting.toLower();
+        QStringList localeParts = locale.split("-");
+        country = localeParts.size() > 1 ? localeParts[1].toUpper() : "US";
+        language = localeParts[0].toLower();
     }
+    qInfo() << "Kamaji step0_5d: using resolvedStoreCountry=" << country << "(lang=" << language << ") for container URL";
 
     QString url = QString("https://psnow.playstation.com/store/api/pcnow/00_09_000/container/%1/%2/19/%3?useOffers=true&gkb=1&gkb2=1")
         .arg(country, language, productId);

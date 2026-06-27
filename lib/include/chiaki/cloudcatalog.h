@@ -56,7 +56,7 @@ typedef struct chiaki_cloudcatalog_result_t
  *     "schemaVersion": 2,
  *     "total": <int>,
  *     "nativeMode": <bool>,            // true when the authenticated PS Now walk succeeded
- *     "fallbackRegion": "US"|"GB"|"",  // region-group store country in public fallback; "" when native
+ *     "fallbackRegion": "US"|"GB"|...,  // server-authoritative store country for container URLs
  *     "settledLocale": "en-US",        // locale the lib resolved (account region from the Kamaji
  *                                      // session re-bases the caller locale, then the imagic store-
  *                                      // locale chain settles); clients persist this verbatim

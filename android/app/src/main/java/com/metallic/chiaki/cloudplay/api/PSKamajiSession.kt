@@ -308,23 +308,14 @@ class PSKamajiSession(
 	{
 		try
 		{
-		val localeSetting = preferences.getCloudStoreLocale()
-		var (country, language) = com.metallic.chiaki.cloudplay.CloudLocale.parseStorePath(localeSetting)
-		Log.i(TAG, "Using locale from settings: $localeSetting -> country=$country, language=$language")
-
-		// Region-group fallback: when /user/stores has no storefront for the account's region, the
-		// PS Now catalog (PS3 + PS4) was browsed from the public region-group APOLLOROOT container
-		// (US for Americas, GB for PAL), so its product ids must be RESOLVED against that same
-		// region-group store -- the account's own locale country would 404 ("Storefront not found").
-		// Driven by the account-level fallback flag, so PS3 and PS4 behave identically. In native
-		// mode the account's own locale resolves both.
-		val fallbackRegion = preferences.getCloudResolvedStoreCountry()
-		if (fallbackRegion.isNotEmpty())
-		{
-			country = fallbackRegion
-			language = "en"
-			Log.i(TAG, "Fallback mode -> region-group container: country=$country, language=$language")
+		val resolvedCountry = preferences.getCloudResolvedStoreCountry()
+		val (country, language) = if (resolvedCountry.isNotEmpty()) {
+			resolvedCountry to "en"
+		} else {
+			val localeSetting = preferences.getCloudStoreLocale()
+			com.metallic.chiaki.cloudplay.CloudLocale.parseStorePath(localeSetting)
 		}
+		Log.i(TAG, "step0_5d: using resolvedStoreCountry=$country (lang=$language) for container URL")
 		val url = "$storeBase/container/$country/$language/19/$productId?useOffers=true&gkb=1&gkb2=1"
 			
 			Log.d(TAG, "Step 0.5d: Convert Product ID")

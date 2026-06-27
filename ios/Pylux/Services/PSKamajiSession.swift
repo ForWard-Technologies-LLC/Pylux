@@ -148,19 +148,21 @@ final class PSKamajiSession {
     // (US for Americas, GB for PAL), so its product ids must be RESOLVED against that same
     // region-group store. Driven by the account-level fallback flag; PS3 and PS4 behave identically.
     private func step0_5d_ConvertProductId(sessionId: String) -> ProductConversion? {
-        let storePath = CloudLocaleSettings.parseStorePath(CloudLocaleSettings.stored)
-        var country = storePath.country
-        var language = storePath.language
-        let fallbackRegion = SecureStore.shared.cloudResolvedStoreCountry
-        if !fallbackRegion.isEmpty {
-            country = fallbackRegion
+        let resolvedCountry = SecureStore.shared.cloudResolvedStoreCountry
+        let country: String
+        let language: String
+        if !resolvedCountry.isEmpty {
+            country = resolvedCountry
             language = "en"
-            os_log(.info, log: kamajiLog,
-                   "Fallback mode -> region-group container: country=%{public}s, language=%{public}s",
-                   country, language)
+        } else {
+            let storePath = CloudLocaleSettings.parseStorePath(CloudLocaleSettings.stored)
+            country = storePath.country
+            language = storePath.language
         }
+        os_log(.info, log: kamajiLog,
+               "step0_5d: using resolvedStoreCountry=%{public}s (lang=%{public}s) for container URL",
+               country, language)
         let url = "\(storeBase)/container/\(country)/\(language)/19/\(productId)?useOffers=true&gkb=1&gkb2=1"
-        os_log(.info, log: kamajiLog, "Store container locale: %{public}s", CloudLocaleSettings.stored)
 
         guard let response = CloudHttpClient.get(url: url, headers: [
             "Accept": "application/json",

@@ -165,11 +165,20 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_cloudcatalog_fetch_unified(
 	const char *warning = "";
 	struct json_object *apollo = NULL;
 	char acct_country[8] = "", acct_language[8] = "";
+	char store_country[8] = "", store_lang[8] = "";
 
 	CCNativeResult nr = cc_fetch_psnow_native(log, npsso, &apollo,
-		acct_country, sizeof(acct_country), acct_language, sizeof(acct_language));
+		acct_country, sizeof(acct_country), acct_language, sizeof(acct_language),
+		store_country, sizeof(store_country), store_lang, sizeof(store_lang));
 	if(nr == CC_NATIVE_OK)
+	{
 		native = true;
+		if(store_country[0])
+		{
+			snprintf(fallback_region, sizeof(fallback_region), "%s", store_country);
+			CHIAKI_LOGI(log, "[UNIFIED] resolvedStoreCountry=%s (native base_url)", store_country);
+		}
+	}
 	else if(nr == CC_NATIVE_AUTH_ERROR)
 	{
 		auth_error = true;
@@ -188,6 +197,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_cloudcatalog_fetch_unified(
 			account_country_from_locale(locale, cc, sizeof(cc));
 		apollo = cc_fetch_apollo_fallback(log, cc);
 		snprintf(fallback_region, sizeof(fallback_region), "%s", cc_classics_store_country(cc));
+		CHIAKI_LOGI(log, "[UNIFIED] resolvedStoreCountry=%s (fallback cc_classics)", fallback_region);
 	}
 	if(!apollo)
 		apollo = json_object_new_array();

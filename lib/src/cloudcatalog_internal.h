@@ -185,9 +185,12 @@ typedef enum cc_native_result_t
  * out_language receive data.country / data.language (each may be NULL to skip, and
  * is set to "" when unavailable). These are populated even on
  * CC_NATIVE_REGION_UNSUPPORTED (session succeeded, /user/stores 404'd).
+ * out_store_country / out_store_lang receive the /container/{CC}/{lang}/ segments
+ * parsed from the server base_url on CC_NATIVE_OK (empty when unavailable).
  */
 CCNativeResult cc_fetch_psnow_native(ChiakiLog *log, const char *npsso, struct json_object **out_games,
-	char *out_country, size_t cc_sz, char *out_language, size_t lang_sz);
+	char *out_country, size_t cc_sz, char *out_language, size_t lang_sz,
+	char *out_store_country, size_t store_cc_sz, char *out_store_lang, size_t store_lang_sz);
 
 /** Public APOLLOROOT fallback pagination for @p account_country. New array or NULL. */
 struct json_object *cc_fetch_apollo_fallback(ChiakiLog *log, const char *account_country);

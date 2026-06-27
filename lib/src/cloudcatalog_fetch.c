@@ -213,9 +213,49 @@ static CCNativeResult psnow_session(ChiakiLog *log, const char *code, const char
 	return result;
 }
 
+// Parse .../container/{CC}/{lang}/19/... from a store base_url.
+static bool cc_parse_container_store_locale(const char *base_url,
+	char *out_country, size_t cc_sz, char *out_lang, size_t lang_sz)
+{
+	if(out_country && cc_sz)
+		out_country[0] = 0;
+	if(out_lang && lang_sz)
+		out_lang[0] = 0;
+	const char *p = strstr(base_url, "/container/");
+	if(!p)
+		return false;
+	p += strlen("/container/");
+	const char *slash = strchr(p, '/');
+	if(!slash || slash == p)
+		return false;
+	size_t cc_len = (size_t)(slash - p);
+	if(!cc_len || cc_len >= cc_sz)
+		return false;
+	if(out_country && cc_sz)
+	{
+		memcpy(out_country, p, cc_len);
+		out_country[cc_len] = 0;
+	}
+	p = slash + 1;
+	slash = strchr(p, '/');
+	if(!slash || slash == p)
+		return false;
+	size_t lang_len = (size_t)(slash - p);
+	if(!lang_len || lang_len >= lang_sz)
+		return false;
+	if(out_lang && lang_sz)
+	{
+		memcpy(out_lang, p, lang_len);
+		out_lang[lang_len] = 0;
+	}
+	return true;
+}
+
 // GET /user/stores -> base_url. Returns CC_NATIVE_OK or CC_NATIVE_REGION_UNSUPPORTED.
 static CCNativeResult psnow_stores(ChiakiLog *log, const char *jsession,
-                                   char *out_base_url, size_t url_sz)
+                                   char *out_base_url, size_t url_sz,
+                                   char *out_store_country, size_t cc_sz,
+                                   char *out_store_lang, size_t lang_sz)
 {
 	char *cookie = NULL;
 	cc_http_make_cookie_header(&cookie, "JSESSIONID", jsession);
@@ -245,6 +285,7 @@ static CCNativeResult psnow_stores(ChiakiLog *log, const char *jsession,
 			if(*base)
 			{
 				snprintf(out_base_url, url_sz, "%s", base);
+				cc_parse_container_store_locale(base, out_store_country, cc_sz, out_store_lang, lang_sz);
 				result = CC_NATIVE_OK;
 			}
 		}
@@ -359,13 +400,18 @@ static void psnow_fetch_category(ChiakiLog *log, const char *cat_url, struct jso
 }
 
 CCNativeResult cc_fetch_psnow_native(ChiakiLog *log, const char *npsso, struct json_object **out_games,
-	char *out_country, size_t cc_sz, char *out_language, size_t lang_sz)
+	char *out_country, size_t cc_sz, char *out_language, size_t lang_sz,
+	char *out_store_country, size_t store_cc_sz, char *out_store_lang, size_t store_lang_sz)
 {
 	*out_games = NULL;
 	if(out_country && cc_sz)
 		out_country[0] = 0;
 	if(out_language && lang_sz)
 		out_language[0] = 0;
+	if(out_store_country && store_cc_sz)
+		out_store_country[0] = 0;
+	if(out_store_lang && store_lang_sz)
+		out_store_lang[0] = 0;
 	if(!npsso || !*npsso)
 		return CC_NATIVE_AUTH_ERROR;
 
@@ -387,7 +433,8 @@ CCNativeResult cc_fetch_psnow_native(ChiakiLog *log, const char *npsso, struct j
 	CHIAKI_LOGI(log, "[PSNOW] Session created, fetching stores");
 
 	char base_url[1024];
-	r = psnow_stores(log, jsession, base_url, sizeof(base_url));
+	r = psnow_stores(log, jsession, base_url, sizeof(base_url),
+		out_store_country, store_cc_sz, out_store_lang, store_lang_sz);
 	if(r != CC_NATIVE_OK)
 		return r; // region unsupported -> caller does public fallback
 	CHIAKI_LOGI(log, "[PSNOW] Stores OK, base_url=%s", base_url);
