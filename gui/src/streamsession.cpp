@@ -580,6 +580,27 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 			average_packet_loss = packet_loss;
 			emit AveragePacketLossChanged();
 		}
+
+		// FPS and live RTT are computed in libchiaki from the periodic
+		// CONNECTIONQUALITY message; just surface the latest values for the overlay.
+		double fps = session.stream_connection.measured_fps;
+		if(fps != measured_fps)
+		{
+			measured_fps = fps;
+			emit MeasuredFpsChanged();
+		}
+		double rtt = session.stream_connection.measured_rtt_ms;
+		if(rtt != measured_rtt)
+		{
+			measured_rtt = rtt;
+			emit MeasuredRttChanged();
+		}
+		QString res = GetResolution();
+		if(res != resolution_str)
+		{
+			resolution_str = res;
+			emit ResolutionChanged();
+		}
 	});
 
 	// Initialize GameLauncher if game_name is set

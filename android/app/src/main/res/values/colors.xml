@@ -9,6 +9,8 @@
     <color name="stream_text">@android:color/white</color>
     <color name="stream_background">@android:color/black</color>
     <color name="stream_overlay_background">#77000000</color>
+    <!-- Slightly lighter than the control bar so the stats row contrasts less (matches iOS 0.4 black). -->
+    <color name="stream_stats_background">#66000000</color>
 
     <color name="floating_action_button_speed_dial_background">#4A9EFF</color>
     <color name="floating_action_button_speed_dial_tint">#ffffff</color>

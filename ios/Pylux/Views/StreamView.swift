@@ -37,6 +37,11 @@ struct StreamView: View {
     @State private var displayMode: DisplayMode = .fit
     @State private var onScreenControls: Bool
     @State private var touchpadOnly: Bool
+    @State private var showStats: Bool
+    @State private var statsText: String = ""
+    /// Previous cumulative dropped-frame total so the overlay can show drops *this tick*
+    /// (per second) instead of a lifetime total. -1 = uninitialized.
+    @State private var lastDroppedFrames: Int64 = -1
     @State private var showQuitAlert = false
     @State private var showErrorAlert = false
     @State private var errorMessage = ""
@@ -56,6 +61,7 @@ struct StreamView: View {
         let fullOn = prefs.onScreenControlsEnabled
         _onScreenControls = State(initialValue: tpOnly ? false : fullOn)
         _touchpadOnly = State(initialValue: tpOnly)
+        _showStats = State(initialValue: prefs.streamStatsOverlayEnabled)
         _session = StateObject(wrappedValue: StreamSession(connectInfo: connectInfo, input: StreamInput()))
     }
 
@@ -63,7 +69,30 @@ struct StreamView: View {
         var p = StreamPreferences.load()
         p.onScreenControlsEnabled = onScreenControls
         p.touchpadOnlyEnabled = touchpadOnly
+        p.streamStatsOverlayEnabled = showStats
         p.save()
+    }
+
+    private var isConnected: Bool {
+        if case .connected = session.state { return true }
+        return false
+    }
+
+    /// Single compact top row with short labels, e.g.
+    /// "4.7 Mbps • PL 1.1% • DF/s 0 • 60 FPS • 90 ms • 1280×720".
+    private func updateStats() {
+        // No native read unless the overlay is actually showing — zero cost when off.
+        guard showStats, isConnected, let m = session.metrics() else { return }
+        let drops: Int64 = lastDroppedFrames < 0 ? 0 : max(0, Int64(m.droppedFrames) - lastDroppedFrames)
+        lastDroppedFrames = Int64(m.droppedFrames)
+        var parts: [String] = []
+        parts.append(String(format: "%.1f Mbps", m.bitrateMbps))
+        parts.append(String(format: "PL %.1f%%", m.packetLoss * 100.0))
+        parts.append("DF/s \(drops)")
+        parts.append(String(format: "%.0f FPS", m.fps))
+        if m.rttMs > 0 { parts.append(String(format: "%.0f ms", m.rttMs)) }
+        parts.append("\(m.width)×\(m.height)")
+        statsText = parts.joined(separator: "   •   ")
     }
 
     var body: some View {
@@ -95,6 +124,26 @@ struct StreamView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .ignoresSafeArea()
             .allowsHitTesting(true)
+
+            // Performance stats overlay: single top-centered row. Stays visible while
+            // toggled on and connected, independent of the auto-hiding control bar.
+            if showStats, isConnected {
+                VStack {
+                    Text(statsText)
+                        .font(.system(size: 12, weight: .regular, design: .monospaced))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 5)
+                        .background(Color.black.opacity(0.4))
+                        .cornerRadius(6)
+                        .padding(.top, 1)
+                        .allowsHitTesting(false)
+                    Spacer()
+                }
+                .transition(.opacity)
+            }
 
             // Bottom overlay bar (matches Android's stream overlay)
             if showOverlay {
@@ -176,6 +225,15 @@ struct StreamView: View {
             if !on && !onScreenControls { session.input.clearTouchOverlayState() }
             persistStreamOverlayPreferences()
         }
+        .onChange(of: showStats) { on in
+            if on { lastDroppedFrames = -1 } // first tick reads 0, not the lifetime total
+            persistStreamOverlayPreferences()
+        }
+        // Refresh the overlay once per second to match libchiaki's CONNECTIONQUALITY
+        // cadence. The closure no-ops (no native read) unless the overlay is showing.
+        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
+            updateStats()
+        }
         .onDisappear {
             session.input.clearTouchOverlayState()
             AppOrientationLock.unlockAfterStream()
@@ -194,6 +252,7 @@ struct StreamView: View {
                 if let view = videoHostView {
                     session.attachToView(view)
                 }
+                lastDroppedFrames = -1 // reset stats baseline for the new session
                 donationCoordinator.markConnected()
                 donationCoordinator.scheduleOfferIfEligible()
             case .quit(_, _):
@@ -262,6 +321,13 @@ struct StreamView: View {
 
             // Touchpad Only toggle (matches Android's touchpadOnlySwitch)
             Toggle("Touchpad only", isOn: $touchpadOnly)
+                .toggleStyle(.switch)
+                .font(.system(size: 13))
+                .foregroundColor(.white)
+                .fixedSize()
+
+            // Performance stats overlay toggle (matches Android's statsSwitch)
+            Toggle("Stats", isOn: $showStats)
                 .toggleStyle(.switch)
                 .font(.system(size: 13))
                 .foregroundColor(.white)

@@ -303,6 +303,18 @@ int chiaki_session_bridge_set_controller_state(ChiakiSessionRef ref, const void 
     return (int)chiaki_session_set_controller_state(((iOSChiakiSession *)ref)->session, (ChiakiControllerState *)state);
 }
 
+void chiaki_session_bridge_get_metrics(ChiakiSessionRef ref, ChiakiSessionBridgeMetrics *out)
+{
+    if (!out) return;
+    memset(out, 0, sizeof(*out));
+    if (!ref) return;
+    iOSChiakiSession *s = (iOSChiakiSession *)ref;
+    if (!s->session) return;
+    chiaki_session_get_stream_metrics_ex(s->session,
+        &out->bitrate_mbps, &out->packet_loss, &out->dropped_frames,
+        &out->fps, &out->rtt_ms, &out->width, &out->height);
+}
+
 int chiaki_session_bridge_set_login_pin(ChiakiSessionRef ref, const uint8_t *pin, size_t pin_size)
 {
     if (!ref) return CHIAKI_ERR_UNINITIALIZED;

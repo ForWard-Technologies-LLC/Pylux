@@ -115,6 +115,12 @@ class Preferences(context: Context)
 		get() = sharedPreferences.getBoolean(pipEnabledKey, true)
 		set(value) { sharedPreferences.edit().putBoolean(pipEnabledKey, value).apply() }
 
+	/** Whether the in-stream performance stats overlay is toggled on (per-session UI state). */
+	private val STREAM_STATS_OVERLAY_KEY = "stream_stats_overlay_enabled"
+	var streamStatsOverlayEnabled
+		get() = sharedPreferences.getBoolean(STREAM_STATS_OVERLAY_KEY, false)
+		set(value) { sharedPreferences.edit().putBoolean(STREAM_STATS_OVERLAY_KEY, value).apply() }
+
 	val swapCrossMoonKey get() = resources.getString(R.string.preferences_swap_cross_moon_key)
 	var swapCrossMoon
 		get() = sharedPreferences.getBoolean(swapCrossMoonKey, false)

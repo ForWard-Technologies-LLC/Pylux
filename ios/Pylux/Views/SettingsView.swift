@@ -70,6 +70,8 @@ struct StreamPreferences: Codable {
     var onScreenControlsEnabled: Bool = true
     /// Stream overlay: touchpad-only strip (matches Android `touchpadOnlyEnabled`, default false)
     var touchpadOnlyEnabled: Bool = false
+    /// In-stream performance stats overlay toggle (matches Android `streamStatsOverlayEnabled`, default false)
+    var streamStatsOverlayEnabled: Bool = false
 
     // Cloud Game Library (PSCloud)
     var cloudResolutionPscloud: String = "720"      // matches Android default

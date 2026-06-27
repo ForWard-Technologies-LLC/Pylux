@@ -706,6 +706,47 @@ JNIEXPORT void JNICALL JNI_FCN(sessionSetSurface)(JNIEnv *env, jobject obj, jlon
 	android_chiaki_video_decoder_set_surface(&session->video_decoder, env, surface);
 }
 
+// Live stream metrics for the optional on-screen stats overlay. All values are
+// owned/computed by libchiaki (shared with Qt/iOS) so the client just renders
+// them. Returns a double[7]:
+//   [0] bitrate (Mbit/s)   [1] packet loss (0..1)   [2] dropped frames (cumulative)
+//   [3] fps                [4] rtt (ms)             [5] width   [6] height
+// Cheap best-effort read with no locking (same as Qt's polling timer); only
+// called while a session is live and the overlay is toggled on.
+JNIEXPORT jdoubleArray JNICALL JNI_FCN(sessionGetMetrics)(JNIEnv *env, jobject obj, jlong ptr)
+{
+	jdouble vals[7] = { 0 };
+	AndroidChiakiSession *session = (AndroidChiakiSession *)ptr;
+	if(session)
+	{
+		ChiakiStreamConnection *sc = &session->session.stream_connection;
+		vals[0] = sc->measured_bitrate;
+		vals[1] = sc->congestion_control.packet_loss;
+		vals[3] = sc->measured_fps;
+		vals[4] = sc->measured_rtt_ms;
+		ChiakiVideoReceiver *vr = sc->video_receiver;
+		if(vr)
+		{
+			vals[2] = (jdouble)vr->cumulative_frames_lost;
+			if(vr->profile_cur >= 0 && (size_t)vr->profile_cur < vr->profiles_count)
+			{
+				vals[5] = (jdouble)vr->profiles[vr->profile_cur].width;
+				vals[6] = (jdouble)vr->profiles[vr->profile_cur].height;
+			}
+		}
+		// Fall back to the requested profile before the first adaptive profile is selected.
+		if(vals[5] == 0 || vals[6] == 0)
+		{
+			vals[5] = (jdouble)session->session.connect_info.video_profile.width;
+			vals[6] = (jdouble)session->session.connect_info.video_profile.height;
+		}
+	}
+	jdoubleArray arr = E->NewDoubleArray(env, 7);
+	if(arr)
+		E->SetDoubleArrayRegion(env, arr, 0, 7, vals);
+	return arr;
+}
+
 JNIEXPORT void JNICALL JNI_FCN(sessionSetControllerState)(JNIEnv *env, jobject obj, jlong ptr, jobject controller_state_java)
 {
 	AndroidChiakiSession *session = (AndroidChiakiSession *)ptr;

@@ -330,4 +330,7 @@ class StreamSession(val connectInfo: ConnectInfo, val logManager: LogManager, va
 	{
 		session?.setLoginPin(pin)
 	}
+
+	/** Latest live stream metrics (bitrate/loss/fps/rtt/resolution) for the stats overlay. */
+	fun metrics(): StreamMetrics? = session?.getMetrics()
 }

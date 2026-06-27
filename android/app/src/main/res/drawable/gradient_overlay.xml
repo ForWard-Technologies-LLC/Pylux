@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- angle=270 runs top->bottom: transparent at the top, darkest behind the title at
+         the bottom (matches iOS's clear->black bottom gradient). -->
     <gradient
-        android:angle="90"
+        android:angle="270"
         android:startColor="#00000000"
-        android:centerColor="#60000000"
-        android:endColor="#CC000000"
+        android:centerColor="#26000000"
+        android:endColor="#99000000"
         android:type="linear" />
 </shape>

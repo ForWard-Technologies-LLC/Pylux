@@ -75,6 +75,17 @@
                 app:layout_constraintStart_toStartOf="parent"
                 app:switchPadding="8dp" />
 
+            <com.google.android.material.switchmaterial.SwitchMaterial
+                android:id="@+id/statsSwitch"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="24dp"
+                android:text="@string/stream_stats_toggle"
+                android:textColor="@color/stream_text"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintStart_toEndOf="@id/touchpadOnlySwitch"
+                app:switchPadding="8dp" />
+
             <com.google.android.material.button.MaterialButtonToggleGroup
                 android:id="@+id/displayModeToggle"
                 android:layout_width="wrap_content"
@@ -127,6 +138,28 @@
 
     </androidx.constraintlayout.widget.ConstraintLayout>
 
-</androidx.constraintlayout.widget.ConstraintLayout>
+    </androidx.constraintlayout.widget.ConstraintLayout>
+
+    <!-- Performance stats overlay. Top-level sibling so it stays visible while the
+         auto-hiding control bar is gone. A single top-centered row; non-interactive;
+         updated by a lightweight poll only while toggled on. -->
+    <TextView
+        android:id="@+id/statsOverlay"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="2dp"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="5dp"
+        android:background="@color/stream_stats_background"
+        android:fontFamily="monospace"
+        android:textSize="12sp"
+        android:textColor="@color/stream_text"
+        android:maxLines="1"
+        android:singleLine="true"
+        android:clickable="false"
+        android:focusable="false"
+        android:visibility="gone"
+        tools:ignore="HardcodedText" />
 
 </FrameLayout>

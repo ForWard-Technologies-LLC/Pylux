@@ -28,6 +28,7 @@ import com.metallic.chiaki.common.ext.viewModelFactory
 import com.pylux.stream.databinding.ActivityStreamBinding
 import com.metallic.chiaki.lib.ConnectInfo
 import com.metallic.chiaki.lib.ConnectVideoProfile
+import com.metallic.chiaki.lib.StreamMetrics
 import com.metallic.chiaki.session.StreamStateConnected
 import com.metallic.chiaki.session.StreamStateConnecting
 import com.metallic.chiaki.session.StreamStateCreateError
@@ -40,6 +41,7 @@ import com.metallic.chiaki.touchcontrols.TouchControlsFragment
 import com.metallic.chiaki.touchcontrols.TouchpadOnlyFragment
 import io.reactivex.disposables.CompositeDisposable
 import io.reactivex.rxkotlin.addTo
+import java.util.Locale
 import kotlin.math.min
 
 private sealed class DialogContents
@@ -53,12 +55,30 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 	{
 		const val EXTRA_CONNECT_INFO = "connect_info"
 		private const val HIDE_UI_TIMEOUT_MS = 4000L
+		// libchiaki refreshes all overlay metrics once per second (from the periodic
+		// CONNECTIONQUALITY message), so polling faster only re-reads stale values.
+		private const val STATS_POLL_INTERVAL_MS = 1000L
 	}
 
 	private lateinit var viewModel: StreamViewModel
 	private lateinit var binding: ActivityStreamBinding
 
 	private val uiVisibilityHandler = Handler()
+
+	/** Lightweight poll that refreshes the stats overlay only while it is toggled on
+	 *  and the session is connected. Reposts itself; no work happens when stopped. */
+	private val statsHandler = Handler(Looper.getMainLooper())
+	private var statsPolling = false
+	/** Previous cumulative dropped-frame total, so the overlay can show drops *this tick*
+	 *  (per poll = per second) instead of an ever-climbing lifetime total. -1 = uninitialized. */
+	private var lastDroppedFrames = -1L
+	private val statsRunnable = object : Runnable {
+		override fun run() {
+			updateStatsOverlay()
+			if (statsPolling)
+				statsHandler.postDelayed(this, STATS_POLL_INTERVAL_MS)
+		}
+	}
 
 	/** Tracks whether the activity is in the stopped state (between onStop and onStart).
 	 *  Used to detect PiP dismissal: onStop fires while pip=true (so cleanup is skipped),
@@ -127,6 +147,14 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 		// Disconnect button to exit stream
 		binding.disconnectButton.setOnClickListener {
 			finish()
+		}
+
+		// Performance stats overlay toggle (mirrors Qt's in-stream stats overlay).
+		binding.statsSwitch.isChecked = viewModel.preferences.streamStatsOverlayEnabled
+		binding.statsSwitch.setOnCheckedChangeListener { _, isChecked ->
+			viewModel.preferences.streamStatsOverlayEnabled = isChecked
+			updateStatsVisibility()
+			showOverlay()
 		}
 
 		// Handle back button — on TV show a disconnect confirmation dialog; on touch show the overlay
@@ -200,6 +228,7 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 		// resume() is safe to call even if session is already running -
 		// it returns immediately when session != null
 		viewModel.session.resume()
+		updateStatsVisibility()
 	}
 
 	override fun onPause()
@@ -213,6 +242,7 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 			viewModel.session.skipNativeSurfaceCleanup = false
 			viewModel.session.pause()
 		}
+		stopStatsPolling()
 	}
 
 	override fun onStop()
@@ -238,6 +268,7 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 		donationCoordinator.onDestroy()
 		controlsDisposable.dispose()
 		uiVisibilityHandler.removeCallbacksAndMessages(null)
+		stopStatsPolling()
 	}
 
 	override fun onConfigurationChanged(newConfig: Configuration)
@@ -318,6 +349,7 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 			viewModel.setOnScreenControlsEnabled(false)
 			viewModel.setTouchpadOnlyEnabled(false)
 			binding.progressBar.isGone = true
+			updateStatsVisibility()
 		}
 		else
 		{
@@ -338,6 +370,7 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 				viewModel.setTouchpadOnlyEnabled(savedTouchpadOnlyEnabled)
 				hideOverlay()
 				hideSystemUI()
+				updateStatsVisibility()
 			}
 		}
 	}
@@ -393,6 +426,62 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 			})
 	}
 
+	/** Show/hide the stats overlay and start/stop polling based on the toggle,
+	 *  connection state and PiP. Safe to call from any state transition. */
+	private fun updateStatsVisibility()
+	{
+		val show = binding.statsSwitch.isChecked
+				&& viewModel.session.state.value == StreamStateConnected
+				&& !isInPictureInPictureMode
+		if (show)
+		{
+			binding.statsOverlay.isVisible = true
+			if (!statsPolling)
+			{
+				statsPolling = true
+				lastDroppedFrames = -1L // reset so the first tick reads 0, not the lifetime total
+				statsHandler.post(statsRunnable)
+			}
+		}
+		else
+		{
+			stopStatsPolling()
+			binding.statsOverlay.isGone = true
+		}
+	}
+
+	private fun stopStatsPolling()
+	{
+		statsPolling = false
+		statsHandler.removeCallbacks(statsRunnable)
+	}
+
+	private fun updateStatsOverlay()
+	{
+		val m = viewModel.session.metrics() ?: return
+		// Drops since the previous tick (≈ per second), not the lifetime total.
+		val dropsPerTick = if (lastDroppedFrames < 0L) 0L
+			else (m.droppedFrames - lastDroppedFrames).coerceAtLeast(0L)
+		lastDroppedFrames = m.droppedFrames
+		binding.statsOverlay.text = formatStats(m, dropsPerTick)
+	}
+
+	/** Single compact top row with short labels, e.g.
+	 *  "4.7 Mbps • PL 1.1% • DF/s 0 • 60 FPS • 90 ms • 1280×720". */
+	private fun formatStats(m: StreamMetrics, dropsPerTick: Long): String
+	{
+		val sep = "   •   "
+		val parts = mutableListOf<String>()
+		parts.add(String.format(Locale.US, "%.1f Mbps", m.bitrateMbps))
+		parts.add(String.format(Locale.US, "PL %.1f%%", m.packetLoss * 100.0))
+		parts.add("DF/s $dropsPerTick")
+		parts.add(String.format(Locale.US, "%.0f FPS", m.fps))
+		if (m.rttMs > 0)
+			parts.add(String.format(Locale.US, "%.0f ms", m.rttMs))
+		parts.add("${m.width}×${m.height}")
+		return parts.joinToString(sep)
+	}
+
 	override fun onWindowFocusChanged(hasFocus: Boolean)
 	{
 		super.onWindowFocusChanged(hasFocus)
@@ -432,6 +521,7 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 	{
 		Log.i("StreamActivity", "stateChanged: $state pip=$isInPictureInPictureMode")
 		binding.progressBar.visibility = if(state == StreamStateConnecting) View.VISIBLE else View.GONE
+		updateStatsVisibility()
 
 		when(state)
 		{

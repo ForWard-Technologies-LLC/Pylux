@@ -49,6 +49,7 @@ CHIAKI_EXPORT void chiaki_video_receiver_init(ChiakiVideoReceiver *video_receive
 	video_receiver->packet_stats = packet_stats;
 
 	video_receiver->frames_lost = 0;
+	video_receiver->cumulative_frames_lost = 0;
 	memset(video_receiver->reference_frames, -1, sizeof(video_receiver->reference_frames));
 	chiaki_bitstream_init(&video_receiver->bitstream, video_receiver->log, video_receiver->session->connect_info.video_profile.codec);
 }
@@ -219,6 +220,7 @@ static ChiakiErrorCode chiaki_video_receiver_flush_frame(ChiakiVideoReceiver *vi
 	if(succ && video_receiver->session->video_sample_cb)
 	{
 		bool cb_succ = video_receiver->session->video_sample_cb(frame, frame_size, video_receiver->frames_lost, recovered, video_receiver->session->video_sample_cb_user);
+		video_receiver->cumulative_frames_lost += (uint64_t)video_receiver->frames_lost;
 		video_receiver->frames_lost = 0;
 		if(!cb_succ)
 		{

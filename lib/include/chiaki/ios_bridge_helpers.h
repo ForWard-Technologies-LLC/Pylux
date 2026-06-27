@@ -53,6 +53,14 @@ CHIAKI_EXPORT void chiaki_session_set_cloud_port_ex(ChiakiSession *session, uint
 CHIAKI_EXPORT void chiaki_session_set_cloud_psn_wrapper_type_ex(ChiakiSession *session, uint8_t type);
 CHIAKI_EXPORT void chiaki_session_set_service_type_ex(ChiakiSession *session, ChiakiServiceType st);
 
+// Live stream metrics for the on-screen stats overlay. All values are owned/computed
+// by libchiaki (shared with Qt/Android) so Swift just renders them. Out-params are
+// primitives (ABI-safe across the CMake/Xcode boundary); pass NULL for any you don't
+// need. Cheap best-effort read with no locking (same as the other clients' polling).
+CHIAKI_EXPORT void chiaki_session_get_stream_metrics_ex(ChiakiSession *session,
+		double *bitrate_mbps, double *packet_loss, uint64_t *dropped_frames,
+		double *fps, double *rtt_ms, int *width, int *height);
+
 #ifdef __cplusplus
 }
 #endif
