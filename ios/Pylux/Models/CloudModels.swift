@@ -256,7 +256,9 @@ enum CloudLocaleSettings {
 
     private static let catalogCacheSubdir = "cloud_catalog_cache"
 
-    private static func invalidateCatalogCache() {
+    static func invalidateCatalogCache(reason: String = "") {
+        os_log(.info, log: cloudLocaleLog, "Catalog cache invalidated%{public}s",
+               reason.isEmpty ? "" : " (\(reason))")
         let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent(catalogCacheSubdir, isDirectory: true)
         guard let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else {

@@ -93,6 +93,15 @@ Pane {
         initialFocusTimer.restart();
     }
 
+    // Account/profile switch, NPSSO change, or cloud-language change wipes the catalog cache in the
+    // backend; reload here so the visible grid never keeps showing the previous account's games.
+    Connections {
+        target: Chiaki.cloudCatalog
+        function onCacheInvalidated() {
+            loadUnifiedCatalog();
+        }
+    }
+
     // Pins default focus to the first game card (or the filter toggle if games
     // haven't loaded yet) after startup focus churn settles, so the search field
     // never holds focus by default. Runs late enough to override the window's
@@ -807,8 +816,8 @@ Pane {
                     function activate() {
                         if (!enabled)
                             return;
+                        // invalidateCache() emits cacheInvalidated, which triggers the reload above.
                         Chiaki.cloudCatalog.invalidateCache();
-                        loadUnifiedCatalog();
                     }
 
                     Rectangle {

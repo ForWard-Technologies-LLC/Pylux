@@ -180,7 +180,15 @@ final class SecureStore {
 
     var npsso: String {
         get { KC.readString(kNpsso) ?? "" }
-        set { newValue.isEmpty ? KC.delete(kNpsso) : KC.writeString(kNpsso, newValue) }
+        set {
+            let changed = newValue != (KC.readString(kNpsso) ?? "")
+            newValue.isEmpty ? KC.delete(kNpsso) : KC.writeString(kNpsso, newValue)
+            // Account/profile change (login, logout, token re-entry) must drop the cached
+            // cloud catalog so one account never sees another account's owned games.
+            if changed {
+                CloudLocaleSettings.invalidateCatalogCache(reason: newValue.isEmpty ? "account logout" : "account login")
+            }
+        }
     }
 
     var authToken: String {

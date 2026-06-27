@@ -53,11 +53,23 @@ public:
                                               const QString &command, const QJSValue &callback,
                                               const QString &steamDir = QString());
 
+    // Rebind to the active profile's Settings after a profile switch. The backend reads the NPSSO
+    // token + cloud locale from this pointer, and the previous profile's Settings is deleted on
+    // switch, so failing to update this would read a stale/dangling account (wrong owned games or a
+    // use-after-free on the next fetch).
+    void setSettings(Settings *settings);
+
     // Utility methods
     Q_INVOKABLE void invalidateCache();
     Q_INVOKABLE void invalidatePs5CatalogCache();
     Q_INVOKABLE QString getCachedData(const QString &key, int maxAge);
     Q_INVOKABLE QString getGameLandscapeImageFromCache(const QString &serviceType, const QString &gameIdentifier);
+
+signals:
+    // Emitted after the on-disk catalog cache is wiped (profile/account switch, NPSSO change,
+    // cloud-language change, or manual refresh). The cloud view listens for this to re-fetch so
+    // the visible game list never lingers on the previous account's games.
+    void cacheInvalidated();
 
 private slots:
     void handleGameDetailsResponse();

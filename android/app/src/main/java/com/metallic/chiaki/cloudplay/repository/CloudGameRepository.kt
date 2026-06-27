@@ -50,12 +50,12 @@ class CloudGameRepository(
 		 * (temp file + rename) and reads whole files (open fds survive unlink on POSIX), so the worst
 		 * case is a benign cache miss, never a torn read or corruption.
 		 */
-		fun invalidateCatalogCache(context: Context)
+		fun invalidateCatalogCache(context: Context, reason: String = "")
 		{
 			try
 			{
 				cloudCatalogInvalidateCache(cacheDir(context).absolutePath)
-				Log.i(TAG, "Catalog cache invalidated (locale change)")
+				Log.i(TAG, "Catalog cache invalidated" + if (reason.isNotEmpty()) " ($reason)" else "")
 			}
 			catch (e: Exception)
 			{

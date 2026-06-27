@@ -796,6 +796,7 @@ class Settings : public QObject
 		void PlaceboSettingsUpdated();
 		void CloudDatacentersJsonPSCloudChanged();
 		void CloudDatacentersJsonPSNOWChanged();
+		void NpssoTokenChanged();
 	};
 
 #endif // CHIAKI_SETTINGS_H

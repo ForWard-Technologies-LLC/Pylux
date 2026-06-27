@@ -61,7 +61,7 @@
 #include <strings.h> // strcasecmp
 
 #define WARNING_EXPIRED \
-	"Your PlayStation session has expired. Please log in again to see your owned games."
+	"Your session has expired. Please log in again to see your owned games."
 
 static const char *account_country_from_locale(const char *locale, char *out, size_t out_sz)
 {

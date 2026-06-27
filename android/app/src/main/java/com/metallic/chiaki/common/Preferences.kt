@@ -304,7 +304,7 @@ class Preferences(context: Context)
 			return
 		sharedPreferences.edit().putString("cloud_language_pscloud", value).apply()
 		Log.i("Preferences", "Cloud locale ${if (configured) "changed" else "configured"}: $previous -> $value")
-		CloudGameRepository.invalidateCatalogCache(appContext)
+		CloudGameRepository.invalidateCatalogCache(appContext, "locale change")
 	}
 
 	/**

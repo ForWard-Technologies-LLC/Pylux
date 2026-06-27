@@ -985,6 +985,10 @@ QString Settings::GetNpssoToken() const
 void Settings::SetNpssoToken(QString npsso_token)
 {
 	settings.setValue("settings/psn_npsso_token", npsso_token);
+	// Fires on login, logout, and token re-entry (not on periodic auth/refresh-token
+	// renewals, which don't touch the npsso). Listeners use this to drop the cached
+	// cloud catalog so one account never sees another's owned games.
+	emit NpssoTokenChanged();
 }
 
 bool Settings::GetAccountAttributesCheckPassed() const

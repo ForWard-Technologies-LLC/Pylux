@@ -47,6 +47,11 @@ CloudCatalogBackend::~CloudCatalogBackend()
 {
 }
 
+void CloudCatalogBackend::setSettings(Settings *new_settings)
+{
+    settings = new_settings;
+}
+
 void CloudCatalogBackend::ensureCacheDirectory()
 {
     QDir dir;
@@ -655,6 +660,9 @@ void CloudCatalogBackend::invalidateCache()
     const QByteArray cacheDir = cacheDirectory.toUtf8();
     chiaki_cloudcatalog_invalidate_cache(cacheDir.constData());
     qInfo() << "[CACHE INVALIDATED] Delegated cache invalidation to libchiaki for" << cacheDirectory;
+    // Tell the cloud view to drop its stale in-memory list and re-fetch (the cache files are gone,
+    // so the next fetch is a guaranteed network refresh for the now-current account).
+    emit cacheInvalidated();
 }
 
 QPixmap CloudCatalogBackend::downloadImageFromUrl(const QString &url, int timeoutMs)
