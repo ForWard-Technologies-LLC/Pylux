@@ -279,8 +279,8 @@ class PSKamajiSession(
 				
 				if (!sessionCountry.isNullOrEmpty() && !sessionLanguage.isNullOrEmpty())
 				{
-					preferences.setCloudLanguageFromSession(sessionLanguage, sessionCountry)
-					Log.i(TAG, "Saved locale from session: ${preferences.getCloudLanguage()}")
+					preferences.setCloudStoreLocaleFromSession(sessionLanguage, sessionCountry)
+					Log.i(TAG, "Saved locale from session: ${preferences.getCloudStoreLocale()}")
 				}
 			}
 		}
@@ -308,7 +308,7 @@ class PSKamajiSession(
 	{
 		try
 		{
-		val localeSetting = preferences.getCloudLanguage()
+		val localeSetting = preferences.getCloudStoreLocale()
 		var (country, language) = com.metallic.chiaki.cloudplay.CloudLocale.parseStorePath(localeSetting)
 		Log.i(TAG, "Using locale from settings: $localeSetting -> country=$country, language=$language")
 
@@ -318,7 +318,7 @@ class PSKamajiSession(
 		// region-group store -- the account's own locale country would 404 ("Storefront not found").
 		// Driven by the account-level fallback flag, so PS3 and PS4 behave identically. In native
 		// mode the account's own locale resolves both.
-		val fallbackRegion = preferences.getCloudFallbackRegion()
+		val fallbackRegion = preferences.getCloudResolvedStoreCountry()
 		if (fallbackRegion.isNotEmpty())
 		{
 			country = fallbackRegion
@@ -582,7 +582,7 @@ class PSKamajiSession(
 		// it returns noGameForEntitlementId downstream, surfaced via the region banner). Driven by
 		// the account-level fallback flag, so PS3 and PS4 behave identically.
 		// Native (supported region): run the normal checkout-acquire for both PS3 and PS4.
-		if (preferences.isCloudFallbackMode())
+		if (preferences.isCloudCatalogIsForeign())
 		{
 			Log.i(TAG, "Kamaji Step 0.5e.2 - Entitlement not found (404); fallback region -> skipping acquire, proceeding to Gaikai")
 			return true

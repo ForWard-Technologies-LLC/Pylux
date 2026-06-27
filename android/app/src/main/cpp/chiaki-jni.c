@@ -1653,14 +1653,3 @@ JNIEXPORT jobjectArray JNICALL JNI_FCN(cloudSupportedLanguages)(JNIEnv *env, job
 	}
 	return arr;
 }
-
-JNIEXPORT jboolean JNICALL JNI_FCN(cloudDatacenterServesLanguage)(JNIEnv *env, jobject obj, jstring dc_str, jstring locale_str)
-{
-	(void)obj;
-	const char *dc = dc_str ? E->GetStringUTFChars(env, dc_str, NULL) : NULL;
-	const char *locale = locale_str ? E->GetStringUTFChars(env, locale_str, NULL) : NULL;
-	bool served = (dc && locale) ? chiaki_cloud_datacenter_serves_locale(dc, locale) : false;
-	if(dc_str && dc) E->ReleaseStringUTFChars(env, dc_str, dc);
-	if(locale_str && locale) E->ReleaseStringUTFChars(env, locale_str, locale);
-	return served ? JNI_TRUE : JNI_FALSE;
-}

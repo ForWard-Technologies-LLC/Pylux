@@ -146,7 +146,7 @@ QmlBackend::QmlBackend(Settings *settings, QmlMainWindow *window, SteamworksWrap
 #endif
     cloud_streaming_backend = new CloudStreamingBackend(settings, this);
     cloud_catalog_backend = new CloudCatalogBackend(settings, this);
-    connect(settings_qml, &QmlSettings::cloudLanguagePSCloudChanged, this, [this]() {
+    connect(settings_qml, &QmlSettings::cloudStoreLocaleChanged, this, [this]() {
         // Full wipe (not just the v6 PS5 intermediates): the unified catalog is locale-specific,
         // so a language change must also drop unified_catalog_v3 or a stale-locale list is served.
         cloud_catalog_backend->invalidateCache();

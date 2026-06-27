@@ -84,8 +84,8 @@ struct StreamPreferences: Codable {
     var cloudBitratePsnow: Int = 20000              // kbps, matches Qt/Android default 20 Mbps
 
     /// Cloud streaming game language (BCP-47, e.g. "de-DE"). Empty = follow the
-    /// detected catalog locale. Game language is tied to the datacenter region.
-    var cloudLanguage: String = ""
+    /// detected catalog locale.
+    var cloudGameLanguage: String = ""
 
     static let cloudBitrateMinKbps = 2000
     static let cloudBitrateMaxKbps = 200_000
@@ -97,7 +97,8 @@ struct StreamPreferences: Codable {
         case onScreenControlsEnabled, touchpadOnlyEnabled
         case cloudResolutionPscloud, cloudDatacenterPscloud, cloudBitratePscloud
         case cloudResolutionPsnow, cloudDatacenterPsnow, cloudBitratePsnow
-        case cloudLanguage
+        case cloudGameLanguage
+        case cloudLanguage // legacy key
     }
 
     init(
@@ -118,7 +119,7 @@ struct StreamPreferences: Codable {
         cloudResolutionPsnow: String = "720",
         cloudDatacenterPsnow: String = "Auto",
         cloudBitratePsnow: Int = StreamPreferences.cloudBitrateDefaultKbps,
-        cloudLanguage: String = ""
+        cloudGameLanguage: String = ""
     ) {
         self.resolutionIndex = resolutionIndex
         self.fps = fps
@@ -137,7 +138,7 @@ struct StreamPreferences: Codable {
         self.cloudResolutionPsnow = cloudResolutionPsnow
         self.cloudDatacenterPsnow = cloudDatacenterPsnow
         self.cloudBitratePsnow = Self.clampCloudBitrateKbps(cloudBitratePsnow)
-        self.cloudLanguage = cloudLanguage
+        self.cloudGameLanguage = cloudGameLanguage
     }
 
     init(from decoder: Decoder) throws {
@@ -163,7 +164,8 @@ struct StreamPreferences: Codable {
         cloudBitratePsnow = Self.clampCloudBitrateKbps(
             try c.decodeIfPresent(Int.self, forKey: .cloudBitratePsnow) ?? Self.cloudBitrateDefaultKbps
         )
-        cloudLanguage = try c.decodeIfPresent(String.self, forKey: .cloudLanguage) ?? ""
+        cloudGameLanguage = try c.decodeIfPresent(String.self, forKey: .cloudGameLanguage)
+            ?? c.decodeIfPresent(String.self, forKey: .cloudLanguage) ?? ""
     }
 
     func encode(to encoder: Encoder) throws {
@@ -185,7 +187,7 @@ struct StreamPreferences: Codable {
         try c.encode(cloudResolutionPsnow, forKey: .cloudResolutionPsnow)
         try c.encode(cloudDatacenterPsnow, forKey: .cloudDatacenterPsnow)
         try c.encode(cloudBitratePsnow, forKey: .cloudBitratePsnow)
-        try c.encode(cloudLanguage, forKey: .cloudLanguage)
+        try c.encode(cloudGameLanguage, forKey: .cloudGameLanguage)
     }
 
     static func clampCloudBitrateKbps(_ kbps: Int) -> Int {
@@ -646,12 +648,12 @@ struct SettingsView: View {
         // the user picks a matching datacenter themselves.
         let supported = PyluxCloudCatalog.supportedCloudLanguages()
         let catalogLocale = CloudLocaleSettings.stored.isEmpty ? "en-US" : CloudLocaleSettings.stored
-        let current = prefs.cloudLanguage
+        let current = prefs.cloudGameLanguage
         let selection = Binding<String>(
             // Empty override selects "Auto"; an unknown value also falls back to Auto.
             get: { (current.isEmpty || supported.contains(current)) ? current : "" },
             set: { newValue in
-                prefs.cloudLanguage = newValue
+                prefs.cloudGameLanguage = newValue
                 prefs.save()
                 // Surface the datacenter caveat only when overriding to a
                 // specific language (Auto needs no warning).

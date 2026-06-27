@@ -72,10 +72,4 @@ static void cc_log_cb(ChiakiLogLevel level, const char *msg, void *user) {
     return out;
 }
 
-+ (BOOL)datacenter:(NSString *)datacenterName servesLocale:(NSString *)locale {
-    if (datacenterName.length == 0 || locale.length == 0)
-        return NO;
-    return chiaki_cloud_datacenter_serves_locale(datacenterName.UTF8String, locale.UTF8String) ? YES : NO;
-}
-
 @end

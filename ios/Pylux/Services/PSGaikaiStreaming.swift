@@ -768,7 +768,7 @@ final class PSGaikaiStreaming {
         // Use the user's chosen streaming language, falling back to the detected
         // catalog locale when unset.
         let chosenLocale = {
-            let l = StreamPreferences.load().cloudLanguage
+            let l = StreamPreferences.load().cloudGameLanguage
             return l.isEmpty ? CloudLocaleSettings.stored : l
         }()
         let cloudLanguage = PyluxCloudCatalog.gaikaiLanguage(forLocale: chosenLocale)

@@ -123,12 +123,6 @@ CHIAKI_EXPORT size_t chiaki_cloud_supported_locale_count(void);
  *  its own UI resources keyed off this code). */
 CHIAKI_EXPORT const char *chiaki_cloud_supported_locale(size_t idx);
 
-/** True if @p datacenter_name (the 4-letter ping-result name, e.g. "fraa",
- *  "stoa") serves @p locale. Matches on the 3-letter region prefix. Use to
- *  filter the picker to reachable datacenters and to auto-select the server for
- *  a chosen language. */
-CHIAKI_EXPORT bool chiaki_cloud_datacenter_serves_locale(const char *datacenter_name, const char *locale);
-
 #ifdef __cplusplus
 }
 #endif

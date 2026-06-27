@@ -156,9 +156,9 @@ QJsonObject PSGaikaiStreaming::buildRequestGameSpec(QString entitlementId)
     // manual pick lives in its own setting so the catalog's settledLocale write
     // can never clobber it. Gaikai expects the bare language code ("de"), not
     // the stored locale ("de-DE"); the lib helper is the single source of truth.
-    QString locale = settings->GetCloudStreamLanguage();
+    QString locale = settings->GetCloudGameLanguage();
     if (locale.isEmpty())
-        locale = settings->GetCloudLanguagePSCloud();
+        locale = settings->GetCloudStoreLocale();
     char gaikaiLang[16];
     chiaki_cloud_gaikai_language(locale.toUtf8().constData(), gaikaiLang, sizeof(gaikaiLang));
     int resolution;

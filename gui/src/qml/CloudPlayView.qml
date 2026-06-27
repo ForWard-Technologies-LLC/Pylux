@@ -28,6 +28,7 @@ Pane {
     property string searchQuery: ""
     property string authErrorMessage: ""
     property string fallbackRegion: ""
+    property bool catalogNativeMode: true
     property var activeTagFilters: [] // empty = show all; values: owned, streamable, purchaseable
     property bool showFavoritesOnly: false
     property int sortState: 0 // 0=Playable First, 1=A-Z, 2=Z-A
@@ -55,7 +56,8 @@ Pane {
     }
     
     Component.onCompleted: {
-        fallbackRegion = Chiaki.settings.cloudFallbackRegion || "";
+        fallbackRegion = Chiaki.settings.cloudResolvedStoreCountry || "";
+        catalogNativeMode = Chiaki.settings.cloudCatalogNativeMode;
         sortState = Chiaki.settings.cloudSortState || 0;
         let savedTagFilters = Chiaki.settings.cloudTagFilters;
         if (savedTagFilters) {
@@ -244,7 +246,9 @@ Pane {
                 if (data.games && Array.isArray(data.games)) {
                     allGames = data.games;
                     fallbackRegion = data.fallbackRegion || "";
-                    Chiaki.settings.cloudFallbackRegion = fallbackRegion;
+                    catalogNativeMode = data.nativeMode !== false;
+                    Chiaki.settings.cloudResolvedStoreCountry = fallbackRegion;
+                    Chiaki.settings.cloudCatalogNativeMode = catalogNativeMode;
                     if (data.warning)
                         authErrorMessage = data.warning;
                     else if (npssoToken && npssoToken.trim().length > 0)
@@ -957,8 +961,8 @@ Pane {
         Rectangle {
             id: fallbackBanner
             Layout.fillWidth: true
-            Layout.preferredHeight: fallbackRegion.length > 0 ? 56 : 0
-            visible: fallbackRegion.length > 0
+            Layout.preferredHeight: !catalogNativeMode ? 56 : 0
+            visible: !catalogNativeMode
             color: Qt.rgba(255/255, 193/255, 7/255, 0.2)
             border.color: "#FFC107"
             border.width: 2

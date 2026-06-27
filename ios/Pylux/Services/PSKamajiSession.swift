@@ -151,7 +151,7 @@ final class PSKamajiSession {
         let storePath = CloudLocaleSettings.parseStorePath(CloudLocaleSettings.stored)
         var country = storePath.country
         var language = storePath.language
-        let fallbackRegion = SecureStore.shared.cloudFallbackRegion
+        let fallbackRegion = SecureStore.shared.cloudResolvedStoreCountry
         if !fallbackRegion.isEmpty {
             country = fallbackRegion
             language = "en"
@@ -246,7 +246,7 @@ final class PSKamajiSession {
 
         // Entitlement not found (404). Region-group fallback: skip acquire and proceed to Gaikai.
         // Native (supported region): run the normal checkout-acquire for PS3 and PS4 alike.
-        if SecureStore.shared.isCloudFallbackMode {
+        if SecureStore.shared.isCloudCatalogIsForeign {
             os_log(.info, log: kamajiLog,
                    "Entitlement not found (404); fallback region -> skipping acquire, proceeding to Gaikai")
             return true

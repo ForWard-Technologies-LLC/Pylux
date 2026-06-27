@@ -758,14 +758,23 @@ class CloudPlayFragment : Fragment()
 		})
 
 		viewModel.fallbackRegion.observe(viewLifecycleOwner, Observer { region ->
-			if (region.isNullOrEmpty()) {
-				binding.regionBanner.visibility = View.GONE
-			} else {
-				binding.regionBanner.text =
-					"PlayStation cloud isn't offered natively in your region — showing the $region catalog. Some titles may not stream."
-				binding.regionBanner.visibility = View.VISIBLE
-			}
+			updateRegionBanner(region)
 		})
+		viewModel.catalogIsForeign.observe(viewLifecycleOwner, Observer { isForeign ->
+			updateRegionBanner(viewModel.fallbackRegion.value)
+		})
+	}
+
+	private fun updateRegionBanner(region: String?)
+	{
+		if (viewModel.catalogIsForeign.value != true) {
+			binding.regionBanner.visibility = View.GONE
+		} else {
+			val label = region?.takeIf { it.isNotEmpty() } ?: "foreign"
+			binding.regionBanner.text =
+				"PlayStation cloud isn't offered natively in your region — showing the $label catalog. Some titles may not stream."
+			binding.regionBanner.visibility = View.VISIBLE
+		}
 	}
 
 	private fun updateEmptyState(isEmpty: Boolean)

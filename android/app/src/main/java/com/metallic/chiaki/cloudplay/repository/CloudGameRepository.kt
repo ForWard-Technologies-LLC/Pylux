@@ -43,7 +43,7 @@ class CloudGameRepository(
 
 		/**
 		 * Drop the lib-owned caches (e.g. on locale change). Synchronous on purpose: callers (e.g.
-		 * [com.metallic.chiaki.common.Preferences.setCloudLanguage]) need the cache gone before the
+		 * [com.metallic.chiaki.common.Preferences.setCloudStoreLocale]) need the cache gone before the
 		 * next fetch so it can't serve stale-locale data. It deliberately does NOT take [catalogLock]
 		 * — that lock is held across a full fetch (including network), so a blocking acquire here
 		 * could ANR. A delete racing an in-flight fetch is safe: the lib writes caches atomically
@@ -84,7 +84,7 @@ class CloudGameRepository(
 				catalogLock.withLock {
 					cloudCatalogFetchUnified(
 						npsso = npssoToken.ifEmpty { null },
-						locale = preferences.getCloudLanguage(),
+						locale = preferences.getCloudStoreLocale(),
 						cacheDir = cacheDir(context).absolutePath,
 						forceRefresh = forceRefresh
 					)
@@ -124,9 +124,10 @@ class CloudGameRepository(
 		// streaming path (which reads the cloud language) and the region banner agree. Persist the
 		// settled locale WITHOUT wiping the cache (the lib owns its own invalidation).
 		root.optString("settledLocale", "").takeIf { it.isNotEmpty() }?.let {
-			preferences.noteCloudLanguageSettled(it)
+			preferences.noteCloudStoreLocaleSettled(it)
 		}
-		preferences.setCloudFallbackRegion(root.optString("fallbackRegion", ""))
+		preferences.setCloudResolvedStoreCountry(root.optString("fallbackRegion", ""))
+		preferences.setCloudCatalogNativeMode(root.optBoolean("nativeMode", true))
 
 		root.optString("warning", "").takeIf { it.isNotEmpty() }?.let {
 			lastCatalogFetchWarning = it

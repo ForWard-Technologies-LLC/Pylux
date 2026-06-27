@@ -156,7 +156,9 @@ final class SecureStore {
     // Cloud
     private let kCloudFavorites = "favorite_games"
     private let kCloudSortState = "cloud_sort_state"
-    private let kCloudFallbackRegion = "cloud_fallback_region"
+    private let kCloudResolvedStoreCountry = "cloud_resolved_store_country"
+    private let kLegacyCloudFallbackRegion = "cloud_fallback_region"
+    private let kCloudCatalogNativeMode = "cloud_catalog_native_mode"
     private let kCloudTagFilters = "cloud_tag_filters"
 
     // Donation / support paywall
@@ -285,13 +287,34 @@ final class SecureStore {
         set { KC.writeInt(kCloudSortState, newValue) }
     }
 
-    /// PS Now region-group fallback. Empty = native mode; "US" or "GB" = fallback mode.
-    var cloudFallbackRegion: String {
-        get { KC.readString(kCloudFallbackRegion) ?? "" }
-        set { newValue.isEmpty ? KC.delete(kCloudFallbackRegion) : KC.writeString(kCloudFallbackRegion, newValue) }
+    /// PS Now region-group fallback store country. Empty = native mode; "US" or "GB" = fallback mode.
+    var cloudResolvedStoreCountry: String {
+        get {
+            if KC.readString(kCloudResolvedStoreCountry) != nil {
+                return KC.readString(kCloudResolvedStoreCountry) ?? ""
+            }
+            let legacy = KC.readString(kLegacyCloudFallbackRegion) ?? ""
+            KC.writeString(kCloudResolvedStoreCountry, legacy)
+            return legacy
+        }
+        set {
+            newValue.isEmpty ? KC.delete(kCloudResolvedStoreCountry) : KC.writeString(kCloudResolvedStoreCountry, newValue)
+        }
     }
 
-    var isCloudFallbackMode: Bool { !cloudFallbackRegion.isEmpty }
+    var cloudCatalogNativeMode: Bool {
+        get {
+            if KC.readString(kCloudCatalogNativeMode) != nil {
+                return KC.readBool(kCloudCatalogNativeMode, default: true)
+            }
+            let native = cloudResolvedStoreCountry.isEmpty
+            KC.writeBool(kCloudCatalogNativeMode, native)
+            return native
+        }
+        set { KC.writeBool(kCloudCatalogNativeMode, newValue) }
+    }
+
+    var isCloudCatalogIsForeign: Bool { !cloudCatalogNativeMode }
 
     /// Persisted acquisition-tag filter selection (empty = show all).
     var cloudTagFilters: Set<String> {

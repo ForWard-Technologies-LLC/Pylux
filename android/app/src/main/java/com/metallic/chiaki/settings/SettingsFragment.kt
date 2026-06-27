@@ -67,7 +67,7 @@ class DataStore(val preferences: Preferences): PreferenceDataStore()
 		preferences.codecKey -> preferences.codec.value
 		preferences.cloudDatacenterPsnowKey -> preferences.getCloudDatacenterPsnow()
 		preferences.cloudDatacenterPscloudKey -> preferences.getCloudDatacenterPscloud()
-		preferences.cloudLanguageKey -> preferences.getStreamLanguage()
+		preferences.cloudLanguageKey -> preferences.getCloudGameLanguage()
 		preferences.cloudResolutionPscloudKey -> preferences.getCloudResolutionPscloud().toString()
 		preferences.cloudResolutionPsnowKey -> preferences.getCloudResolutionPsnow().toString()
 		preferences.dpadTouchShortcut1Key -> preferences.dpadTouchShortcut1.toString()
@@ -102,7 +102,7 @@ class DataStore(val preferences: Preferences): PreferenceDataStore()
 			// Manual streaming-language override. Stored separately from the
 			// catalog locale and does not touch the datacenter; the user picks a
 			// matching datacenter themselves.
-			preferences.cloudLanguageKey -> preferences.setStreamLanguage(value ?: "")
+			preferences.cloudLanguageKey -> preferences.setCloudGameLanguage(value ?: "")
 			preferences.cloudResolutionPscloudKey -> preferences.setCloudResolutionPscloud(value?.toIntOrNull() ?: 720)
 			preferences.cloudResolutionPsnowKey -> preferences.setCloudResolutionPsnow(value?.toIntOrNull() ?: 720)
 			preferences.dpadTouchShortcut1Key -> preferences.dpadTouchShortcut1 = value?.toIntOrNull() ?: Preferences.DPAD_TOUCH_SHORTCUT1_DEFAULT
@@ -218,7 +218,7 @@ class SettingsFragment: PreferenceFragmentCompat(), TitleFragment
 		// Game language list (Auto + all supported languages).
 		populateCloudLanguagePreference(
 			preferenceScreen.findPreference(getString(R.string.preferences_cloud_language_key)),
-			preferences.getCloudLanguage()
+			preferences.getCloudStoreLocale()
 		)
 
 		bindCloudBitratePreference(

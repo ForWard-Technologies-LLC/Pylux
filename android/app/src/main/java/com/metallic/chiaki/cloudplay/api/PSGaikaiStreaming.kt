@@ -1396,7 +1396,7 @@ catch (e: Exception)
 	// pick lives in its own setting so the catalog locale can never clobber it.
 	// Gaikai expects the bare language code ("de"), not the stored locale
 	// ("de-DE"); the lib helper is the single source of truth across platforms.
-	val chosenLocale = preferences.getStreamLanguage().ifEmpty { preferences.getCloudLanguage() }
+	val chosenLocale = preferences.getCloudGameLanguage().ifEmpty { preferences.getCloudStoreLocale() }
 	val language = com.metallic.chiaki.lib.cloudGaikaiLanguage(chosenLocale)
 	spec.put("language", language)
 	

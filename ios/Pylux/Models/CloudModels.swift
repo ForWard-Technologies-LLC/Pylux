@@ -179,15 +179,22 @@ struct KamajiSessionResult {
 private let cloudLocaleLog = OSLog(subsystem: "com.pylux.stream", category: "CloudLocale")
 
 enum CloudLocaleSettings {
-    private static let preferencesKey = "cloud_language_pscloud"
+    private static let preferencesKey = "cloud_store_locale"
+    private static let legacyPreferencesKey = "cloud_language_pscloud"
     static let defaultStored = "en-US"
 
     static var isConfigured: Bool {
         UserDefaults.standard.object(forKey: preferencesKey) != nil
+            || UserDefaults.standard.object(forKey: legacyPreferencesKey) != nil
     }
 
     static var stored: String {
-        UserDefaults.standard.string(forKey: preferencesKey) ?? defaultStored
+        if UserDefaults.standard.object(forKey: preferencesKey) != nil {
+            return UserDefaults.standard.string(forKey: preferencesKey) ?? defaultStored
+        }
+        let legacy = UserDefaults.standard.string(forKey: legacyPreferencesKey) ?? defaultStored
+        UserDefaults.standard.set(legacy, forKey: preferencesKey)
+        return legacy
     }
 
     static func unconfiguredWarning() -> String {

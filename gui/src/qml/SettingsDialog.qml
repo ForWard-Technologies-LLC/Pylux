@@ -2823,7 +2823,7 @@ DialogView {
                             // value) clears the override so the auto-detected
                             // catalog/region locale is used instead.
                             let supported = Chiaki.settings.cloudSupportedLanguages();
-                            let catalogLocale = Chiaki.settings.cloudLanguagePSCloud || "en-US";
+                            let catalogLocale = Chiaki.settings.cloudStoreLocale || "en-US";
                             let values = [""];
                             let labels = [qsTr("Auto") + " (" + catalogLocale + ")"];
                             for (let i = 0; i < supported.length; i++) {
@@ -2836,13 +2836,13 @@ DialogView {
                         }
                         currentIndex: {
                             // Empty override selects "Auto" (index 0).
-                            let sel = Chiaki.settings.cloudStreamLanguage || "";
+                            let sel = Chiaki.settings.cloudGameLanguage || "";
                             let idx = languageValues.indexOf(sel);
                             return idx >= 0 ? idx : 0;
                         }
                         onActivated: index => {
                             // "" (Auto) clears the override; otherwise store the pick.
-                            Chiaki.settings.cloudStreamLanguage = languageValues[index] || "";
+                            Chiaki.settings.cloudGameLanguage = languageValues[index] || "";
                         }
                     }
 

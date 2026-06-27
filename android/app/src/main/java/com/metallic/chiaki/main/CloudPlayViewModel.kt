@@ -49,6 +49,9 @@ class CloudPlayViewModel(
 	private val _fallbackRegion = MutableLiveData<String>()
 	val fallbackRegion: LiveData<String> get() = _fallbackRegion
 
+	private val _catalogIsForeign = MutableLiveData<Boolean>()
+	val catalogIsForeign: LiveData<Boolean> get() = _catalogIsForeign
+
 	private val _searchQuery = MutableLiveData<String>()
 	val searchQuery: LiveData<String> get() = _searchQuery
 
@@ -67,7 +70,8 @@ class CloudPlayViewModel(
 		_loading.value = false
 		_error.value = null
 		_searchQuery.value = ""
-		_fallbackRegion.value = preferences.getCloudFallbackRegion()
+		_fallbackRegion.value = preferences.getCloudResolvedStoreCountry()
+		_catalogIsForeign.value = preferences.isCloudCatalogIsForeign()
 	}
 
 	/**
@@ -118,7 +122,8 @@ class CloudPlayViewModel(
 			}
 			finally
 			{
-				_fallbackRegion.value = preferences.getCloudFallbackRegion()
+				_fallbackRegion.value = preferences.getCloudResolvedStoreCountry()
+		_catalogIsForeign.value = preferences.isCloudCatalogIsForeign()
 				updateLocaleWarningIfNeeded()
 				_loading.value = false
 				fetchInProgress = false
@@ -199,7 +204,7 @@ class CloudPlayViewModel(
 	{
 		if (!_warning.value.isNullOrEmpty())
 			return
-		if (!preferences.isCloudLanguageConfigured())
+		if (!preferences.isCloudStoreLocaleConfigured())
 			_warning.value = CloudLocale.unconfiguredWarning()
 	}
 }

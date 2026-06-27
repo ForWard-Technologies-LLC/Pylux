@@ -26,18 +26,11 @@ NS_ASSUME_NONNULL_BEGIN
                                     forceRefresh:(BOOL)forceRefresh
                                     errorMessage:(NSString * _Nullable * _Nullable)errorMessage;
 
-// Cloud streaming language helpers, backed by the shared libchiaki table. Game
-// language is tied to the datacenter region (Gaikai ignores a language whose
-// datacenter is not selected).
-
 /// Bare lowercase language code Gaikai expects ("de-DE" -> "de"); "en" default.
 + (NSString *)gaikaiLanguageForLocale:(nullable NSString *)locale;
 
 /// Locales offered in the language picker (BCP-47, e.g. "en-GB").
 + (NSArray<NSString *> *)supportedCloudLanguages;
-
-/// YES if @c datacenterName (4-letter ping name, e.g. "fraa") serves @c locale.
-+ (BOOL)datacenter:(NSString *)datacenterName servesLocale:(NSString *)locale;
 
 @end
 

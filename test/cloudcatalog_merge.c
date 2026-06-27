@@ -254,16 +254,6 @@ static MunitResult test_cloud_language_helpers(const MunitParameter params[], vo
 	chiaki_cloud_gaikai_language(NULL, buf, sizeof(buf));
 	munit_assert_string_equal(buf, "en");
 
-	// Datacenter region prefix match (incl. multi-locale Stockholm).
-	munit_assert_true(chiaki_cloud_datacenter_serves_locale("fraa", "de-DE"));
-	munit_assert_true(chiaki_cloud_datacenter_serves_locale("frab", "de-DE"));
-	munit_assert_true(chiaki_cloud_datacenter_serves_locale("stoa", "fi-FI"));
-	munit_assert_true(chiaki_cloud_datacenter_serves_locale("stoa", "en-GB"));
-	munit_assert_true(chiaki_cloud_datacenter_serves_locale("FRAA", "de-de")); // case-insensitive
-	munit_assert_false(chiaki_cloud_datacenter_serves_locale("fraa", "fi-FI"));
-	munit_assert_false(chiaki_cloud_datacenter_serves_locale("", "de-DE"));
-	munit_assert_false(chiaki_cloud_datacenter_serves_locale("fraa", ""));
-
 	// Supported locale enumeration.
 	size_t n = chiaki_cloud_supported_locale_count();
 	munit_assert_int((int)n, >=, 5);

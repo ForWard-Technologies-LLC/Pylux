@@ -182,7 +182,6 @@ private class ChiakiNative
 		@JvmStatic external fun cloudCatalogInvalidateCache(cacheDir: String)
 		@JvmStatic external fun cloudGaikaiLanguage(locale: String?): String
 		@JvmStatic external fun cloudSupportedLanguages(): Array<String>
-		@JvmStatic external fun cloudDatacenterServesLanguage(datacenterName: String, locale: String): Boolean
 	}
 }
 
@@ -334,10 +333,6 @@ fun cloudGaikaiLanguage(locale: String?): String = ChiakiNative.cloudGaikaiLangu
 
 /** Locales offered in the language picker (BCP-47, e.g. "en-GB"). */
 fun cloudSupportedLanguages(): List<String> = ChiakiNative.cloudSupportedLanguages().toList()
-
-/** True if [datacenterName] (4-letter ping name, e.g. "fraa") serves [locale]. */
-fun cloudDatacenterServesLanguage(datacenterName: String, locale: String): Boolean =
-	ChiakiNative.cloudDatacenterServesLanguage(datacenterName, locale)
 
 class ErrorCode(val value: Int)
 {

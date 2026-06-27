@@ -119,30 +119,9 @@ size_t cc_build_store_locale_chain(const char *stored, char **out, size_t max)
 }
 
 // ---------------------------------------------------------------------------
-// Cloud streaming language / datacenter table
-//
-// Game language is tied to the datacenter region (Gaikai ignores a language
-// whose datacenter is not selected). One (locale -> 3-letter datacenter region
-// prefix) table backs the cross-platform language picker. A locale may be
-// served by several regions (en-GB: London + Stockholm) and a region may serve
-// several locales (Stockholm: en-GB + fi-FI). The picker lists every supported
-// locale; chiaki_cloud_datacenter_serves_locale() lets a client best-effort
-// auto-select a reachable datacenter that serves the chosen language.
+// Cloud streaming language picker locales (display order). Platforms render
+// localized names; datacenter selection is independent of language choice.
 // ---------------------------------------------------------------------------
-
-static const struct { const char *locale; const char *prefix; } kLocaleDatacenters[] = {
-	{ "en-US", "sjc" }, { "en-US", "iad" }, // US West / US East
-	{ "en-GB", "lon" }, { "en-GB", "sto" }, // London / Stockholm (Nordic)
-	{ "de-DE", "fra" },                     // Frankfurt
-	{ "fr-FR", "par" },                     // Paris
-	{ "fi-FI", "sto" },                     // Stockholm
-	{ "it-IT", "mil" },                     // Milan
-	{ "es-ES", "mad" },                     // Madrid
-	{ "nl-NL", "ams" },                     // Amsterdam
-	{ "pt-BR", "sao" },                     // Sao Paulo
-	{ "ja-JP", "tyo" }, { "ja-JP", "osa" }, // Tokyo / Osaka
-	{ "ko-KR", "sel" },                     // Seoul
-};
 
 // Distinct picker locales, in display order. Platforms render localized names.
 static const char *const kSupportedLocales[] = {
@@ -174,20 +153,4 @@ size_t chiaki_cloud_supported_locale_count(void)
 const char *chiaki_cloud_supported_locale(size_t idx)
 {
 	return idx < chiaki_cloud_supported_locale_count() ? kSupportedLocales[idx] : "";
-}
-
-bool chiaki_cloud_datacenter_serves_locale(const char *datacenter_name, const char *locale)
-{
-	if(!datacenter_name || !locale || !*datacenter_name || !*locale)
-		return false;
-	char prefix[4] = { 0 };
-	for(size_t i = 0; i < 3 && datacenter_name[i]; i++)
-		prefix[i] = (char)tolower((unsigned char)datacenter_name[i]);
-	if(!prefix[0])
-		return false;
-	for(size_t i = 0; i < sizeof(kLocaleDatacenters) / sizeof(kLocaleDatacenters[0]); i++)
-		if(strcmp(kLocaleDatacenters[i].prefix, prefix) == 0
-			&& strcasecmp(kLocaleDatacenters[i].locale, locale) == 0)
-			return true;
-	return false;
 }

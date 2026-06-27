@@ -62,6 +62,14 @@ class Preferences(context: Context)
 		const val DPAD_TOUCH_SHORTCUT2_DEFAULT = 10
 		const val DPAD_TOUCH_SHORTCUT3_DEFAULT = 7
 		const val DPAD_TOUCH_SHORTCUT4_DEFAULT = 0
+
+		private const val CLOUD_STORE_LOCALE_KEY = "cloud_store_locale"
+		private const val LEGACY_CLOUD_LANGUAGE_PSCLOUD_KEY = "cloud_language_pscloud"
+		private const val CLOUD_GAME_LANGUAGE_KEY = "cloud_game_language"
+		private const val LEGACY_CLOUD_STREAM_LANGUAGE_KEY = "cloud_stream_language"
+		private const val CLOUD_RESOLVED_STORE_COUNTRY_KEY = "cloud_resolved_store_country"
+		private const val LEGACY_CLOUD_FALLBACK_REGION_KEY = "cloud_fallback_region"
+		private const val CLOUD_CATALOG_NATIVE_MODE_KEY = "cloud_catalog_native_mode"
 	}
 
 	private val appContext = context.applicationContext
@@ -288,21 +296,28 @@ class Preferences(context: Context)
 			.apply()
 	}
 
-	fun isCloudLanguageConfigured(): Boolean =
-		sharedPreferences.contains("cloud_language_pscloud")
+	fun isCloudStoreLocaleConfigured(): Boolean =
+		sharedPreferences.contains(CLOUD_STORE_LOCALE_KEY)
+			|| sharedPreferences.contains(LEGACY_CLOUD_LANGUAGE_PSCLOUD_KEY)
 
-	fun getCloudLanguage(): String
+	private fun migrateCloudStoreLocaleIfNeeded(): String
 	{
-		return sharedPreferences.getString("cloud_language_pscloud", "en-US") ?: "en-US"
+		if (sharedPreferences.contains(CLOUD_STORE_LOCALE_KEY))
+			return sharedPreferences.getString(CLOUD_STORE_LOCALE_KEY, "en-US") ?: "en-US"
+		val legacy = sharedPreferences.getString(LEGACY_CLOUD_LANGUAGE_PSCLOUD_KEY, "en-US") ?: "en-US"
+		sharedPreferences.edit().putString(CLOUD_STORE_LOCALE_KEY, legacy).apply()
+		return legacy
 	}
 
-	fun setCloudLanguage(value: String)
+	fun getCloudStoreLocale(): String = migrateCloudStoreLocaleIfNeeded()
+
+	fun setCloudStoreLocale(value: String)
 	{
-		val configured = isCloudLanguageConfigured()
-		val previous = getCloudLanguage()
+		val configured = isCloudStoreLocaleConfigured()
+		val previous = getCloudStoreLocale()
 		if (configured && previous == value)
 			return
-		sharedPreferences.edit().putString("cloud_language_pscloud", value).apply()
+		sharedPreferences.edit().putString(CLOUD_STORE_LOCALE_KEY, value).apply()
 		Log.i("Preferences", "Cloud locale ${if (configured) "changed" else "configured"}: $previous -> $value")
 		CloudGameRepository.invalidateCatalogCache(appContext, "locale change")
 	}
@@ -314,47 +329,55 @@ class Preferences(context: Context)
 	 * (even when it equals the en-US default, so the "couldn't detect region" banner clears) or
 	 * when the value changed.
 	 */
-	fun noteCloudLanguageSettled(value: String)
+	fun noteCloudStoreLocaleSettled(value: String)
 	{
 		if (value.isEmpty())
 			return
-		if (isCloudLanguageConfigured() && getCloudLanguage() == value)
+		if (isCloudStoreLocaleConfigured() && getCloudStoreLocale() == value)
 			return
-		sharedPreferences.edit().putString("cloud_language_pscloud", value).apply()
+		sharedPreferences.edit().putString(CLOUD_STORE_LOCALE_KEY, value).apply()
 		Log.i("Preferences", "Cloud locale settled by lib: $value")
 	}
 
-	fun setCloudLanguageFromSession(language: String?, country: String?)
+	fun setCloudStoreLocaleFromSession(language: String?, country: String?)
 	{
 		val locale = com.metallic.chiaki.cloudplay.CloudLocale.fromSession(language, country) ?: return
-		if (isCloudLanguageConfigured())
+		if (isCloudStoreLocaleConfigured())
 		{
 			// The country is the real region signal; the language part may get auto-corrected by
 			// the imagic fetch (e.g. hu-HU settles on en-HU). Only re-save when the country changes,
 			// otherwise we'd clobber the validated locale on every Kamaji session and thrash the cache.
-			val storedCountry = com.metallic.chiaki.cloudplay.CloudLocale.parseStorePath(getCloudLanguage()).first
+			val storedCountry = com.metallic.chiaki.cloudplay.CloudLocale.parseStorePath(getCloudStoreLocale()).first
 			val sessionCountry = com.metallic.chiaki.cloudplay.CloudLocale.parseStorePath(locale).first
 			if (storedCountry == sessionCountry)
 			{
-				Log.i("Preferences", "Kamaji session country unchanged ($sessionCountry), keeping validated locale ${getCloudLanguage()}")
+				Log.i("Preferences", "Kamaji session country unchanged ($sessionCountry), keeping validated locale ${getCloudStoreLocale()}")
 				return
 			}
 		}
-		setCloudLanguage(locale)
+		setCloudStoreLocale(locale)
 	}
 
 	/**
 	 * Manual streaming-language override chosen in the language picker. Empty means
-	 * "use the catalog locale" ([getCloudLanguage]). Stored separately so the
-	 * auto-detected catalog locale (noteCloudLanguageSettled / setCloudLanguageFromSession)
+	 * "use the catalog locale" ([getCloudStoreLocale]). Stored separately so the
+	 * auto-detected catalog locale (noteCloudStoreLocaleSettled / setCloudStoreLocaleFromSession)
 	 * can never clobber the user's pick.
 	 */
-	fun getStreamLanguage(): String =
-		sharedPreferences.getString("cloud_stream_language", "") ?: ""
-
-	fun setStreamLanguage(value: String)
+	private fun migrateCloudGameLanguageIfNeeded(): String
 	{
-		sharedPreferences.edit().putString("cloud_stream_language", value).apply()
+		if (sharedPreferences.contains(CLOUD_GAME_LANGUAGE_KEY))
+			return sharedPreferences.getString(CLOUD_GAME_LANGUAGE_KEY, "") ?: ""
+		val legacy = sharedPreferences.getString(LEGACY_CLOUD_STREAM_LANGUAGE_KEY, "") ?: ""
+		sharedPreferences.edit().putString(CLOUD_GAME_LANGUAGE_KEY, legacy).apply()
+		return legacy
+	}
+
+	fun getCloudGameLanguage(): String = migrateCloudGameLanguageIfNeeded()
+
+	fun setCloudGameLanguage(value: String)
+	{
+		sharedPreferences.edit().putString(CLOUD_GAME_LANGUAGE_KEY, value).apply()
 	}
 
 	// Cloud resolution settings (matching Qt GetCloudResolutionPSNOW/SetCloudResolutionPSNOW)
@@ -434,8 +457,7 @@ class Preferences(context: Context)
 		sharedPreferences.edit().putString(cloudDatacentersJsonPsnowKey, json).apply()
 	}
 
-	// Cloud streaming game language (shared across PSCloud/PSNOW). Backed by the
-	// same "cloud_language_pscloud" store as getCloudLanguage/setCloudLanguage.
+	// Cloud streaming game language picker key (manual override; separate from store locale).
 	val cloudLanguageKey get() = resources.getString(R.string.preferences_cloud_language_key)
 
 	// PSCloud datacenter settings (matching Qt GetCloudDatacenterPSCloud/SetCloudDatacenterPSCloud)
@@ -462,8 +484,43 @@ class Preferences(context: Context)
 		sharedPreferences.edit().putString(cloudDatacentersJsonPscloudKey, json).apply()
 	}
 
-	// Cloud Play UI state
-	private val CLOUD_FALLBACK_REGION_KEY = "cloud_fallback_region"
+	/**
+	 * PS Now region-group fallback store country. Empty string = native mode (account's own /user/stores
+	 * storefront is authoritative). A non-empty value (the region-group store country, "US"
+	 * or "GB") = fallback mode: the catalog came from a foreign region group, so the
+	 * concept-sibling streamability gate is skipped and stream-conversion/acquire remap to
+	 * the region-group store. Recomputed on every catalog refresh (self-healing).
+	 */
+	fun getCloudResolvedStoreCountry(): String
+	{
+		if (sharedPreferences.contains(CLOUD_RESOLVED_STORE_COUNTRY_KEY))
+			return sharedPreferences.getString(CLOUD_RESOLVED_STORE_COUNTRY_KEY, "") ?: ""
+		val legacy = sharedPreferences.getString(LEGACY_CLOUD_FALLBACK_REGION_KEY, "") ?: ""
+		sharedPreferences.edit().putString(CLOUD_RESOLVED_STORE_COUNTRY_KEY, legacy).apply()
+		return legacy
+	}
+
+	fun setCloudResolvedStoreCountry(country: String)
+	{
+		sharedPreferences.edit().putString(CLOUD_RESOLVED_STORE_COUNTRY_KEY, country).apply()
+	}
+
+	fun getCloudCatalogNativeMode(): Boolean
+	{
+		if (sharedPreferences.contains(CLOUD_CATALOG_NATIVE_MODE_KEY))
+			return sharedPreferences.getBoolean(CLOUD_CATALOG_NATIVE_MODE_KEY, true)
+		val native = getCloudResolvedStoreCountry().isEmpty()
+		sharedPreferences.edit().putBoolean(CLOUD_CATALOG_NATIVE_MODE_KEY, native).apply()
+		return native
+	}
+
+	fun setCloudCatalogNativeMode(nativeMode: Boolean)
+	{
+		sharedPreferences.edit().putBoolean(CLOUD_CATALOG_NATIVE_MODE_KEY, nativeMode).apply()
+	}
+
+	fun isCloudCatalogIsForeign(): Boolean = !getCloudCatalogNativeMode()
+
 	private val LAST_MAIN_TAB_KEY = "last_main_tab"
 	private val CLOUD_SORT_STATE_KEY = "cloud_sort_state"
 	private val CLOUD_TAG_FILTERS_KEY = "cloud_tag_filters"
@@ -487,25 +544,6 @@ class Preferences(context: Context)
 		sharedPreferences.edit().putInt(DONATION_PAYWALL_SHOW_COUNT_KEY, next).apply()
 		return next
 	}
-
-	/**
-	 * PS Now region-group fallback. Empty string = native mode (account's own /user/stores
-	 * storefront is authoritative). A non-empty value (the region-group store country, "US"
-	 * or "GB") = fallback mode: the catalog came from a foreign region group, so the
-	 * concept-sibling streamability gate is skipped and stream-conversion/acquire remap to
-	 * the region-group store. Recomputed on every catalog refresh (self-healing).
-	 */
-	fun getCloudFallbackRegion(): String
-	{
-		return sharedPreferences.getString(CLOUD_FALLBACK_REGION_KEY, "") ?: ""
-	}
-
-	fun setCloudFallbackRegion(region: String)
-	{
-		sharedPreferences.edit().putString(CLOUD_FALLBACK_REGION_KEY, region).apply()
-	}
-
-	fun isCloudFallbackMode(): Boolean = getCloudFallbackRegion().isNotEmpty()
 
 	fun getLastMainTab(): Int
 	{

@@ -36,7 +36,8 @@ final class CloudPlayViewModel: ObservableObject {
     @Published var refreshing = false
     @Published var error: String?
     @Published var warning: String?
-    @Published var fallbackRegion: String = SecureStore.shared.cloudFallbackRegion
+    @Published var fallbackRegion: String = SecureStore.shared.cloudResolvedStoreCountry
+    @Published var catalogIsForeign: Bool = SecureStore.shared.isCloudCatalogIsForeign
     @Published var searchQuery = ""
     @Published var sortOrder: SortOrder = .defaultOrder
     @Published var showFavoritesOnly = false
@@ -153,7 +154,8 @@ final class CloudPlayViewModel: ObservableObject {
     private func applyLoadedGames(_ loadedGames: [CloudGame]) {
         games = loadedGames
         loading = false
-        fallbackRegion = SecureStore.shared.cloudFallbackRegion
+        fallbackRegion = SecureStore.shared.cloudResolvedStoreCountry
+        catalogIsForeign = SecureStore.shared.isCloudCatalogIsForeign
         if let fetchError = catalogService.lastLibraryFetchError {
             error = fetchError
         } else if loadedGames.isEmpty {
@@ -288,7 +290,7 @@ struct CloudPlayView: View {
                     VStack(spacing: 0) {
                         cloudSubTabs
 
-                        if !viewModel.fallbackRegion.isEmpty {
+                        if viewModel.catalogIsForeign {
                             Text("Cloud catalog isn't fully available in your region; some titles may not stream.")
                                 .font(.caption)
                                 .foregroundColor(.black.opacity(0.85))

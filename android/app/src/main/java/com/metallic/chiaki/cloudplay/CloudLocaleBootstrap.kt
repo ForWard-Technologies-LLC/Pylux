@@ -14,7 +14,7 @@ object CloudLocaleBootstrap
 
 	fun ensureConfigured(preferences: Preferences, npssoToken: String): Boolean
 	{
-		if (preferences.isCloudLanguageConfigured())
+		if (preferences.isCloudStoreLocaleConfigured())
 			return true
 		if (npssoToken.isBlank())
 		{
@@ -24,7 +24,7 @@ object CloudLocaleBootstrap
 
 		synchronized(lock)
 		{
-			if (preferences.isCloudLanguageConfigured())
+			if (preferences.isCloudStoreLocaleConfigured())
 				return true
 
 			Log.i(TAG, "Bootstrapping cloud locale via Kamaji session (first time only)")
@@ -46,7 +46,7 @@ object CloudLocaleBootstrap
 				Log.w(TAG, "Locale bootstrap failed: Kamaji session")
 				return false
 			}
-			Log.i(TAG, "Locale bootstrap OK: ${preferences.getCloudLanguage()}")
+			Log.i(TAG, "Locale bootstrap OK: ${preferences.getCloudStoreLocale()}")
 			true
 		}
 		catch (e: Exception)
@@ -114,10 +114,10 @@ object CloudLocaleBootstrap
 			return false
 
 		val data = json.optJSONObject("data")
-		preferences.setCloudLanguageFromSession(
+		preferences.setCloudStoreLocaleFromSession(
 			data?.optString("language"),
 			data?.optString("country")
 		)
-		return preferences.isCloudLanguageConfigured()
+		return preferences.isCloudStoreLocaleConfigured()
 	}
 }

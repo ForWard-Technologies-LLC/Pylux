@@ -438,27 +438,36 @@ void Settings::SetCloudResolutionPSCloud(int resolution)
 	settings.setValue("settings/cloud_resolution_pscloud", resolution);
 }
 
-QString Settings::GetCloudLanguagePSCloud() const
+QString Settings::GetCloudStoreLocale() const
 {
-	return settings.value("settings/cloud_language_pscloud", "en-US").toString();
+	const QString key = QStringLiteral("settings/cloud_store_locale");
+	QString value = settings.value(key).toString();
+	if (value.isEmpty()) {
+		value = settings.value(QStringLiteral("settings/cloud_language_pscloud"), QStringLiteral("en-US")).toString();
+		const_cast<Settings *>(this)->settings.setValue(key, value);
+	}
+	return value.isEmpty() ? QStringLiteral("en-US") : value;
 }
 
-void Settings::SetCloudLanguagePSCloud(const QString &language)
+void Settings::SetCloudStoreLocale(const QString &locale)
 {
-	settings.setValue("settings/cloud_language_pscloud", language);
+	settings.setValue(QStringLiteral("settings/cloud_store_locale"), locale);
 }
 
-QString Settings::GetCloudStreamLanguage() const
+QString Settings::GetCloudGameLanguage() const
 {
-	// Manual streaming-language override chosen in the language picker. Empty
-	// means "use the catalog locale" (cloud_language_pscloud). Kept separate so
-	// the auto-detected catalog locale never clobbers the user's pick.
-	return settings.value("settings/cloud_stream_language", "").toString();
+	const QString key = QStringLiteral("settings/cloud_game_language");
+	if (!settings.contains(key)) {
+		const QString migrated = settings.value(QStringLiteral("settings/cloud_stream_language"), QString()).toString();
+		const_cast<Settings *>(this)->settings.setValue(key, migrated);
+		return migrated;
+	}
+	return settings.value(key, QString()).toString();
 }
 
-void Settings::SetCloudStreamLanguage(const QString &language)
+void Settings::SetCloudGameLanguage(const QString &language)
 {
-	settings.setValue("settings/cloud_stream_language", language);
+	settings.setValue(QStringLiteral("settings/cloud_game_language"), language);
 }
 
 QString Settings::GetCloudDatacenterPSCloud() const
@@ -558,17 +567,6 @@ ChiakiConnectVideoProfile Settings::GetCloudVideoProfile(const QString &serviceT
 	profile.codec = pscloud ? CHIAKI_CODEC_H265 : CHIAKI_CODEC_H264;
 
 	return profile;
-}
-
-QString Settings::GetCloudLanguagePSNOW() const
-{
-	// Fallback to legacy cloud_language if not set (for migration)
-	return settings.value("settings/cloud_language_psnow", settings.value("settings/cloud_language", "en-US").toString()).toString();
-}
-
-void Settings::SetCloudLanguagePSNOW(const QString &language)
-{
-	settings.setValue("settings/cloud_language_psnow", language);
 }
 
 QString Settings::GetCloudDatacenterPSNOW() const
@@ -1041,19 +1039,41 @@ void Settings::SetCloudCatalogFilter(QString filter)
 	settings.setValue("settings/cloud_catalog_filter", filter);
 }
 
-QString Settings::GetCloudFallbackRegion() const
+QString Settings::GetCloudResolvedStoreCountry() const
 {
-	return settings.value("settings/cloud_fallback_region", "").toString();
+	const QString key = QStringLiteral("settings/cloud_resolved_store_country");
+	if (!settings.contains(key)) {
+		const QString migrated = settings.value(QStringLiteral("settings/cloud_fallback_region"), QString()).toString();
+		const_cast<Settings *>(this)->settings.setValue(key, migrated);
+		return migrated;
+	}
+	return settings.value(key, QString()).toString();
 }
 
-void Settings::SetCloudFallbackRegion(const QString &region)
+void Settings::SetCloudResolvedStoreCountry(const QString &country)
 {
-	settings.setValue("settings/cloud_fallback_region", region);
+	settings.setValue(QStringLiteral("settings/cloud_resolved_store_country"), country);
 }
 
-bool Settings::IsCloudFallbackMode() const
+bool Settings::GetCloudCatalogNativeMode() const
 {
-	return !GetCloudFallbackRegion().isEmpty();
+	const QString key = QStringLiteral("settings/cloud_catalog_native_mode");
+	if (!settings.contains(key)) {
+		const bool native = GetCloudResolvedStoreCountry().isEmpty();
+		const_cast<Settings *>(this)->settings.setValue(key, native);
+		return native;
+	}
+	return settings.value(key, true).toBool();
+}
+
+void Settings::SetCloudCatalogNativeMode(bool native_mode)
+{
+	settings.setValue(QStringLiteral("settings/cloud_catalog_native_mode"), native_mode);
+}
+
+bool Settings::IsCloudCatalogIsForeign() const
+{
+	return !GetCloudCatalogNativeMode();
 }
 
 QString Settings::GetCloudTagFilters() const

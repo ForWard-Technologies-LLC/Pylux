@@ -318,7 +318,7 @@ void PSKamajiSession::handleAnonSessionResponse(QNetworkReply *reply)
 void PSKamajiSession::step0_5d_ConvertProductId()
 {
     // Get locale from unified language setting
-    QString localeSetting = settings ? settings->GetCloudLanguagePSCloud() : "en-US";
+    QString localeSetting = settings ? settings->GetCloudStoreLocale() : "en-US";
     QString locale = localeSetting.toLower(); // Convert "en-US" to "en-us"
     
     // Extract country and language from locale (e.g., "en-us" -> "US", "en")
@@ -330,8 +330,8 @@ void PSKamajiSession::step0_5d_ConvertProductId()
     // PS Now catalog (PS3 + PS4) was browsed from the public region-group APOLLOROOT container
     // (US for Americas, GB for PAL), so its product ids must be RESOLVED against that same
     // region-group store. Driven by the account-level fallback flag; PS3 and PS4 behave identically.
-    if (settings && settings->IsCloudFallbackMode()) {
-        country = settings->GetCloudFallbackRegion();
+    if (settings && settings->IsCloudCatalogIsForeign()) {
+        country = settings->GetCloudResolvedStoreCountry();
         language = QStringLiteral("en");
         qInfo() << "Kamaji Step 0.5d: Fallback mode -> region-group container: country="
                 << country << "language=" << language;
@@ -918,7 +918,7 @@ void PSKamajiSession::handleCheckEntitlementResponse(QNetworkReply *reply)
         // Region-group fallback: unsupported regions have no pcnow storefront, so the
         // free checkout-acquire fails. Skip it and let Gaikai validate the subscription.
         // Native (supported region): run the normal checkout-acquire for PS3 + PS4 + PS5 alike.
-        if (settings && settings->IsCloudFallbackMode()) {
+        if (settings && settings->IsCloudCatalogIsForeign()) {
             qInfo() << "Kamaji Step 0.5e.2 - Entitlement not found (404); fallback region -> skipping acquire, proceeding to Gaikai";
             step5_GetAuthCode();
             return;

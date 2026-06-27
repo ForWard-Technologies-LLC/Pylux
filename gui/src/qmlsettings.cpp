@@ -197,26 +197,26 @@ void QmlSettings::setCloudResolutionPSCloud(int resolution)
     emit cloudResolutionPSCloudChanged();
 }
 
-QString QmlSettings::cloudLanguagePSCloud() const
+QString QmlSettings::cloudStoreLocale() const
 {
-    return settings->GetCloudLanguagePSCloud();
+    return settings->GetCloudStoreLocale();
 }
 
-void QmlSettings::setCloudLanguagePSCloud(const QString &language)
+void QmlSettings::setCloudStoreLocale(const QString &locale)
 {
-    settings->SetCloudLanguagePSCloud(language);
-    emit cloudLanguagePSCloudChanged();
+    settings->SetCloudStoreLocale(locale);
+    emit cloudStoreLocaleChanged();
 }
 
-QString QmlSettings::cloudStreamLanguage() const
+QString QmlSettings::cloudGameLanguage() const
 {
-    return settings->GetCloudStreamLanguage();
+    return settings->GetCloudGameLanguage();
 }
 
-void QmlSettings::setCloudStreamLanguage(const QString &language)
+void QmlSettings::setCloudGameLanguage(const QString &language)
 {
-    settings->SetCloudStreamLanguage(language);
-    emit cloudStreamLanguageChanged();
+    settings->SetCloudGameLanguage(language);
+    emit cloudGameLanguageChanged();
 }
 
 QStringList QmlSettings::cloudSupportedLanguages() const
@@ -226,12 +226,6 @@ QStringList QmlSettings::cloudSupportedLanguages() const
     for(size_t i = 0; i < n; i++)
         list.append(QString::fromUtf8(chiaki_cloud_supported_locale(i)));
     return list;
-}
-
-bool QmlSettings::cloudDatacenterServesLanguage(const QString &datacenterName, const QString &locale) const
-{
-    return chiaki_cloud_datacenter_serves_locale(datacenterName.toUtf8().constData(),
-                                                 locale.toUtf8().constData());
 }
 
 QString QmlSettings::cloudDatacenterPSCloud() const
@@ -271,17 +265,6 @@ void QmlSettings::setCloudResolutionPSNOW(int resolution)
 {
     settings->SetCloudResolutionPSNOW(resolution);
     emit cloudResolutionPSNOWChanged();
-}
-
-QString QmlSettings::cloudLanguagePSNOW() const
-{
-    return settings->GetCloudLanguagePSNOW();
-}
-
-void QmlSettings::setCloudLanguagePSNOW(const QString &language)
-{
-    settings->SetCloudLanguagePSNOW(language);
-    emit cloudLanguagePSNOWChanged();
 }
 
 QString QmlSettings::cloudDatacenterPSNOW() const
@@ -866,15 +849,26 @@ void QmlSettings::setCloudCatalogFilter(const QString &filter)
 	emit cloudCatalogFilterChanged();
 }
 
-QString QmlSettings::cloudFallbackRegion() const
+QString QmlSettings::cloudResolvedStoreCountry() const
 {
-	return settings->GetCloudFallbackRegion();
+	return settings->GetCloudResolvedStoreCountry();
 }
 
-void QmlSettings::setCloudFallbackRegion(const QString &region)
+void QmlSettings::setCloudResolvedStoreCountry(const QString &country)
 {
-	settings->SetCloudFallbackRegion(region);
-	emit cloudFallbackRegionChanged();
+	settings->SetCloudResolvedStoreCountry(country);
+	emit cloudResolvedStoreCountryChanged();
+}
+
+bool QmlSettings::cloudCatalogNativeMode() const
+{
+	return settings->GetCloudCatalogNativeMode();
+}
+
+void QmlSettings::setCloudCatalogNativeMode(bool native_mode)
+{
+	settings->SetCloudCatalogNativeMode(native_mode);
+	emit cloudCatalogNativeModeChanged();
 }
 
 QString QmlSettings::cloudTagFilters() const

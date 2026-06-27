@@ -120,7 +120,7 @@ QString CloudCatalogBackend::getCachedPs5CatalogV3(int maxAge)
         return QString();
     }
 
-    const QString expectedLocale = settings ? settings->GetCloudLanguagePSCloud() : QStringLiteral("en-US");
+    const QString expectedLocale = settings ? settings->GetCloudStoreLocale() : QStringLiteral("en-US");
     const QString cachedLocale = doc.object().value(QStringLiteral("locale")).toString();
     if (!cachedLocale.isEmpty() && cachedLocale != expectedLocale) {
         qInfo() << "[CACHE LOCALE MISMATCH] PS5 catalog v3 locale" << cachedLocale
@@ -178,7 +178,7 @@ void CloudCatalogBackend::fetchUnifiedCatalog(const QJSValue &callback)
 
     const QByteArray npsso = getNpSsoToken().toUtf8();
     const QByteArray locale =
-        (settings ? settings->GetCloudLanguagePSCloud() : QStringLiteral("en-US")).toUtf8();
+        (settings ? settings->GetCloudStoreLocale() : QStringLiteral("en-US")).toUtf8();
     const QByteArray cacheDir = cacheDirectory.toUtf8();
 
     std::thread([this, cb, npsso, locale, cacheDir]() mutable {
@@ -214,14 +214,16 @@ void CloudCatalogBackend::fetchUnifiedCatalog(const QJSValue &callback)
             // Persist the locale the lib actually settled on (region detection now lives
             // entirely in libchiaki: it re-bases the locale on the account's Kamaji-session
             // country and resolves the imagic store-locale chain, returning "settledLocale").
-            // Mirrors iOS noteSettledLocale / Android noteCloudLanguageSettled. Uses the core
+            // Mirrors iOS noteSettledLocale / Android noteCloudStoreLocaleSettled. Uses the core
             // Settings setter (NOT QmlSettings), so it does NOT invalidate the cache the lib
             // just wrote; otherwise an international account would thrash the catalog.
             if (success && settings) {
-                const QString settled = QJsonDocument::fromJson(json.toUtf8())
-                    .object().value(QStringLiteral("settledLocale")).toString();
-                if (!settled.isEmpty() && settled != settings->GetCloudLanguagePSCloud())
-                    settings->SetCloudLanguagePSCloud(settled);
+                const QJsonObject root = QJsonDocument::fromJson(json.toUtf8()).object();
+                const QString settled = root.value(QStringLiteral("settledLocale")).toString();
+                if (!settled.isEmpty() && settled != settings->GetCloudStoreLocale())
+                    settings->SetCloudStoreLocale(settled);
+                settings->SetCloudResolvedStoreCountry(root.value(QStringLiteral("fallbackRegion")).toString());
+                settings->SetCloudCatalogNativeMode(root.value(QStringLiteral("nativeMode")).toBool(true));
             }
 
             const QJSValue payload = success ? QJSValue(json) : QJSValue();
@@ -263,7 +265,7 @@ void CloudCatalogBackend::fetchGameDetails(const QString &productId, const QJSVa
 void CloudCatalogBackend::executeGameDetailsFetch(const QString &productId)
 {
     // Get locale from unified language setting
-    QString localeSetting = settings ? settings->GetCloudLanguagePSCloud() : "en-US";
+    QString localeSetting = settings ? settings->GetCloudStoreLocale() : "en-US";
     QString locale = localeSetting.toLower(); // Convert "en-US" to "en-us"
     
     // Extract country and language from locale (e.g., "en-us" -> "US", "en")

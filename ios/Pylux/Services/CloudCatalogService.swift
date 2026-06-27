@@ -60,7 +60,10 @@ final class CloudCatalogService {
         if let settled = root["settledLocale"] as? String {
             CloudLocaleSettings.noteSettledLocale(settled)
         }
-        SecureStore.shared.cloudFallbackRegion = root["fallbackRegion"] as? String ?? ""
+        SecureStore.shared.cloudResolvedStoreCountry = root["fallbackRegion"] as? String ?? ""
+        if let nativeMode = root["nativeMode"] as? Bool {
+            SecureStore.shared.cloudCatalogNativeMode = nativeMode
+        }
 
         if let warning = root["warning"] as? String, !warning.isEmpty {
             lastCatalogFetchWarning = warning

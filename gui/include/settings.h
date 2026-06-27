@@ -308,10 +308,10 @@ class Settings : public QObject
 		// PSCloud settings
 		int GetCloudResolutionPSCloud() const;
 		void SetCloudResolutionPSCloud(int resolution);
-		QString GetCloudLanguagePSCloud() const;
-		void SetCloudLanguagePSCloud(const QString &language);
-		QString GetCloudStreamLanguage() const;
-		void SetCloudStreamLanguage(const QString &language);
+		QString GetCloudStoreLocale() const;
+		void SetCloudStoreLocale(const QString &locale);
+		QString GetCloudGameLanguage() const;
+		void SetCloudGameLanguage(const QString &language);
 		QString GetCloudDatacenterPSCloud() const;
 		void SetCloudDatacenterPSCloud(const QString &datacenter);
 		QString GetCloudDatacentersJsonPSCloud() const;  // JSON array of datacenters with ping results
@@ -324,8 +324,6 @@ class Settings : public QObject
 		// PSNOW settings
 		int GetCloudResolutionPSNOW() const;
 		void SetCloudResolutionPSNOW(int resolution);
-		QString GetCloudLanguagePSNOW() const;
-		void SetCloudLanguagePSNOW(const QString &language);
 		QString GetCloudDatacenterPSNOW() const;
 		void SetCloudDatacenterPSNOW(const QString &datacenter);
 		QString GetCloudDatacentersJsonPSNOW() const;  // JSON array of datacenters with ping results
@@ -452,10 +450,12 @@ class Settings : public QObject
 		QString GetCloudCatalogFilter() const;
 		void SetCloudCatalogFilter(QString filter);
 
-		/** PS Now region-group fallback. Empty = native mode; "US"/"GB" = fallback mode. */
-		QString GetCloudFallbackRegion() const;
-		void SetCloudFallbackRegion(const QString &region);
-		bool IsCloudFallbackMode() const;
+		/** PS Now region-group fallback store country. Empty = native mode; "US"/"GB" = fallback mode. */
+		QString GetCloudResolvedStoreCountry() const;
+		void SetCloudResolvedStoreCountry(const QString &country);
+		bool GetCloudCatalogNativeMode() const;
+		void SetCloudCatalogNativeMode(bool native_mode);
+		bool IsCloudCatalogIsForeign() const;
 
 		/** Persisted acquisition-tag filter JSON array; empty/[] = show all. */
 		QString GetCloudTagFilters() const;
