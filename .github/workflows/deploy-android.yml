@@ -164,8 +164,10 @@ jobs:
               --parallel --build-cache -Dorg.gradle.java.home="$JAVA_HOME"
           fi
           # Prefer the arm64-v8a APK; fall back to the newest APK by mtime if naming differs.
-          APK="$(find app/build -name "*${ABI}*.apk" -print0 2>/dev/null | xargs -0 ls -t 2>/dev/null | head -1)"
-          [ -n "$APK" ] || APK="$(find app/build -name '*.apk' -print0 2>/dev/null | xargs -0 ls -t 2>/dev/null | head -1)"
+          # xargs -r so an empty find (e.g. assembleRelease names the file app-release.apk with no
+          # ABI token) doesn't run `ls` on the cwd and yield a bogus dir ("app") that breaks the cp.
+          APK="$(find app/build -name "*${ABI}*.apk" -print0 2>/dev/null | xargs -0 -r ls -t 2>/dev/null | head -1)"
+          [ -n "$APK" ] || APK="$(find app/build -name '*.apk' -print0 2>/dev/null | xargs -0 -r ls -t 2>/dev/null | head -1)"
           test -n "$APK" || { echo "::error::No APK produced"; exit 1; }
           SHORT_SHA="$(git rev-parse --short HEAD)"
           DEST="pylux-${{ steps.extract_version.outputs.version }}-${SHORT_SHA}.apk"
