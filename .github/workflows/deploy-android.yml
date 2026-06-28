@@ -149,25 +149,23 @@ jobs:
         if: ${{ inputs.build_apk }}
         working-directory: android
         run: |
-          # abiFilters produces per-ABI split APKs; pin to arm64-v8a (covers virtually
-          # all modern phones/tablets/TV) so we never ship a stray x86_64 split to testers.
-          ABI=arm64-v8a
+          # Plain assemble (NO android.injected.build.* properties): those mark the APK
+          # testOnly=true, which blocks normal sideloading (INSTALL_FAILED_TEST_ONLY / "can't
+          # install on this device"). abiFilters in build.gradle already limits native libs to the
+          # ABIs that were built (arm64-v8a), so this stays effectively arm64 while remaining
+          # installable from a file manager / the Downloads folder.
           if [ "$SIGNING_CONFIGURED" = "true" ]; then
-            echo "Signing configured — building signed release APK ($ABI)"
+            echo "Signing configured — building signed release APK"
             ./gradlew assembleRelease \
-              -Pandroid.injected.build.abi="$ABI" \
               --parallel --build-cache -Dorg.gradle.java.home="$JAVA_HOME"
           else
-            echo "::warning::No signing configured — building debug APK ($ABI, self-signed, still installable for testing)"
+            echo "::warning::No signing configured — building debug APK (self-signed, still installable for testing)"
             ./gradlew assembleDebug \
-              -Pandroid.injected.build.abi="$ABI" \
               --parallel --build-cache -Dorg.gradle.java.home="$JAVA_HOME"
           fi
-          # Prefer the arm64-v8a APK; fall back to the newest APK by mtime if naming differs.
-          # xargs -r so an empty find (e.g. assembleRelease names the file app-release.apk with no
-          # ABI token) doesn't run `ls` on the cwd and yield a bogus dir ("app") that breaks the cp.
-          APK="$(find app/build -name "*${ABI}*.apk" -print0 2>/dev/null | xargs -0 -r ls -t 2>/dev/null | head -1)"
-          [ -n "$APK" ] || APK="$(find app/build -name '*.apk' -print0 2>/dev/null | xargs -0 -r ls -t 2>/dev/null | head -1)"
+          # Newest final APK from the outputs dir (outputs/ only, so we never pick an intermediate
+          # unsigned APK). xargs -r so an empty find doesn't run `ls` on the cwd and yield a bogus path.
+          APK="$(find app/build/outputs/apk -name '*.apk' -print0 2>/dev/null | xargs -0 -r ls -t 2>/dev/null | head -1)"
           test -n "$APK" || { echo "::error::No APK produced"; exit 1; }
           SHORT_SHA="$(git rev-parse --short HEAD)"
           DEST="pylux-${{ steps.extract_version.outputs.version }}-${SHORT_SHA}.apk"
