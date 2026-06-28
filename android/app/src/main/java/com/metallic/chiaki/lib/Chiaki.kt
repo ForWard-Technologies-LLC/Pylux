@@ -101,6 +101,34 @@ data class PsnDevice(
 	val isPS5: Boolean get() = type == 1
 }
 
+/**
+ * Snapshot of the live stream stats for the on-screen overlay. Every value is
+ * computed in libchiaki (shared with Qt/iOS) — the client only renders them.
+ */
+data class StreamMetrics(
+	val bitrateMbps: Double,
+	val packetLoss: Double, // 0..1
+	val droppedFrames: Long,
+	val fps: Double,
+	val rttMs: Double,
+	val width: Int,
+	val height: Int
+)
+{
+	companion object
+	{
+		fun fromArray(a: DoubleArray): StreamMetrics = StreamMetrics(
+			bitrateMbps = a.getOrElse(0) { 0.0 },
+			packetLoss = a.getOrElse(1) { 0.0 },
+			droppedFrames = a.getOrElse(2) { 0.0 }.toLong(),
+			fps = a.getOrElse(3) { 0.0 },
+			rttMs = a.getOrElse(4) { 0.0 },
+			width = a.getOrElse(5) { 0.0 }.toInt(),
+			height = a.getOrElse(6) { 0.0 }.toInt()
+		)
+	}
+}
+
 private class ChiakiNative
 {
 	data class CreateResult(var errorCode: Int, var ptr: Long)
@@ -121,6 +149,7 @@ private class ChiakiNative
 		@JvmStatic external fun sessionStop(ptr: Long): Int
 		@JvmStatic external fun sessionJoin(ptr: Long): Int
 		@JvmStatic external fun sessionSetSurface(ptr: Long, surface: Surface?)
+		@JvmStatic external fun sessionGetMetrics(ptr: Long): DoubleArray
 		@JvmStatic external fun sessionSetControllerState(ptr: Long, controllerState: ControllerState)
 		@JvmStatic external fun sessionSetLoginPin(ptr: Long, pin: String)
 		@JvmStatic external fun discoveryServiceCreate(result: CreateResult, options: DiscoveryServiceOptions, javaService: DiscoveryService)
@@ -144,6 +173,15 @@ private class ChiakiNative
 		@JvmStatic external fun holepunchGetRegistInfoData2(sessionPtr: Long): ByteArray?
 		@JvmStatic external fun holepunchGetRegistInfoCustomData1(sessionPtr: Long): ByteArray?
 		@JvmStatic external fun holepunchGetRegistInfoLocalIp(sessionPtr: Long): String?
+
+		// Unified cloud catalog (chiaki/cloudcatalog.h) — single source of truth shared with Qt/iOS.
+		// Returns the UTF-8 JSON contract as raw bytes (decoded to String by the wrapper, since the
+		// payload contains non-ASCII names that JNI's modified-UTF-8 NewStringUTF can't represent).
+		// errorOut[0] receives the lib's failure detail when the result is null.
+		@JvmStatic external fun cloudCatalogFetchUnified(npsso: String?, locale: String?, cacheDir: String, forceRefresh: Boolean, errorOut: Array<String?>): ByteArray?
+		@JvmStatic external fun cloudCatalogInvalidateCache(cacheDir: String)
+		@JvmStatic external fun cloudGaikaiLanguage(locale: String?): String
+		@JvmStatic external fun cloudSupportedLanguages(): Array<String>
 	}
 }
 
@@ -264,6 +302,37 @@ class HolepunchSession(token: String)
 
 /** Initialize native SSL CA bundle for curl+mbedTLS on Android. Call once at app startup. */
 fun initNativeSsl(cacheDir: String) = ChiakiNative.initNativeSsl(cacheDir)
+
+/** Result of [cloudCatalogFetchUnified]: [json] is non-null on success (including degraded-but-
+ *  usable results such as expired npsso); on hard failure [json] is null and [errorMessage] carries
+ *  the lib's human-readable detail. */
+data class CloudCatalogFetch(val json: String?, val errorMessage: String?)
+
+/**
+ * Fetch (or load from the lib-owned on-disk cache) the unified cloud catalog as a JSON string.
+ * Blocking — call from a background thread. All OAuth/session exchanges, fetch, dedup, ownership
+ * cross-reference and tagging happen inside libchiaki (shared with Qt and iOS); the caller just
+ * parses and renders the contract.
+ */
+fun cloudCatalogFetchUnified(npsso: String?, locale: String?, cacheDir: String, forceRefresh: Boolean): CloudCatalogFetch
+{
+	val errorOut = arrayOfNulls<String>(1)
+	val bytes = ChiakiNative.cloudCatalogFetchUnified(npsso, locale, cacheDir, forceRefresh, errorOut)
+	return CloudCatalogFetch(bytes?.let { String(it, Charsets.UTF_8) }, errorOut[0])
+}
+
+/** Delete every lib-owned cache file under [cacheDir] (e.g. on locale change). */
+fun cloudCatalogInvalidateCache(cacheDir: String) = ChiakiNative.cloudCatalogInvalidateCache(cacheDir)
+
+// Cloud streaming language helpers, backed by the shared libchiaki table. Game
+// language is tied to the datacenter region (Gaikai ignores a language whose
+// datacenter is not selected).
+
+/** Bare lowercase language code Gaikai expects ("de-DE" -> "de"); "en" default. */
+fun cloudGaikaiLanguage(locale: String?): String = ChiakiNative.cloudGaikaiLanguage(locale)
+
+/** Locales offered in the language picker (BCP-47, e.g. "en-GB"). */
+fun cloudSupportedLanguages(): List<String> = ChiakiNative.cloudSupportedLanguages().toList()
 
 class ErrorCode(val value: Int)
 {
@@ -556,6 +625,10 @@ class Session(connectInfo: ConnectInfo, logFile: String?, logVerbose: Boolean)
 	{
 		ChiakiNative.sessionSetSurface(nativePtr, surface)
 	}
+
+	/** Latest live stream metrics for the stats overlay, or null if the session is gone. */
+	fun getMetrics(): StreamMetrics? =
+		if(nativePtr == 0L) null else StreamMetrics.fromArray(ChiakiNative.sessionGetMetrics(nativePtr))
 
 	fun setControllerState(controllerState: ControllerState)
 	{

@@ -8,6 +8,7 @@
 #include <chiaki/base64.h>
 #include <chiaki/audio.h>
 #include <chiaki/video.h>
+#include <chiaki/time.h>
 
 #include <string.h>
 #include <inttypes.h>
@@ -33,6 +34,16 @@
 #define EXPECT_TIMEOUT_MS 5000
 
 #define HEARTBEAT_INTERVAL_MS 1000
+
+// Smoothing factor for the live stats-overlay metrics (RTT and FPS). The server
+// reports CONNECTIONQUALITY roughly once per second, and the raw per-second RTT
+// sample is very jittery (seen swinging ~10..256 ms second-to-second), so the
+// HUD would flash alarming one-off spikes. We feed each new sample through an
+// exponential moving average: value = a*sample + (1-a)*value. a=0.3 keeps a
+// memory of ~6 samples (~6 s at 1 Hz) while still reacting to real degradation.
+// Cost is a single multiply-add per (periodic) message, so it adds nothing per
+// frame and nothing at all when the overlay is toggled off.
+#define STREAM_STATS_EMA_ALPHA 0.3
 
 
 typedef enum {
@@ -66,6 +77,12 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_init(ChiakiStreamConnecti
 	stream_connection->session = session;
 	stream_connection->log = session->log;
 	stream_connection->packet_loss_max = packet_loss_max;
+
+	stream_connection->measured_bitrate = 0.0;
+	stream_connection->measured_fps = 0.0;
+	stream_connection->measured_rtt_ms = 0.0;
+	stream_connection->measured_loss = 0;
+	stream_connection->connection_quality_last_us = 0;
 
 	stream_connection->ecdh_secret = NULL;
 	stream_connection->gkcrypt_remote = NULL;
@@ -724,6 +741,40 @@ static void stream_connection_takion_data_idle(ChiakiStreamConnection *stream_co
 			 q.disable_upstream_audio, q.rtt, q.loss);
 		stream_connection->measured_bitrate = chiaki_stream_stats_bitrate(&stream_connection->video_receiver->frame_processor.stream_stats, stream_connection->session->connect_info.video_profile.max_fps) / 1000000.0;
 		CHIAKI_LOGV(stream_connection->log, "StreamConnection measured bitrate: %.4f MBit/s", stream_connection->measured_bitrate);
+
+		// Real FPS over wall-clock since the previous CONNECTIONQUALITY message.
+		// frames is the count accumulated since the last reset (i.e. over this same
+		// window), so frames / elapsed_seconds is the actual delivered framerate.
+		// The instantaneous value is smoothed with the same EMA as RTT below so the
+		// overlay does not flicker. Cost is a single subtraction/divide/multiply-add
+		// per (periodic) message, so the stats overlay adds nothing per-frame.
+		{
+			uint64_t now_us = chiaki_time_now_monotonic_us();
+			uint64_t frames = stream_connection->video_receiver->frame_processor.stream_stats.frames;
+			uint64_t last_us = stream_connection->connection_quality_last_us;
+			if(last_us != 0 && now_us > last_us)
+			{
+				double elapsed_s = (double)(now_us - last_us) / 1000000.0;
+				if(elapsed_s > 0.0)
+				{
+					double fps_sample = (double)frames / elapsed_s;
+					stream_connection->measured_fps = stream_connection->measured_fps > 0.0
+						? STREAM_STATS_EMA_ALPHA * fps_sample + (1.0 - STREAM_STATS_EMA_ALPHA) * stream_connection->measured_fps
+						: fps_sample;
+				}
+			}
+			stream_connection->connection_quality_last_us = now_us;
+		}
+
+		// Live RTT/loss reported by the server. The protobuf rtt is already in
+		// milliseconds. The raw per-second sample is very jittery, so smooth it
+		// with an EMA (seeding directly on the first non-zero reading) for a stable
+		// overlay value. measured_loss is the server's cumulative lost-packet count.
+		stream_connection->measured_rtt_ms = (stream_connection->measured_rtt_ms > 0.0 && q.rtt > 0.0)
+			? STREAM_STATS_EMA_ALPHA * q.rtt + (1.0 - STREAM_STATS_EMA_ALPHA) * stream_connection->measured_rtt_ms
+			: (q.rtt > 0.0 ? q.rtt : stream_connection->measured_rtt_ms);
+		stream_connection->measured_loss = q.loss;
+
 		chiaki_stream_stats_reset(&stream_connection->video_receiver->frame_processor.stream_stats);
 		break;
 	}

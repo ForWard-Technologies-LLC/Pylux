@@ -151,6 +151,27 @@ void chiaki_session_bridge_set_video_sample_cb(ChiakiSessionRef ref,
                                                void *user);
 
 /**
+ * Live stream metrics for the on-screen stats overlay. All values are computed in
+ * libchiaki (shared with Qt/Android); Swift just renders them. Defined here (not in
+ * libchiaki) so the Xcode-compiled app and bridge agree on layout.
+ */
+typedef struct ChiakiSessionBridgeMetrics {
+    double bitrate_mbps;
+    double packet_loss;     // 0..1
+    uint64_t dropped_frames; // cumulative for the session
+    double fps;
+    double rtt_ms;
+    int width;
+    int height;
+} ChiakiSessionBridgeMetrics;
+
+/**
+ * Fill *out with the latest live stream metrics. Cheap best-effort read (no locking),
+ * safe to call while the session is live. Zeroes *out if ref is NULL.
+ */
+void chiaki_session_bridge_get_metrics(ChiakiSessionRef ref, ChiakiSessionBridgeMetrics *out);
+
+/**
  * Helpers for error/quit strings.
  */
 const char *chiaki_session_bridge_error_string(int code);

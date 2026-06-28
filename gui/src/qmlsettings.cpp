@@ -1,6 +1,8 @@
 #include "qmlsettings.h"
 #include "sessionlog.h"
 
+#include <chiaki/cloudcatalog.h>
+
 #include <QSet>
 #include <QKeySequence>
 #include <QFutureWatcher>
@@ -195,15 +197,35 @@ void QmlSettings::setCloudResolutionPSCloud(int resolution)
     emit cloudResolutionPSCloudChanged();
 }
 
-QString QmlSettings::cloudLanguagePSCloud() const
+QString QmlSettings::cloudStoreLocale() const
 {
-    return settings->GetCloudLanguagePSCloud();
+    return settings->GetCloudStoreLocale();
 }
 
-void QmlSettings::setCloudLanguagePSCloud(const QString &language)
+void QmlSettings::setCloudStoreLocale(const QString &locale)
 {
-    settings->SetCloudLanguagePSCloud(language);
-    emit cloudLanguagePSCloudChanged();
+    settings->SetCloudStoreLocale(locale);
+    emit cloudStoreLocaleChanged();
+}
+
+QString QmlSettings::cloudGameLanguage() const
+{
+    return settings->GetCloudGameLanguage();
+}
+
+void QmlSettings::setCloudGameLanguage(const QString &language)
+{
+    settings->SetCloudGameLanguage(language);
+    emit cloudGameLanguageChanged();
+}
+
+QStringList QmlSettings::cloudSupportedLanguages() const
+{
+    QStringList list;
+    size_t n = chiaki_cloud_supported_locale_count();
+    for(size_t i = 0; i < n; i++)
+        list.append(QString::fromUtf8(chiaki_cloud_supported_locale(i)));
+    return list;
 }
 
 QString QmlSettings::cloudDatacenterPSCloud() const
@@ -243,17 +265,6 @@ void QmlSettings::setCloudResolutionPSNOW(int resolution)
 {
     settings->SetCloudResolutionPSNOW(resolution);
     emit cloudResolutionPSNOWChanged();
-}
-
-QString QmlSettings::cloudLanguagePSNOW() const
-{
-    return settings->GetCloudLanguagePSNOW();
-}
-
-void QmlSettings::setCloudLanguagePSNOW(const QString &language)
-{
-    settings->SetCloudLanguagePSNOW(language);
-    emit cloudLanguagePSNOWChanged();
 }
 
 QString QmlSettings::cloudDatacenterPSNOW() const
@@ -836,6 +847,50 @@ void QmlSettings::setCloudCatalogFilter(const QString &filter)
 {
 	settings->SetCloudCatalogFilter(filter);
 	emit cloudCatalogFilterChanged();
+}
+
+QString QmlSettings::cloudResolvedStoreCountry() const
+{
+	return settings->GetCloudResolvedStoreCountry();
+}
+
+void QmlSettings::setCloudResolvedStoreCountry(const QString &country)
+{
+	settings->SetCloudResolvedStoreCountry(country);
+	emit cloudResolvedStoreCountryChanged();
+}
+
+bool QmlSettings::cloudCatalogNativeMode() const
+{
+	return settings->GetCloudCatalogNativeMode();
+}
+
+void QmlSettings::setCloudCatalogNativeMode(bool native_mode)
+{
+	settings->SetCloudCatalogNativeMode(native_mode);
+	emit cloudCatalogNativeModeChanged();
+}
+
+QString QmlSettings::cloudTagFilters() const
+{
+	return settings->GetCloudTagFilters();
+}
+
+void QmlSettings::setCloudTagFilters(const QString &filtersJson)
+{
+	settings->SetCloudTagFilters(filtersJson);
+	emit cloudTagFiltersChanged();
+}
+
+int QmlSettings::cloudSortState() const
+{
+	return settings->GetCloudSortState();
+}
+
+void QmlSettings::setCloudSortState(int sortState)
+{
+	settings->SetCloudSortState(sortState);
+	emit cloudSortStateChanged();
 }
 
 QString QmlSettings::cloudFavorites() const

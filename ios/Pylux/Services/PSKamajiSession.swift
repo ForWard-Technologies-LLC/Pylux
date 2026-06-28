@@ -28,6 +28,13 @@ final class PSKamajiSession {
     private var streamingSku: String?
     private var commerceOAuthToken: String?
 
+    // Owned-PSNOW fast-path: the unified catalog's pre-resolved owned streaming entitlement. When
+    // set, startSessionCreation skips the entitlement path (0.5b/0.5d/0.5e). See
+    // setOwnedEntitlementFastPath(). usedEntitlementFastPath gates the orchestrator's one-shot retry.
+    private var fastPathEntitlementId = ""
+    private var fastPathPlatform = ""
+    private(set) var usedEntitlementFastPath = false
+
     init(duid: String, productId: String, accountBaseUrl: String, redirectUri: String, userAgent: String) {
         self.duid = duid
         self.productId = productId
@@ -36,10 +43,44 @@ final class PSKamajiSession {
         self.userAgent = userAgent
     }
 
+    /// Owned-PSNOW fast-path: hand in the streaming entitlement the unified catalog already resolved
+    /// for an owned title, so startSessionCreation() skips the entitlement path (0.5b anonymous
+    /// session, 0.5d product->entitlement resolve, 0.5e check/acquire) and goes straight to step5/6.
+    /// Empty == normal full flow. The orchestrator falls back to the full flow if Gaikai rejects it.
+    func setOwnedEntitlementFastPath(ownedEntitlementId: String, ownedPlatform: String) {
+        fastPathEntitlementId = ownedEntitlementId
+        fastPathPlatform = ownedPlatform
+    }
+
     /// Start the complete Kamaji session creation flow
     func startSessionCreation(npssoToken: String) -> KamajiSessionResult {
         os_log(.info, log: kamajiLog, "=== Starting Kamaji Session ===")
         os_log(.info, log: kamajiLog, "Product ID: %{public}s", productId)
+
+        // Owned-PSNOW fast-path: the unified catalog already resolved this title's streaming
+        // entitlement, so there is nothing to look up or acquire. Skip the entire entitlement path
+        // (0.5b/0.5d/0.5e -- which 404 and fail to acquire in storefront-less regions) and go
+        // straight to the authenticated session (step5/6 here reuse 0.5b/0.5c). The orchestrator
+        // retries the full flow if Gaikai rejects it.
+        if !fastPathEntitlementId.isEmpty {
+            entitlementId = fastPathEntitlementId
+            platform = fastPathPlatform.isEmpty ? "ps4" : fastPathPlatform
+            scopesStr = platform == "ps3" ? "kamaji:commerce_native" : CloudApiConstants.ps4Scopes
+            usedEntitlementFastPath = true
+            os_log(.info, log: kamajiLog,
+                   "Kamaji fast-path: owned entitlementId=%{public}s platform=%{public}s - skipping 0.5b/0.5d/0.5e",
+                   entitlementId ?? "", platform)
+
+            guard let authCode = step0_5b_GetAnonymousAuthCode(npssoToken: npssoToken) else {
+                return KamajiSessionResult(success: false, message: "Failed to get auth code")
+            }
+            guard step0_5c_CreateAnonymousSession(authCode: authCode) != nil else {
+                return KamajiSessionResult(success: false, message: "Failed to create auth session")
+            }
+            os_log(.info, log: kamajiLog, "=== Kamaji Session Complete (fast-path) ===")
+            return KamajiSessionResult(success: true, message: "Success",
+                                       entitlementId: entitlementId ?? "", platform: platform)
+        }
 
         // Step 0.5b: Get anonymous auth code
         guard let anonCode = step0_5b_GetAnonymousAuthCode(npssoToken: npssoToken) else {
@@ -143,10 +184,30 @@ final class PSKamajiSession {
         let sku: String
     }
 
+    // Region-group fallback: when /user/stores has no storefront for the account's region, the
+    // PS Now catalog (PS3 + PS4) was browsed from the public region-group APOLLOROOT container
+    // (US for Americas, GB for PAL), so its product ids must be RESOLVED against that same
+    // region-group store. Driven by the account-level fallback flag; PS3 and PS4 behave identically.
     private func step0_5d_ConvertProductId(sessionId: String) -> ProductConversion? {
+        let resolvedCountry = SecureStore.shared.cloudResolvedStoreCountry
+        let resolvedLang = SecureStore.shared.cloudResolvedStoreLang
         let storePath = CloudLocaleSettings.parseStorePath(CloudLocaleSettings.stored)
-        let url = "\(storeBase)/container/\(storePath.country)/\(storePath.language)/19/\(productId)?useOffers=true&gkb=1&gkb2=1"
-        os_log(.info, log: kamajiLog, "Store container locale: %{public}s", CloudLocaleSettings.stored)
+        let country: String
+        let language: String
+        if !resolvedCountry.isEmpty {
+            country = resolvedCountry
+            // Prefer the server-authoritative store language from the native base_url: a non-English
+            // native store (e.g. NL) 404s on the wrong language. Fall back to the locale-derived
+            // proxy when empty (fallback/foreign mode, where the public US/GB store wants en).
+            language = resolvedLang.isEmpty ? storePath.language : resolvedLang
+        } else {
+            country = storePath.country
+            language = storePath.language
+        }
+        os_log(.info, log: kamajiLog,
+               "step0_5d: using resolvedStoreCountry=%{public}s (lang=%{public}s) for container URL",
+               country, language)
+        let url = "\(storeBase)/container/\(country)/\(language)/19/\(productId)?useOffers=true&gkb=1&gkb2=1"
 
         guard let response = CloudHttpClient.get(url: url, headers: [
             "Accept": "application/json",
@@ -161,33 +222,56 @@ final class PSKamajiSession {
         var sku = ""
         var detectedPlatform = "ps4"
 
-        // Check default_sku for streaming entitlements (license_type == 4)
-        if let defaultSku = json["default_sku"] as? [String: Any],
-           let ents = defaultSku["entitlements"] as? [[String: Any]] {
+        // PS Now streaming entitlements have license_type == 4. Check default_sku, then skus.
+        func pickStreamingEntitlement(_ skuObj: [String: Any]) -> Bool {
+            guard let ents = skuObj["entitlements"] as? [[String: Any]] else { return false }
             for ent in ents {
                 if (ent["license_type"] as? Int) == 4, let id = ent["id"] as? String, !id.isEmpty {
-                    eid = id; sku = defaultSku["id"] as? String ?? ""; break
+                    eid = id; sku = skuObj["id"] as? String ?? ""; return true
                 }
             }
+            return false
         }
-
-        // Fallback to skus array
+        if let defaultSku = json["default_sku"] as? [String: Any] { _ = pickStreamingEntitlement(defaultSku) }
         if eid.isEmpty, let skus = json["skus"] as? [[String: Any]] {
-            for skuObj in skus {
-                if let ents = skuObj["entitlements"] as? [[String: Any]] {
-                    for ent in ents {
-                        if (ent["license_type"] as? Int) == 4, let id = ent["id"] as? String, !id.isEmpty {
-                            eid = id; sku = skuObj["id"] as? String ?? ""; break
-                        }
-                    }
+            for skuObj in skus where pickStreamingEntitlement(skuObj) { break }
+        }
+
+        // Full-game fallback: PS Plus catalog titles have no license_type==4 entitlement; their
+        // full-game entitlement is license_type 0 with packageType "*GD". Prefer the one whose id
+        // matches the requested product's title id so cross-gen picks the consistent platform.
+        if eid.isEmpty {
+            let requestedTitleId: String = {
+                let dash = productId.split(separator: "-")
+                guard dash.count >= 2 else { return "" }
+                return String(dash[1].split(separator: "_").first ?? "")
+            }()
+            func pickFullGameEntitlement(_ skuObj: [String: Any], requireTitleMatch: Bool) -> Bool {
+                guard let ents = skuObj["entitlements"] as? [[String: Any]] else { return false }
+                for ent in ents {
+                    guard let id = ent["id"] as? String, !id.isEmpty else { continue }
+                    let pkg = ent["packageType"] as? String ?? ""
+                    guard pkg.hasSuffix("GD") else { continue }
+                    if requireTitleMatch, !requestedTitleId.isEmpty, !id.contains(requestedTitleId) { continue }
+                    eid = id; sku = skuObj["id"] as? String ?? ""; return true
                 }
-                if !eid.isEmpty { break }
+                return false
+            }
+            for requireTitleMatch in [true, false] {
+                if let defaultSku = json["default_sku"] as? [String: Any],
+                   pickFullGameEntitlement(defaultSku, requireTitleMatch: requireTitleMatch) { break }
+                if let skus = json["skus"] as? [[String: Any]] {
+                    var found = false
+                    for skuObj in skus where pickFullGameEntitlement(skuObj, requireTitleMatch: requireTitleMatch) { found = true; break }
+                    if found { break }
+                }
             }
         }
 
-        // Detect platform
+        // Detect platform (PS5 > PS4 > PS3)
         if let platforms = json["playable_platform"] as? [String] {
-            if platforms.contains(where: { $0.localizedCaseInsensitiveContains("PS4") }) { detectedPlatform = "ps4" }
+            if platforms.contains(where: { $0.localizedCaseInsensitiveContains("PS5") }) { detectedPlatform = "ps5" }
+            else if platforms.contains(where: { $0.localizedCaseInsensitiveContains("PS4") }) { detectedPlatform = "ps4" }
             else if platforms.contains(where: { $0.localizedCaseInsensitiveContains("PS3") }) { detectedPlatform = "ps3" }
         }
 
@@ -207,6 +291,15 @@ final class PSKamajiSession {
         if hasEntitlement == nil { return false }
         if hasEntitlement == true { return true }
 
+        // Entitlement not found (404). Region-group fallback: skip acquire and proceed to Gaikai.
+        // Native (supported region): run the normal checkout-acquire for PS3 and PS4 alike.
+        if SecureStore.shared.isCloudCatalogIsForeign {
+            os_log(.info, log: kamajiLog,
+                   "Entitlement not found (404); fallback region -> skipping acquire, proceeding to Gaikai")
+            return true
+        }
+
+        // Native mode: try to acquire it via checkout.
         // Step 0.5e.3: Checkout preview
         guard step0_5e3_CheckoutPreview(sessionId: sessionId) else { return false }
 

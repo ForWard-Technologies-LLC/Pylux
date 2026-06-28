@@ -2798,6 +2798,70 @@ DialogView {
 
                     Label {
                         Layout.alignment: Qt.AlignRight
+                        text: qsTr("Game Language:")
+                    }
+
+                    // Cloud streaming language (manual override, stored separately
+                    // from the auto-detected catalog locale so it's never clobbered).
+                    // Every supported language is listed; game language is tied to
+                    // the datacenter region (Gaikai ignores a language whose
+                    // datacenter isn't selected), so the user must pick a matching
+                    // Datacenter below. Supported-locale list lives in libchiaki.
+                    C.ComboBox {
+                        id: cloudLanguage
+                        Layout.preferredWidth: 400
+                        property var languageValues: []
+                        model: {
+                            let displayNames = {
+                                "en-US": "English", "en-GB": "English (UK)", "de-DE": "Deutsch",
+                                "fr-FR": "Français", "fi-FI": "Suomi", "it-IT": "Italiano",
+                                "es-ES": "Español", "nl-NL": "Nederlands", "pt-BR": "Português (BR)",
+                                "ja-JP": "日本語", "ko-KR": "한국어"
+                            };
+                            // Show every supported language (datacenter language
+                            // support can't be reliably enumerated). "Auto" (empty
+                            // value) clears the override so the auto-detected
+                            // catalog/region locale is used instead.
+                            let supported = Chiaki.settings.cloudSupportedLanguages();
+                            let catalogLocale = Chiaki.settings.cloudStoreLocale || "en-US";
+                            let values = [""];
+                            let labels = [qsTr("Auto") + " (" + catalogLocale + ")"];
+                            for (let i = 0; i < supported.length; i++) {
+                                let loc = supported[i];
+                                values.push(loc);
+                                labels.push((displayNames[loc] || loc) + " (" + loc + ")");
+                            }
+                            languageValues = values;
+                            return labels;
+                        }
+                        currentIndex: {
+                            // Empty override selects "Auto" (index 0).
+                            let sel = Chiaki.settings.cloudGameLanguage || "";
+                            let idx = languageValues.indexOf(sel);
+                            return idx >= 0 ? idx : 0;
+                        }
+                        onActivated: index => {
+                            // "" (Auto) clears the override; otherwise store the pick.
+                            Chiaki.settings.cloudGameLanguage = languageValues[index] || "";
+                        }
+                    }
+
+                    // 3rd-column filler keeps the 3-column grid aligned.
+                    Label { text: "" }
+
+                    // Disclaimer row: empty label column + caption under the control.
+                    Label { text: "" }
+                    Label {
+                        Layout.columnSpan: 2
+                        Layout.maximumWidth: 400
+                        wrapMode: Text.WordWrap
+                        opacity: 0.6
+                        font.pixelSize: 12
+                        text: qsTr("Not all regions support every language. A language only works on datacenters that offer it — if your chosen language isn't applied, pick a matching Datacenter below.")
+                    }
+
+                    Label {
+                        Layout.alignment: Qt.AlignRight
                         text: qsTr("Datacenter:")
                     }
 

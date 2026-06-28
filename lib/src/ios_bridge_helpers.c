@@ -67,3 +67,43 @@ CHIAKI_EXPORT void chiaki_session_set_service_type_ex(ChiakiSession *session, Ch
 {
 	session->service_type = st;
 }
+
+CHIAKI_EXPORT void chiaki_session_get_stream_metrics_ex(ChiakiSession *session,
+		double *bitrate_mbps, double *packet_loss, uint64_t *dropped_frames,
+		double *fps, double *rtt_ms, int *width, int *height)
+{
+	double v_bitrate = 0.0, v_loss = 0.0, v_fps = 0.0, v_rtt = 0.0;
+	uint64_t v_drops = 0;
+	int v_w = 0, v_h = 0;
+	if(session)
+	{
+		ChiakiStreamConnection *sc = &session->stream_connection;
+		v_bitrate = sc->measured_bitrate;
+		v_loss = sc->congestion_control.packet_loss;
+		v_fps = sc->measured_fps;
+		v_rtt = sc->measured_rtt_ms;
+		ChiakiVideoReceiver *vr = sc->video_receiver;
+		if(vr)
+		{
+			v_drops = vr->cumulative_frames_lost;
+			if(vr->profile_cur >= 0 && (size_t)vr->profile_cur < vr->profiles_count)
+			{
+				v_w = (int)vr->profiles[vr->profile_cur].width;
+				v_h = (int)vr->profiles[vr->profile_cur].height;
+			}
+		}
+		// Fall back to the requested profile before the first adaptive profile is selected.
+		if(v_w == 0 || v_h == 0)
+		{
+			v_w = (int)session->connect_info.video_profile.width;
+			v_h = (int)session->connect_info.video_profile.height;
+		}
+	}
+	if(bitrate_mbps) *bitrate_mbps = v_bitrate;
+	if(packet_loss) *packet_loss = v_loss;
+	if(dropped_frames) *dropped_frames = v_drops;
+	if(fps) *fps = v_fps;
+	if(rtt_ms) *rtt_ms = v_rtt;
+	if(width) *width = v_w;
+	if(height) *height = v_h;
+}

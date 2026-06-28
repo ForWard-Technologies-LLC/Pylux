@@ -248,8 +248,14 @@ final class PSGaikaiStreaming {
         guard let response = CloudHttpClient.post(url: url, body: bodyStr, headers: [
             "Content-Type": "application/json", "User-Agent": userAgent,
             "Accept": "application/json", "X-Gaikai-Session": configKey
-        ]), response.statusCode == 200 else {
-            throw GaikaiAllocationError(message: "Failed to start session")
+        ]) else {
+            throw GaikaiAllocationError(message: "Session start failed: no response")
+        }
+        guard response.statusCode == 200 else {
+            // Include the response body: Gaikai reports an unowned/invalid entitlement here
+            // (e.g. {"name":"noGameForEntitlementId",...}), which the owned fast-path fallback in
+            // CloudStreamingBackend keys off to retry via the full resolve/acquire flow.
+            throw GaikaiAllocationError(message: "Session start failed: \(response.body)")
         }
 
         if let newKey = response.header("x-gaikai-session") ?? response.header("X-Gaikai-Session"),
@@ -415,8 +421,13 @@ final class PSGaikaiStreaming {
                    dc["dataCenter"] as? String ?? "", dc["publicIp"] as? String ?? "", dc["port"] as? Int ?? 0)
         }
 
-        // Raw list for Settings (matches Android step 11 — before ping)
-        CloudDatacenterStore.saveDatacenters(arr, for: serviceType)
+        // Seed the picker with the raw list ONLY when nothing is saved yet. Never
+        // overwrite a previously-saved list here: it carries real ping RTTs from a
+        // prior Auto run, and manual mode won't re-ping, so clobbering it with this
+        // no-RTT list would drop the ms from the picker.
+        if !CloudDatacenterStore.hasStoredDatacenters(for: serviceType) {
+            CloudDatacenterStore.saveDatacenters(arr, for: serviceType)
+        }
 
         return arr
     }
@@ -446,8 +457,13 @@ final class PSGaikaiStreaming {
                 "publicIp": selectedDc["publicIp"] as? String ?? "",
                 "maxBandwidth": maxBw
             ]
-            let forStore = Self.datacenterRowsForManualStore(datacenters: datacenters, selectedName: userChoice, dummyPing: dummyPing)
-            CloudDatacenterStore.saveDatacenters(forStore, for: serviceType)
+            // Only persist the manual/dummy rows when no real measurements exist yet.
+            // Otherwise keep the previously-measured RTTs so the picker still shows the
+            // real ms (manual mode uses a dummy 20ms purely for this stream).
+            if !CloudDatacenterStore.hasStoredDatacenters(for: serviceType) {
+                let forStore = Self.datacenterRowsForManualStore(datacenters: datacenters, selectedName: userChoice, dummyPing: dummyPing)
+                CloudDatacenterStore.saveDatacenters(forStore, for: serviceType)
+            }
             return try submitDatacenterSelection(pingResult: dummyPing, validatePing: false)
         }
 
@@ -753,7 +769,15 @@ final class PSGaikaiStreaming {
         // Common fields
         spec["entitlementId"] = entitlementId
         spec["npEnv"] = "np"
-        let cloudLanguage = CloudLocaleSettings.stored
+        // Gaikai expects the bare language code ("de"), not the stored locale
+        // ("de-DE"); the lib helper is the single source of truth across platforms.
+        // Use the user's chosen streaming language, falling back to the detected
+        // catalog locale when unset.
+        let chosenLocale = {
+            let l = StreamPreferences.load().cloudGameLanguage
+            return l.isEmpty ? CloudLocaleSettings.stored : l
+        }()
+        let cloudLanguage = PyluxCloudCatalog.gaikaiLanguage(forLocale: chosenLocale)
         spec["language"] = cloudLanguage
         os_log(.info, log: gkLog, "Gaikai request language: %{public}s", cloudLanguage)
         spec["cloudEndpoint"] = "https://cc.prod.gaikai.com"

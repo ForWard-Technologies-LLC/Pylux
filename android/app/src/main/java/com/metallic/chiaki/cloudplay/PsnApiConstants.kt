@@ -22,7 +22,5 @@ object PsnApiConstants
 	const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) playstation-now/0.0.0 Chrome/83.0.4103.104 Electron/9.0.4 Safari/537.36 gkApollo"
 	
 	const val PS4_SCOPES = "kamaji:commerce_native kamaji:commerce_container kamaji:lists kamaji:s2s.subscriptionsPremium.get"
-	
-	const val ROOT_CONTAINER_ID = "STORE-MSF75508-PSNOWALLGAMES"
 }
 

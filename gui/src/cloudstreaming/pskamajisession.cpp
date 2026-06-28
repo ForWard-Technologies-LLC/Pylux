@@ -95,26 +95,50 @@ PSKamajiSession::PSKamajiSession(
     manager->setCookieJar(nullptr);  // Disable cookie jar - we use manual Cookie headers only
 }
 
+void PSKamajiSession::setOwnedEntitlementFastPath(const QString &ownedEntitlementId, const QString &ownedPlatform)
+{
+    fastPathEntitlementId = ownedEntitlementId;
+    fastPathPlatform = ownedPlatform;
+}
+
 void PSKamajiSession::startSessionCreation()
 {
     // Get npsso fresh from settings at the start of each session attempt
     npssoToken = settings->GetNpssoToken();
-    
+
     // Clear jsessionId to ensure we start fresh
     jsessionId.clear();
-    
+
     qInfo() << "Kamaji Session: Starting authentication flow (Steps 0.5b-0.5d, 5-6)...";
     qInfo() << "Platform:" << platform;
     qInfo() << "Product ID:" << productId;
     qInfo() << "Note: Authorization check is now handled centrally by CloudStreamingBackend";
-    
+
     if (npssoToken.isEmpty()) {
         QString error = "NPSSO token is empty";
         qWarning() << "Kamaji Session:" << error;
         emit sessionComplete(false, error, QString());
         return;
     }
-    
+
+    // Owned-PSNOW fast-path: the unified catalog already resolved this title's streaming
+    // entitlement from the user's owned cross-reference, so there is nothing to look up or
+    // acquire. Skip the entire entitlement path (0.5b anonymous session + 0.5d resolve +
+    // 0.5e check/acquire) -- those calls 404 and the acquire fails outright in storefront-less
+    // regions -- and go straight to the authenticated session. step5/6 are independent of the
+    // anonymous session, so this is safe. The orchestrator falls back to the full flow if Gaikai
+    // rejects the id.
+    if (!fastPathEntitlementId.isEmpty()) {
+        entitlementId = fastPathEntitlementId;
+        platform = fastPathPlatform.isEmpty() ? QStringLiteral("ps4") : fastPathPlatform;
+        scopesStr = (platform == QStringLiteral("ps3")) ? KamajiConsts::PS3_SCOPES : KamajiConsts::PS4_SCOPES;
+        entitlementFastPathUsed = true;
+        qInfo() << "Kamaji fast-path: owned entitlementId=" << entitlementId
+                << "platform=" << platform << "- skipping 0.5b/0.5d/0.5e";
+        step5_GetAuthCode();
+        return;
+    }
+
     // Authorization check is now done centrally by CloudStreamingBackend before creating PSKamajiSession
     // Start directly with Step 0.5b: Get anonymous session OAuth code
     step0_5b_GetAnonymousAuthCode();
@@ -317,15 +341,28 @@ void PSKamajiSession::handleAnonSessionResponse(QNetworkReply *reply)
 // ============================================================================
 void PSKamajiSession::step0_5d_ConvertProductId()
 {
-    // Get locale from unified language setting
-    QString localeSetting = settings ? settings->GetCloudLanguagePSCloud() : "en-US";
-    QString locale = localeSetting.toLower(); // Convert "en-US" to "en-us"
-    
-    // Extract country and language from locale (e.g., "en-us" -> "US", "en")
+    // Server-authoritative store country from unified catalog (fallbackRegion).
+    QString localeSetting = settings ? settings->GetCloudStoreLocale() : QStringLiteral("en-US");
+    QString locale = localeSetting.toLower();
     QStringList localeParts = locale.split("-");
-    QString country = localeParts.size() > 1 ? localeParts[1].toUpper() : "US";
-    QString language = localeParts[0].toLower();
-    
+    const QString localeLang = localeParts.size() > 0 ? localeParts[0].toLower() : QStringLiteral("en");
+    const QString localeCountry = localeParts.size() > 1 ? localeParts[1].toUpper() : QStringLiteral("US");
+    QString resolvedCountry = settings ? settings->GetCloudResolvedStoreCountry() : QString();
+    QString resolvedLang = settings ? settings->GetCloudResolvedStoreLang() : QString();
+    QString country;
+    QString language;
+    if (!resolvedCountry.isEmpty()) {
+        country = resolvedCountry;
+        // Prefer the server-authoritative store language from the native base_url: a non-English
+        // native store (e.g. NL) 404s on the wrong language. Fall back to the locale-derived
+        // proxy when empty (fallback/foreign mode, where the public US/GB store wants en).
+        language = !resolvedLang.isEmpty() ? resolvedLang : localeLang;
+    } else {
+        country = localeCountry;
+        language = localeLang;
+    }
+    qInfo() << "Kamaji step0_5d: using resolvedStoreCountry=" << country << "(lang=" << language << ") for container URL";
+
     QString url = QString("https://psnow.playstation.com/store/api/pcnow/00_09_000/container/%1/%2/19/%3?useOffers=true&gkb=1&gkb2=1")
         .arg(country, language, productId);
     
@@ -478,15 +515,76 @@ void PSKamajiSession::handleProductIdConversionResponse(QNetworkReply *reply)
             if (!streamingEntitlementId.isEmpty()) break;
         }
     }
-    
-    // Determine platform from playable_platform strings (pick highest: PS4 > PS3)
+
+    // PS Plus catalog titles (e.g. PS4 games via PS Plus Premium) don't carry a per-game
+    // streaming license (license_type == 4) like the old PS Now catalog did — their full-game
+    // entitlement is license_type 0 with packageType "PS4GD"/"PS5GD"/"PSGD", streamable via the
+    // PS Plus subscription. Fall back to that full-game entitlement so step0_5e can acquire it.
+    if (streamingEntitlementId.isEmpty()) {
+        // Title id of the requested product, e.g. "EP1464-CUSA24653_00-..." -> "CUSA24653".
+        // Cross-gen containers list BOTH the PS4 (CUSA) and PS5 (PPSA) full-game entitlements;
+        // we must pick the one matching the requested product so the entitlement platform stays
+        // consistent with the streaming session (a PS5 entitlement on a PS4/kratos session makes
+        // the senkusha ping server never ack -> 0/5 pings -> allocation fails).
+        QString requestedTitleId;
+        {
+            const QStringList dashParts = productId.split(QLatin1Char('-'));
+            if (dashParts.size() >= 2)
+                requestedTitleId = dashParts[1].split(QLatin1Char('_')).value(0);
+        }
+        auto pickFullGameEntitlement = [&](const QJsonObject &skuObj, bool requireTitleMatch) -> bool {
+            if (!skuObj.contains("entitlements") || !skuObj["entitlements"].isArray())
+                return false;
+            const QJsonArray entitlements = skuObj["entitlements"].toArray();
+            for (const QJsonValue &entValue : entitlements) {
+                const QJsonObject ent = entValue.toObject();
+                const QString entId = ent["id"].toString();
+                const QString pkgType = ent["packageType"].toString();
+                // Full game digital ("*GD"); skip add-ons (PS4AL), themes (PS4MISC), etc.
+                if (entId.isEmpty() || !pkgType.endsWith(QStringLiteral("GD")))
+                    continue;
+                if (requireTitleMatch && !requestedTitleId.isEmpty() && !entId.contains(requestedTitleId))
+                    continue;
+                streamingEntitlementId = entId;
+                sku = skuObj["id"].toString();
+                streamingSku = sku;
+                qInfo() << "Found full-game Entitlement ID (PS Plus catalog fallback):"
+                        << streamingEntitlementId << "packageType:" << pkgType << "SKU:" << sku
+                        << "titleMatch:" << requireTitleMatch;
+                return true;
+            }
+            return false;
+        };
+        // Pass 1: prefer the entitlement matching the requested product's title id (platform-consistent).
+        // Pass 2: fall back to any full-game entitlement.
+        for (bool requireTitleMatch : {true, false}) {
+            if (streamingEntitlementId.isEmpty() && pickFullGameEntitlement(defaultSku, requireTitleMatch))
+                break;
+            if (streamingEntitlementId.isEmpty() && obj.contains("skus") && obj["skus"].isArray()) {
+                const QJsonArray skus = obj["skus"].toArray();
+                for (const QJsonValue &skuValue : skus) {
+                    if (pickFullGameEntitlement(skuValue.toObject(), requireTitleMatch))
+                        break;
+                }
+            }
+            if (!streamingEntitlementId.isEmpty())
+                break;
+        }
+    }
+
+    // Determine platform from playable_platform strings (pick highest: PS5 > PS4 > PS3)
     if (!playablePlatformArray.isEmpty()) {
+        bool hasPS5 = false;
         bool hasPS4 = false;
         bool hasPS3 = false;
         for (const QJsonValue &platformValue : playablePlatformArray) {
             QString platformStr = platformValue.toString();
+            // Check PS5 first ("PS5™"/"PS5"); PS4/PS5 cross-gen containers may list both.
+            if (platformStr.contains("PS5", Qt::CaseInsensitive)) {
+                hasPS5 = true;
+            }
             // Check for PS4 (handles "PS4™" and "PS4")
-            if (platformStr.contains("PS4", Qt::CaseInsensitive)) {
+            else if (platformStr.contains("PS4", Qt::CaseInsensitive)) {
                 hasPS4 = true;
             }
             // Check for PS3 (handles "PS3™" and "PS3")
@@ -494,7 +592,9 @@ void PSKamajiSession::handleProductIdConversionResponse(QNetworkReply *reply)
                 hasPS3 = true;
             }
         }
-        if (hasPS4) {
+        if (hasPS5) {
+            detectedPlatform = "ps5";
+        } else if (hasPS4) {
             detectedPlatform = "ps4";
         } else if (hasPS3) {
             detectedPlatform = "ps3";
@@ -841,10 +941,15 @@ void PSKamajiSession::handleCheckEntitlementResponse(QNetworkReply *reply)
         step5_GetAuthCode();
         return;
     } else if (statusCode == 404) {
-        // User doesn't have entitlement - try to acquire it
+        // Region-group fallback: unsupported regions have no pcnow storefront, so the
+        // free checkout-acquire fails. Skip it and let Gaikai validate the subscription.
+        // Native (supported region): run the normal checkout-acquire for PS3 + PS4 + PS5 alike.
+        if (settings && settings->IsCloudCatalogIsForeign()) {
+            qInfo() << "Kamaji Step 0.5e.2 - Entitlement not found (404); fallback region -> skipping acquire, proceeding to Gaikai";
+            step5_GetAuthCode();
+            return;
+        }
         qInfo() << "Kamaji Step 0.5e.2 - Entitlement not found (404), will attempt to acquire";
-        
-        // Continue to checkout preview
         step0_5e_CheckoutPreview();
         return;
     } else {

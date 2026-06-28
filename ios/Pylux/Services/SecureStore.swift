@@ -156,6 +156,11 @@ final class SecureStore {
     // Cloud
     private let kCloudFavorites = "favorite_games"
     private let kCloudSortState = "cloud_sort_state"
+    private let kCloudResolvedStoreCountry = "cloud_resolved_store_country"
+    private let kCloudResolvedStoreLang = "cloud_resolved_store_lang"
+    private let kLegacyCloudFallbackRegion = "cloud_fallback_region"
+    private let kCloudCatalogNativeMode = "cloud_catalog_native_mode"
+    private let kCloudTagFilters = "cloud_tag_filters"
 
     // Donation / support paywall
     private let kTotalStreamTimeMs       = "pylux.totalStreamTimeMs"
@@ -178,7 +183,15 @@ final class SecureStore {
 
     var npsso: String {
         get { KC.readString(kNpsso) ?? "" }
-        set { newValue.isEmpty ? KC.delete(kNpsso) : KC.writeString(kNpsso, newValue) }
+        set {
+            let changed = newValue != (KC.readString(kNpsso) ?? "")
+            newValue.isEmpty ? KC.delete(kNpsso) : KC.writeString(kNpsso, newValue)
+            // Account/profile change (login, logout, token re-entry) must drop the cached
+            // cloud catalog so one account never sees another account's owned games.
+            if changed {
+                CloudLocaleSettings.invalidateCatalogCache(reason: newValue.isEmpty ? "account logout" : "account login")
+            }
+        }
     }
 
     var authToken: String {
@@ -275,6 +288,49 @@ final class SecureStore {
         set { KC.writeInt(kCloudSortState, newValue) }
     }
 
+    /// PS Now region-group fallback store country. Empty = native mode; "US" or "GB" = fallback mode.
+    var cloudResolvedStoreCountry: String {
+        get {
+            if KC.readString(kCloudResolvedStoreCountry) != nil {
+                return KC.readString(kCloudResolvedStoreCountry) ?? ""
+            }
+            let legacy = KC.readString(kLegacyCloudFallbackRegion) ?? ""
+            KC.writeString(kCloudResolvedStoreCountry, legacy)
+            return legacy
+        }
+        set {
+            newValue.isEmpty ? KC.delete(kCloudResolvedStoreCountry) : KC.writeString(kCloudResolvedStoreCountry, newValue)
+        }
+    }
+
+    /// Server store language parsed from the native base_url (e.g. "nl"); empty in fallback mode.
+    var cloudResolvedStoreLang: String {
+        get { KC.readString(kCloudResolvedStoreLang) ?? "" }
+        set {
+            newValue.isEmpty ? KC.delete(kCloudResolvedStoreLang) : KC.writeString(kCloudResolvedStoreLang, newValue)
+        }
+    }
+
+    var cloudCatalogNativeMode: Bool {
+        get {
+            if KC.readString(kCloudCatalogNativeMode) != nil {
+                return KC.readBool(kCloudCatalogNativeMode, default: true)
+            }
+            let native = cloudResolvedStoreCountry.isEmpty
+            KC.writeBool(kCloudCatalogNativeMode, native)
+            return native
+        }
+        set { KC.writeBool(kCloudCatalogNativeMode, newValue) }
+    }
+
+    var isCloudCatalogIsForeign: Bool { !cloudCatalogNativeMode }
+
+    /// Persisted acquisition-tag filter selection (empty = show all).
+    var cloudTagFilters: Set<String> {
+        get { KC.readStringSet(kCloudTagFilters) }
+        set { KC.writeStringSet(kCloudTagFilters, newValue) }
+    }
+
     // MARK: - Donation / Support Paywall
 
     var totalStreamTimeMs: Int64 {
@@ -360,6 +416,8 @@ final class SecureStore {
             kStreamPrefs,
             kDcPscloud, kDcPsnow,
             kCloudFavorites, kCloudSortState,
+            kCloudResolvedStoreCountry, kCloudResolvedStoreLang, kLegacyCloudFallbackRegion, kCloudCatalogNativeMode,
+            kCloudTagFilters,
             kTotalStreamTimeMs, kLastDonationPromptWallMs, kDonationPaywallShowCount,
             kLastAppReviewPromptTotalStreamMs,
             kLastHost, kLastRegistKey, kLastMorning, kLastPs5,

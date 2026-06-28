@@ -1242,14 +1242,11 @@ Pane {
                     item.mainTabBar = mainTabBar
                     item.settingsButton = settingsButton
                     item.showConfirmDialogFunc = root.showConfirmDialog
-                    // Ensure games are loaded when the loader becomes active
+                    // Ensure games are loaded when the loader becomes active.
+                    // Post-unification there is a single combined catalog entry point.
                     if (mainTabBar.currentIndex === 1) {
                         Qt.callLater(() => {
-                            if (item.currentSection === "catalog") {
-                                item.loadPsnowCatalog();
-                            } else {
-                                item.loadPs5CloudLibrary();
-                            }
+                            item.loadUnifiedCatalog();
                         });
                     }
                 }

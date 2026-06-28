@@ -78,6 +78,19 @@ typedef struct chiaki_stream_connection_t
 	char *remote_disconnect_reason;
 
 	double measured_bitrate;
+
+	/**
+	 * Live stream metrics for an optional on-screen stats overlay. These are
+	 * refreshed from the periodic CONNECTIONQUALITY message (same source as
+	 * measured_bitrate) so every platform reads identical, libchiaki-owned values
+	 * with no per-frame instrumentation. measured_fps is real frames/second over
+	 * wall-clock; measured_rtt_ms is the server-reported live RTT (0 until first
+	 * report). measured_loss is the server-reported cumulative lost-packet count.
+	 */
+	double measured_fps;
+	double measured_rtt_ms;
+	uint64_t measured_loss;
+	uint64_t connection_quality_last_us; // internal: timestamp of last CONNECTIONQUALITY, for FPS timing
 } ChiakiStreamConnection;
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_init(ChiakiStreamConnection *stream_connection, ChiakiSession *session, double packet_loss_max);

@@ -17,13 +17,13 @@ class QmlSettings : public QObject
     Q_PROPERTY(int resolutionRemotePS5 READ resolutionRemotePS5 WRITE setResolutionRemotePS5 NOTIFY resolutionRemotePS5Changed)
     // PSCloud settings
     Q_PROPERTY(int cloudResolutionPSCloud READ cloudResolutionPSCloud WRITE setCloudResolutionPSCloud NOTIFY cloudResolutionPSCloudChanged)
-    Q_PROPERTY(QString cloudLanguagePSCloud READ cloudLanguagePSCloud WRITE setCloudLanguagePSCloud NOTIFY cloudLanguagePSCloudChanged)
+    Q_PROPERTY(QString cloudStoreLocale READ cloudStoreLocale WRITE setCloudStoreLocale NOTIFY cloudStoreLocaleChanged)
+    Q_PROPERTY(QString cloudGameLanguage READ cloudGameLanguage WRITE setCloudGameLanguage NOTIFY cloudGameLanguageChanged)
     Q_PROPERTY(QString cloudDatacenterPSCloud READ cloudDatacenterPSCloud WRITE setCloudDatacenterPSCloud NOTIFY cloudDatacenterPSCloudChanged)
     Q_PROPERTY(QString cloudDatacentersJsonPSCloud READ cloudDatacentersJsonPSCloud NOTIFY cloudDatacentersJsonPSCloudChanged)
     Q_PROPERTY(int cloudBitratePSCloud READ cloudBitratePSCloud WRITE setCloudBitratePSCloud NOTIFY cloudBitratePSCloudChanged)
     // PSNOW settings
     Q_PROPERTY(int cloudResolutionPSNOW READ cloudResolutionPSNOW WRITE setCloudResolutionPSNOW NOTIFY cloudResolutionPSNOWChanged)
-    Q_PROPERTY(QString cloudLanguagePSNOW READ cloudLanguagePSNOW WRITE setCloudLanguagePSNOW NOTIFY cloudLanguagePSNOWChanged)
     Q_PROPERTY(QString cloudDatacenterPSNOW READ cloudDatacenterPSNOW WRITE setCloudDatacenterPSNOW NOTIFY cloudDatacenterPSNOWChanged)
     Q_PROPERTY(QString cloudDatacentersJsonPSNOW READ cloudDatacentersJsonPSNOW NOTIFY cloudDatacentersJsonPSNOWChanged)
     Q_PROPERTY(int cloudBitratePSNOW READ cloudBitratePSNOW WRITE setCloudBitratePSNOW NOTIFY cloudBitratePSNOWChanged)
@@ -95,6 +95,10 @@ class QmlSettings : public QObject
     Q_PROPERTY(QString lastSelectedCloudSection READ lastSelectedCloudSection WRITE setLastSelectedCloudSection NOTIFY lastSelectedCloudSectionChanged)
     Q_PROPERTY(QString cloudLibraryFilter READ cloudLibraryFilter WRITE setCloudLibraryFilter NOTIFY cloudLibraryFilterChanged)
     Q_PROPERTY(QString cloudCatalogFilter READ cloudCatalogFilter WRITE setCloudCatalogFilter NOTIFY cloudCatalogFilterChanged)
+    Q_PROPERTY(QString cloudResolvedStoreCountry READ cloudResolvedStoreCountry WRITE setCloudResolvedStoreCountry NOTIFY cloudResolvedStoreCountryChanged)
+    Q_PROPERTY(bool cloudCatalogNativeMode READ cloudCatalogNativeMode WRITE setCloudCatalogNativeMode NOTIFY cloudCatalogNativeModeChanged)
+    Q_PROPERTY(QString cloudTagFilters READ cloudTagFilters WRITE setCloudTagFilters NOTIFY cloudTagFiltersChanged)
+    Q_PROPERTY(int cloudSortState READ cloudSortState WRITE setCloudSortState NOTIFY cloudSortStateChanged)
     Q_PROPERTY(QString cloudFavorites READ cloudFavorites WRITE setCloudFavorites NOTIFY cloudFavoritesChanged)
     Q_PROPERTY(bool mouseTouchEnabled READ mouseTouchEnabled WRITE setMouseTouchEnabled NOTIFY mouseTouchEnabledChanged)
     Q_PROPERTY(bool keyboardEnabled READ keyboardEnabled WRITE setKeyboardEnabled NOTIFY keyboardEnabledChanged)
@@ -225,8 +229,10 @@ public:
     // PSCloud settings
     int cloudResolutionPSCloud() const;
     void setCloudResolutionPSCloud(int resolution);
-    QString cloudLanguagePSCloud() const;
-    void setCloudLanguagePSCloud(const QString &language);
+    QString cloudStoreLocale() const;
+    void setCloudStoreLocale(const QString &locale);
+    QString cloudGameLanguage() const;
+    void setCloudGameLanguage(const QString &language);
     QString cloudDatacenterPSCloud() const;
     void setCloudDatacenterPSCloud(const QString &datacenter);
     QString cloudDatacentersJsonPSCloud() const;
@@ -235,8 +241,6 @@ public:
     // PSNOW settings
     int cloudResolutionPSNOW() const;
     void setCloudResolutionPSNOW(int resolution);
-    QString cloudLanguagePSNOW() const;
-    void setCloudLanguagePSNOW(const QString &language);
     QString cloudDatacenterPSNOW() const;
     void setCloudDatacenterPSNOW(const QString &datacenter);
     QString cloudDatacentersJsonPSNOW() const;
@@ -569,6 +573,17 @@ public:
     QString cloudCatalogFilter() const;
     void setCloudCatalogFilter(const QString &filter);
 
+    QString cloudResolvedStoreCountry() const;
+    void setCloudResolvedStoreCountry(const QString &country);
+    bool cloudCatalogNativeMode() const;
+    void setCloudCatalogNativeMode(bool native_mode);
+
+    QString cloudTagFilters() const;
+    void setCloudTagFilters(const QString &filtersJson);
+
+    int cloudSortState() const;
+    void setCloudSortState(int sortState);
+
     QString cloudFavorites() const;
     void setCloudFavorites(const QString &favorites);
 
@@ -643,18 +658,21 @@ public:
     Q_INVOKABLE QString stringForStreamMenuShortcut() const;
     Q_INVOKABLE QString getLicenseText() const;
 
+    // Cloud streaming language picker, backed by the shared libchiaki table.
+    Q_INVOKABLE QStringList cloudSupportedLanguages() const;
+
 signals:
     void resolutionLocalPS4Changed();
     void resolutionRemotePS4Changed();
     void resolutionLocalPS5Changed();
     void resolutionRemotePS5Changed();
     void cloudResolutionPSCloudChanged();
-    void cloudLanguagePSCloudChanged();
+    void cloudStoreLocaleChanged();
+    void cloudGameLanguageChanged();
     void cloudDatacenterPSCloudChanged();
     void cloudDatacentersJsonPSCloudChanged();
     void cloudBitratePSCloudChanged();
     void cloudResolutionPSNOWChanged();
-    void cloudLanguagePSNOWChanged();
     void cloudDatacenterPSNOWChanged();
     void cloudDatacentersJsonPSNOWChanged();
     void cloudBitratePSNOWChanged();
@@ -725,6 +743,10 @@ signals:
     void lastSelectedCloudSectionChanged();
     void cloudLibraryFilterChanged();
     void cloudCatalogFilterChanged();
+    void cloudResolvedStoreCountryChanged();
+    void cloudCatalogNativeModeChanged();
+    void cloudTagFiltersChanged();
+    void cloudSortStateChanged();
     void cloudFavoritesChanged();
     void mouseTouchEnabledChanged();
     void keyboardEnabledChanged();

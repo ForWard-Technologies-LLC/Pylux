@@ -27,72 +27,55 @@
                 android:paddingHorizontal="10dp"
                 android:paddingVertical="6dp">
 
-                <!-- Left side: Section tabs + All/Owned toggle -->
-                <LinearLayout
+                <!-- Left side: tappable summary of the active acquisition-tag filter.
+                     Tapping it (or the Filter icon) opens the multi-select filter dropdown. -->
+                <TextView
+                    android:id="@+id/filterSummary"
                     android:layout_width="0dp"
                     android:layout_weight="1"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical">
-
-                    <!-- Catalog tab -->
-                    <TextView
-                        android:id="@+id/catalogTabButton"
-                        android:layout_width="wrap_content"
-                        android:layout_height="32dp"
-                        android:text="Catalog"
-                        android:textSize="13sp"
-                        android:textColor="#FFFFFF"
-                        android:gravity="center"
-                        android:paddingHorizontal="12dp"
-                        android:paddingVertical="0dp"
-                        android:focusable="true"
-
-                        android:clickable="true"
-                        android:background="@android:color/transparent" />
-
-                    <!-- Library tab -->
-                    <TextView
-                        android:id="@+id/libraryTabButton"
-                        android:layout_width="wrap_content"
-                        android:layout_height="32dp"
-                        android:text="Library"
-                        android:textSize="13sp"
-                        android:textColor="#FFFFFF"
-                        android:gravity="center"
-                        android:paddingHorizontal="12dp"
-                        android:paddingVertical="0dp"
-                        android:layout_marginStart="2dp"
-                        android:focusable="true"
-
-                        android:clickable="true"
-                        android:background="@android:color/transparent" />
-
-                    <!-- All/Owned toggle (Library only) -->
-                    <TextView
-                        android:id="@+id/ownedToggleButton"
-                        android:layout_width="wrap_content"
-                        android:layout_height="26dp"
-                        android:text="All"
-                        android:textSize="11sp"
-                        android:textColor="#FFFFFF"
-                        android:gravity="center"
-                        android:paddingHorizontal="8dp"
-                        android:paddingVertical="0dp"
-                        android:layout_marginStart="4dp"
-                        android:visibility="gone"
-                        android:focusable="true"
-
-                        android:clickable="true"
-                        android:background="@android:color/transparent" />
-
-                </LinearLayout>
+                    android:layout_height="34dp"
+                    android:gravity="center_vertical"
+                    android:text="All games"
+                    android:textSize="13sp"
+                    android:textColor="#FFFFFF"
+                    android:fontFamily="sans-serif-medium"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:paddingHorizontal="6dp"
+                    android:drawablePadding="6dp"
+                    android:focusable="true"
+                    android:clickable="true"
+                    android:background="?attr/selectableItemBackground" />
 
                 <!-- Right side: Icon buttons -->
                 <LinearLayout
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal">
+
+                    <!-- Acquisition-tag filter (multi-select dropdown) -->
+                    <ImageButton
+                        android:id="@+id/headerFilterButton"
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
+                        android:src="@drawable/ic_filter"
+                        android:background="@drawable/secondary_header_button_bg"
+                        android:contentDescription="Filter"
+                        android:scaleType="centerInside"
+                        android:focusable="true"
+                        android:padding="4dp" />
+
+                    <!-- Search toggle -->
+                    <ImageButton
+                        android:id="@+id/headerSearchButton"
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
+                        android:src="@android:drawable/ic_menu_search"
+                        android:background="@drawable/secondary_header_button_bg"
+                        android:contentDescription="Search"
+                        android:scaleType="centerInside"
+                        android:focusable="true"
+                        android:padding="4dp" />
 
                     <!-- Favorites filter -->
                     <ImageButton
@@ -120,19 +103,6 @@
 
                         android:padding="4dp" />
 
-                    <!-- Search toggle -->
-                    <ImageButton
-                        android:id="@+id/headerSearchButton"
-                        android:layout_width="32dp"
-                        android:layout_height="32dp"
-                        android:src="@android:drawable/ic_menu_search"
-                        android:background="@drawable/secondary_header_button_bg"
-                        android:contentDescription="Search"
-                        android:scaleType="centerInside"
-                        android:focusable="true"
-
-                        android:padding="4dp" />
-
                     <!-- Refresh -->
                     <ImageButton
                         android:id="@+id/headerRefreshButton"
@@ -149,6 +119,20 @@
                 </LinearLayout>
 
             </LinearLayout>
+
+            <!-- Region-group fallback banner (shown when the account's region has no native PS Now
+                 storefront and the catalog came from a foreign region group). -->
+            <TextView
+                android:id="@+id/regionBanner"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="#33FFD700"
+                android:textColor="#FFE082"
+                android:textSize="11sp"
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="6dp"
+                android:visibility="gone"
+                android:text="" />
 
             <!-- Search bar (shown when search button tapped) -->
             <androidx.appcompat.widget.SearchView

@@ -7,6 +7,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QSet>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QJSValue>
@@ -29,6 +30,47 @@ namespace KamajiConsts {
     static const QString REFERER = "https://psnow.playstation.com/app/2.2.0/133/5cdcc037d/";
     static const QString REDIRECT_URI = "https://psnow.playstation.com/app/2.2.0/133/5cdcc037d/grc-response.html";
     static const QString USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) playstation-now/0.0.0 Chrome/83.0.4103.104 Electron/9.0.4 Safari/537.36 gkApollo";
+
+    // --- PS3 / Classics pcnow store, by account region group ---------------------
+    // pcnow (the PS Plus PC "Apollo" backend) has only TWO Classics id families:
+    //   * SCEA / Americas  -> store MSF192018, US-region ids (UP*/NPUA*/BLUS*),
+    //                         PS3 child container "APOLLOPS3GAMES"
+    //   * SCEE / PAL (rest) -> store MSF192014, EU-region ids (EP*/NPEA*/NPEB*/BLES*),
+    //                         PS3 child container "APOLLOPS3"
+    // JP / Asia have no Apollo store (the PC app isn't offered there), so they fall
+    // back to PAL. A PS Plus account is authorized at Gaikai only for the id family of
+    // its own region group, so we must browse + resolve in the account's group.
+    inline bool isAmericasClassicsRegion(const QString &countryCode) {
+        static const QSet<QString> kAmericas = {
+            QStringLiteral("US"), QStringLiteral("CA"), QStringLiteral("MX"),
+            QStringLiteral("BR"), QStringLiteral("AR"), QStringLiteral("CL"),
+            QStringLiteral("CO"), QStringLiteral("PE"), QStringLiteral("EC"),
+            QStringLiteral("BO"), QStringLiteral("PY"), QStringLiteral("UY"),
+            QStringLiteral("CR"), QStringLiteral("GT"), QStringLiteral("HN"),
+            QStringLiteral("NI"), QStringLiteral("PA"), QStringLiteral("SV"),
+            QStringLiteral("DO") };
+        return kAmericas.contains(countryCode.toUpper());
+    }
+    // Country path to use for container/conversion calls (US for Americas, GB for PAL).
+    inline QString classicsStoreCountry(const QString &accountCountry) {
+        return isAmericasClassicsRegion(accountCountry) ? QStringLiteral("US")
+                                                        : QStringLiteral("GB");
+    }
+    // Fully-qualified PS3 catalog container id for the account's region group.
+    inline QString classicsPs3ContainerId(const QString &accountCountry) {
+        return isAmericasClassicsRegion(accountCountry)
+            ? QStringLiteral("STORE-MSF192018-APOLLOPS3GAMES")
+            : QStringLiteral("STORE-MSF192014-APOLLOPS3");
+    }
+
+    // PS Now catalog root store ids per region group (returns PS3 + PS4 in one walk).
+    static const QString APOLLOROOT_AMERICAS = QStringLiteral("STORE-MSF192018-APOLLOROOT");
+    static const QString APOLLOROOT_PAL = QStringLiteral("STORE-MSF192014-APOLLOROOT");
+
+    /** Fully-qualified APOLLOROOT (PS Now: PS3 + PS4) container id for the account's region group. */
+    inline QString apolloRootContainerId(const QString &accountCountry) {
+        return isAmericasClassicsRegion(accountCountry) ? APOLLOROOT_AMERICAS : APOLLOROOT_PAL;
+    }
 }
 
 /**
@@ -63,7 +105,21 @@ public:
      * Start the complete Kamaji session creation flow (Steps 0.5a-0.5d, 5-6)
      */
     void startSessionCreation();
-    
+
+    /**
+     * Owned-PSNOW fast-path: when the unified catalog already knows the user owns this title's
+     * streaming entitlement, hand it in here. startSessionCreation() then skips the whole
+     * entitlement path (0.5b anonymous session, 0.5d product->entitlement resolve, 0.5e
+     * check/acquire) and goes straight to the authenticated session (step5/6). This is the
+     * correctness win for storefront-less regions where the 0.5d/0.5e calls 404 and the acquire
+     * always fails even though the entitlement is already owned. Empty entitlementId == take the
+     * normal full flow. If Gaikai later rejects the id, the orchestrator re-runs us without this.
+     */
+    void setOwnedEntitlementFastPath(const QString &ownedEntitlementId, const QString &ownedPlatform);
+
+    /** True once startSessionCreation() actually took the fast-path (used to gate the one-shot retry). */
+    bool usedEntitlementFastPath() const { return entitlementFastPathUsed; }
+
     /**
      * Get session data (only available after successful authentication)
      */
@@ -112,6 +168,9 @@ private:
     QString jsessionId;        // JSESSIONID from anonymous session
     QString entitlementId;     // Converted from productId
     QString streamingSku;      // SKU from product ID conversion (for entitlement check)
+    QString fastPathEntitlementId; // Pre-resolved owned entitlement from the unified catalog (fast-path)
+    QString fastPathPlatform;      // Platform that accompanies the fast-path entitlement (ps3/ps4)
+    bool entitlementFastPathUsed = false; // Set when startSessionCreation() skipped 0.5b-0.5e
     QString commerceOAuthToken; // OAuth token for Commerce API (Bearer token)
     
     // Session data (set after successful authentication)

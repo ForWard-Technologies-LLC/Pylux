@@ -6,6 +6,7 @@
 #include "cloudstreaming/nsurlsession_oauth.h"
 #include "chiaki/remote/holepunch.h"
 #include "chiaki/common.h"
+#include "chiaki/cloudcatalog.h"
 
 #include <QObject>
 #include <QJsonDocument>
@@ -149,9 +150,17 @@ QJsonObject PSGaikaiStreaming::buildRequestGameSpec(QString entitlementId)
     spec["entitlementId"] = entitlementId;
     spec["npEnv"] = "np";
     
-    // Read resolution and language from settings fresh each time (not cached)
-    // Use unified language setting for both PSCloud and PSNOW
-    QString language = settings->GetCloudLanguagePSCloud();
+    // Read resolution and language from settings fresh each time (not cached).
+    // Prefer the user's manual streaming-language pick; fall back to the
+    // auto-detected catalog locale when the picker is left on default. The
+    // manual pick lives in its own setting so the catalog's settledLocale write
+    // can never clobber it. Gaikai expects the bare language code ("de"), not
+    // the stored locale ("de-DE"); the lib helper is the single source of truth.
+    QString locale = settings->GetCloudGameLanguage();
+    if (locale.isEmpty())
+        locale = settings->GetCloudStoreLocale();
+    char gaikaiLang[16];
+    chiaki_cloud_gaikai_language(locale.toUtf8().constData(), gaikaiLang, sizeof(gaikaiLang));
     int resolution;
     if (serviceType == "pscloud") {
         resolution = settings->GetCloudResolutionPSCloud();
@@ -159,7 +168,7 @@ QJsonObject PSGaikaiStreaming::buildRequestGameSpec(QString entitlementId)
         // PSNOW
         resolution = settings->GetCloudResolutionPSNOW();
     }
-    spec["language"] = language;
+    spec["language"] = QString::fromUtf8(gaikaiLang);
     
     // Cloud Infrastructure
     spec["cloudEndpoint"] = "https://cc.prod.gaikai.com";
@@ -614,7 +623,12 @@ void PSGaikaiStreaming::step8_StartSession(QString entitlementId)
             qWarning() << "Gaikai Step 8 failed:" << reply->errorString();
             QByteArray errorData = reply->readAll();
             qWarning() << "Server response:" << QString::fromUtf8(errorData);
-            emit AllocationError(QString("Session start failed: %1").arg(reply->errorString()));
+            // Include the server response body in the error: this is where Gaikai reports an
+            // unowned/invalid entitlement (e.g. {"name":"noGameForEntitlementId",...}), and the
+            // owned fast-path fallback in CloudStreamingBackend keys off that marker to retry via
+            // the full resolve/acquire flow. reply->errorString() alone is just "Bad Request".
+            emit AllocationError(QString("Session start failed: %1 %2")
+                                     .arg(reply->errorString(), QString::fromUtf8(errorData)));
             emit Finished();
             return;
         }
@@ -1115,12 +1129,25 @@ void PSGaikaiStreaming::step11_GetDatacenters()
             return;
         }
         
-        // Save datacenters to settings (without ping results yet) - use service-specific method
-        QJsonDocument datacentersDoc(datacenters);
-        if (serviceType == "pscloud") {
-            settings->SetCloudDatacentersJsonPSCloud(datacentersDoc.toJson(QJsonDocument::Compact));
-        } else {
-            settings->SetCloudDatacentersJsonPSNOW(datacentersDoc.toJson(QJsonDocument::Compact));
+        // Seed the picker with the raw datacenter list ONLY when nothing is saved
+        // yet. Never overwrite a previously-saved list here: it carries real ping
+        // RTTs from a prior Auto run, and manual mode below won't re-ping, so
+        // clobbering it with this no-RTT list would drop the ms from the picker.
+        QString existingDatacentersJson = (serviceType == "pscloud")
+            ? settings->GetCloudDatacentersJsonPSCloud()
+            : settings->GetCloudDatacentersJsonPSNOW();
+        bool hasExistingDatacenters = false;
+        if (!existingDatacentersJson.isEmpty()) {
+            QJsonDocument existingDoc = QJsonDocument::fromJson(existingDatacentersJson.toUtf8());
+            hasExistingDatacenters = existingDoc.isArray() && !existingDoc.array().isEmpty();
+        }
+        if (!hasExistingDatacenters) {
+            QJsonDocument datacentersDoc(datacenters);
+            if (serviceType == "pscloud") {
+                settings->SetCloudDatacentersJsonPSCloud(datacentersDoc.toJson(QJsonDocument::Compact));
+            } else {
+                settings->SetCloudDatacentersJsonPSNOW(datacentersDoc.toJson(QJsonDocument::Compact));
+            }
         }
 
         // Check if a specific datacenter is selected (non-auto)
@@ -1206,9 +1233,13 @@ void PSGaikaiStreaming::step11_GetDatacenters()
                     
                     if(pingResultsMap.contains(datacenterName)) {
                         // Use actual ping result
-                        allResults.append(pingResultsMap[datacenterName]);
+                        QJsonObject measured = pingResultsMap[datacenterName];
+                        measured["measured"] = true; // real RTT measurement
+                        allResults.append(measured);
                     } else {
-                        // Use dummy data (999ms RTT) for datacenters that weren't pinged
+                        // Use dummy data (999ms RTT) for datacenters that weren't pinged.
+                        // Mark it unmeasured so the latency gate doesn't treat a failed
+                        // measurement as genuinely-high latency.
                         QJsonObject dummyResult;
                         dummyResult["dataCenter"] = datacenterName;
                         dummyResult["rtt"] = 999;
@@ -1218,6 +1249,7 @@ void PSGaikaiStreaming::step11_GetDatacenters()
                         dummyResult["port"] = dc["port"].toInt();
                         dummyResult["publicIp"] = dc["publicIp"].toString();
                         dummyResult["maxBandwidth"] = dc["maxBandwidth"].toInt();
+                        dummyResult["measured"] = false;
                         allResults.append(dummyResult);
                     }
                 }
@@ -1314,16 +1346,24 @@ void PSGaikaiStreaming::step12_SelectDatacenter(QJsonArray pingResults)
         }
     }
     
-    // Validate ping for auto-selected datacenters (manual selection bypasses this check)
+    // Validate ping for auto-selected datacenters (manual selection bypasses this check).
+    // Only gate on a REAL measurement: when the ping couldn't complete the result is a
+    // fabricated 999ms placeholder (measured=false), which must not be mistaken for genuine
+    // high latency — otherwise a transient ping failure blocks an otherwise-fine datacenter.
     bool isAutoSelected = (selectedDatacenterSetting == "Auto" || selectedDatacenterSetting.isEmpty());
     if (isAutoSelected) {
+        const bool measured = selectedDatacenterPingResult.value("measured").toBool(false);
         int rtt_ms = selectedDatacenterPingResult["rtt"].toInt(0);
-        if (rtt_ms > 80) {
+        if (measured && rtt_ms > 80) {
             qWarning() << "Selected datacenter ping too high:" << selectedDatacenter << "RTT:" << rtt_ms << "ms (max: 80ms)";
             emit pingTimeoutError();
             emit AllocationError("Ping must be < 80ms to start a cloud session");
             emit Finished();
             return;
+        }
+        if (!measured) {
+            qWarning() << "Datacenter latency could not be measured for" << selectedDatacenter
+                       << "- proceeding without the latency gate (ping measurement failed, not necessarily high latency)";
         }
     }
     

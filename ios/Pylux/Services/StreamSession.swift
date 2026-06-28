@@ -48,6 +48,18 @@ struct StreamConnectInfo: Identifiable {
     }
 }
 
+/// Snapshot of the live stream stats for the on-screen overlay. Every value is
+/// computed in libchiaki (shared with Qt/Android) — the client only renders them.
+struct StreamMetrics {
+    let bitrateMbps: Double
+    let packetLoss: Double // 0..1
+    let droppedFrames: UInt64
+    let fps: Double
+    let rttMs: Double
+    let width: Int
+    let height: Int
+}
+
 @MainActor
 final class StreamSession: ObservableObject {
     @Published private(set) var state: StreamState = .idle
@@ -168,6 +180,22 @@ final class StreamSession: ObservableObject {
         guard let ref = sessionRef else { return }
         let pinBytes = Array(pin.utf8)
         _ = chiaki_session_bridge_set_login_pin(ref, pinBytes, pinBytes.count)
+    }
+
+    /// Latest live stream metrics for the stats overlay, or nil if no session is active.
+    func metrics() -> StreamMetrics? {
+        guard let ref = sessionRef else { return nil }
+        var m = ChiakiSessionBridgeMetrics()
+        chiaki_session_bridge_get_metrics(ref, &m)
+        return StreamMetrics(
+            bitrateMbps: m.bitrate_mbps,
+            packetLoss: m.packet_loss,
+            droppedFrames: m.dropped_frames,
+            fps: m.fps,
+            rttMs: m.rtt_ms,
+            width: Int(m.width),
+            height: Int(m.height)
+        )
     }
 
     /// Attach display layer for video output. Call when view is ready and again when session connects.

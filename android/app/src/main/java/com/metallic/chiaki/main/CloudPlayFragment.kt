@@ -37,7 +37,7 @@ import com.metallic.chiaki.common.ext.alertDialogBuilder
 import com.pylux.stream.R
 import com.metallic.chiaki.cloudplay.PsnLoginActivity
 import com.metallic.chiaki.cloudplay.api.CloudStreamingBackend
-import com.metallic.chiaki.cloudplay.api.PsCloudOwnership
+import com.metallic.chiaki.cloudplay.model.CloudCategory
 import com.metallic.chiaki.cloudplay.model.CloudError
 import com.metallic.chiaki.cloudplay.model.CloudGame
 import com.metallic.chiaki.common.Preferences
@@ -135,7 +135,7 @@ class CloudPlayFragment : Fragment()
 		}).get(CloudPlayViewModel::class.java)
 
 		setupRecyclerView()
-		setupCloudTabs()
+		setupHeaderControls()
 		setupSearchView()
 		setupSettingsFab()
 		setupScrollListener()
@@ -244,17 +244,8 @@ class CloudPlayFragment : Fragment()
 	private fun loadCatalog()
 	{
 		hideLoginRequiredState()
-		
-		// Load based on last selected section (default to PSNow)
-		val currentSection = viewModel.getCurrentSection()
-		if (currentSection == "pscloud")
-		{
-			selectLibraryTab()
-		}
-		else
-		{
-			selectCatalogTab()
-		}
+		updateFilterSummary()
+		viewModel.fetchCatalog()
 	}
 	
 	private fun showLoginRequiredState()
@@ -429,78 +420,102 @@ class CloudPlayFragment : Fragment()
 		imm.hideSoftInputFromWindow(binding.searchView.windowToken, 0)
 	}
 	
-	private fun setupCloudTabs()
+	// Acquisition-tag filter categories and their display labels (dropdown order).
+	private val tagFilterCategories = listOf(
+		CloudCategory.OWNED,
+		CloudCategory.STREAMABLE,
+		CloudCategory.PURCHASEABLE
+	)
+	private val tagFilterLabels = listOf("Owned", "Streamable", "Store")
+
+	private fun setupHeaderControls()
 	{
-		// Catalog tab button
-		binding.catalogTabButton.setOnClickListener {
-			selectCatalogTab()
-		}
-		
-		// Library tab button
-		binding.libraryTabButton.setOnClickListener {
-			selectLibraryTab()
-		}
-		
-		// All/Owned toggle (Library only)
-		binding.ownedToggleButton.setOnClickListener {
-			val currentlyOwned = viewModel.preferences.getPsCloudFilterOwned()
-			viewModel.preferences.setPsCloudFilterOwned(!currentlyOwned)
-			updateOwnedToggleButton()
-			// Re-fetch with new filter
-			viewModel.fetchPs5CloudCatalog(showOnlyOwned = !currentlyOwned)
-		}
-		
-		// Icon buttons in header
-		binding.headerFavoritesButton.setOnClickListener {
-			toggleFavoritesFilter()
-		}
-		
-		binding.headerSortButton.setOnClickListener {
-			showSortMenu()
-		}
-		
-		binding.headerSearchButton.setOnClickListener {
-			toggleSearch()
-		}
-		
-		binding.headerRefreshButton.setOnClickListener {
-			refreshCurrentSection()
-		}
+		binding.headerFilterButton.setOnClickListener { showFilterMenu() }
+		binding.filterSummary.setOnClickListener { showFilterMenu() }
+		binding.headerFavoritesButton.setOnClickListener { toggleFavoritesFilter() }
+		binding.headerSortButton.setOnClickListener { showSortMenu() }
+		binding.headerSearchButton.setOnClickListener { toggleSearch() }
+		binding.headerRefreshButton.setOnClickListener { refreshGamesList() }
 
 		binding.root.enableFocusableInTouchModeForTv(requireContext())
 		fun highlightButton(v: View, hasFocus: Boolean) {
 			if (hasFocus) {
-				v.background = android.graphics.drawable.GradientDrawable().apply {
+				v.foreground = android.graphics.drawable.GradientDrawable().apply {
 					shape = android.graphics.drawable.GradientDrawable.RECTANGLE
 					cornerRadius = 24f
 					setColor(0x30FFD700.toInt())
 					setStroke(2, 0xCCFFD700.toInt())
 				}
 			} else {
-				v.background = null
+				v.foreground = null
 			}
 		}
 		val focusHighlight = View.OnFocusChangeListener { v, hasFocus -> highlightButton(v, hasFocus) }
-		binding.catalogTabButton.onFocusChangeListener = focusHighlight
-		binding.libraryTabButton.onFocusChangeListener = focusHighlight
-		binding.ownedToggleButton.onFocusChangeListener = focusHighlight
+		binding.filterSummary.onFocusChangeListener = focusHighlight
+		binding.headerFilterButton.onFocusChangeListener = focusHighlight
 		binding.headerFavoritesButton.onFocusChangeListener = focusHighlight
 		binding.headerSortButton.onFocusChangeListener = focusHighlight
 		binding.headerSearchButton.onFocusChangeListener = focusHighlight
 		binding.headerRefreshButton.onFocusChangeListener = focusHighlight
-		
-		// Initialize icon colors
+
+		adapter.showOwnershipBadge = true
+		binding.sortOptionLayout.visibility = android.view.View.VISIBLE
+		binding.filterOptionLayout.visibility = android.view.View.GONE
+		updateSortButtonText()
 		updateHeaderIconColors()
+		updateFilterSummary()
+	}
+
+	/** Multi-select acquisition-tag filter dropdown (Owned / Streamable / Purchaseable). */
+	private fun showFilterMenu()
+	{
+		// Empty active set means "all" — show every box checked so the dialog reflects that.
+		val allActive = viewModel.activeTagFilters.isEmpty()
+		val checked = BooleanArray(tagFilterCategories.size) {
+			allActive || viewModel.isTagFilterActive(tagFilterCategories[it])
+		}
+		requireContext().alertDialogBuilder()
+			.setTitle("Filter games")
+			.setMultiChoiceItems(tagFilterLabels.toTypedArray(), checked) { _, which, isChecked ->
+				checked[which] = isChecked
+			}
+			.setPositiveButton("Apply") { dialog, _ ->
+				val selected = tagFilterCategories.filterIndexed { i, _ -> checked[i] }.toSet()
+				// All (or none) selected collapses to the "All games" state.
+				val normalized = if (selected.isEmpty() || selected.size == tagFilterCategories.size)
+					emptySet() else selected
+				viewModel.setTagFilters(normalized)
+				updateFilterSummary()
+				dialog.dismiss()
+			}
+			.setNeutralButton("Show all") { dialog, _ ->
+				viewModel.setTagFilters(emptySet())
+				updateFilterSummary()
+				dialog.dismiss()
+			}
+			.setNegativeButton(R.string.action_cancel, null)
+			.show()
+	}
+
+	/** Summary label + filter-icon highlight reflecting the active acquisition-tag filter. */
+	private fun updateFilterSummary()
+	{
+		val active = viewModel.activeTagFilters
+		binding.filterSummary.text = if (active.isEmpty()) "All games"
+			else tagFilterCategories.filter { it in active }
+				.joinToString(" · ") { tagFilterLabels[tagFilterCategories.indexOf(it)] }
+		val on = active.isNotEmpty()
+		binding.headerFilterButton.setColorFilter(
+			if (on) resources.getColor(android.R.color.holo_blue_light, null)
+			else resources.getColor(android.R.color.white, null)
+		)
+		binding.headerFilterButton.alpha = if (on) 1.0f else 0.45f
 	}
 
 	private fun updateHeaderIconColors()
 	{
 		val whiteTranslucent = resources.getColor(android.R.color.white, null)
-		
-		// Update favorites icon
 		updateFavoritesIcon()
-		
-		// Other icons - default white translucent
 		binding.headerSortButton.setColorFilter(whiteTranslucent)
 		binding.headerSortButton.alpha = 0.45f
 		binding.headerSearchButton.setColorFilter(whiteTranslucent)
@@ -508,16 +523,10 @@ class CloudPlayFragment : Fragment()
 		binding.headerRefreshButton.setColorFilter(whiteTranslucent)
 		binding.headerRefreshButton.alpha = 0.45f
 	}
-	
+
 	private fun updateFavoritesIcon()
 	{
-		val currentSection = viewModel.getCurrentSection()
-		val favActive = if (currentSection == "pscloud") {
-			preferences.getPsCloudFilterFavorites()
-		} else {
-			preferences.getPsnowFilterFavorites()
-		}
-		
+		val favActive = preferences.getPsCloudFilterFavorites()
 		binding.headerFavoritesButton.setImageResource(
 			if (favActive) R.drawable.ic_star else R.drawable.ic_star_outline
 		)
@@ -527,143 +536,31 @@ class CloudPlayFragment : Fragment()
 		)
 		binding.headerFavoritesButton.alpha = if (favActive) 1.0f else 0.45f
 	}
-	
-	private fun selectCatalogTab()
-	{
-		// Update button styles (selected)
-		binding.catalogTabButton.setTextColor(resources.getColor(android.R.color.white, null))
-		binding.catalogTabButton.setTypeface(null, android.graphics.Typeface.BOLD)
-		binding.catalogTabButton.setBackgroundResource(R.drawable.cloud_tab_selected)
-		binding.catalogTabButton.alpha = 1.0f
-		
-		// Unselected style
-		binding.libraryTabButton.setTextColor(resources.getColor(android.R.color.white, null))
-		binding.libraryTabButton.setTypeface(null, android.graphics.Typeface.NORMAL)
-		binding.libraryTabButton.alpha = 0.45f
-		binding.libraryTabButton.setBackgroundColor(android.graphics.Color.TRANSPARENT)
-		
-		// Hide All/Owned toggle for Catalog
-		binding.ownedToggleButton.visibility = android.view.View.GONE
-		
-		// Update section
-		viewModel.setCurrentSection("psnow")
-		adapter.showOwnershipBadge = false
-		binding.sortOptionLayout.visibility = android.view.View.VISIBLE
-		binding.filterOptionLayout.visibility = android.view.View.VISIBLE
-		updateSortButtonText()
-		updateFilterButtonText()
-		
-		// Update favorites icon to match new section
-		updateFavoritesIcon()
-		
-		viewModel.fetchPsnowCatalog()
-	}
-	
-	private fun selectLibraryTab()
-	{
-		// Update button styles (selected)
-		binding.libraryTabButton.setTextColor(resources.getColor(android.R.color.white, null))
-		binding.libraryTabButton.setTypeface(null, android.graphics.Typeface.BOLD)
-		binding.libraryTabButton.setBackgroundResource(R.drawable.cloud_tab_selected)
-		binding.libraryTabButton.alpha = 1.0f
-		
-		// Unselected style
-		binding.catalogTabButton.setTextColor(resources.getColor(android.R.color.white, null))
-		binding.catalogTabButton.setTypeface(null, android.graphics.Typeface.NORMAL)
-		binding.catalogTabButton.alpha = 0.45f
-		binding.catalogTabButton.setBackgroundColor(android.graphics.Color.TRANSPARENT)
-		
-		// Show All/Owned toggle for Library
-		binding.ownedToggleButton.visibility = android.view.View.VISIBLE
-		updateOwnedToggleButton()
-		
-		// Update section
-		viewModel.setCurrentSection("pscloud")
-		adapter.showOwnershipBadge = true
-		binding.sortOptionLayout.visibility = android.view.View.VISIBLE
-		binding.filterOptionLayout.visibility = android.view.View.VISIBLE
-		updateSortButtonText()
-		updateFilterButtonText()
-		
-		// Update favorites icon to match new section
-		updateFavoritesIcon()
-		
-		val isOwnedFilter = viewModel.preferences.getPsCloudFilterOwned()
-		val isFavoritesFilter = preferences.getPsCloudFilterFavorites()
-		
-		if (isFavoritesFilter) {
-			viewModel.fetchPs5CloudCatalog(showOnlyOwned = false)
-		} else {
-			viewModel.fetchPs5CloudCatalog(showOnlyOwned = isOwnedFilter)
-		}
-	}
-	
-	private fun updateOwnedToggleButton()
-	{
-		val isOwned = viewModel.preferences.getPsCloudFilterOwned()
-		binding.ownedToggleButton.text = if (isOwned) "Owned" else "All"
-		binding.ownedToggleButton.setTextColor(
-			if (isOwned) resources.getColor(android.R.color.holo_green_light, null)
-			else resources.getColor(android.R.color.white, null)
-		)
-		binding.ownedToggleButton.alpha = if (isOwned) 1.0f else 0.6f
-		binding.ownedToggleButton.setBackgroundResource(
-			if (isOwned) R.drawable.cloud_tab_owned_selected
-			else R.drawable.cloud_tab_owned_unselected
-		)
-	}
-	
+
 	private fun toggleFavoritesFilter()
 	{
-		val currentSection = viewModel.getCurrentSection()
-		val currentlyActive = if (currentSection == "pscloud") {
-			preferences.getPsCloudFilterFavorites()
-		} else {
-			preferences.getPsnowFilterFavorites()
-		}
-		
-		// Toggle the preference
-		val newState = !currentlyActive
-		if (currentSection == "pscloud") {
-			preferences.setPsCloudFilterFavorites(newState)
-		} else {
-			preferences.setPsnowFilterFavorites(newState)
-		}
-		
-		// Update icon to match new state
+		preferences.setPsCloudFilterFavorites(!preferences.getPsCloudFilterFavorites())
 		updateFavoritesIcon()
-		
-		// Re-filter games - use correct item IDs
-		if (currentSection == "pscloud") {
-			// Library: 0=All, 1=Owned, 2=Favorites
-			val selectedItem = if (newState) 2 else 0
-			applyFilterState(currentSection, selectedItem)
-		} else {
-			// Catalog: 0=All, 1=Favorites
-			val selectedItem = if (newState) 1 else 0
-			applyFilterState(currentSection, selectedItem)
-		}
+		// Favorites filter is applied in the games observer; re-run it by re-emitting the list.
+		viewModel.setSortedGames(viewModel.getAllCachedGames())
 	}
-	
-	private fun refreshCurrentSection()
-	{
-		val currentSection = viewModel.getCurrentSection()
-		if (currentSection == "pscloud") {
-			val isOwnedFilter = viewModel.preferences.getPsCloudFilterOwned()
-			viewModel.fetchPs5CloudCatalog(showOnlyOwned = isOwnedFilter, forceRefresh = true)
-		} else {
-			viewModel.fetchPsnowCatalog(forceRefresh = true)
-		}
+
+	/** Games you can play right now (owned + subscription/trial streamable) sort ahead of
+	 *  store titles that must first be added to your library. */
+	private fun isPlayableNow(game: CloudGame): Boolean =
+		game.category != CloudCategory.PURCHASEABLE
+
+	private fun sortGames(games: List<CloudGame>): List<CloudGame> = when (sortState) {
+		1 -> games.sortedBy { it.name.lowercase() }
+		2 -> games.sortedByDescending { it.name.lowercase() }
+		else -> games.sortedWith(
+			compareByDescending<CloudGame> { isPlayableNow(it) }.thenBy { it.name.lowercase() }
+		)
 	}
-	
+
 	private fun showSortMenu()
 	{
-		val currentSection = viewModel.getCurrentSection()
-		val sortOptions = when (currentSection) {
-			"pscloud" -> arrayOf("Owned First", "Name: A → Z", "Name: Z → A")
-			else -> arrayOf("Recent", "Name: A → Z", "Name: Z → A")
-		}
-		
+		val sortOptions = arrayOf("Playable First", "Name: A → Z", "Name: Z → A")
 		requireContext().alertDialogBuilder()
 			.setTitle("Sort")
 			.setSingleChoiceItems(sortOptions, sortState) { dialog, which ->
@@ -672,245 +569,75 @@ class CloudPlayFragment : Fragment()
 			}
 			.show()
 	}
-	
+
 	private fun setupSettingsFab()
 	{
 		binding.settingsFab.setOnClickListener {
 			expandSettingsFab(!binding.settingsFab.isExpanded)
 		}
-		
 		binding.settingsDialBackground.setOnClickListener {
 			expandSettingsFab(false)
 		}
-		
-		// Refresh button and label
 		binding.refreshButton.setOnClickListener { refreshGamesList() }
 		binding.refreshLabelButton.setOnClickListener { refreshGamesList() }
-		
-		// Sort button and label
 		binding.sortButton.setOnClickListener { showSortMenu(binding.sortButton) }
 		binding.sortLabelButton.setOnClickListener { showSortMenu(binding.sortLabelButton) }
-		
-		// Filter button and label (owned/all games)
-		binding.filterButton.setOnClickListener { showFilterMenu(binding.filterButton) }
-		binding.filterLabelButton.setOnClickListener { showFilterMenu(binding.filterLabelButton) }
-		
 		updateSortButtonText()
 	}
-	
+
 	private fun expandSettingsFab(expand: Boolean)
 	{
 		binding.settingsFab.isExpanded = expand
 		binding.settingsFab.isActivated = binding.settingsFab.isExpanded
 	}
-	
+
 	private fun refreshGamesList()
 	{
 		expandSettingsFab(false)
-		
-		// Keep current sort state when refreshing
-		val currentSection = viewModel.getCurrentSection()
-		if (currentSection == "pscloud")
-		{
-			val isOwnedFilter = viewModel.preferences.getPsCloudFilterOwned()
-			viewModel.fetchPs5CloudCatalog(showOnlyOwned = isOwnedFilter, forceRefresh = true)
-		}
-		else
-		{
-			viewModel.fetchPsnowCatalog(forceRefresh = true)
-		}
+		viewModel.fetchCatalog(forceRefresh = true)
 	}
-	
+
 	private fun showSortMenu(anchor: android.view.View)
 	{
 		expandSettingsFab(false)
-		
-		val currentSection = viewModel.getCurrentSection()
 		val popup = androidx.appcompat.widget.PopupMenu(requireContext(), anchor)
-		
-		// Different default sort for Library vs Catalog
-		if (currentSection == "pscloud") {
-			popup.menu.add(0, 0, 0, "Owned First (Default)")
-		} else {
-			popup.menu.add(0, 0, 0, "Recent (Default)")
-		}
+		popup.menu.add(0, 0, 0, "Playable First (Default)")
 		popup.menu.add(0, 1, 1, "Name: A → Z")
 		popup.menu.add(0, 2, 2, "Name: Z → A")
-		
-		// Highlight current selection with radio button style
 		popup.menu.findItem(sortState)?.isChecked = true
 		popup.menu.setGroupCheckable(0, true, true)
-		
 		popup.setOnMenuItemClickListener { item ->
 			applySortState(item.itemId)
 			true
 		}
-		
 		popup.show()
 	}
-	
+
 	private fun applySortState(newSortState: Int)
 	{
 		sortState = newSortState
 		preferences.setCloudSortState(sortState)
 		updateSortButtonText()
-		
-		val currentGames = viewModel.games.value ?: return
-		val currentSection = viewModel.getCurrentSection()
-		
-		when (sortState) {
-			0 -> {
-				// Default: Different behavior for Library vs Catalog
-				if (currentSection == "pscloud") {
-					// Library: Sort by ownership (owned first), then maintain order
-					val sortedGames = currentGames.sortedWith(
-						compareByDescending<CloudGame> { it.isOwned }
-					)
-					viewModel.setSortedGames(sortedGames)
-				} else {
-					// Catalog: Reload from cache to restore original API order
-					viewModel.fetchPsnowCatalog(forceRefresh = false)
-				}
-			}
-			1 -> {
-				// A->Z
-				val sortedGames = currentGames.sortedBy { it.name.lowercase() }
-				viewModel.setSortedGames(sortedGames)
-			}
-			2 -> {
-				// Z->A
-				val sortedGames = currentGames.sortedByDescending { it.name.lowercase() }
-				viewModel.setSortedGames(sortedGames)
-			}
-		}
+		// Re-emit the full list; the games observer applies favorites + sort.
+		viewModel.setSortedGames(viewModel.getAllCachedGames())
 	}
-	
+
 	private fun updateSortButtonText()
 	{
-		val currentSection = viewModel.getCurrentSection()
 		val text = when (sortState) {
-			0 -> if (currentSection == "pscloud") "Sort: Owned" else "Sort: Recent"
 			1 -> "Sort: A→Z"
 			2 -> "Sort: Z→A"
-			else -> if (currentSection == "pscloud") "Sort: Owned" else "Sort: Recent"
+			else -> "Sort: Playable"
 		}
 		binding.sortLabelButton.text = text
 	}
-	
-	private fun showFilterMenu(anchor: android.view.View)
-	{
-		expandSettingsFab(false)
-		
-		val currentSection = viewModel.getCurrentSection()
-		val popup = androidx.appcompat.widget.PopupMenu(requireContext(), anchor)
-		
-		if (currentSection == "pscloud") {
-			// Game Library: All Games, Owned Games, Favorites
-			popup.menu.add(0, 0, 0, "Show: All Games")
-			popup.menu.add(0, 1, 1, "Show: Owned Only")
-			popup.menu.add(0, 2, 2, "Show: Favorites")
-			
-			// Highlight current selection
-			val currentItem = when {
-				preferences.getPsCloudFilterFavorites() -> 2
-				preferences.getPsCloudFilterOwned() -> 1
-				else -> 0
-			}
-			popup.menu.findItem(currentItem)?.isChecked = true
-		} else {
-			// Game Catalog: All Games, Favorites
-			popup.menu.add(0, 0, 0, "Show: All Games")
-			popup.menu.add(0, 1, 1, "Show: Favorites")
-			
-			// Highlight current selection
-			val currentItem = if (preferences.getPsnowFilterFavorites()) 1 else 0
-			popup.menu.findItem(currentItem)?.isChecked = true
-		}
-		
-		popup.menu.setGroupCheckable(0, true, true)
-		
-		popup.setOnMenuItemClickListener { item ->
-			applyFilterState(currentSection, item.itemId)
-			true
-		}
-		
-		popup.show()
-	}
-	
-	private fun applyFilterState(currentSection: String, selectedItem: Int)
-	{
-		if (currentSection == "pscloud") {
-			// Game Library
-			when (selectedItem) {
-				0 -> {
-					// All Games
-					preferences.setPsCloudFilterFavorites(false)
-					preferences.setPsCloudFilterOwned(false)
-					viewModel.fetchPs5CloudCatalog(showOnlyOwned = false, forceRefresh = false)
-				}
-				1 -> {
-					// Owned Games
-					preferences.setPsCloudFilterFavorites(false)
-					preferences.setPsCloudFilterOwned(true)
-					viewModel.fetchPs5CloudCatalog(showOnlyOwned = true, forceRefresh = false)
-				}
-				2 -> {
-					// Favorites
-					preferences.setPsCloudFilterFavorites(true)
-					preferences.setPsCloudFilterOwned(false)
-					viewModel.fetchPs5CloudCatalog(showOnlyOwned = false, forceRefresh = false)
-				}
-			}
-		} else {
-			// Game Catalog
-			when (selectedItem) {
-				0 -> {
-					// All Games
-					preferences.setPsnowFilterFavorites(false)
-					viewModel.fetchPsnowCatalog(forceRefresh = false)
-				}
-				1 -> {
-					// Favorites
-					preferences.setPsnowFilterFavorites(true)
-					viewModel.fetchPsnowCatalog(forceRefresh = false)
-				}
-			}
-		}
-		
-		updateFilterButtonText()
-		updateFavoritesIcon()
-	}
-	
-	private fun updateFilterButtonText()
-	{
-		val currentSection = viewModel.getCurrentSection()
-		val text = if (currentSection == "pscloud") {
-			// Game Library
-			when {
-				preferences.getPsCloudFilterFavorites() -> "Show: Favorites"
-				preferences.getPsCloudFilterOwned() -> "Show: Owned"
-				else -> "Show: All"
-			}
-		} else {
-			// Game Catalog
-			if (preferences.getPsnowFilterFavorites()) "Show: Favorites" else "Show: All"
-		}
-		binding.filterLabelButton.text = text
-	}
-	
+
 	private fun filterAndDisplayFavorites()
 	{
 		val favoriteIds = preferences.getFavoriteGames()
 		val allGames = viewModel.getAllCachedGames()
 		val favoriteGames = allGames.filter { favoriteIds.contains(it.productId) }
-		
-		// Apply current sort state
-		val sortedGames = when (sortState) {
-			1 -> favoriteGames.sortedBy { it.name.lowercase() }
-			2 -> favoriteGames.sortedByDescending { it.name.lowercase() }
-			else -> favoriteGames
-		}
-		
+		val sortedGames = sortGames(favoriteGames)
 		adapter.games = sortedGames
 		updateEmptyState(sortedGames.isEmpty())
 	}
@@ -952,15 +679,9 @@ class CloudPlayFragment : Fragment()
 			preferences.removeFavoriteGame(game.productId)
 		}
 		
-		// If currently showing favorites, refresh the list
-		val currentSection = viewModel.getCurrentSection()
-		if (currentSection == "psnow" && preferences.getPsnowFilterFavorites()) {
-			// Refresh catalog favorites
-			refreshGamesList()
-		} else if (currentSection == "pscloud" && preferences.getPsCloudFilterFavorites()) {
-			// Refresh game library favorites
-			refreshGamesList()
-		}
+		// If favorites filter is active, un-favoriting should drop the card immediately.
+		if (preferences.getPsCloudFilterFavorites())
+			viewModel.setSortedGames(viewModel.getAllCachedGames())
 	}
 
 	private fun setupSearchView()
@@ -988,36 +709,16 @@ class CloudPlayFragment : Fragment()
 				return@Observer
 			}
 			
-			// Check if favorites filter is active for current section
-			val currentSection = viewModel.getCurrentSection()
-			val isFavoritesFilter = if (currentSection == "pscloud") {
-				preferences.getPsCloudFilterFavorites()
-			} else {
-				preferences.getPsnowFilterFavorites()
-			}
-			
-			// Filter for favorites if that filter is active
-			val filteredGames = if (isFavoritesFilter) {
+			// Favorites filter (single unified toggle).
+			val filteredGames = if (preferences.getPsCloudFilterFavorites()) {
 				val favoriteIds = preferences.getFavoriteGames()
 				games.filter { favoriteIds.contains(it.productId) }
 			} else {
 				games
 			}
-			
-			// Apply saved sort state when games are loaded
-			val sortedGames = when (sortState) {
-				0 -> {
-					// Default sort: Owned first for Library, original order for Catalog
-					if (currentSection == "pscloud") {
-						filteredGames.sortedWith(compareByDescending { it.isOwned })
-					} else {
-						filteredGames
-					}
-				}
-				1 -> filteredGames.sortedBy { it.name.lowercase() } // A->Z
-				2 -> filteredGames.sortedByDescending { it.name.lowercase() } // Z->A
-				else -> filteredGames
-			}
+
+			// Apply saved sort state: 0 = streaming-first (default), 1 = A→Z, 2 = Z→A.
+			val sortedGames = sortGames(filteredGames)
 			adapter.games = sortedGames
 			
 			updateEmptyState(sortedGames.isEmpty())
@@ -1032,6 +733,9 @@ class CloudPlayFragment : Fragment()
 		})
 
 		viewModel.loading.observe(viewLifecycleOwner, Observer { loading ->
+			// Re-evaluate the region banner: catalogIsForeign holds a stale value mid-fetch, so the
+			// banner must only reflect a COMPLETED fetch (otherwise it flashes while games load).
+			updateRegionBanner(viewModel.fallbackRegion.value)
 			binding.progressBar.visibility = if(loading && adapter.games.isEmpty()) View.VISIBLE else View.GONE
 			if (loading) {
 				val rotate = RotateAnimation(0f, 360f, RotateAnimation.RELATIVE_TO_SELF, 0.5f, RotateAnimation.RELATIVE_TO_SELF, 0.5f).apply {
@@ -1052,9 +756,35 @@ class CloudPlayFragment : Fragment()
 		})
 
 		viewModel.warning.observe(viewLifecycleOwner, Observer { warning ->
+			// An auth error also re-evaluates the region banner (it must hide when login failed).
+			updateRegionBanner(viewModel.fallbackRegion.value)
 			if (warning.isNullOrEmpty()) return@Observer
 			Toast.makeText(requireContext(), warning, Toast.LENGTH_LONG).show()
 		})
+
+		viewModel.fallbackRegion.observe(viewLifecycleOwner, Observer { region ->
+			updateRegionBanner(region)
+		})
+		viewModel.catalogIsForeign.observe(viewLifecycleOwner, Observer { isForeign ->
+			updateRegionBanner(viewModel.fallbackRegion.value)
+		})
+	}
+
+	private fun updateRegionBanner(region: String?)
+	{
+		// Suppress the region banner when an auth error is present: nativeMode=false is then just a
+		// side-effect of the failed login (region was never determined), so the expired/login
+		// prompt is the real message -- not "your region has no cloud".
+		val hasAuthError = !viewModel.warning.value.isNullOrEmpty()
+		val isLoading = viewModel.loading.value == true
+		if (viewModel.catalogIsForeign.value != true || hasAuthError || isLoading) {
+			binding.regionBanner.visibility = View.GONE
+		} else {
+			val label = region?.takeIf { it.isNotEmpty() } ?: "foreign"
+			binding.regionBanner.text =
+				"PlayStation cloud isn't offered natively in your region — showing the $label catalog. Some titles may not stream."
+			binding.regionBanner.visibility = View.VISIBLE
+		}
 	}
 
 	private fun updateEmptyState(isEmpty: Boolean)
@@ -1137,10 +867,9 @@ class CloudPlayFragment : Fragment()
 
 	private fun onGameClicked(game: CloudGame)
 	{
-		val isPscloud = game.serviceType == "pscloud"
-		val isAllGamesFilter = !viewModel.preferences.getPsCloudFilterOwned()
-		
-		if (isPscloud && isAllGamesFilter && !game.isOwned)
+		// Route on the lib's acquisition tag: only a "purchaseable" title (not owned, PS Plus
+		// catalog / PS5) needs Add-to-Library; "streamable" (PS Now) and owned titles stream directly.
+		if (game.category == CloudCategory.PURCHASEABLE)
 		{
 			// Show dialog to add game to library
 			showAddToLibraryDialog(game)
@@ -1359,11 +1088,17 @@ class CloudPlayFragment : Fragment()
 			try
 			{
 				val backend = CloudStreamingBackend(requireContext(), viewModel.preferences)
+				// Stream routing is precomputed by libchiaki: streamServiceType picks the endpoint
+				// (psnow/Kamaji vs pscloud/cronos) and streamIdentifier is the exact id to launch.
 				val result = backend.startCompleteCloudSession(
-					serviceType = game.serviceType,
-					gameIdentifier = PsCloudOwnership.streamingIdentifier(game),
+					serviceType = game.streamServiceType,
+					gameIdentifier = game.streamIdentifier,
 					gameName = game.name,
 					npssoToken = npssoToken,
+					// Owned-PSNOW fast-path: the catalog's pre-resolved streaming entitlement (empty
+					// for unowned titles -> normal full flow). Only used by the PSNOW path.
+					ownedEntitlementId = game.entitlementId,
+					ownedPlatform = game.platform,
 					onProgress = { message ->
 						requireActivity().runOnUiThread {
 							allocationProgressTextView?.text = message

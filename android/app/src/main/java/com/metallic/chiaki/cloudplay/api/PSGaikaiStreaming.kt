@@ -80,6 +80,9 @@ class PSGaikaiStreaming(
 	private var streamServerAuthCode = ""
 	private var requestGameSpec = JSONObject()
 	private var selectedDatacenter = ""
+	// Captured server response body from a failed step8 (sessions/start) so the owned fast-path
+	// fallback can detect noGameForEntitlementId. Empty unless step8 failed.
+	private var lastStartSessionError = ""
 	private var selectedDatacenterPort = 0
 	private var selectedDatacenterPingResult = JSONObject()
 	
@@ -143,7 +146,7 @@ class PSGaikaiStreaming(
 			if (isCancelled()) {
 				return@withContext AllocationResult(false, "Allocation cancelled")
 			}
-			step8_StartSession(entitlementId) ?: return@withContext AllocationResult(false, "Failed to start session")
+			step8_StartSession(entitlementId) ?: return@withContext AllocationResult(false, "Session start failed: $lastStartSessionError")
 			Log.i(TAG, "✓ Step 8: Started session")
 			
 			// Step 8a: Get gkClientId auth code
@@ -452,6 +455,10 @@ class PSGaikaiStreaming(
 			{
 				Log.e(TAG, "Step 8 failed: ${response.statusCode}")
 				Log.e(TAG, "Response: ${response.body}")
+				// Surface the response body: this is where Gaikai reports an unowned/invalid
+				// entitlement (e.g. {"name":"noGameForEntitlementId",...}), which the owned fast-path
+				// fallback in CloudStreamingBackend keys off to retry via the full resolve/acquire flow.
+				lastStartSessionError = response.body
 				return null
 			}
 			
@@ -1017,16 +1024,27 @@ catch (e: Exception)
 		{
 			if (datacenters.length() == 0) return null
 			
-			// Save datacenters to settings (Qt lines 1194-1200)
-			// This saves the raw datacenter list before pinging
-			val datacentersJsonString = datacenters.toString()
-			if (serviceType == "pscloud")
+			// Seed the picker with the raw datacenter list ONLY when nothing is saved
+			// yet. Never overwrite a previously-saved list here: it carries real ping
+			// RTTs from a prior Auto run, and manual mode below won't re-ping, so
+			// clobbering it with this no-RTT list would drop the ms from the picker.
+			val existingDatacentersJson = if (serviceType == "pscloud")
+				preferences.getCloudDatacentersJsonPscloud()
+			else
+				preferences.getCloudDatacentersJsonPsnow()
+			val hasExistingDatacenters = existingDatacentersJson.isNotEmpty() &&
+				try { org.json.JSONArray(existingDatacentersJson).length() > 0 } catch (e: Exception) { false }
+			if (!hasExistingDatacenters)
 			{
-				preferences.setCloudDatacentersJsonPscloud(datacentersJsonString)
-			}
-			else  // psnow
-			{
-				preferences.setCloudDatacentersJsonPsnow(datacentersJsonString)
+				val datacentersJsonString = datacenters.toString()
+				if (serviceType == "pscloud")
+				{
+					preferences.setCloudDatacentersJsonPscloud(datacentersJsonString)
+				}
+				else  // psnow
+				{
+					preferences.setCloudDatacentersJsonPsnow(datacentersJsonString)
+				}
 			}
 			
 			// Check if a specific datacenter is selected (Qt lines 1203-1228)
@@ -1380,9 +1398,13 @@ catch (e: Exception)
 	spec.put("entitlementId", entitlementId)
 	spec.put("npEnv", "np")
 	
-	// Read language from unified settings (Qt lines 153, 161)
-	// Use unified language setting for both PSCloud and PSNOW
-	val language = preferences.getCloudLanguage()
+	// Prefer the user's manual streaming-language pick; fall back to the
+	// auto-detected catalog locale when the picker is left on default. The manual
+	// pick lives in its own setting so the catalog locale can never clobber it.
+	// Gaikai expects the bare language code ("de"), not the stored locale
+	// ("de-DE"); the lib helper is the single source of truth across platforms.
+	val chosenLocale = preferences.getCloudGameLanguage().ifEmpty { preferences.getCloudStoreLocale() }
+	val language = com.metallic.chiaki.lib.cloudGaikaiLanguage(chosenLocale)
 	spec.put("language", language)
 	
 	spec.put("cloudEndpoint", "https://cc.prod.gaikai.com")

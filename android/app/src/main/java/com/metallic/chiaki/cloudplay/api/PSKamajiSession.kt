@@ -40,13 +40,33 @@ class PSKamajiSession(
 	private val kamajiClientId = PsnApiConstants.CLIENT_ID
 	private var platform = "ps4" // Default, will be detected from API response
 	private var scopesStr = PsnApiConstants.PS4_SCOPES // Default to PS4 scopes
-	
+
 	// State tracking
 	private var anonAuthCode: String? = null      // OAuth code for anonymous session
 	private var authorizationCode: String? = null // OAuth code for authenticated session
 	private var jsessionId: String? = null        // JSESSIONID from anonymous session
 	private var entitlementId: String? = null     // Converted from productId
 	private var streamingSku: String? = null      // SKU from product ID conversion
+
+	// Owned-PSNOW fast-path: the unified catalog's pre-resolved owned streaming entitlement.
+	// When set, startSessionCreation skips the entire entitlement path (0.5b/0.5d/0.5e). See
+	// setOwnedEntitlementFastPath(). usedEntitlementFastPath gates the orchestrator's one-shot retry.
+	private var fastPathEntitlementId: String = ""
+	private var fastPathPlatform: String = ""
+	var usedEntitlementFastPath = false
+		private set
+
+	/**
+	 * Owned-PSNOW fast-path: hand in the streaming entitlement the unified catalog already resolved
+	 * for an owned title, so startSessionCreation() skips the entitlement path (0.5b anonymous
+	 * session, 0.5d product->entitlement resolve, 0.5e check/acquire) and goes straight to step5/6.
+	 * Empty == normal full flow. The orchestrator falls back to the full flow if Gaikai rejects it.
+	 */
+	fun setOwnedEntitlementFastPath(ownedEntitlementId: String, ownedPlatform: String)
+	{
+		fastPathEntitlementId = ownedEntitlementId
+		fastPathPlatform = ownedPlatform
+	}
 	
 	/**
 	 * Data class for session result
@@ -74,7 +94,29 @@ class PSKamajiSession(
 			{
 				return@withContext SessionResult(false, "NPSSO token is empty")
 			}
-			
+
+			// Owned-PSNOW fast-path: the unified catalog already resolved this title's streaming
+			// entitlement, so there is nothing to look up or acquire. Skip the entire entitlement
+			// path (0.5b/0.5d/0.5e -- which 404 and fail to acquire in storefront-less regions) and
+			// go straight to the authenticated session. step5/6 are independent of the anonymous
+			// session, so this is safe. The orchestrator retries the full flow if Gaikai rejects it.
+			if (fastPathEntitlementId.isNotEmpty())
+			{
+				entitlementId = fastPathEntitlementId
+				platform = if (fastPathPlatform.isEmpty()) "ps4" else fastPathPlatform
+				scopesStr = if (platform == "ps3") "kamaji:commerce_native" else PsnApiConstants.PS4_SCOPES
+				usedEntitlementFastPath = true
+				Log.i(TAG, "Kamaji fast-path: owned entitlementId=$entitlementId platform=$platform - skipping 0.5b/0.5d/0.5e")
+
+				val authCode = step5_GetAuthCode(npssoToken)
+					?: return@withContext SessionResult(false, "Failed to get auth code")
+				authorizationCode = authCode
+				val authSession = step6_CreateAuthSession(authCode)
+					?: return@withContext SessionResult(false, "Failed to create authenticated session")
+				Log.i(TAG, "=== Kamaji Session Complete (fast-path) === Entitlement ID: $entitlementId, Platform: $platform")
+				return@withContext SessionResult(true, "Success", entitlementId!!, platform)
+			}
+
 			// Step 0.5b: Get Anonymous Auth Code
 			val anonCode = step0_5b_GetAnonymousAuthCode(npssoToken)
 				?: return@withContext SessionResult(false, "Failed to get anonymous auth code")
@@ -279,8 +321,8 @@ class PSKamajiSession(
 				
 				if (!sessionCountry.isNullOrEmpty() && !sessionLanguage.isNullOrEmpty())
 				{
-					preferences.setCloudLanguageFromSession(sessionLanguage, sessionCountry)
-					Log.i(TAG, "Saved locale from session: ${preferences.getCloudLanguage()}")
+					preferences.setCloudStoreLocaleFromSession(sessionLanguage, sessionCountry)
+					Log.i(TAG, "Saved locale from session: ${preferences.getCloudStoreLocale()}")
 				}
 			}
 		}
@@ -308,9 +350,19 @@ class PSKamajiSession(
 	{
 		try
 		{
-		val localeSetting = preferences.getCloudLanguage()
-		val (country, language) = com.metallic.chiaki.cloudplay.CloudLocale.parseStorePath(localeSetting)
-		Log.i(TAG, "Using locale from settings: $localeSetting -> country=$country, language=$language")
+		val resolvedCountry = preferences.getCloudResolvedStoreCountry()
+		val resolvedLang = preferences.getCloudResolvedStoreLang()
+		val localeSetting = preferences.getCloudStoreLocale()
+		val parsedLocale = com.metallic.chiaki.cloudplay.CloudLocale.parseStorePath(localeSetting)
+		val (country, language) = if (resolvedCountry.isNotEmpty()) {
+			// Prefer the server-authoritative store language from the native base_url: a non-English
+			// native store (e.g. NL) 404s on the wrong language. Fall back to the locale-derived
+			// proxy when empty (fallback/foreign mode, where the public US/GB store wants en).
+			resolvedCountry to (resolvedLang.ifEmpty { parsedLocale.second })
+		} else {
+			parsedLocale
+		}
+		Log.i(TAG, "step0_5d: using resolvedStoreCountry=$country (lang=$language) for container URL")
 		val url = "$storeBase/container/$country/$language/19/$productId?useOffers=true&gkb=1&gkb2=1"
 			
 			Log.d(TAG, "Step 0.5d: Convert Product ID")
@@ -412,6 +464,44 @@ class PSKamajiSession(
 				}
 			}
 			
+
+			// Full-game fallback: PS Plus catalog titles have no license_type==4 entitlement; their
+			// full-game entitlement is license_type 0 with packageType "*GD". Prefer the one whose id
+			// matches the requested product's title id so cross-gen picks the consistent platform.
+			if (streamingEntitlementId.isEmpty())
+			{
+				val requestedTitleId = productId.split("-").getOrNull(1)?.split("_")?.firstOrNull() ?: ""
+				fun pickFullGameEntitlement(skuObj: JSONObject, requireTitleMatch: Boolean): Boolean
+				{
+					val ents = skuObj.optJSONArray("entitlements") ?: return false
+					for (j in 0 until ents.length())
+					{
+						val ent = ents.getJSONObject(j)
+						val entId = ent.optString("id", "")
+						val pkg = ent.optString("packageType", "")
+						if (entId.isEmpty() || !pkg.endsWith("GD")) continue
+						if (requireTitleMatch && requestedTitleId.isNotEmpty() && !entId.contains(requestedTitleId)) continue
+						streamingEntitlementId = entId
+						sku = skuObj.optString("id", "")
+						Log.i(TAG, "Found full-game Entitlement ID (PS Plus catalog fallback): $streamingEntitlementId packageType: $pkg titleMatch: $requireTitleMatch")
+						return true
+					}
+					return false
+				}
+				for (requireTitleMatch in listOf(true, false))
+				{
+					if (json.has("default_sku") && pickFullGameEntitlement(json.getJSONObject("default_sku"), requireTitleMatch)) break
+					if (streamingEntitlementId.isEmpty() && json.has("skus"))
+					{
+						val skus = json.getJSONArray("skus")
+						for (i in 0 until skus.length())
+						{
+							if (pickFullGameEntitlement(skus.getJSONObject(i), requireTitleMatch)) break
+						}
+					}
+					if (streamingEntitlementId.isNotEmpty()) break
+				}
+			}
 			// Try to extract platform from playable_platform
 			if (json.has("playable_platform"))
 			{
@@ -522,9 +612,23 @@ class PSKamajiSession(
 				return true
 			}
 			
-		// User doesn't have entitlement (404), try to acquire it
+		// User doesn't have the per-game entitlement on the account (404).
+		// Region-group fallback: the free 100%-off checkout that grants the streaming entitlement
+		// requires a pcnow storefront in the account's region -- which unsupported regions (e.g.
+		// Hungary) don't have, so the acquire fails with "Against Eligibility Rule". Skip it and let
+		// Gaikai validate the Premium subscription directly (if it genuinely needs the entitlement
+		// it returns noGameForEntitlementId downstream, surfaced via the region banner). Driven by
+		// the account-level fallback flag, so PS3 and PS4 behave identically.
+		// Native (supported region): run the normal checkout-acquire for both PS3 and PS4.
+		if (preferences.isCloudCatalogIsForeign())
+		{
+			Log.i(TAG, "Kamaji Step 0.5e.2 - Entitlement not found (404); fallback region -> skipping acquire, proceeding to Gaikai")
+			return true
+		}
+
+		// Native mode: try to acquire it via checkout (PS3 + PS4 + PS5 alike).
 		Log.i(TAG, "Kamaji Step 0.5e.2 - Entitlement not found (404), will attempt to acquire")
-		
+
 		// Step 0.5e.3: Checkout preview
 		// Throws PsPlusSubscriptionException if user doesn't have required subscription
 		val previewOk = step0_5e3_CheckoutPreview(sessionId)

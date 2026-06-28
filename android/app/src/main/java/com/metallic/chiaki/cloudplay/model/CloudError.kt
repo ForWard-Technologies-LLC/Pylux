@@ -34,17 +34,22 @@ sealed class CloudError(val message: String, val exception: Exception? = null) {
 		}
 		
 		private fun isAuthenticationError(message: String): Boolean {
+			// Keep these specific to genuine auth/credential problems. Do NOT include broad words
+			// like "failed", "token" or "expired": libchiaki's hard-failure detail is literally
+			// "Failed to fetch cloud catalog" (returned for NON-auth/transient conditions) and
+			// parse/exception messages also contain "failed" — classifying those as auth would wipe
+			// a valid NPSSO token and force a needless re-login. A genuinely expired npsso is
+			// surfaced by the lib as a degraded-but-usable result via the warning banner (which says
+			// "expired"), NOT through this error path, so "expired" here would only ever be a false
+			// positive.
 			val authKeywords = listOf(
 				"npsso",
-				"expired",
 				"authorization",
 				"oauth",
 				"authentication",
 				"login",
 				"unauthorized",
 				"forbidden",
-				"failed",
-				"token",
 				"401",
 				"403"
 			)

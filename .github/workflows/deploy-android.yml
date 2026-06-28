@@ -17,6 +17,11 @@ name: Deploy Android + Android TV (Google Play)
 
 on:
   workflow_dispatch:
+    inputs:
+      build_apk:
+        description: "APK-only: build a sideloadable test APK artifact and SKIP the Google Play publish"
+        type: boolean
+        default: false
   workflow_call:
     outputs:
       chiaki_version:
@@ -122,8 +127,11 @@ jobs:
             echo "No signing — unsigned build only"
           fi
 
+      # Skipped on APK-only runs (build_apk checkbox): those just want a sideloadable
+      # APK and must not touch Google Play.
       - name: Build release AAB
         id: bundle_release
+        if: ${{ !inputs.build_apk }}
         working-directory: android
         run: |
           ./gradlew bundleRelease \
@@ -131,7 +139,50 @@ jobs:
             --build-cache \
             -Dorg.gradle.java.home="$JAVA_HOME"
 
+      # Optional sideloadable APK. The AAB above can only go through Google Play,
+      # so this opt-in step (the "build_apk" checkbox on a manual run) produces an
+      # installable .apk testers can grab from the run's Artifacts. A signed release
+      # APK is built when signing is configured; otherwise a debug APK (still
+      # installable, self-signed) so the step never fails for lack of secrets.
+      - name: Build sideloadable APK
+        id: build_apk
+        if: ${{ inputs.build_apk }}
+        working-directory: android
+        run: |
+          # abiFilters produces per-ABI split APKs; pin to arm64-v8a (covers virtually
+          # all modern phones/tablets/TV) so we never ship a stray x86_64 split to testers.
+          ABI=arm64-v8a
+          if [ "$SIGNING_CONFIGURED" = "true" ]; then
+            echo "Signing configured — building signed release APK ($ABI)"
+            ./gradlew assembleRelease \
+              -Pandroid.injected.build.abi="$ABI" \
+              --parallel --build-cache -Dorg.gradle.java.home="$JAVA_HOME"
+          else
+            echo "::warning::No signing configured — building debug APK ($ABI, self-signed, still installable for testing)"
+            ./gradlew assembleDebug \
+              -Pandroid.injected.build.abi="$ABI" \
+              --parallel --build-cache -Dorg.gradle.java.home="$JAVA_HOME"
+          fi
+          # Prefer the arm64-v8a APK; fall back to the newest APK by mtime if naming differs.
+          APK="$(find app/build -name "*${ABI}*.apk" -print0 2>/dev/null | xargs -0 ls -t 2>/dev/null | head -1)"
+          [ -n "$APK" ] || APK="$(find app/build -name '*.apk' -print0 2>/dev/null | xargs -0 ls -t 2>/dev/null | head -1)"
+          test -n "$APK" || { echo "::error::No APK produced"; exit 1; }
+          SHORT_SHA="$(git rev-parse --short HEAD)"
+          DEST="pylux-${{ steps.extract_version.outputs.version }}-${SHORT_SHA}.apk"
+          cp "$APK" "$GITHUB_WORKSPACE/$DEST"
+          echo "apk_name=$DEST" >> "$GITHUB_OUTPUT"
+          echo "Built sideloadable APK: $DEST"
+
+      - name: Upload APK artifact
+        if: ${{ inputs.build_apk }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: pylux-android-apk
+          path: ${{ steps.build_apk.outputs.apk_name }}
+          if-no-files-found: error
+
       - name: Decode Google Play service account key
+        if: ${{ !inputs.build_apk }}
         env:
           JSON_BASE64: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64 }}
         run: |
@@ -148,7 +199,7 @@ jobs:
           fi
 
       - name: Determine Google Play track
-        if: env.UPLOAD_ENABLED == 'true'
+        if: ${{ env.UPLOAD_ENABLED == 'true' && !inputs.build_apk }}
         run: |
           if [ "${{ github.ref_name }}" = "master" ]; then
             TRACK=production
@@ -160,7 +211,7 @@ jobs:
 
       - name: Upload AAB to Google Play
         id: upload_play
-        if: env.UPLOAD_ENABLED == 'true'
+        if: ${{ env.UPLOAD_ENABLED == 'true' && !inputs.build_apk }}
         working-directory: android
         env:
           # Same value Gradle uses (extract-version semver_build_id); avoids Fastlane relying on a solo Gradle invoke.
@@ -177,7 +228,15 @@ jobs:
           {
             echo "## Pylux Android — v${CHIAKI_VERSION:-?}"
             echo ""
-            if [ "${{ steps.bundle_release.outcome }}" = "skipped" ] || [ "${{ steps.bundle_release.outcome }}" != "success" ]; then
+            if [ "${{ inputs.build_apk }}" = "true" ]; then
+              echo "APK-only run — Google Play publish was skipped."
+              echo ""
+              if [ "${{ steps.build_apk.outcome }}" = "success" ]; then
+                echo "Sideloadable test APK \`${{ steps.build_apk.outputs.apk_name }}\` is attached to this run (see the **Artifacts** section, named \`pylux-android-apk\`)."
+              else
+                echo "APK build did not complete (outcome: **${{ steps.build_apk.outcome }}**). Check the logs above for details."
+              fi
+            elif [ "${{ steps.bundle_release.outcome }}" != "success" ]; then
               echo "Build did not complete (outcome: **${{ steps.bundle_release.outcome }}**). Check the logs above for details."
             else
               case "${UPLOAD_ENABLED:-false}" in
