@@ -411,6 +411,30 @@ sign_app_bundle() {
         exit 1
     fi
     echo "  Using entitlements: $ENTITLEMENTS_PLIST"
+
+    # Bundle SDL3 for sdl2-compat. Homebrew's `sdl2` is now sdl2-compat -- an SDL2 API shim that
+    # dlopen's SDL3 at runtime. macdeployqt does NOT copy SDL3 (it is loaded via dlopen, not a link
+    # dependency), so without this the app aborts on launch with "Failed loading SDL3 library"
+    # before any of our own code runs. Copy it next to libSDL2 with an @rpath id; the bundle's
+    # rpath already includes @executable_path/../Frameworks, so sdl2-compat finds it. The
+    # standalone-dylib signing step below then signs it. Harmless if SDL3 is absent or the bundled
+    # SDL2 is ever a real (non-compat) build -- the extra dylib just goes unused.
+    local sdl3_src="$(brew --prefix)/opt/sdl3/lib/libSDL3.0.dylib"
+    if [ -f "$sdl3_src" ]; then
+        echo "  Bundling SDL3 (required by sdl2-compat)..."
+        # CRITICAL: sdl2-compat dlopens SDL3 by the leaf name "libSDL3.dylib" via @loader_path
+        # (next to libSDL2 in Frameworks). It must be bundled under EXACTLY that name. If it is
+        # named libSDL3.0.dylib instead, only sdl2-compat's bare-name fallback finds it -- which on
+        # a dev machine silently resolves to /opt/homebrew/lib (masking the bug), but on any other
+        # machine / a Finder launch there is no SDL3 in the search path and the app aborts with
+        # "Failed loading SDL3 library". Bundle it as libSDL3.dylib so @loader_path always resolves.
+        local sdl3_dst="$app_path/Contents/Frameworks/libSDL3.dylib"
+        rm -f "$app_path/Contents/Frameworks/libSDL3.0.dylib"  # remove any wrongly-named prior copy
+        cp -f "$sdl3_src" "$sdl3_dst"
+        chmod u+w "$sdl3_dst"
+        install_name_tool -id "@rpath/libSDL3.dylib" "$sdl3_dst" 2>/dev/null || true
+    fi
+
     echo "  Signing MoltenVK dylibs..."
     for dylib in "$app_path/Contents/Resources/vulkan/icd.d"/*.dylib; do
         [ -f "$dylib" ] && codesign --force "${CODE_SIGN_EXTRA[@]}" --sign "$SIGN_ID" "$dylib"
