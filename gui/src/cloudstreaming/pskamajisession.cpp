@@ -348,11 +348,15 @@ void PSKamajiSession::step0_5d_ConvertProductId()
     const QString localeLang = localeParts.size() > 0 ? localeParts[0].toLower() : QStringLiteral("en");
     const QString localeCountry = localeParts.size() > 1 ? localeParts[1].toUpper() : QStringLiteral("US");
     QString resolvedCountry = settings ? settings->GetCloudResolvedStoreCountry() : QString();
+    QString resolvedLang = settings ? settings->GetCloudResolvedStoreLang() : QString();
     QString country;
     QString language;
     if (!resolvedCountry.isEmpty()) {
         country = resolvedCountry;
-        language = localeLang;
+        // Prefer the server-authoritative store language from the native base_url: a non-English
+        // native store (e.g. NL) 404s on the wrong language. Fall back to the locale-derived
+        // proxy when empty (fallback/foreign mode, where the public US/GB store wants en).
+        language = !resolvedLang.isEmpty() ? resolvedLang : localeLang;
     } else {
         country = localeCountry;
         language = localeLang;

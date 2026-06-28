@@ -120,7 +120,8 @@ typedef struct cc_assemble_input_t
 	struct json_object *imagic_supplement;/**< imagic plus-library supplement rows array, or NULL */
 	struct json_object *owned_cross_ref;  /**< processed owned entitlements array, or NULL */
 	bool native_mode;
-	const char *fallback_region;          /**< "US"|"GB"|"" */
+	const char *fallback_region;          /**< "US"|"GB"|... store country from base_url, or "" */
+	const char *resolved_store_lang;      /**< store language from native base_url ("nl"), "" in fallback */
 	const char *settled_locale;           /**< or NULL */
 	const char *warning;                  /**< or NULL/"" */
 } CCAssembleInput;

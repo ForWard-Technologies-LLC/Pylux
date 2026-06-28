@@ -25,8 +25,11 @@ extern "C" {
  * v2: settledLocale is now the locale the lib resolved AFTER re-basing on the
  *     account's Kamaji-session country (region detection moved into the lib), so a
  *     pre-v2 cached payload can hold wrong-region content for international accounts
- *     and must be refetched. */
-#define CHIAKI_CLOUDCATALOG_SCHEMA_VERSION 2
+ *     and must be refetched.
+ * v3: adds "resolvedStoreLang" (server store language for the step0_5d container URL);
+ *     bumped so existing caches refetch and clients get the field immediately rather
+ *     than after the 24h TTL. */
+#define CHIAKI_CLOUDCATALOG_SCHEMA_VERSION 3
 
 typedef struct chiaki_cloudcatalog_config_t
 {
@@ -53,10 +56,13 @@ typedef struct chiaki_cloudcatalog_result_t
  * The JSON envelope (see CHIAKI_CLOUDCATALOG_SCHEMA_VERSION):
  *
  *   {
- *     "schemaVersion": 2,
+ *     "schemaVersion": 3,
  *     "total": <int>,
  *     "nativeMode": <bool>,            // true when the authenticated PS Now walk succeeded
  *     "fallbackRegion": "US"|"GB"|...,  // server-authoritative store country for container URLs
+ *     "resolvedStoreLang": "nl"|"",    // server store language parsed from the native base_url;
+ *                                      // clients use it for the step0_5d container URL (a non-English
+ *                                      // native store 404s on the wrong language). "" in fallback mode.
  *     "settledLocale": "en-US",        // locale the lib resolved (account region from the Kamaji
  *                                      // session re-bases the caller locale, then the imagic store-
  *                                      // locale chain settles); clients persist this verbatim

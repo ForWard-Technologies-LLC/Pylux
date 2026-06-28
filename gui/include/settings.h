@@ -453,6 +453,9 @@ class Settings : public QObject
 		/** PS Now region-group fallback store country. Empty = native mode; "US"/"GB" = fallback mode. */
 		QString GetCloudResolvedStoreCountry() const;
 		void SetCloudResolvedStoreCountry(const QString &country);
+		/** Server store language parsed from the native base_url (e.g. "nl"); empty in fallback mode. */
+		QString GetCloudResolvedStoreLang() const;
+		void SetCloudResolvedStoreLang(const QString &lang);
 		bool GetCloudCatalogNativeMode() const;
 		void SetCloudCatalogNativeMode(bool native_mode);
 		bool IsCloudCatalogIsForeign() const;

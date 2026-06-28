@@ -349,6 +349,10 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_cloudcatalog_fetch_unified(
 	in.owned_cross_ref = owned_cross_ref;
 	in.native_mode = native;
 	in.fallback_region = fallback_region;
+	// Server-authoritative store language parsed from the native base_url (e.g. "nl"); "" in the
+	// public-fallback path (no base_url). Clients use it for the step0_5d container URL so a
+	// non-English native store (which 404s on the wrong language) always gets its real language.
+	in.resolved_store_lang = store_lang;
 	in.settled_locale = settled;
 	in.warning = warning;
 	struct json_object *env = cc_assemble_unified_catalog(log, &in);

@@ -127,6 +127,7 @@ class CloudGameRepository(
 			preferences.noteCloudStoreLocaleSettled(it)
 		}
 		preferences.setCloudResolvedStoreCountry(root.optString("fallbackRegion", ""))
+		preferences.setCloudResolvedStoreLang(root.optString("resolvedStoreLang", ""))
 		preferences.setCloudCatalogNativeMode(root.optBoolean("nativeMode", true))
 
 		root.optString("warning", "").takeIf { it.isNotEmpty() }?.let {

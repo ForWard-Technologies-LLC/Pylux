@@ -271,6 +271,7 @@ void CloudCatalogBackend::fetchUnifiedCatalog(const QJSValue &callback)
                 if (!settled.isEmpty() && settled != settings->GetCloudStoreLocale())
                     settings->SetCloudStoreLocale(settled);
                 settings->SetCloudResolvedStoreCountry(root.value(QStringLiteral("fallbackRegion")).toString());
+                settings->SetCloudResolvedStoreLang(root.value(QStringLiteral("resolvedStoreLang")).toString());
                 settings->SetCloudCatalogNativeMode(root.value(QStringLiteral("nativeMode")).toBool(true));
             }
 

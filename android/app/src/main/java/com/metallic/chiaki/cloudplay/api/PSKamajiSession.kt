@@ -351,10 +351,14 @@ class PSKamajiSession(
 		try
 		{
 		val resolvedCountry = preferences.getCloudResolvedStoreCountry()
+		val resolvedLang = preferences.getCloudResolvedStoreLang()
 		val localeSetting = preferences.getCloudStoreLocale()
 		val parsedLocale = com.metallic.chiaki.cloudplay.CloudLocale.parseStorePath(localeSetting)
 		val (country, language) = if (resolvedCountry.isNotEmpty()) {
-			resolvedCountry to parsedLocale.second
+			// Prefer the server-authoritative store language from the native base_url: a non-English
+			// native store (e.g. NL) 404s on the wrong language. Fall back to the locale-derived
+			// proxy when empty (fallback/foreign mode, where the public US/GB store wants en).
+			resolvedCountry to (resolvedLang.ifEmpty { parsedLocale.second })
 		} else {
 			parsedLocale
 		}

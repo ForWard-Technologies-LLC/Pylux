@@ -1338,6 +1338,7 @@ struct json_object *cc_assemble_unified_catalog(ChiakiLog *log, const CCAssemble
 	json_object_object_add(out, "total", json_object_new_int((int)n));
 	json_object_object_add(out, "nativeMode", json_object_new_boolean(in->native_mode));
 	cc_json_set_str(out, "fallbackRegion", in->fallback_region ? in->fallback_region : "");
+	cc_json_set_str(out, "resolvedStoreLang", in->resolved_store_lang ? in->resolved_store_lang : "");
 	if(in->settled_locale && *in->settled_locale)
 		cc_json_set_str(out, "settledLocale", in->settled_locale);
 	cc_json_set_str(out, "warning", in->warning ? in->warning : "");

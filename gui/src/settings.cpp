@@ -1060,6 +1060,16 @@ void Settings::SetCloudResolvedStoreCountry(const QString &country)
 	settings.setValue(QStringLiteral("settings/cloud_resolved_store_country"), country);
 }
 
+QString Settings::GetCloudResolvedStoreLang() const
+{
+	return settings.value(QStringLiteral("settings/cloud_resolved_store_lang"), QString()).toString();
+}
+
+void Settings::SetCloudResolvedStoreLang(const QString &lang)
+{
+	settings.setValue(QStringLiteral("settings/cloud_resolved_store_lang"), lang);
+}
+
 bool Settings::GetCloudCatalogNativeMode() const
 {
 	const QString key = QStringLiteral("settings/cloud_catalog_native_mode");

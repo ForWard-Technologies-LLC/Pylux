@@ -61,6 +61,7 @@ final class CloudCatalogService {
             CloudLocaleSettings.noteSettledLocale(settled)
         }
         SecureStore.shared.cloudResolvedStoreCountry = root["fallbackRegion"] as? String ?? ""
+        SecureStore.shared.cloudResolvedStoreLang = root["resolvedStoreLang"] as? String ?? ""
         if let nativeMode = root["nativeMode"] as? Bool {
             SecureStore.shared.cloudCatalogNativeMode = nativeMode
         }

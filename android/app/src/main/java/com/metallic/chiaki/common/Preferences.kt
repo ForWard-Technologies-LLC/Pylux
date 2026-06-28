@@ -68,6 +68,7 @@ class Preferences(context: Context)
 		private const val CLOUD_GAME_LANGUAGE_KEY = "cloud_game_language"
 		private const val LEGACY_CLOUD_STREAM_LANGUAGE_KEY = "cloud_stream_language"
 		private const val CLOUD_RESOLVED_STORE_COUNTRY_KEY = "cloud_resolved_store_country"
+		private const val CLOUD_RESOLVED_STORE_LANG_KEY = "cloud_resolved_store_lang"
 		private const val LEGACY_CLOUD_FALLBACK_REGION_KEY = "cloud_fallback_region"
 		private const val CLOUD_CATALOG_NATIVE_MODE_KEY = "cloud_catalog_native_mode"
 	}
@@ -503,6 +504,15 @@ class Preferences(context: Context)
 	fun setCloudResolvedStoreCountry(country: String)
 	{
 		sharedPreferences.edit().putString(CLOUD_RESOLVED_STORE_COUNTRY_KEY, country).apply()
+	}
+
+	/** Server store language parsed from the native base_url (e.g. "nl"); empty in fallback mode. */
+	fun getCloudResolvedStoreLang(): String =
+		sharedPreferences.getString(CLOUD_RESOLVED_STORE_LANG_KEY, "") ?: ""
+
+	fun setCloudResolvedStoreLang(lang: String)
+	{
+		sharedPreferences.edit().putString(CLOUD_RESOLVED_STORE_LANG_KEY, lang).apply()
 	}
 
 	fun getCloudCatalogNativeMode(): Boolean

@@ -157,6 +157,7 @@ final class SecureStore {
     private let kCloudFavorites = "favorite_games"
     private let kCloudSortState = "cloud_sort_state"
     private let kCloudResolvedStoreCountry = "cloud_resolved_store_country"
+    private let kCloudResolvedStoreLang = "cloud_resolved_store_lang"
     private let kLegacyCloudFallbackRegion = "cloud_fallback_region"
     private let kCloudCatalogNativeMode = "cloud_catalog_native_mode"
     private let kCloudTagFilters = "cloud_tag_filters"
@@ -302,6 +303,14 @@ final class SecureStore {
         }
     }
 
+    /// Server store language parsed from the native base_url (e.g. "nl"); empty in fallback mode.
+    var cloudResolvedStoreLang: String {
+        get { KC.readString(kCloudResolvedStoreLang) ?? "" }
+        set {
+            newValue.isEmpty ? KC.delete(kCloudResolvedStoreLang) : KC.writeString(kCloudResolvedStoreLang, newValue)
+        }
+    }
+
     var cloudCatalogNativeMode: Bool {
         get {
             if KC.readString(kCloudCatalogNativeMode) != nil {
@@ -407,7 +416,7 @@ final class SecureStore {
             kStreamPrefs,
             kDcPscloud, kDcPsnow,
             kCloudFavorites, kCloudSortState,
-            kCloudResolvedStoreCountry, kLegacyCloudFallbackRegion, kCloudCatalogNativeMode,
+            kCloudResolvedStoreCountry, kCloudResolvedStoreLang, kLegacyCloudFallbackRegion, kCloudCatalogNativeMode,
             kCloudTagFilters,
             kTotalStreamTimeMs, kLastDonationPromptWallMs, kDonationPaywallShowCount,
             kLastAppReviewPromptTotalStreamMs,
