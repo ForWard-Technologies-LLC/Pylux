@@ -957,12 +957,17 @@ Pane {
         anchors.topMargin: 15
         spacing: 0
         
-        // Region-group fallback banner (yellow)
+        // Region-group fallback banner (yellow).
+        // Only a genuine "region has no native cloud" signal: suppressed when an auth error is
+        // present, because nativeMode=false is then just a side-effect of the failed login (we
+        // never determined the region) -- the red expired banner below is the real reason.
         Rectangle {
             id: fallbackBanner
             Layout.fillWidth: true
-            Layout.preferredHeight: !catalogNativeMode ? 56 : 0
-            visible: !catalogNativeMode
+            Layout.preferredHeight: (!catalogNativeMode && authErrorMessage.length === 0 && !isLoading) ? 56 : 0
+            // Gate on !isLoading: catalogNativeMode holds a stale persisted value mid-fetch, so the
+            // banner must only reflect a COMPLETED fetch (otherwise it flashes while games load).
+            visible: !catalogNativeMode && authErrorMessage.length === 0 && !isLoading
             color: Qt.rgba(255/255, 193/255, 7/255, 0.2)
             border.color: "#FFC107"
             border.width: 2

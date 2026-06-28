@@ -294,7 +294,12 @@ struct CloudPlayView: View {
                     VStack(spacing: 0) {
                         cloudSubTabs
 
-                        if viewModel.catalogIsForeign {
+                        // Suppress the region banner when an auth error is present: nativeMode=false
+                        // is then just a side-effect of the failed login (region was never
+                        // determined), so the warning banner below is the real message. Also gate on
+                        // !loading: catalogIsForeign holds a stale persisted value mid-fetch, so the
+                        // banner must only reflect a COMPLETED fetch (otherwise it flashes on load).
+                        if viewModel.catalogIsForeign && viewModel.warning == nil && !viewModel.loading {
                             Text("Cloud catalog isn't fully available in your region; some titles may not stream.")
                                 .font(.caption)
                                 .foregroundColor(.black.opacity(0.85))

@@ -733,6 +733,9 @@ class CloudPlayFragment : Fragment()
 		})
 
 		viewModel.loading.observe(viewLifecycleOwner, Observer { loading ->
+			// Re-evaluate the region banner: catalogIsForeign holds a stale value mid-fetch, so the
+			// banner must only reflect a COMPLETED fetch (otherwise it flashes while games load).
+			updateRegionBanner(viewModel.fallbackRegion.value)
 			binding.progressBar.visibility = if(loading && adapter.games.isEmpty()) View.VISIBLE else View.GONE
 			if (loading) {
 				val rotate = RotateAnimation(0f, 360f, RotateAnimation.RELATIVE_TO_SELF, 0.5f, RotateAnimation.RELATIVE_TO_SELF, 0.5f).apply {
@@ -753,6 +756,8 @@ class CloudPlayFragment : Fragment()
 		})
 
 		viewModel.warning.observe(viewLifecycleOwner, Observer { warning ->
+			// An auth error also re-evaluates the region banner (it must hide when login failed).
+			updateRegionBanner(viewModel.fallbackRegion.value)
 			if (warning.isNullOrEmpty()) return@Observer
 			Toast.makeText(requireContext(), warning, Toast.LENGTH_LONG).show()
 		})
@@ -767,7 +772,12 @@ class CloudPlayFragment : Fragment()
 
 	private fun updateRegionBanner(region: String?)
 	{
-		if (viewModel.catalogIsForeign.value != true) {
+		// Suppress the region banner when an auth error is present: nativeMode=false is then just a
+		// side-effect of the failed login (region was never determined), so the expired/login
+		// prompt is the real message -- not "your region has no cloud".
+		val hasAuthError = !viewModel.warning.value.isNullOrEmpty()
+		val isLoading = viewModel.loading.value == true
+		if (viewModel.catalogIsForeign.value != true || hasAuthError || isLoading) {
 			binding.regionBanner.visibility = View.GONE
 		} else {
 			val label = region?.takeIf { it.isNotEmpty() } ?: "foreign"
