@@ -214,6 +214,10 @@ final class CloudPlayViewModel: ObservableObject {
                     gameIdentifier: gameIdentifier,
                     gameName: gameName,
                     npssoToken: npssoToken,
+                    // Owned-PSNOW fast-path: the catalog's pre-resolved streaming entitlement
+                    // (empty for unowned -> normal full flow). Only used by the PSNOW path.
+                    ownedEntitlementId: game.entitlementId,
+                    ownedPlatform: game.platform,
                     onProgress: { msg in
                         Task { @MainActor in
                             self.allocationProgress = msg

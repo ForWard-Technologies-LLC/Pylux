@@ -80,6 +80,9 @@ class PSGaikaiStreaming(
 	private var streamServerAuthCode = ""
 	private var requestGameSpec = JSONObject()
 	private var selectedDatacenter = ""
+	// Captured server response body from a failed step8 (sessions/start) so the owned fast-path
+	// fallback can detect noGameForEntitlementId. Empty unless step8 failed.
+	private var lastStartSessionError = ""
 	private var selectedDatacenterPort = 0
 	private var selectedDatacenterPingResult = JSONObject()
 	
@@ -143,7 +146,7 @@ class PSGaikaiStreaming(
 			if (isCancelled()) {
 				return@withContext AllocationResult(false, "Allocation cancelled")
 			}
-			step8_StartSession(entitlementId) ?: return@withContext AllocationResult(false, "Failed to start session")
+			step8_StartSession(entitlementId) ?: return@withContext AllocationResult(false, "Session start failed: $lastStartSessionError")
 			Log.i(TAG, "✓ Step 8: Started session")
 			
 			// Step 8a: Get gkClientId auth code
@@ -452,6 +455,10 @@ class PSGaikaiStreaming(
 			{
 				Log.e(TAG, "Step 8 failed: ${response.statusCode}")
 				Log.e(TAG, "Response: ${response.body}")
+				// Surface the response body: this is where Gaikai reports an unowned/invalid
+				// entitlement (e.g. {"name":"noGameForEntitlementId",...}), which the owned fast-path
+				// fallback in CloudStreamingBackend keys off to retry via the full resolve/acquire flow.
+				lastStartSessionError = response.body
 				return null
 			}
 			

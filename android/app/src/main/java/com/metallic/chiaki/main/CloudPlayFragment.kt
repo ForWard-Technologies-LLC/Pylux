@@ -1085,6 +1085,10 @@ class CloudPlayFragment : Fragment()
 					gameIdentifier = game.streamIdentifier,
 					gameName = game.name,
 					npssoToken = npssoToken,
+					// Owned-PSNOW fast-path: the catalog's pre-resolved streaming entitlement (empty
+					// for unowned titles -> normal full flow). Only used by the PSNOW path.
+					ownedEntitlementId = game.entitlementId,
+					ownedPlatform = game.platform,
 					onProgress = { message ->
 						requireActivity().runOnUiThread {
 							allocationProgressTextView?.text = message

@@ -248,8 +248,14 @@ final class PSGaikaiStreaming {
         guard let response = CloudHttpClient.post(url: url, body: bodyStr, headers: [
             "Content-Type": "application/json", "User-Agent": userAgent,
             "Accept": "application/json", "X-Gaikai-Session": configKey
-        ]), response.statusCode == 200 else {
-            throw GaikaiAllocationError(message: "Failed to start session")
+        ]) else {
+            throw GaikaiAllocationError(message: "Session start failed: no response")
+        }
+        guard response.statusCode == 200 else {
+            // Include the response body: Gaikai reports an unowned/invalid entitlement here
+            // (e.g. {"name":"noGameForEntitlementId",...}), which the owned fast-path fallback in
+            // CloudStreamingBackend keys off to retry via the full resolve/acquire flow.
+            throw GaikaiAllocationError(message: "Session start failed: \(response.body)")
         }
 
         if let newKey = response.header("x-gaikai-session") ?? response.header("X-Gaikai-Session"),

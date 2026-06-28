@@ -62,6 +62,8 @@ class CloudStreamingBackend(
 		gameIdentifier: String,
 		gameName: String,
 		npssoToken: String,
+		ownedEntitlementId: String = "",  // PSNOW owned fast-path: catalog's pre-resolved entitlement
+		ownedPlatform: String = "",       // platform accompanying ownedEntitlementId
 		onProgress: ((String) -> Unit)? = null,  // Progress callback
 		isCancelled: () -> Boolean = { false }  // Cancellation check
 	): Result<CloudStreamSession> = withContext(Dispatchers.IO)
@@ -108,8 +110,10 @@ class CloudStreamingBackend(
 				gameName,
 				npssoToken,
 				sharedDuid,
-				onProgress,
-				isCancelled
+				ownedEntitlementId,
+				ownedPlatform,
+				onProgress = onProgress,
+				isCancelled = isCancelled
 			)
 			
 			result
@@ -131,6 +135,9 @@ class CloudStreamingBackend(
 		gameName: String,
 		npssoToken: String,
 		sharedDuid: String,
+		ownedEntitlementId: String = "",
+		ownedPlatform: String = "",
+		forceFullEntitlementFlow: Boolean = false,  // true on the one-shot fallback retry (disables fast-path)
 		onProgress: ((String) -> Unit)? = null,
 		isCancelled: () -> Boolean = { false }
 	): Result<CloudStreamSession> = withContext(Dispatchers.IO)
@@ -166,11 +173,12 @@ class CloudStreamingBackend(
 			// For PSCLOUD: Skip Kamaji entirely
 			var finalEntitlementId = gameIdentifier
 			var finalPlatform = initialPlatform
-			
+			var usedFastPath = false
+
 			if (serviceType == "psnow")
 			{
 				Log.i(TAG, "=== PSNOW Flow: Starting Kamaji Session ===")
-				
+
 			// Create Kamaji session with productId (will be converted to entitlementId)
 			// Platform will be automatically detected from the API response
 			val kamajiSession = PSKamajiSession(
@@ -181,19 +189,33 @@ class CloudStreamingBackend(
 				userAgent = userAgent,
 				preferences = preferences
 			)
-				
+
+				// Owned-PSNOW fast-path: if the catalog already resolved this title's streaming
+				// entitlement (owned), hand it to Kamaji so it skips the resolve/acquire path.
+				// Disabled on the fallback retry (forceFullEntitlementFlow).
+				if (!forceFullEntitlementFlow && ownedEntitlementId.isNotEmpty())
+				{
+					Log.i(TAG, "PSNOW owned fast-path: catalog entitlementId=$ownedEntitlementId platform=$ownedPlatform")
+					kamajiSession.setOwnedEntitlementFastPath(ownedEntitlementId, ownedPlatform)
+				}
+				else if (forceFullEntitlementFlow)
+				{
+					Log.i(TAG, "PSNOW: forcing full entitlement flow (fast-path retry fallback)")
+				}
+
 				// Start Kamaji session creation
 				val kamajiResult = kamajiSession.startSessionCreation(npssoToken)
-				
+				usedFastPath = kamajiSession.usedEntitlementFastPath
+
 				if (!kamajiResult.success)
 				{
 					Log.e(TAG, "Kamaji session creation failed: ${kamajiResult.message}")
 					return@withContext Result.failure(Exception("Kamaji session failed: ${kamajiResult.message}"))
 				}
-				
+
 				finalEntitlementId = kamajiResult.entitlementId
 				finalPlatform = kamajiResult.platform
-				
+
 				Log.i(TAG, "✓ Kamaji session complete")
 				Log.i(TAG, "  Entitlement ID: $finalEntitlementId")
 				Log.i(TAG, "  Platform: $finalPlatform")
@@ -220,10 +242,23 @@ class CloudStreamingBackend(
 			)
 			
 			val allocationResult = gaikaiStreaming.startAllocationFlow(finalEntitlementId)
-			
+
 			if (!allocationResult.success)
 			{
 				Log.e(TAG, "Gaikai allocation failed: ${allocationResult.message}")
+				// Owned fast-path fallback: if we streamed a catalog entitlement and Gaikai rejected it
+				// (the entitlement isn't actually valid/owned), retry exactly once via the full
+				// resolve/acquire flow. One shot only -- forceFullEntitlementFlow disables the fast-path
+				// on the retry, so this can never loop.
+				if (usedFastPath && !forceFullEntitlementFlow && isEntitlementRejectedError(allocationResult.message))
+				{
+					Log.w(TAG, "Owned fast-path entitlement rejected by Gaikai; retrying once with the full entitlement flow")
+					return@withContext continueCloudSessionAfterAuth(
+						serviceType, gameIdentifier, gameName, npssoToken, sharedDuid,
+						ownedEntitlementId = "", ownedPlatform = "", forceFullEntitlementFlow = true,
+						onProgress = onProgress, isCancelled = isCancelled
+					)
+				}
 				return@withContext Result.failure(Exception("Gaikai allocation failed: ${allocationResult.message}"))
 			}
 			
@@ -258,6 +293,14 @@ class CloudStreamingBackend(
 		}
 	}
 	
+	/**
+	 * True when a Gaikai allocation error means "the entitlement we streamed isn't valid/owned"
+	 * (Gaikai's session-start reports {"name":"noGameForEntitlementId",...}). That's the signal the
+	 * owned fast-path guessed wrong and we should retry with the full resolve/acquire flow.
+	 */
+	private fun isEntitlementRejectedError(error: String): Boolean =
+		error.contains("noGameForEntitlement", ignoreCase = true)
+
 	/**
 	 * Centralized Authorization Check (used by both PSNOW and PSCLOUD)
 	 * Mirrors: CloudStreamingBackend::checkAuthorization() (Qt lines 543-613)

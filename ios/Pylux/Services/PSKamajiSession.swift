@@ -28,6 +28,13 @@ final class PSKamajiSession {
     private var streamingSku: String?
     private var commerceOAuthToken: String?
 
+    // Owned-PSNOW fast-path: the unified catalog's pre-resolved owned streaming entitlement. When
+    // set, startSessionCreation skips the entitlement path (0.5b/0.5d/0.5e). See
+    // setOwnedEntitlementFastPath(). usedEntitlementFastPath gates the orchestrator's one-shot retry.
+    private var fastPathEntitlementId = ""
+    private var fastPathPlatform = ""
+    private(set) var usedEntitlementFastPath = false
+
     init(duid: String, productId: String, accountBaseUrl: String, redirectUri: String, userAgent: String) {
         self.duid = duid
         self.productId = productId
@@ -36,10 +43,44 @@ final class PSKamajiSession {
         self.userAgent = userAgent
     }
 
+    /// Owned-PSNOW fast-path: hand in the streaming entitlement the unified catalog already resolved
+    /// for an owned title, so startSessionCreation() skips the entitlement path (0.5b anonymous
+    /// session, 0.5d product->entitlement resolve, 0.5e check/acquire) and goes straight to step5/6.
+    /// Empty == normal full flow. The orchestrator falls back to the full flow if Gaikai rejects it.
+    func setOwnedEntitlementFastPath(ownedEntitlementId: String, ownedPlatform: String) {
+        fastPathEntitlementId = ownedEntitlementId
+        fastPathPlatform = ownedPlatform
+    }
+
     /// Start the complete Kamaji session creation flow
     func startSessionCreation(npssoToken: String) -> KamajiSessionResult {
         os_log(.info, log: kamajiLog, "=== Starting Kamaji Session ===")
         os_log(.info, log: kamajiLog, "Product ID: %{public}s", productId)
+
+        // Owned-PSNOW fast-path: the unified catalog already resolved this title's streaming
+        // entitlement, so there is nothing to look up or acquire. Skip the entire entitlement path
+        // (0.5b/0.5d/0.5e -- which 404 and fail to acquire in storefront-less regions) and go
+        // straight to the authenticated session (step5/6 here reuse 0.5b/0.5c). The orchestrator
+        // retries the full flow if Gaikai rejects it.
+        if !fastPathEntitlementId.isEmpty {
+            entitlementId = fastPathEntitlementId
+            platform = fastPathPlatform.isEmpty ? "ps4" : fastPathPlatform
+            scopesStr = platform == "ps3" ? "kamaji:commerce_native" : CloudApiConstants.ps4Scopes
+            usedEntitlementFastPath = true
+            os_log(.info, log: kamajiLog,
+                   "Kamaji fast-path: owned entitlementId=%{public}s platform=%{public}s - skipping 0.5b/0.5d/0.5e",
+                   entitlementId ?? "", platform)
+
+            guard let authCode = step0_5b_GetAnonymousAuthCode(npssoToken: npssoToken) else {
+                return KamajiSessionResult(success: false, message: "Failed to get auth code")
+            }
+            guard step0_5c_CreateAnonymousSession(authCode: authCode) != nil else {
+                return KamajiSessionResult(success: false, message: "Failed to create auth session")
+            }
+            os_log(.info, log: kamajiLog, "=== Kamaji Session Complete (fast-path) ===")
+            return KamajiSessionResult(success: true, message: "Success",
+                                       entitlementId: entitlementId ?? "", platform: platform)
+        }
 
         // Step 0.5b: Get anonymous auth code
         guard let anonCode = step0_5b_GetAnonymousAuthCode(npssoToken: npssoToken) else {

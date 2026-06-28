@@ -40,13 +40,33 @@ class PSKamajiSession(
 	private val kamajiClientId = PsnApiConstants.CLIENT_ID
 	private var platform = "ps4" // Default, will be detected from API response
 	private var scopesStr = PsnApiConstants.PS4_SCOPES // Default to PS4 scopes
-	
+
 	// State tracking
 	private var anonAuthCode: String? = null      // OAuth code for anonymous session
 	private var authorizationCode: String? = null // OAuth code for authenticated session
 	private var jsessionId: String? = null        // JSESSIONID from anonymous session
 	private var entitlementId: String? = null     // Converted from productId
 	private var streamingSku: String? = null      // SKU from product ID conversion
+
+	// Owned-PSNOW fast-path: the unified catalog's pre-resolved owned streaming entitlement.
+	// When set, startSessionCreation skips the entire entitlement path (0.5b/0.5d/0.5e). See
+	// setOwnedEntitlementFastPath(). usedEntitlementFastPath gates the orchestrator's one-shot retry.
+	private var fastPathEntitlementId: String = ""
+	private var fastPathPlatform: String = ""
+	var usedEntitlementFastPath = false
+		private set
+
+	/**
+	 * Owned-PSNOW fast-path: hand in the streaming entitlement the unified catalog already resolved
+	 * for an owned title, so startSessionCreation() skips the entitlement path (0.5b anonymous
+	 * session, 0.5d product->entitlement resolve, 0.5e check/acquire) and goes straight to step5/6.
+	 * Empty == normal full flow. The orchestrator falls back to the full flow if Gaikai rejects it.
+	 */
+	fun setOwnedEntitlementFastPath(ownedEntitlementId: String, ownedPlatform: String)
+	{
+		fastPathEntitlementId = ownedEntitlementId
+		fastPathPlatform = ownedPlatform
+	}
 	
 	/**
 	 * Data class for session result
@@ -74,7 +94,29 @@ class PSKamajiSession(
 			{
 				return@withContext SessionResult(false, "NPSSO token is empty")
 			}
-			
+
+			// Owned-PSNOW fast-path: the unified catalog already resolved this title's streaming
+			// entitlement, so there is nothing to look up or acquire. Skip the entire entitlement
+			// path (0.5b/0.5d/0.5e -- which 404 and fail to acquire in storefront-less regions) and
+			// go straight to the authenticated session. step5/6 are independent of the anonymous
+			// session, so this is safe. The orchestrator retries the full flow if Gaikai rejects it.
+			if (fastPathEntitlementId.isNotEmpty())
+			{
+				entitlementId = fastPathEntitlementId
+				platform = if (fastPathPlatform.isEmpty()) "ps4" else fastPathPlatform
+				scopesStr = if (platform == "ps3") "kamaji:commerce_native" else PsnApiConstants.PS4_SCOPES
+				usedEntitlementFastPath = true
+				Log.i(TAG, "Kamaji fast-path: owned entitlementId=$entitlementId platform=$platform - skipping 0.5b/0.5d/0.5e")
+
+				val authCode = step5_GetAuthCode(npssoToken)
+					?: return@withContext SessionResult(false, "Failed to get auth code")
+				authorizationCode = authCode
+				val authSession = step6_CreateAuthSession(authCode)
+					?: return@withContext SessionResult(false, "Failed to create authenticated session")
+				Log.i(TAG, "=== Kamaji Session Complete (fast-path) === Entitlement ID: $entitlementId, Platform: $platform")
+				return@withContext SessionResult(true, "Success", entitlementId!!, platform)
+			}
+
 			// Step 0.5b: Get Anonymous Auth Code
 			val anonCode = step0_5b_GetAnonymousAuthCode(npssoToken)
 				?: return@withContext SessionResult(false, "Failed to get anonymous auth code")
