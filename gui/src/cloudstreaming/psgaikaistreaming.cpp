@@ -623,7 +623,12 @@ void PSGaikaiStreaming::step8_StartSession(QString entitlementId)
             qWarning() << "Gaikai Step 8 failed:" << reply->errorString();
             QByteArray errorData = reply->readAll();
             qWarning() << "Server response:" << QString::fromUtf8(errorData);
-            emit AllocationError(QString("Session start failed: %1").arg(reply->errorString()));
+            // Include the server response body in the error: this is where Gaikai reports an
+            // unowned/invalid entitlement (e.g. {"name":"noGameForEntitlementId",...}), and the
+            // owned fast-path fallback in CloudStreamingBackend keys off that marker to retry via
+            // the full resolve/acquire flow. reply->errorString() alone is just "Bad Request".
+            emit AllocationError(QString("Session start failed: %1 %2")
+                                     .arg(reply->errorString(), QString::fromUtf8(errorData)));
             emit Finished();
             return;
         }

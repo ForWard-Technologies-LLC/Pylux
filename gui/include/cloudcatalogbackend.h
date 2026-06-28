@@ -65,6 +65,13 @@ public:
     Q_INVOKABLE QString getCachedData(const QString &key, int maxAge);
     Q_INVOKABLE QString getGameLandscapeImageFromCache(const QString &serviceType, const QString &gameIdentifier);
 
+    // Owned-PSNOW launch fast-path: look up a title in the cached unified catalog by its launch
+    // identifier and, if it is an owned PSNOW row with a pre-resolved streaming entitlement, return
+    // that entitlementId + platform so PSKamajiSession can skip the resolve/acquire path. Returns
+    // false (out params untouched) for anything else (non-owned, pscloud, missing entitlementId, or
+    // no cached catalog). Reads the catalog the lib wrote; account-specific ownership only.
+    bool getOwnedPsnowEntitlement(const QString &gameIdentifier, QString &outEntitlementId, QString &outPlatform);
+
 signals:
     // Emitted after the on-disk catalog cache is wiped (profile/account switch, NPSSO change,
     // cloud-language change, or manual refresh). The cloud view listens for this to re-fetch so

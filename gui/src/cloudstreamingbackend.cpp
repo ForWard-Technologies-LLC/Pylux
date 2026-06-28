@@ -114,7 +114,7 @@ void CloudStreamingBackend::startCompleteCloudSession(QString serviceType, QStri
     });
 }
 
-void CloudStreamingBackend::continueCloudSessionAfterAuth(QString serviceType, QString gameIdentifier, const QJSValue &callback, QString npssoToken, QString sharedDuid)
+void CloudStreamingBackend::continueCloudSessionAfterAuth(QString serviceType, QString gameIdentifier, const QJSValue &callback, QString npssoToken, QString sharedDuid, bool forceFullEntitlementFlow)
 {
     // Determine service-specific configuration
     QString redirectUri;
@@ -146,6 +146,23 @@ void CloudStreamingBackend::continueCloudSessionAfterAuth(QString serviceType, Q
             settings, sharedDuid, gameIdentifier, CloudConfig::ACCOUNT_BASE,
             KamajiConsts::REDIRECT_URI, KamajiConsts::USER_AGENT, this);
 
+        // Owned-PSNOW fast-path: if the unified catalog already resolved this title's streaming
+        // entitlement from the user's owned cross-reference, hand it straight to Kamaji so it
+        // skips the resolve/acquire path (which 404s + fails in storefront-less regions). Disabled
+        // on the retry (forceFullEntitlementFlow) so a Gaikai rejection falls back to the full flow.
+        if (!forceFullEntitlementFlow) {
+            QmlBackend *qmlBackendLookup = qobject_cast<QmlBackend*>(parent());
+            QString ownedEntitlementId, ownedPlatform;
+            if (qmlBackendLookup && qmlBackendLookup->cloudCatalog()
+                && qmlBackendLookup->cloudCatalog()->getOwnedPsnowEntitlement(gameIdentifier, ownedEntitlementId, ownedPlatform)) {
+                qInfo() << "PSNOW owned fast-path: catalog entitlementId=" << ownedEntitlementId
+                        << "platform=" << ownedPlatform;
+                kamajiSession->setOwnedEntitlementFastPath(ownedEntitlementId, ownedPlatform);
+            }
+        } else {
+            qInfo() << "PSNOW: forcing full entitlement flow (fast-path retry fallback)";
+        }
+
         connect(kamajiSession, &PSKamajiSession::psPlusSubscriptionError, this, [this]() {
             QmlBackend *qmlBackend = qobject_cast<QmlBackend*>(parent());
             if (qmlBackend) qmlBackend->setShowPSPlusSubscriptionDialog(true);
@@ -158,7 +175,7 @@ void CloudStreamingBackend::continueCloudSessionAfterAuth(QString serviceType, Q
             }
         });
         connect(kamajiSession, &PSKamajiSession::sessionComplete, this,
-                [this, kamajiSession, callback, sharedDuid, serviceType, target, redirectUri, userAgent, oauthApiPath](bool success, QString message, QString entitlementId) {
+                [this, kamajiSession, callback, sharedDuid, serviceType, target, redirectUri, userAgent, oauthApiPath, gameIdentifier, npssoToken](bool success, QString message, QString entitlementId) {
             if (!success) {
                 qWarning() << "Kamaji session creation failed:" << message;
                 setGameImageUrl(QString());
@@ -175,8 +192,10 @@ void CloudStreamingBackend::continueCloudSessionAfterAuth(QString serviceType, Q
             qInfo() << "Converted Entitlement ID:" << entitlementId;
             QString detectedPlatform = kamajiSession->getPlatform(); // ps4 / ps3
             ChiakiTarget platformTarget = CHIAKI_TARGET_PS4_9; // PS4 and PS3 both stream as PS4
+            const bool usedFastPath = kamajiSession->usedEntitlementFastPath();
             startGaikaiAllocation(serviceType, detectedPlatform, entitlementId, sharedDuid,
-                                  redirectUri, userAgent, oauthApiPath, platformTarget, callback, kamajiSession);
+                                  redirectUri, userAgent, oauthApiPath, platformTarget, callback, kamajiSession,
+                                  usedFastPath, gameIdentifier, npssoToken);
         });
         kamajiSession->startSessionCreation();
     } else {
@@ -187,10 +206,19 @@ void CloudStreamingBackend::continueCloudSessionAfterAuth(QString serviceType, Q
     }
 }
 
-void CloudStreamingBackend::startGaikaiAllocation(QString serviceType, QString platform, QString entitlementId, 
+bool CloudStreamingBackend::isEntitlementRejectedError(const QString &error)
+{
+    // Gaikai's authorize step (step9) surfaces an unowned/invalid entitlement as
+    // "noGameForEntitlementId" in the errors[].description it bubbles up here. (If live testing
+    // shows a different marker for the unowned case, add it here -- this is the fast-path retry gate.)
+    return error.contains(QStringLiteral("noGameForEntitlement"), Qt::CaseInsensitive);
+}
+
+void CloudStreamingBackend::startGaikaiAllocation(QString serviceType, QString platform, QString entitlementId,
                                                    QString duid,
                                                    QString redirectUri, QString userAgent, QString oauthApiPath,
-                                                   ChiakiTarget target, const QJSValue &callback, QObject *kamajiSession)
+                                                   ChiakiTarget target, const QJSValue &callback, QObject *kamajiSession,
+                                                   bool usedFastPath, QString gameIdentifier, QString npssoToken)
 {
     // Step 7-13: Complete Gaikai allocation
     PSGaikaiStreaming *gaikaiStreaming = new PSGaikaiStreaming(
@@ -418,9 +446,23 @@ void CloudStreamingBackend::startGaikaiAllocation(QString serviceType, QString p
     
     // When Gaikai allocation fails
     connect(gaikaiStreaming, &PSGaikaiStreaming::AllocationError, this,
-            [this, gaikaiStreaming, kamajiSession, callback](QString error) {
+            [this, gaikaiStreaming, kamajiSession, callback, serviceType, duid, usedFastPath, gameIdentifier, npssoToken](QString error) {
         qWarning() << "Gaikai allocation failed:" << error;
-        
+
+        // Owned fast-path fallback: if we streamed a catalog-provided entitlement and Gaikai rejected
+        // it (the entitlement isn't actually valid/owned), retry exactly once via the full
+        // resolve/acquire flow -- i.e. behave like today. One shot only (forceFullEntitlementFlow
+        // disables the fast-path on the retry), so this can never loop.
+        if (usedFastPath && !gameIdentifier.isEmpty() && isEntitlementRejectedError(error)) {
+            qWarning() << "Owned fast-path entitlement rejected by Gaikai; retrying once with the full entitlement flow";
+            gaikaiStreaming->deleteLater();
+            if (kamajiSession)
+                kamajiSession->deleteLater();
+            continueCloudSessionAfterAuth(serviceType, gameIdentifier, callback, npssoToken, duid,
+                                          /*forceFullEntitlementFlow=*/true);
+            return;
+        }
+
         // Clear game image on error
         setGameImageUrl(QString());
         

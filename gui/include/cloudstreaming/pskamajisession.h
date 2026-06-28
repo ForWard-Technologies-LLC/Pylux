@@ -105,7 +105,21 @@ public:
      * Start the complete Kamaji session creation flow (Steps 0.5a-0.5d, 5-6)
      */
     void startSessionCreation();
-    
+
+    /**
+     * Owned-PSNOW fast-path: when the unified catalog already knows the user owns this title's
+     * streaming entitlement, hand it in here. startSessionCreation() then skips the whole
+     * entitlement path (0.5b anonymous session, 0.5d product->entitlement resolve, 0.5e
+     * check/acquire) and goes straight to the authenticated session (step5/6). This is the
+     * correctness win for storefront-less regions where the 0.5d/0.5e calls 404 and the acquire
+     * always fails even though the entitlement is already owned. Empty entitlementId == take the
+     * normal full flow. If Gaikai later rejects the id, the orchestrator re-runs us without this.
+     */
+    void setOwnedEntitlementFastPath(const QString &ownedEntitlementId, const QString &ownedPlatform);
+
+    /** True once startSessionCreation() actually took the fast-path (used to gate the one-shot retry). */
+    bool usedEntitlementFastPath() const { return entitlementFastPathUsed; }
+
     /**
      * Get session data (only available after successful authentication)
      */
@@ -154,6 +168,9 @@ private:
     QString jsessionId;        // JSESSIONID from anonymous session
     QString entitlementId;     // Converted from productId
     QString streamingSku;      // SKU from product ID conversion (for entitlement check)
+    QString fastPathEntitlementId; // Pre-resolved owned entitlement from the unified catalog (fast-path)
+    QString fastPathPlatform;      // Platform that accompanies the fast-path entitlement (ps3/ps4)
+    bool entitlementFastPathUsed = false; // Set when startSessionCreation() skipped 0.5b-0.5e
     QString commerceOAuthToken; // OAuth token for Commerce API (Bearer token)
     
     // Session data (set after successful authentication)

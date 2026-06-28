@@ -95,26 +95,50 @@ PSKamajiSession::PSKamajiSession(
     manager->setCookieJar(nullptr);  // Disable cookie jar - we use manual Cookie headers only
 }
 
+void PSKamajiSession::setOwnedEntitlementFastPath(const QString &ownedEntitlementId, const QString &ownedPlatform)
+{
+    fastPathEntitlementId = ownedEntitlementId;
+    fastPathPlatform = ownedPlatform;
+}
+
 void PSKamajiSession::startSessionCreation()
 {
     // Get npsso fresh from settings at the start of each session attempt
     npssoToken = settings->GetNpssoToken();
-    
+
     // Clear jsessionId to ensure we start fresh
     jsessionId.clear();
-    
+
     qInfo() << "Kamaji Session: Starting authentication flow (Steps 0.5b-0.5d, 5-6)...";
     qInfo() << "Platform:" << platform;
     qInfo() << "Product ID:" << productId;
     qInfo() << "Note: Authorization check is now handled centrally by CloudStreamingBackend";
-    
+
     if (npssoToken.isEmpty()) {
         QString error = "NPSSO token is empty";
         qWarning() << "Kamaji Session:" << error;
         emit sessionComplete(false, error, QString());
         return;
     }
-    
+
+    // Owned-PSNOW fast-path: the unified catalog already resolved this title's streaming
+    // entitlement from the user's owned cross-reference, so there is nothing to look up or
+    // acquire. Skip the entire entitlement path (0.5b anonymous session + 0.5d resolve +
+    // 0.5e check/acquire) -- those calls 404 and the acquire fails outright in storefront-less
+    // regions -- and go straight to the authenticated session. step5/6 are independent of the
+    // anonymous session, so this is safe. The orchestrator falls back to the full flow if Gaikai
+    // rejects the id.
+    if (!fastPathEntitlementId.isEmpty()) {
+        entitlementId = fastPathEntitlementId;
+        platform = fastPathPlatform.isEmpty() ? QStringLiteral("ps4") : fastPathPlatform;
+        scopesStr = (platform == QStringLiteral("ps3")) ? KamajiConsts::PS3_SCOPES : KamajiConsts::PS4_SCOPES;
+        entitlementFastPathUsed = true;
+        qInfo() << "Kamaji fast-path: owned entitlementId=" << entitlementId
+                << "platform=" << platform << "- skipping 0.5b/0.5d/0.5e";
+        step5_GetAuthCode();
+        return;
+    }
+
     // Authorization check is now done centrally by CloudStreamingBackend before creating PSKamajiSession
     // Start directly with Step 0.5b: Get anonymous session OAuth code
     step0_5b_GetAnonymousAuthCode();

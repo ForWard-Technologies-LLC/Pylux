@@ -73,6 +73,54 @@ QString CloudCatalogBackend::getCacheFilePath(const QString &key)
     return cacheDirectory + "/" + safeKey + ".json";
 }
 
+bool CloudCatalogBackend::getOwnedPsnowEntitlement(const QString &gameIdentifier,
+                                                   QString &outEntitlementId, QString &outPlatform)
+{
+    if (gameIdentifier.isEmpty())
+        return false;
+
+    // The lib owns the unified catalog filename and bumps its version suffix, so resolve it by glob
+    // (newest unified_catalog_v*.json) rather than hard-coding the current version.
+    QDir dir(cacheDirectory);
+    QFileInfoList matches = dir.entryInfoList({QStringLiteral("unified_catalog_v*.json")},
+                                              QDir::Files, QDir::Time);
+    if (matches.isEmpty())
+        return false;
+
+    QFile file(matches.first().absoluteFilePath());
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+        return false;
+    QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+    file.close();
+    if (!doc.isObject())
+        return false;
+
+    const QJsonArray games = doc.object().value(QStringLiteral("games")).toArray();
+    for (const QJsonValue &v : games) {
+        if (!v.isObject())
+            continue;
+        const QJsonObject g = v.toObject();
+        // Match the launch identifier against the row's launch id (and productId as a fallback).
+        const QString streamId = g.value(QStringLiteral("streamIdentifier")).toString();
+        const QString productId = g.value(QStringLiteral("productId")).toString();
+        if (gameIdentifier != streamId && gameIdentifier != productId)
+            continue;
+
+        // Only owned PSNOW rows carry a pre-resolved streaming entitlement we can stream directly.
+        const QString svcRaw = g.value(QStringLiteral("streamServiceType")).toString();
+        const QString svc = svcRaw.isEmpty() ? g.value(QStringLiteral("serviceType")).toString() : svcRaw;
+        const QString entitlementId = g.value(QStringLiteral("entitlementId")).toString();
+        if (svc != QStringLiteral("psnow") || !g.value(QStringLiteral("isOwned")).toBool()
+            || entitlementId.isEmpty())
+            return false;
+
+        outEntitlementId = entitlementId;
+        outPlatform = g.value(QStringLiteral("platform")).toString();
+        return true;
+    }
+    return false;
+}
+
 QString CloudCatalogBackend::getCachedData(const QString &key, int maxAge)
 {
     QString filePath = getCacheFilePath(key);
