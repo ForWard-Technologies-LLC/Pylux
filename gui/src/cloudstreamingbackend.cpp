@@ -368,7 +368,7 @@ void CloudStreamingBackend::handleProvisionError(QString serviceType, QString er
     QmlBackend *qmlBackend = qobject_cast<QmlBackend*>(parent());
     if (errorMessage.contains(QStringLiteral("PS_PLUS_SUBSCRIPTION_REQUIRED"))) {
         if (qmlBackend) qmlBackend->setShowPSPlusSubscriptionDialog(true);
-        userMessage = tr("PlayStation Plus subscription required");
+        userMessage = tr("PS Plus subscription required");
     } else if (errorMessage.contains(QStringLiteral("ACCOUNT_PRIVACY_SETTINGS"))) {
         if (qmlBackend) {
             qmlBackend->setAccountPrivacyUpgradeUrl(QString());
