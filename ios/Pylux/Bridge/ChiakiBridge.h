@@ -13,6 +13,7 @@
 #import "HolepunchBridge.h"
 #import "ChiakiDatacenterPing.h"
 #import "CloudCatalogBridge.h"
+#import "CloudProvisionBridge.h"
 
 /// Returns a string from the Chiaki library (e.g. "Success" from chiaki_error_string).
 /// Used to verify the app is correctly linked to the Chiaki library.

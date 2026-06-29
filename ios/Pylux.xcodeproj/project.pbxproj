@@ -23,6 +23,7 @@
 		A1000110 /* DiscoveryBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = A1000101 /* DiscoveryBridge.m */; };
 		A1000111 /* RegistBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = A1000103 /* RegistBridge.m */; };
 		A10001C0 /* CloudCatalogBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = A10001C2 /* CloudCatalogBridge.m */; };
+		A10001D0 /* CloudProvisionBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = A10001D2 /* CloudProvisionBridge.m */; };
 		A1000112 /* HostModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000104 /* HostModels.swift */; };
 		A1000113 /* HostCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000105 /* HostCardView.swift */; };
 		A1000114 /* RemotePlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000106 /* RemotePlayView.swift */; };
@@ -93,6 +94,8 @@
 		A1000103 /* RegistBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = RegistBridge.m; sourceTree = "<group>"; };
 		A10001C1 /* CloudCatalogBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CloudCatalogBridge.h; sourceTree = "<group>"; };
 		A10001C2 /* CloudCatalogBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = CloudCatalogBridge.m; sourceTree = "<group>"; };
+		A10001D1 /* CloudProvisionBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CloudProvisionBridge.h; sourceTree = "<group>"; };
+		A10001D2 /* CloudProvisionBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = CloudProvisionBridge.m; sourceTree = "<group>"; };
 		A1000104 /* HostModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostModels.swift; sourceTree = "<group>"; };
 		A1000105 /* HostCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostCardView.swift; sourceTree = "<group>"; };
 		A1000106 /* RemotePlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemotePlayView.swift; sourceTree = "<group>"; };
@@ -218,6 +221,8 @@
 				A1000103 /* RegistBridge.m */,
 				A10001C1 /* CloudCatalogBridge.h */,
 				A10001C2 /* CloudCatalogBridge.m */,
+				A10001D1 /* CloudProvisionBridge.h */,
+				A10001D2 /* CloudProvisionBridge.m */,
 				A1000024 /* SessionEventReceiver.h */,
 				A1000023 /* SessionEventReceiver.m */,
 				A1000022 /* VideoDecoder.h */,
@@ -395,6 +400,7 @@
 				A1000110 /* DiscoveryBridge.m in Sources */,
 				A1000111 /* RegistBridge.m in Sources */,
 				A10001C0 /* CloudCatalogBridge.m in Sources */,
+				A10001D0 /* CloudProvisionBridge.m in Sources */,
 				A1000112 /* HostModels.swift in Sources */,
 				A1000113 /* HostCardView.swift in Sources */,
 				A1000114 /* RemotePlayView.swift in Sources */,

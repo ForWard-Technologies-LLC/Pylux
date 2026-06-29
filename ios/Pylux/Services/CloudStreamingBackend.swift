@@ -66,15 +66,11 @@ final class CloudStreamingBackend {
         )
     }
 
-    /// True when a Gaikai allocation error means "the entitlement we streamed isn't valid/owned"
-    /// (Gaikai's session-start reports {"name":"noGameForEntitlementId",...}). Signals the owned
-    /// fast-path guessed wrong and we should retry with the full resolve/acquire flow.
-    private func isEntitlementRejectedError(_ message: String) -> Bool {
-        message.range(of: "noGameForEntitlement", options: .caseInsensitive) != nil
-    }
+    // MARK: - Continue After Auth (unified libchiaki provisioning flow)
 
-    // MARK: - Continue After Auth
-
+    /// Runs the entire Kamaji+Gaikai flow in libchiaki (chiaki_cloud_provision_session via
+    /// PyluxCloudProvision). The owned fast-path and the one-shot noGameForEntitlementId
+    /// fallback now live in C, so this just marshals settings in and the result/errors out.
     private func continueCloudSessionAfterAuth(
         serviceType: String,
         gameIdentifier: String,
@@ -83,119 +79,71 @@ final class CloudStreamingBackend {
         sharedDuid: String,
         ownedEntitlementId: String = "",
         ownedPlatform: String = "",
-        forceFullEntitlementFlow: Bool = false,  // true on the one-shot fallback retry (disables fast-path)
         onProgress: ((String) -> Void)?,
         isCancelled: @escaping () -> Bool
     ) throws -> CloudStreamSession {
-        let redirectUri: String
-        let userAgent: String
+        let prefs = StreamPreferences.load()
+        let pscloud = serviceType == "pscloud"
 
-        if serviceType == "pscloud" {
-            redirectUri = CloudApiConstants.gaikaiRedirectUri
-            userAgent = CloudApiConstants.gaikaiUserAgent
-        } else {
-            redirectUri = CloudApiConstants.kamajiRedirectUri
-            userAgent = CloudApiConstants.kamajiUserAgent
-        }
+        // Streaming language: manual picker, else the detected catalog locale.
+        let gameLanguage: String = {
+            let l = prefs.cloudGameLanguage
+            return l.isEmpty ? CloudLocaleSettings.stored : l
+        }()
+        let forcedDatacenter = pscloud ? prefs.cloudDatacenterPscloud : prefs.cloudDatacenterPsnow
+        let resolution = Int32(Int(pscloud ? prefs.cloudResolutionPscloud : prefs.cloudResolutionPsnow) ?? 1080)
+        let bitrate = Int32(StreamPreferences.clampCloudBitrateKbps(pscloud ? prefs.cloudBitratePscloud : prefs.cloudBitratePsnow))
 
-        let initialPlatform = serviceType == "pscloud" ? "ps5" : "ps4"
-        var finalEntitlementId = gameIdentifier
-        var finalPlatform = initialPlatform
-        var usedFastPath = false
+        // sharedDuid is only the auth-check DUID; the C flow generates its own shared one.
+        _ = sharedDuid
 
-        // For PSNOW: Kamaji session (converts productId -> entitlementId)
-        // For PSCLOUD: Skip Kamaji entirely
-        if serviceType == "psnow" {
-            os_log(.info, log: cloudLog, "=== PSNOW Flow: Starting Kamaji Session ===")
-            let kamajiSession = PSKamajiSession(
-                duid: sharedDuid,
-                productId: gameIdentifier,
-                accountBaseUrl: CloudApiConstants.accountBase,
-                redirectUri: redirectUri,
-                userAgent: userAgent
-            )
-            // Owned-PSNOW fast-path: if the catalog already resolved this title's streaming
-            // entitlement (owned), hand it to Kamaji so it skips the resolve/acquire path.
-            // Disabled on the fallback retry (forceFullEntitlementFlow).
-            if !forceFullEntitlementFlow && !ownedEntitlementId.isEmpty {
-                os_log(.info, log: cloudLog, "PSNOW owned fast-path: catalog entitlementId=%{public}s platform=%{public}s",
-                       ownedEntitlementId, ownedPlatform)
-                kamajiSession.setOwnedEntitlementFastPath(ownedEntitlementId: ownedEntitlementId, ownedPlatform: ownedPlatform)
-            } else if forceFullEntitlementFlow {
-                os_log(.info, log: cloudLog, "PSNOW: forcing full entitlement flow (fast-path retry fallback)")
-            }
-            let kamajiResult = kamajiSession.startSessionCreation(npssoToken: npssoToken)
-            usedFastPath = kamajiSession.usedEntitlementFastPath
-            guard kamajiResult.success else {
-                throw KamajiSessionError(message: "Kamaji session failed: \(kamajiResult.message)")
-            }
-            finalEntitlementId = kamajiResult.entitlementId
-            finalPlatform = kamajiResult.platform
-            os_log(.info, log: cloudLog, "✓ Kamaji: entitlement=%{public}s platform=%{public}s",
-                   finalEntitlementId, finalPlatform)
-        } else {
-            os_log(.info, log: cloudLog, "=== PSCLOUD Flow: Skipping Kamaji ===")
-        }
-
-        // Gaikai allocation (Steps 0-13)
-        os_log(.info, log: cloudLog, "=== Starting Gaikai Allocation ===")
-        let gaikai = PSGaikaiStreaming(
-            duid: sharedDuid,
-            serviceType: serviceType,
-            platform: finalPlatform,
-            npssoToken: npssoToken,
-            onProgress: onProgress,
-            isCancelled: isCancelled
-        )
-
-        // Owned fast-path fallback: if Gaikai rejects a catalog entitlement (it isn't actually
-        // valid/owned), retry exactly once via the full resolve/acquire flow. One shot only --
-        // forceFullEntitlementFlow disables the fast-path on the retry -- so it can never loop.
-        // Gaikai reports this both by throwing GaikaiAllocationError (session start) and via a
-        // success=false result, so handle both.
-        func retryFullFlow() throws -> CloudStreamSession {
-            os_log(.error, log: cloudLog, "Owned fast-path entitlement rejected by Gaikai; retrying once with the full entitlement flow")
-            return try continueCloudSessionAfterAuth(
-                serviceType: serviceType, gameIdentifier: gameIdentifier, gameName: gameName,
-                npssoToken: npssoToken, sharedDuid: sharedDuid,
-                ownedEntitlementId: "", ownedPlatform: "", forceFullEntitlementFlow: true,
-                onProgress: onProgress, isCancelled: isCancelled
-            )
-        }
-
-        let allocationResult: GaikaiAllocationResult
-        do {
-            allocationResult = try gaikai.startAllocationFlow(entitlementId: finalEntitlementId)
-        } catch let error as GaikaiAllocationError {
-            if usedFastPath && !forceFullEntitlementFlow && isEntitlementRejectedError(error.message) {
-                return try retryFullFlow()
-            }
-            throw error
-        }
-        guard allocationResult.success else {
-            if usedFastPath && !forceFullEntitlementFlow && isEntitlementRejectedError(allocationResult.message) {
-                return try retryFullFlow()
-            }
-            throw GaikaiAllocationError(message: "Gaikai allocation failed: \(allocationResult.message)")
-        }
-
-        os_log(.info, log: cloudLog, "✓ Gaikai allocation complete - Server: %{public}s", allocationResult.serverIp)
-
-        return CloudStreamSession(
-            serverIp: allocationResult.serverIp,
-            serverPort: allocationResult.serverPort,
-            handshakeKey: allocationResult.handshakeKey,
-            launchSpec: allocationResult.launchSpec,
-            sessionId: allocationResult.sessionId,
-            entitlementId: finalEntitlementId,
+        let result = PyluxCloudProvision.provision(
+            withServiceType: serviceType,
+            gameIdentifier: gameIdentifier,
             gameName: gameName,
-            platform: finalPlatform,
-            psnWrapperType: allocationResult.psnWrapperType,
-            mtuIn: allocationResult.mtuIn,
-            mtuOut: allocationResult.mtuOut,
-            rttMs: allocationResult.rttMs,
-            serviceType: serviceType
+            npsso: npssoToken,
+            storeCountry: SecureStore.shared.cloudResolvedStoreCountry,
+            storeLang: SecureStore.shared.cloudResolvedStoreLang,
+            gameLanguage: gameLanguage,
+            ownedEntitlementId: ownedEntitlementId,
+            ownedPlatform: ownedPlatform,
+            forcedDatacenter: forcedDatacenter,
+            catalogIsForeign: SecureStore.shared.isCloudCatalogIsForeign,
+            resolution: resolution,
+            bitrateKbps: bitrate,
+            onProgress: { stage in onProgress?(stage) },
+            isCancelled: { isCancelled() }
         )
+
+        if result.err == 0 {
+            os_log(.info, log: cloudLog, "✓ Cloud provisioning complete - Server: %{public}s", result.serverIp)
+            return CloudStreamSession(
+                serverIp: result.serverIp,
+                serverPort: Int(result.serverPort),
+                handshakeKey: result.handshakeKey,
+                launchSpec: result.launchSpec,
+                sessionId: result.sessionId,
+                entitlementId: result.entitlementId,
+                gameName: gameName,
+                platform: result.platform,
+                psnWrapperType: Int(result.psnWrapperType),
+                mtuIn: Int(result.mtuIn),
+                mtuOut: Int(result.mtuOut),
+                rttMs: Int(result.rttMs),
+                serviceType: serviceType
+            )
+        }
+
+        // Map the C error_message sentinels to the error types CloudPlayView catches.
+        let msg = result.errorMessage ?? "Allocation failed"
+        os_log(.error, log: cloudLog, "Cloud provisioning failed: %{public}s", msg)
+        if msg.contains("PS_PLUS_SUBSCRIPTION_REQUIRED") {
+            throw PsPlusSubscriptionError(message: "PS Plus subscription required")
+        } else if msg.contains("PING_TIMEOUT") {
+            throw PingTimeoutError()
+        } else {
+            throw GaikaiAllocationError(message: msg)
+        }
     }
 
     // MARK: - Authorization Check (matches Qt lines 543-613)

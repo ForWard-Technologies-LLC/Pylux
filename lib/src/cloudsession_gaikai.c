@@ -12,8 +12,8 @@
 
 #include <chiaki/cloudcatalog.h>     // chiaki_cloud_gaikai_language
 #include <chiaki/thread.h>           // parallel datacenter ping
-
-#include <json-c/json.h>
+// json-c: the specific headers come via cloudcatalog_internal.h (the umbrella
+// <json-c/json.h> is not present in the iOS/Android FetchContent build).
 
 #include <stdlib.h>
 #include <string.h>

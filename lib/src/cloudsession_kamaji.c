@@ -13,8 +13,8 @@
 #include "cloudsession_internal.h"
 #include "cloudcatalog_internal.h"  // cc_json_* helpers
 #include "curl_http.h"
-
-#include <json-c/json.h>
+// json-c: the specific headers come via cloudcatalog_internal.h (the umbrella
+// <json-c/json.h> is not present in the iOS/Android FetchContent build).
 
 #include <stdlib.h>
 #include <string.h>
