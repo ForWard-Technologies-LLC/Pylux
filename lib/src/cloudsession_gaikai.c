@@ -11,6 +11,7 @@
 #include "curl_http.h"
 
 #include <chiaki/cloudcatalog.h>     // chiaki_cloud_gaikai_language
+#include <chiaki/thread.h>           // parallel datacenter ping
 
 #include <json-c/json.h>
 
@@ -581,6 +582,28 @@ static int gk_cmp_rtt(const void *a, const void *b)
 	return cc_json_int(oa, "rtt") - cc_json_int(ob, "rtt");
 }
 
+// One datacenter's ping, run on its own thread (each cc_ping_datacenter owns its
+// session/socket, so they are independent). Mirrors the Qt parallel ping --
+// sequential pinging made "Pinging Datacenters" take far too long.
+typedef struct
+{
+	ChiakiLog *log;
+	const char *name, *ip;       // borrowed from the datacenters json (outlives the join)
+	int port, bw;
+	const char *session_key, *service_type;
+	int64_t rtt_us; uint32_t mtu_in, mtu_out; bool ok;
+} GkPingJob;
+
+static void *gk_ping_thread(void *arg)
+{
+	GkPingJob *j = (GkPingJob *)arg;
+	j->rtt_us = -1; j->mtu_in = 0; j->mtu_out = 0;
+	cc_ping_datacenter(j->log, j->ip, j->port, j->session_key, j->service_type,
+		&j->rtt_us, &j->mtu_in, &j->mtu_out);
+	j->ok = (j->rtt_us > 0);
+	return NULL;
+}
+
 // step11 datacenters + ping/select. Fills c->ping_results (sorted) + c->selected_*.
 static ChiakiErrorCode gk_step11_datacenters(GaikaiCtx *c)
 {
@@ -620,21 +643,38 @@ static ChiakiErrorCode gk_step11_datacenters(GaikaiCtx *c)
 	else
 	{
 		gk_progress(c, "Pinging Datacenters - Step 8 of 10");
+		if(gk_cancelled(c)) { json_object_put(dcs); return CHIAKI_ERR_CANCELED; }
+
+		// Ping every datacenter in parallel (one thread each), then collect.
+		GkPingJob *jobs = (GkPingJob *)calloc(n, sizeof(GkPingJob));
+		ChiakiThread *threads = (ChiakiThread *)calloc(n, sizeof(ChiakiThread));
 		for(size_t i = 0; i < n; i++)
 		{
-			if(gk_cancelled(c)) { json_object_put(dcs); return CHIAKI_ERR_CANCELED; }
 			struct json_object *dc = json_object_array_get_idx(dcs, i);
-			const char *name = cc_json_str(dc, "dataCenter");
-			const char *ip = cc_json_str(dc, "publicIp");
-			int port = cc_json_int(dc, "port");
-			int bw = cc_json_int(dc, "maxBandwidth");
-			int64_t rtt_us = -1; uint32_t mi = 0, mo = 0;
-			cc_ping_datacenter(c->log, ip, port, c->lock_session_key, c->cfg->service_type, &rtt_us, &mi, &mo);
-			if(rtt_us > 0)
-				json_object_array_add(c->ping_results, gk_ping_obj(name, (int)(rtt_us / 1000), mi, mo, port, ip, bw, true));
-			else
-				json_object_array_add(c->ping_results, gk_ping_obj(name, 999, 0, 0, port, ip, bw, false));
+			jobs[i].log = c->log;
+			jobs[i].name = cc_json_str(dc, "dataCenter");
+			jobs[i].ip = cc_json_str(dc, "publicIp");
+			jobs[i].port = cc_json_int(dc, "port");
+			jobs[i].bw = cc_json_int(dc, "maxBandwidth");
+			jobs[i].session_key = c->lock_session_key;
+			jobs[i].service_type = c->cfg->service_type;
+			if(chiaki_thread_create(&threads[i], gk_ping_thread, &jobs[i]) != CHIAKI_ERR_SUCCESS)
+				gk_ping_thread(&jobs[i]); // fall back to inline if a thread won't start
 		}
+		for(size_t i = 0; i < n; i++)
+		{
+			chiaki_thread_join(&threads[i], NULL);
+			if(jobs[i].ok)
+				json_object_array_add(c->ping_results, gk_ping_obj(jobs[i].name, (int)(jobs[i].rtt_us / 1000),
+					jobs[i].mtu_in, jobs[i].mtu_out, jobs[i].port, jobs[i].ip, jobs[i].bw, true));
+			else
+				json_object_array_add(c->ping_results, gk_ping_obj(jobs[i].name, 999, 0, 0, jobs[i].port, jobs[i].ip, jobs[i].bw, false));
+			if(jobs[i].ok)
+				CHIAKI_LOGI(c->log, "[GAIKAI] ping %s = %dms", jobs[i].name, (int)(jobs[i].rtt_us / 1000));
+			else
+				CHIAKI_LOGI(c->log, "[GAIKAI] ping %s = unreachable", jobs[i].name);
+		}
+		free(jobs); free(threads);
 		// sort by RTT
 		size_t rn = json_object_array_length(c->ping_results);
 		struct json_object **arr = (struct json_object **)malloc(rn * sizeof(*arr));
@@ -706,7 +746,7 @@ static ChiakiErrorCode gk_step12_select(GaikaiCtx *c)
 static ChiakiErrorCode gk_step13_allocate(GaikaiCtx *c, ChiakiCloudProvisionResult *out)
 {
 	gk_progress(c, "Allocating Streaming Slot - Step 10 of 10");
-	int max_wait = DEFAULT_ALLOC_WAIT_S, elapsed = 0;
+	int max_wait = DEFAULT_ALLOC_WAIT_S, elapsed = 0, attempt = 0;
 	bool wait_started = false;
 	for(;;)
 	{
@@ -743,6 +783,7 @@ static ChiakiErrorCode gk_step13_allocate(GaikaiCtx *c, ChiakiCloudProvisionResu
 		bool migrating = cc_json_bool(a, "dataMigration");
 		if(queued || migrating)
 		{
+			attempt++;
 			if(!wait_started)
 			{
 				wait_started = true;
@@ -750,10 +791,31 @@ static ChiakiErrorCode gk_step13_allocate(GaikaiCtx *c, ChiakiCloudProvisionResu
 				max_wait = est > 0 ? (est * 2 > MAX_ALLOC_WAIT_S ? MAX_ALLOC_WAIT_S : est * 2) : DEFAULT_ALLOC_WAIT_S;
 			}
 			int poll = cc_json_int(a, "pollFrequency"); if(poll <= 0) poll = 15;
+			// Rich progress so the user can see it is making progress (% / queue / attempt),
+			// matching the old Qt loading text instead of a bare "Migrating...".
+			char prog[160];
+			if(migrating)
+			{
+				int pct = cc_json_int(a, "dataMigrationPercentageComplete");
+				snprintf(prog, sizeof(prog), "Migrating data (%d%%) - Attempt %d", pct, attempt);
+				CHIAKI_LOGI(c->log, "[GAIKAI] allocate attempt %d: data migration %d%% (elapsed %ds/%ds, poll %ds)",
+					attempt, pct, elapsed, max_wait, poll);
+			}
+			else
+			{
+				int qpos = cc_json_has(a, "displayQueuePosition") ? cc_json_int(a, "displayQueuePosition")
+					: (cc_json_has(a, "queuePosition") ? cc_json_int(a, "queuePosition") : -1);
+				if(qpos >= 0)
+					snprintf(prog, sizeof(prog), "Allocating streaming slot - Queue position: %d - Attempt %d", qpos, attempt);
+				else
+					snprintf(prog, sizeof(prog), "Allocating streaming slot - Attempt %d", attempt);
+				CHIAKI_LOGI(c->log, "[GAIKAI] allocate attempt %d: queued (pos %d, elapsed %ds/%ds, poll %ds)",
+					attempt, qpos, elapsed, max_wait, poll);
+			}
 			json_object_put(a);
 			if(elapsed >= max_wait) { CHIAKI_LOGE(c->log, "[GAIKAI] allocation wait timeout (%ds)", max_wait); return CHIAKI_ERR_TIMEOUT; }
 			if(poll > max_wait - elapsed) poll = max_wait - elapsed;
-			gk_progress(c, queued ? "Waiting in queue..." : "Migrating data...");
+			gk_progress(c, prog);
 			if(!gk_sleep_cancellable(c, poll)) return CHIAKI_ERR_CANCELED;
 			elapsed += poll;
 			continue;

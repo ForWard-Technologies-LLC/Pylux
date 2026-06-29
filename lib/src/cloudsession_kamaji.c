@@ -169,7 +169,7 @@ static ChiakiErrorCode km_post_session(KamajiCtx *c, const char *code, bool capt
 
 static ChiakiErrorCode km_step0_5b_anon_authcode(KamajiCtx *c, char **out_code)
 {
-	if(c->cfg->progress) c->cfg->progress("Cloud Auth - Step 1 of 6", c->cfg->user);
+	if(c->cfg->progress) c->cfg->progress("Connecting to PlayStation...", c->cfg->user);
 	char url[2048];
 	snprintf(url, sizeof(url), KM_ACCOUNT_BASE "/v1/oauth/authorize?smcid=pc:psnow&applicationId=psnow"
 		"&response_type=code&scope=%s&client_id=%s&redirect_uri=%s&service_entity=urn:service-entity:psn"
@@ -181,7 +181,7 @@ static ChiakiErrorCode km_step0_5b_anon_authcode(KamajiCtx *c, char **out_code)
 
 static ChiakiErrorCode km_step0_5c_anon_session(KamajiCtx *c, const char *anon_code)
 {
-	if(c->cfg->progress) c->cfg->progress("Cloud Auth - Step 1 of 6", c->cfg->user);
+	if(c->cfg->progress) c->cfg->progress("Connecting to PlayStation...", c->cfg->user);
 	CCHttpResponse resp = { 0 };
 	ChiakiErrorCode e = km_post_session(c, anon_code, true, &resp);
 	if(e != CHIAKI_ERR_SUCCESS) { cc_http_response_fini(&resp); return e; }
@@ -242,7 +242,7 @@ static bool km_pick_fullgame(KamajiCtx *c, struct json_object *sku, bool require
 
 static ChiakiErrorCode km_step0_5d_resolve(KamajiCtx *c)
 {
-	if(c->cfg->progress) c->cfg->progress("Resolving Game - Step 2 of 6", c->cfg->user);
+	if(c->cfg->progress) c->cfg->progress("Resolving game...", c->cfg->user);
 	const char *country = (c->cfg->store_country && *c->cfg->store_country) ? c->cfg->store_country : "US";
 	const char *lang = (c->cfg->store_lang && *c->cfg->store_lang) ? c->cfg->store_lang : "en";
 	char url[512];
@@ -369,7 +369,7 @@ static ChiakiErrorCode km_check_account_attributes(KamajiCtx *c, char **out_erro
 
 static ChiakiErrorCode km_checkout_acquire(KamajiCtx *c, char **out_error)
 {
-	if(c->cfg->progress) c->cfg->progress("Acquiring License - Step 3 of 6", c->cfg->user);
+	if(c->cfg->progress) c->cfg->progress("Acquiring license...", c->cfg->user);
 	char *h_auth = NULL; cc_http_make_bearer_header(&h_auth, c->commerce_token);
 	char *h_ua = km_hdr("User-Agent", KM_USER_AGENT);
 	char *h_cookie = NULL;
@@ -450,7 +450,7 @@ static ChiakiErrorCode km_checkout_acquire(KamajiCtx *c, char **out_error)
 
 static ChiakiErrorCode km_step0_5e_check_acquire(KamajiCtx *c, char **out_error)
 {
-	if(c->cfg->progress) c->cfg->progress("Checking License - Step 3 of 6", c->cfg->user);
+	if(c->cfg->progress) c->cfg->progress("Checking license...", c->cfg->user);
 	ChiakiErrorCode e = km_get_commerce_token(c);
 	if(e != CHIAKI_ERR_SUCCESS) return e;
 	e = km_check_account_attributes(c, out_error);
@@ -487,7 +487,7 @@ static ChiakiErrorCode km_step0_5e_check_acquire(KamajiCtx *c, char **out_error)
 
 static ChiakiErrorCode km_step5_authcode(KamajiCtx *c, char **out_code)
 {
-	if(c->cfg->progress) c->cfg->progress("Authorizing - Step 5 of 6", c->cfg->user);
+	if(c->cfg->progress) c->cfg->progress("Authorizing...", c->cfg->user);
 	char url[2048];
 	snprintf(url, sizeof(url), KM_ACCOUNT_BASE "/v1/oauth/authorize?smcid=pc:psnow&applicationId=psnow"
 		"&response_type=code&scope=%s&client_id=%s&redirect_uri=%s&service_entity=urn:service-entity:psn"
@@ -498,7 +498,7 @@ static ChiakiErrorCode km_step5_authcode(KamajiCtx *c, char **out_code)
 
 static ChiakiErrorCode km_step6_auth_session(KamajiCtx *c, const char *auth_code)
 {
-	if(c->cfg->progress) c->cfg->progress("Creating Session - Step 6 of 6", c->cfg->user);
+	if(c->cfg->progress) c->cfg->progress("Creating session...", c->cfg->user);
 	CCHttpResponse resp = { 0 };
 	ChiakiErrorCode e = km_post_session(c, auth_code, false, &resp);
 	if(e != CHIAKI_ERR_SUCCESS) { cc_http_response_fini(&resp); return e; }
