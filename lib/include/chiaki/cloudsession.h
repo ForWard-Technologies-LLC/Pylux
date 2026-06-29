@@ -42,8 +42,11 @@ typedef struct chiaki_cloud_provision_config_t
 	const char *store_lang;           /**< resolvedStoreLang for the step0_5d container URL */
 	const char *owned_entitlement_id; /**< owned-PSNOW fast-path entitlement, or "" */
 	const char *owned_platform;       /**< platform accompanying owned_entitlement_id, or "" */
-	const char *forced_datacenter;    /**< settings-selected region; non-empty => SKIP pinging */
+	const char *forced_datacenter;    /**< settings-selected region; "Auto"/"" => ping & auto-pick */
 	const char *cache_dir;            /**< lib-owned datacenter-ping cache lives here; may be "" */
+	const char *game_language;        /**< streaming-language locale (e.g. "de-DE"); bare code derived */
+	int  resolution;                  /**< 720|1080|1440|2160 (platform picks the per-service value) */
+	int  bitrate_kbps;                /**< cloud stream bitrate (platform picks the per-service value) */
 	int  rtt_safety_offset_ms;        /**< cloud-only RTT offset (e.g. -20); Remote Play unaffected */
 
 	/** Progress callback: @p stage is a UI-ready string shown verbatim. May be NULL. */
@@ -67,6 +70,7 @@ typedef struct chiaki_cloud_provision_result_t
 	char    *session_id;
 	char     entitlement_id[128]; /**< the entitlement actually streamed */
 	char     platform[8];         /**< "ps3"|"ps4"|"ps5" */
+	uint8_t  psn_wrapper_type;    /**< from the allocated privateIp last octet -> ConnectInfo */
 	uint32_t mtu_in, mtu_out;
 	uint64_t rtt_us;
 	char    *datacenter_pings;  /**< JSON: [{"dataCenter":...,"rtt_ms":...}, ...] for Settings */
