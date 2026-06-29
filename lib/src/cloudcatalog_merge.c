@@ -246,10 +246,16 @@ static const char *stream_service_type(struct json_object *g)
 
 static const char *category_for(struct json_object *g)
 {
-	if(cc_json_bool(g, "isOwned"))
-		return "owned";
+	// PS Now (PS3/PS4) is a subscription catalog: you stream these without owning the
+	// game -- an "owned" entitlement here only means the streaming license is already in
+	// your library (acquired on a prior stream), not that you bought the game. So always
+	// badge PS Now titles "streamable". PS5 (pscloud) you must own to stream, so it stays
+	// "owned" (in library) / "purchaseable" (must add). NB: this is display/filtering only;
+	// the owned fast-path keys on the separate isOwned flag, which is untouched.
 	if(strcmp(stream_service_type(g), "psnow") == 0)
 		return "streamable";
+	if(cc_json_bool(g, "isOwned"))
+		return "owned";
 	return "purchaseable";
 }
 
