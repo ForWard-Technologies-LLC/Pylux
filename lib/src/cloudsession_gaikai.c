@@ -540,6 +540,16 @@ static ChiakiErrorCode gk_step10_lock(GaikaiCtx *c)
 		int poll = j ? cc_json_int(j, "pollFrequency") : 10;
 		if(poll <= 0) poll = 10;
 		if(j) json_object_put(j);
+		// Event name from the x-gaikai-event header (a JSON object) -- shown in the
+		// "Closing old session (<name>) - Attempt N" loading text, like the original.
+		char event_name[64] = "";
+		char *evhdr = gk_header_value(resp.headers, "x-gaikai-event");
+		if(evhdr)
+		{
+			struct json_object *ev = json_tokener_parse(evhdr);
+			if(ev) { snprintf(event_name, sizeof(event_name), "%s", cc_json_str(ev, "name")); json_object_put(ev); }
+			free(evhdr);
+		}
 		cc_http_response_fini(&resp);
 		if(acquired)
 		{
@@ -549,8 +559,14 @@ static ChiakiErrorCode gk_step10_lock(GaikaiCtx *c)
 			return CHIAKI_ERR_SUCCESS;
 		}
 		if(attempt == MAX_LOCK_RETRIES) break;
-		CHIAKI_LOGI(c->log, "[GAIKAI] lock not acquired; retry in %ds (%d/%d)", poll, attempt + 1, MAX_LOCK_RETRIES);
-		gk_progress(c, "Closing old session...");
+		char prog[160];
+		if(event_name[0])
+			snprintf(prog, sizeof(prog), "Closing old session (%s) - Attempt %d", event_name, attempt + 1);
+		else
+			snprintf(prog, sizeof(prog), "Closing old session - Attempt %d", attempt + 1);
+		CHIAKI_LOGI(c->log, "[GAIKAI] lock not acquired (%s); retry in %ds (attempt %d/%d)",
+			event_name[0] ? event_name : "-", poll, attempt + 1, MAX_LOCK_RETRIES);
+		gk_progress(c, prog);
 		if(!gk_sleep_cancellable(c, poll)) return CHIAKI_ERR_CANCELED;
 	}
 	return CHIAKI_ERR_UNKNOWN;
@@ -722,7 +738,9 @@ static ChiakiErrorCode gk_step12_select(GaikaiCtx *c)
 	int port = cc_json_int(c->selected_ping, "port");
 	c->selected_dc_port = port > 0 ? port : 2053;
 
-	gk_progress(c, "Selecting Datacenter - Step 9 of 10");
+	char sel_prog[96];
+	snprintf(sel_prog, sizeof(sel_prog), "Selecting Datacenter (%s) - Step 9 of 10", c->selected_datacenter);
+	gk_progress(c, sel_prog);
 	struct json_object *extra = json_object_new_object();
 	json_object_object_add(extra, "pingResults", json_object_get(c->ping_results));
 	CCHttpResponse resp = { 0 };
