@@ -548,7 +548,7 @@ struct SettingsView: View {
                 label: "Bitrate"
             )
         } header: {
-            Text("Game Library")
+            Text("Owned Games (PS5)")
         }
     }
 
@@ -597,7 +597,7 @@ struct SettingsView: View {
                 label: "Bitrate"
             )
         } header: {
-            Text("Game Catalog")
+            Text("Streamable Games (PS3/PS4)")
         }
     }
 

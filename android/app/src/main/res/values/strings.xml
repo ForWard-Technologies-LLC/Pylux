@@ -151,20 +151,20 @@
     <string name="preferences_psn_logout_confirm">Logout</string>
     <string name="preferences_psn_logout_success">Logged out successfully</string>
     
-    <!-- Game Library (PSCloud) Settings - supports up to 4K -->
+    <!-- Owned Games (PS5 / PSCloud) Settings - supports up to 4K -->
     <string name="preferences_category_title_cloud_settings">Cloud Settings</string>
-    <string name="preferences_category_title_game_library">Game Library</string>
+    <string name="preferences_category_title_game_library">Owned Games (PS5)</string>
     <string name="preferences_cloud_resolution_pscloud_title">Resolution</string>
-    <string name="preferences_cloud_resolution_pscloud_summary">Streaming resolution for Game Library (up to 4K)</string>
+    <string name="preferences_cloud_resolution_pscloud_summary">Streaming resolution for Owned Games (up to 4K)</string>
     <string name="preferences_cloud_datacenter_pscloud_title">Datacenter</string>
     <string name="preferences_cloud_datacenter_pscloud_summary">Select a specific datacenter or use Auto for best ping</string>
     <string name="preferences_cloud_bitrate_pscloud_title">Bitrate</string>
     <string name="preferences_cloud_bitrate_pscloud_summary">%1$d Mbps (default 20 Mbps)</string>
     
-    <!-- Game Catalog (PSNOW) Settings - up to 1080p -->
-    <string name="preferences_category_title_game_catalog">Game Catalog</string>
+    <!-- Streamable Games (PS3/PS4 / PSNOW) Settings - up to 1080p -->
+    <string name="preferences_category_title_game_catalog">Streamable Games (PS3/PS4)</string>
     <string name="preferences_cloud_resolution_psnow_title">Resolution</string>
-    <string name="preferences_cloud_resolution_psnow_summary">Streaming resolution for Game Catalog</string>
+    <string name="preferences_cloud_resolution_psnow_summary">Streaming resolution for Streamable Games (up to 1080p)</string>
     <string name="preferences_cloud_datacenter_psnow_title">Datacenter</string>
     <string name="preferences_cloud_datacenter_psnow_summary">Select a specific datacenter or use Auto for best ping</string>
     <string name="preferences_cloud_bitrate_psnow_title">Bitrate</string>

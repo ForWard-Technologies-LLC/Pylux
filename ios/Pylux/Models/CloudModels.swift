@@ -98,7 +98,7 @@ struct PingTimeoutError: Error, LocalizedError {
     static let alertMessage = """
 Ping must be less than 80ms to start a cloud session.
 
-To continue anyway, go to Settings → Cloud and manually select a datacenter for your service (Game Library or Game Catalog).
+To continue anyway, go to Settings → Cloud and manually select a datacenter for your service (Owned Games or Streamable Games).
 """
     var errorDescription: String? { Self.alertMessage }
 }

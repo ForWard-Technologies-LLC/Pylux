@@ -2688,7 +2688,7 @@ DialogView {
                         id: cloudServiceSelection
                         Layout.preferredWidth: 400
                         Layout.alignment: Qt.AlignLeft
-                        model: [qsTr("Game Library"), qsTr("Game Catalog")]
+                        model: [qsTr("Owned Games (PS5)"), qsTr("Streamable Games (PS3/PS4)")]
                         currentIndex: selectedCloudService
                         onActivated: (index) => selectedCloudService = index
                         firstInFocusChain: true

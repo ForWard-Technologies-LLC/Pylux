@@ -125,7 +125,7 @@ Item {
             Qt.callLater(() => {
                 root.showMessageDialog(
                     qsTr("Ping Too High"),
-                    qsTr("Ping must be less than 80ms to start a cloud session.\n\nTo continue anyway, go to Settings → Cloud and manually select a datacenter for your service (Game Library or Game Catalog)."),
+                    qsTr("Ping must be less than 80ms to start a cloud session.\n\nTo continue anyway, go to Settings → Cloud and manually select a datacenter for your service (Owned Games or Streamable Games)."),
                     () => {
                         Chiaki.showPingTimeoutDialog = false;
                     }
