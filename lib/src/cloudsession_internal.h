@@ -7,6 +7,7 @@
 #define CHIAKI_CLOUDSESSION_INTERNAL_H
 
 #include <chiaki/common.h>
+#include <chiaki/cloudsession.h>
 #include <chiaki/log.h>
 
 #include <stdint.h>
@@ -14,6 +15,19 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/**
+ * Gaikai allocation flow (steps 0/7-13): client ids -> config -> start session
+ * -> OAuth auth codes -> authorize -> lock -> datacenters -> ping/select ->
+ * allocate slot. @p platform is the resolved "ps3"|"ps4"|"ps5"; @p entitlement_id
+ * is the entitlement to stream. cfg->service_type selects PSNOW vs PSCLOUD.
+ * On success fills out->{server_ip,server_port,handshake_key,launch_spec,
+ * session_id,mtu_*,rtt_us,platform,datacenter_pings}.
+ */
+ChiakiErrorCode cc_gaikai_allocate(ChiakiLog *log,
+	const ChiakiCloudProvisionConfig *cfg,
+	const char *platform, const char *entitlement_id,
+	ChiakiCloudProvisionResult *out);
 
 /**
  * Ping one datacenter using the senkusha echo/ping handshake (Takion connect ->

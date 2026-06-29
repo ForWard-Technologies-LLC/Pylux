@@ -99,6 +99,7 @@ set(SOURCE_FILES
 		src/cloudcatalog_unified.c
 		src/cloudsession.c
 		src/cloudsession_ping.c
+		src/cloudsession_gaikai.c
 		src/remote/holepunch.c
 		src/remote/rudp.c
 		src/remote/rudpsendbuffer.c)
