@@ -59,6 +59,7 @@ typedef struct
 	char selected_datacenter[128];
 	int selected_dc_port;
 	bool ping_timeout;          // best measured RTT exceeded the auto-select gate (>80ms)
+	bool forced_dc_unavailable; // settings-forced datacenter not in this title's list
 } GaikaiCtx;
 
 static void gk_progress(GaikaiCtx *c, const char *stage)
@@ -650,7 +651,7 @@ static ChiakiErrorCode gk_step11_datacenters(GaikaiCtx *c)
 			struct json_object *dc = json_object_array_get_idx(dcs, i);
 			if(strcmp(cc_json_str(dc, "dataCenter"), forced) == 0) { match = dc; break; }
 		}
-		if(!match) { json_object_put(dcs); CHIAKI_LOGE(c->log, "[GAIKAI] forced datacenter '%s' not available", forced); return CHIAKI_ERR_UNKNOWN; }
+		if(!match) { c->forced_dc_unavailable = true; json_object_put(dcs); CHIAKI_LOGE(c->log, "[GAIKAI] forced datacenter '%s' not available", forced); return CHIAKI_ERR_UNKNOWN; }
 		// dummy ping (RTT 20, MTU 1454/1254); bypass pinging entirely.
 		json_object_array_add(c->ping_results, gk_ping_obj(forced, 20, 1454, 1254,
 			cc_json_int(match, "port"), cc_json_str(match, "publicIp"), cc_json_int(match, "maxBandwidth"), true));
@@ -906,6 +907,13 @@ ChiakiErrorCode cc_gaikai_allocate(ChiakiLog *log,
 		out->error_message = strdup("PS_PLUS_SUBSCRIPTION_REQUIRED");
 	if(c.ping_timeout && !out->error_message)
 		out->error_message = strdup("PING_TIMEOUT");
+	if(c.forced_dc_unavailable && !out->error_message)
+	{
+		char m[128];
+		snprintf(m, sizeof(m), "Selected datacenter '%s' not available",
+			cfg->forced_datacenter ? cfg->forced_datacenter : "");
+		out->error_message = strdup(m);
+	}
 
 	free(c.config_key); free(c.lock_session_key); free(c.gaikai_session_id);
 	free(c.gk_cloud_auth_code); free(c.ps3_auth_code); free(c.stream_server_auth_code);
