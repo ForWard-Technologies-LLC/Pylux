@@ -40,6 +40,7 @@ NS_ASSUME_NONNULL_BEGIN
                                     ownedEntitlementId:(NSString *)ownedEntitlementId
                                          ownedPlatform:(NSString *)ownedPlatform
                                       forcedDatacenter:(NSString *)forcedDatacenter
+                                  priorDatacentersJson:(NSString *)priorDatacentersJson
                                       catalogIsForeign:(BOOL)catalogIsForeign
                                             resolution:(int)resolution
                                            bitrateKbps:(int)bitrateKbps

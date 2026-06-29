@@ -140,6 +140,10 @@ void CloudStreamingBackend::continueCloudSessionAfterAuth(QString serviceType, Q
     const QByteArray gameLang = gameLangStr.toUtf8();
     const QByteArray forcedDc = (pscloud ? settings->GetCloudDatacenterPSCloud()
                                          : settings->GetCloudDatacenterPSNOW()).toUtf8();
+    // Prior stored datacenters for this service -> merged with this run's pings by the lib
+    // and returned, so the Settings picker keeps previously-measured RTTs (like the old code).
+    const QByteArray priorDc = (pscloud ? settings->GetCloudDatacentersJsonPSCloud()
+                                        : settings->GetCloudDatacentersJsonPSNOW()).toUtf8();
     const int resolution = pscloud ? settings->GetCloudResolutionPSCloud()
                                     : settings->GetCloudResolutionPSNOW();
     const int bitrate = static_cast<int>(pscloud ? settings->GetCloudBitratePSCloud()
@@ -165,7 +169,7 @@ void CloudStreamingBackend::continueCloudSessionAfterAuth(QString serviceType, Q
     setAllocationProgress(tr("Starting cloud session..."));
 
     std::thread([this, callback, svc, gameId, npsso, storeCountry, storeLang, gameLang,
-                 forcedDc, resolution, bitrate, isForeign, attrPassed, ownedEnt, ownedPlat]() mutable {
+                 forcedDc, priorDc, resolution, bitrate, isForeign, attrPassed, ownedEnt, ownedPlat]() mutable {
         ChiakiLog log;
         chiaki_log_init(&log, CHIAKI_LOG_INFO | CHIAKI_LOG_WARNING | CHIAKI_LOG_ERROR,
                         chiaki_log_cb_print, nullptr);
@@ -183,6 +187,7 @@ void CloudStreamingBackend::continueCloudSessionAfterAuth(QString serviceType, Q
         cfg.catalog_is_foreign = isForeign;
         cfg.skip_account_attr_check = attrPassed;
         cfg.forced_datacenter = forcedDc.constData();
+        cfg.prior_datacenters_json = priorDc.constData();
         cfg.cache_dir = "";
         cfg.resolution = resolution;
         cfg.bitrate_kbps = bitrate;
@@ -204,10 +209,17 @@ void CloudStreamingBackend::continueCloudSessionAfterAuth(QString serviceType, Q
         const uint32_t mtuIn = res.mtu_in, mtuOut = res.mtu_out;
         const quint64 rttUs = res.rtt_us;
         const QString errMsg = res.error_message ? QString::fromUtf8(res.error_message) : QString();
+        const QString dcPings = res.datacenter_pings ? QString::fromUtf8(res.datacenter_pings) : QString();
         chiaki_cloud_provision_result_fini(&res);
 
         QMetaObject::invokeMethod(this, [this, callback, success, serviceTypeStr, serverIp, serverPort,
-                                         handshakeKey, launchSpec, sessionId, wrap, mtuIn, mtuOut, rttUs, errMsg]() mutable {
+                                         handshakeKey, launchSpec, sessionId, wrap, mtuIn, mtuOut, rttUs, errMsg, dcPings]() mutable {
+            // Persist the merged datacenter list so Settings shows the measured RTTs
+            // (done whether or not allocation succeeded -- the old code saved during the ping).
+            if (!dcPings.isEmpty()) {
+                if (serviceTypeStr == "pscloud") settings->SetCloudDatacentersJsonPSCloud(dcPings);
+                else settings->SetCloudDatacentersJsonPSNOW(dcPings);
+            }
             if (success) {
                 finishCloudSession(serviceTypeStr, serverIp, serverPort, handshakeKey, launchSpec,
                                    sessionId, wrap, mtuIn, mtuOut, rttUs, callback);

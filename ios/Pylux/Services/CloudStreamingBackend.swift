@@ -94,6 +94,11 @@ final class CloudStreamingBackend {
         let resolution = Int32(Int(pscloud ? prefs.cloudResolutionPscloud : prefs.cloudResolutionPsnow) ?? 1080)
         let bitrate = Int32(StreamPreferences.clampCloudBitrateKbps(pscloud ? prefs.cloudBitratePscloud : prefs.cloudBitratePsnow))
 
+        // Prior stored datacenters for this service -> the lib merges this run's pings into them
+        // and returns the full list, so the Settings picker keeps previously-measured RTTs.
+        let priorData = pscloud ? SecureStore.shared.pscloudDatacentersData : SecureStore.shared.psnowDatacentersData
+        let priorDatacentersJson = priorData.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+
         // sharedDuid is only the auth-check DUID; the C flow generates its own shared one.
         _ = sharedDuid
 
@@ -108,12 +113,21 @@ final class CloudStreamingBackend {
             ownedEntitlementId: ownedEntitlementId,
             ownedPlatform: ownedPlatform,
             forcedDatacenter: forcedDatacenter,
+            priorDatacentersJson: priorDatacentersJson,
             catalogIsForeign: SecureStore.shared.isCloudCatalogIsForeign,
             resolution: resolution,
             bitrateKbps: bitrate,
             onProgress: { stage in onProgress?(stage) },
             isCancelled: { isCancelled() }
         )
+
+        // Persist the merged datacenter list so Settings shows the measured RTTs
+        // (whether or not allocation succeeded -- the old code saved during the ping).
+        if let pings = result.datacenterPings, !pings.isEmpty,
+           let data = pings.data(using: .utf8),
+           let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+            CloudDatacenterStore.saveDatacenters(arr, for: serviceType)
+        }
 
         if result.err == 0 {
             os_log(.info, log: cloudLog, "✓ Cloud provisioning complete - Server: %{public}s", result.serverIp)
