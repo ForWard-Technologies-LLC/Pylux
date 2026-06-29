@@ -456,6 +456,7 @@ static ChiakiErrorCode km_checkout_acquire(KamajiCtx *c, char **out_error)
 	CCHttpRequest preq = { 0 };
 	preq.method = "POST"; preq.url = KM_KAMAJI_BASE "/user/checkout/buynow/preview";
 	preq.headers = prev_hdrs; preq.header_count = 8; preq.body = prev_body;
+	preq.capture_headers = true; // refresh JSESSIONID from the preview Set-Cookie before buynow (parity with Qt)
 	CCHttpResponse presp = { 0 };
 	ChiakiErrorCode e = cc_http_perform(c->log, &preq, &presp);
 	if(e != CHIAKI_ERR_SUCCESS) { free(h_auth); free(h_ua); free(h_cookie); cc_http_response_fini(&presp); return e; }

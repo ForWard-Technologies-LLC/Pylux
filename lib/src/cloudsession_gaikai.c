@@ -706,6 +706,7 @@ static ChiakiErrorCode gk_step11_datacenters(GaikaiCtx *c)
 		// Ping every datacenter in parallel (one thread each), then collect.
 		GkPingJob *jobs = (GkPingJob *)calloc(n, sizeof(GkPingJob));
 		ChiakiThread *threads = (ChiakiThread *)calloc(n, sizeof(ChiakiThread));
+		bool *threaded = (bool *)calloc(n, sizeof(bool)); // which slots actually started a thread
 		for(size_t i = 0; i < n; i++)
 		{
 			struct json_object *dc = json_object_array_get_idx(dcs, i);
@@ -716,12 +717,15 @@ static ChiakiErrorCode gk_step11_datacenters(GaikaiCtx *c)
 			jobs[i].bw = cc_json_int(dc, "maxBandwidth");
 			jobs[i].session_key = c->lock_session_key;
 			jobs[i].service_type = c->cfg->service_type;
-			if(chiaki_thread_create(&threads[i], gk_ping_thread, &jobs[i]) != CHIAKI_ERR_SUCCESS)
+			if(chiaki_thread_create(&threads[i], gk_ping_thread, &jobs[i]) == CHIAKI_ERR_SUCCESS)
+				threaded[i] = true;
+			else
 				gk_ping_thread(&jobs[i]); // fall back to inline if a thread won't start
 		}
 		for(size_t i = 0; i < n; i++)
 		{
-			chiaki_thread_join(&threads[i], NULL);
+			if(threaded[i]) // only join slots whose thread started; a zeroed pthread_t join is UB
+				chiaki_thread_join(&threads[i], NULL);
 			if(jobs[i].ok)
 				json_object_array_add(c->ping_results, gk_ping_obj(jobs[i].name, (int)(jobs[i].rtt_us / 1000),
 					jobs[i].mtu_in, jobs[i].mtu_out, jobs[i].port, jobs[i].ip, jobs[i].bw, true));
@@ -732,7 +736,7 @@ static ChiakiErrorCode gk_step11_datacenters(GaikaiCtx *c)
 			else
 				CHIAKI_LOGI(c->log, "[GAIKAI] ping %s = unreachable", jobs[i].name);
 		}
-		free(jobs); free(threads);
+		free(jobs); free(threads); free(threaded);
 		// sort by RTT
 		size_t rn = json_object_array_length(c->ping_results);
 		struct json_object **arr = (struct json_object **)malloc(rn * sizeof(*arr));
