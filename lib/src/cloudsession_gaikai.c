@@ -12,15 +12,6 @@
 
 #include <chiaki/cloudcatalog.h>     // chiaki_cloud_gaikai_language
 
-#ifdef _WIN32
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#else
-#include <netinet/in.h>             // INET6_ADDRSTRLEN (needed by holepunch.h)
-#include <arpa/inet.h>
-#endif
-#include <chiaki/remote/holepunch.h> // chiaki_holepunch_generate_client_device_uid
-
 #include <json-c/json.h>
 
 #include <stdlib.h>
@@ -51,7 +42,7 @@ typedef struct
 	const char *user_agent;
 	const char *oauth_api_path; // "/api/authz/v3" | "/api/v1"
 	const char *redirect_uri;
-	char duid[CHIAKI_DUID_STR_SIZE]; // shared client device uid (OAuth + future Kamaji)
+	char duid[128];             // shared client device uid (OAuth, same one Kamaji uses)
 	char *config_key;           // x-gaikai-session (updates every response)
 	char *lock_session_key;
 	char *gaikai_session_id;
@@ -787,7 +778,7 @@ static ChiakiErrorCode gk_step13_allocate(GaikaiCtx *c, ChiakiCloudProvisionResu
 }
 
 ChiakiErrorCode cc_gaikai_allocate(ChiakiLog *log,
-	const ChiakiCloudProvisionConfig *cfg,
+	const ChiakiCloudProvisionConfig *cfg, const char *duid,
 	const char *platform, const char *entitlement_id,
 	ChiakiCloudProvisionResult *out)
 {
@@ -804,11 +795,8 @@ ChiakiErrorCode cc_gaikai_allocate(ChiakiLog *log,
 	else if(strcmp(c.platform, "ps5") == 0) c.virt_type = "cronos";
 	else c.virt_type = "kratos";
 
-	// Generate the client device uid used in the OAuth auth-code URLs. (When the
-	// orchestrator drives the full flow it will pass the same duid Kamaji used.)
-	size_t duid_size = sizeof(c.duid);
-	if(chiaki_holepunch_generate_client_device_uid(c.duid, &duid_size) != CHIAKI_ERR_SUCCESS)
-		return CHIAKI_ERR_UNKNOWN;
+	// Shared client device uid (same one Kamaji used), threaded into the OAuth URLs.
+	snprintf(c.duid, sizeof(c.duid), "%s", duid ? duid : "");
 	snprintf(out->platform, sizeof(out->platform), "%s", c.platform);
 	snprintf(out->entitlement_id, sizeof(out->entitlement_id), "%s", entitlement_id ? entitlement_id : "");
 

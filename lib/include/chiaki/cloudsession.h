@@ -42,6 +42,8 @@ typedef struct chiaki_cloud_provision_config_t
 	const char *store_lang;           /**< resolvedStoreLang for the step0_5d container URL */
 	const char *owned_entitlement_id; /**< owned-PSNOW fast-path entitlement, or "" */
 	const char *owned_platform;       /**< platform accompanying owned_entitlement_id, or "" */
+	bool catalog_is_foreign;          /**< fallback-region account: skip the $0 acquire on 404 */
+	bool skip_account_attr_check;     /**< platform already passed (or user ignored) the privacy check */
 	const char *forced_datacenter;    /**< settings-selected region; "Auto"/"" => ping & auto-pick */
 	const char *cache_dir;            /**< lib-owned datacenter-ping cache lives here; may be "" */
 	const char *game_language;        /**< streaming-language locale (e.g. "de-DE"); bare code derived */
