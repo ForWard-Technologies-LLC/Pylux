@@ -10,11 +10,26 @@
 #include <chiaki/cloudsession.h>
 #include <chiaki/log.h>
 
+#include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+struct json_object; // json-c, forward-declared so this header needs no umbrella include
+
+/**
+ * Pure picker for the PS Plus full-game ("*GD") fallback that step 0.5d uses when a
+ * title exposes no license_type==4 streaming reservation. Scans @p sku's
+ * "entitlements" for the first whose "packageType" ends in "GD"; when @p require_title
+ * is set, additionally requires the entitlement id to contain @p title_id. On a match
+ * copies the id into @p out_id (capacity @p out_sz) and returns true; logs the pick via
+ * @p log when non-NULL. Exposed (non-static) so the unit suite can exercise it.
+ */
+bool km_pick_fullgame_id(struct json_object *sku, bool require_title,
+	const char *title_id, char *out_id, size_t out_sz, ChiakiLog *log);
 
 /**
  * Kamaji session flow (PSNOW): 0.5b anonymous OAuth -> 0.5c anonymous session

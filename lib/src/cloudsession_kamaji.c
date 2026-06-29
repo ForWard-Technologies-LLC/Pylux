@@ -217,7 +217,10 @@ static bool km_pick_streaming(KamajiCtx *c, struct json_object *sku)
 
 // PS Plus catalog fallback: a full-game digital entitlement ("*GD"); optionally
 // requiring the entitlement id to contain the requested title id (platform-consistent).
-static bool km_pick_fullgame(KamajiCtx *c, struct json_object *sku, bool require_title, const char *title_id)
+// The match logic lives here (non-static, unit-tested in test/cloudsession_kamaji.c);
+// km_pick_fullgame records the chosen entitlement + its sku onto the context.
+bool km_pick_fullgame_id(struct json_object *sku, bool require_title,
+	const char *title_id, char *out_id, size_t out_sz, ChiakiLog *log)
 {
 	struct json_object *ents = cc_json_arr(sku, "entitlements");
 	if(!ents) return false;
@@ -232,12 +235,19 @@ static bool km_pick_fullgame(KamajiCtx *c, struct json_object *sku, bool require
 			continue;
 		if(require_title && title_id && *title_id && !strstr(id, title_id))
 			continue;
-		snprintf(c->entitlement_id, sizeof(c->entitlement_id), "%s", id);
-		snprintf(c->streaming_sku, sizeof(c->streaming_sku), "%s", cc_json_str(sku, "id"));
-		CHIAKI_LOGI(c->log, "[KAMAJI] full-game entitlement (PS+ fallback): %s pkg=%s", id, pkg);
+		snprintf(out_id, out_sz, "%s", id);
+		if(log) CHIAKI_LOGI(log, "[KAMAJI] full-game entitlement (PS+ fallback): %s pkg=%s", id, pkg);
 		return true;
 	}
 	return false;
+}
+
+static bool km_pick_fullgame(KamajiCtx *c, struct json_object *sku, bool require_title, const char *title_id)
+{
+	if(!km_pick_fullgame_id(sku, require_title, title_id, c->entitlement_id, sizeof(c->entitlement_id), c->log))
+		return false;
+	snprintf(c->streaming_sku, sizeof(c->streaming_sku), "%s", cc_json_str(sku, "id"));
+	return true;
 }
 
 static ChiakiErrorCode km_step0_5d_resolve(KamajiCtx *c)

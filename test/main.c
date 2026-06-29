@@ -13,6 +13,7 @@ extern MunitTest tests_fec[];
 extern MunitTest tests_regist[];
 extern MunitTest tests_bitstream[];
 extern MunitTest tests_cloudcatalog_merge[];
+extern MunitTest tests_cloudsession_kamaji[];
 
 static MunitSuite suites[] = {
 	{
@@ -88,6 +89,13 @@ static MunitSuite suites[] = {
 	{
 		"/cloudcatalog_merge",
 		tests_cloudcatalog_merge,
+		NULL,
+		1,
+		MUNIT_SUITE_OPTION_NONE
+	},
+	{
+		"/cloudsession_kamaji",
+		tests_cloudsession_kamaji,
 		NULL,
 		1,
 		MUNIT_SUITE_OPTION_NONE
