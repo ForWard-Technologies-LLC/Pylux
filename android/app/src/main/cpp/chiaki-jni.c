@@ -13,6 +13,7 @@
 #include <chiaki/remote/holepunch.h>
 #include <chiaki/base64.h>
 #include <chiaki/cloudcatalog.h>
+#include <chiaki/cloudsession.h>
 
 #include <string.h>
 #include <stdlib.h>
@@ -1616,6 +1617,143 @@ JNIEXPORT void JNICALL JNI_FCN(cloudCatalogInvalidateCache)(JNIEnv *env, jobject
 		chiaki_cloudcatalog_invalidate_cache(cache_dir);
 		E->ReleaseStringUTFChars(env, cache_dir_str, cache_dir);
 	}
+}
+
+// Unified cloud session provisioning (chiaki/cloudsession.h): the whole Kamaji+Gaikai flow
+// in C, shared with Qt/iOS. Blocking -- call from a background thread. Progress + cancellation
+// route back to a Kotlin CloudProvisionCallbacks object, called on THIS thread (so this JNIEnv
+// stays valid; the lib's parallel ping threads never touch JNI). Result comes back via
+// stringOut[8] + intOut[5]; returns the ChiakiErrorCode. All result strings are ASCII
+// (ip/keys/launchSpec/json/errorMessage), so NewStringUTF is safe (unlike the catalog payload).
+typedef struct
+{
+	JNIEnv *env;
+	jobject callbacks;
+	jmethodID on_progress;   // (Ljava/lang/String;)V
+	jmethodID is_cancelled;  // ()Z
+} CloudCbCtx;
+
+static void cloud_jni_progress(const char *stage, void *user)
+{
+	CloudCbCtx *c = (CloudCbCtx *)user;
+	if(!c || !c->callbacks || !c->on_progress) return;
+	JNIEnv *env = c->env;
+	jstring s = E->NewStringUTF(env, stage ? stage : "");
+	if(!s) return;
+	E->CallVoidMethod(env, c->callbacks, c->on_progress, s);
+	if(E->ExceptionCheck(env)) E->ExceptionClear(env);
+	E->DeleteLocalRef(env, s);
+}
+
+static bool cloud_jni_cancelled(void *user)
+{
+	CloudCbCtx *c = (CloudCbCtx *)user;
+	if(!c || !c->callbacks || !c->is_cancelled) return false;
+	JNIEnv *env = c->env;
+	jboolean b = E->CallBooleanMethod(env, c->callbacks, c->is_cancelled);
+	if(E->ExceptionCheck(env)) { E->ExceptionClear(env); return false; }
+	return b ? true : false;
+}
+
+static void cloud_set_str_out(JNIEnv *env, jobjectArray arr, int idx, const char *s)
+{
+	if(!s || !*s) return;
+	jstring js = E->NewStringUTF(env, s);
+	if(!js) return;
+	E->SetObjectArrayElement(env, arr, (jsize)idx, js);
+	E->DeleteLocalRef(env, js);
+}
+
+JNIEXPORT jint JNICALL JNI_FCN(cloudProvisionSession)(JNIEnv *env, jobject obj,
+	jstring service_type_str, jstring game_identifier_str, jstring game_name_str, jstring npsso_str,
+	jstring store_country_str, jstring store_lang_str, jstring game_language_str,
+	jstring owned_entitlement_str, jstring owned_platform_str, jstring forced_dc_str,
+	jstring prior_dc_str, jboolean catalog_is_foreign, jint resolution, jint bitrate_kbps,
+	jobject callbacks, jobjectArray string_out, jintArray int_out)
+{
+	(void)obj;
+	const char *service_type = service_type_str ? E->GetStringUTFChars(env, service_type_str, NULL) : NULL;
+	const char *game_identifier = game_identifier_str ? E->GetStringUTFChars(env, game_identifier_str, NULL) : NULL;
+	const char *game_name = game_name_str ? E->GetStringUTFChars(env, game_name_str, NULL) : NULL;
+	const char *npsso = npsso_str ? E->GetStringUTFChars(env, npsso_str, NULL) : NULL;
+	const char *store_country = store_country_str ? E->GetStringUTFChars(env, store_country_str, NULL) : NULL;
+	const char *store_lang = store_lang_str ? E->GetStringUTFChars(env, store_lang_str, NULL) : NULL;
+	const char *game_language = game_language_str ? E->GetStringUTFChars(env, game_language_str, NULL) : NULL;
+	const char *owned_entitlement = owned_entitlement_str ? E->GetStringUTFChars(env, owned_entitlement_str, NULL) : NULL;
+	const char *owned_platform = owned_platform_str ? E->GetStringUTFChars(env, owned_platform_str, NULL) : NULL;
+	const char *forced_dc = forced_dc_str ? E->GetStringUTFChars(env, forced_dc_str, NULL) : NULL;
+	const char *prior_dc = prior_dc_str ? E->GetStringUTFChars(env, prior_dc_str, NULL) : NULL;
+
+	CloudCbCtx cb;
+	memset(&cb, 0, sizeof(cb));
+	cb.env = env;
+	cb.callbacks = callbacks;
+	if(callbacks)
+	{
+		jclass cls = E->GetObjectClass(env, callbacks);
+		cb.on_progress = E->GetMethodID(env, cls, "onProgress", "(Ljava/lang/String;)V");
+		cb.is_cancelled = E->GetMethodID(env, cls, "isCancelled", "()Z");
+	}
+
+	ChiakiCloudProvisionConfig cfg;
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.service_type = service_type;
+	cfg.game_identifier = game_identifier;
+	cfg.game_name = game_name;
+	cfg.npsso = npsso;
+	cfg.store_country = store_country;
+	cfg.store_lang = store_lang;
+	cfg.game_language = game_language;
+	cfg.owned_entitlement_id = owned_entitlement;
+	cfg.owned_platform = owned_platform;
+	cfg.forced_datacenter = forced_dc;
+	cfg.prior_datacenters_json = prior_dc;
+	cfg.cache_dir = "";
+	cfg.catalog_is_foreign = catalog_is_foreign ? true : false;
+	cfg.skip_account_attr_check = false;
+	cfg.resolution = resolution;
+	cfg.bitrate_kbps = bitrate_kbps;
+	cfg.progress = callbacks ? cloud_jni_progress : NULL;
+	cfg.is_cancelled = callbacks ? cloud_jni_cancelled : NULL;
+	cfg.user = &cb;
+
+	ChiakiCloudProvisionResult res;
+	memset(&res, 0, sizeof(res));
+	ChiakiErrorCode err = chiaki_cloud_provision_session(&cfg, &res, &global_log);
+
+	// stringOut: [serverIp, handshakeKey, launchSpec, sessionId, entitlementId, platform, datacenterPings, errorMessage]
+	if(string_out && E->GetArrayLength(env, string_out) >= 8)
+	{
+		cloud_set_str_out(env, string_out, 0, res.server_ip);
+		cloud_set_str_out(env, string_out, 1, res.handshake_key);
+		cloud_set_str_out(env, string_out, 2, res.launch_spec);
+		cloud_set_str_out(env, string_out, 3, res.session_id);
+		cloud_set_str_out(env, string_out, 4, res.entitlement_id);
+		cloud_set_str_out(env, string_out, 5, res.platform);
+		cloud_set_str_out(env, string_out, 6, res.datacenter_pings);
+		cloud_set_str_out(env, string_out, 7, res.error_message);
+	}
+	// intOut: [serverPort, psnWrapperType, mtuIn, mtuOut, rttMs]
+	if(int_out && E->GetArrayLength(env, int_out) >= 5)
+	{
+		jint ints[5] = { (jint)res.server_port, (jint)res.psn_wrapper_type,
+			(jint)res.mtu_in, (jint)res.mtu_out, (jint)(res.rtt_us / 1000) };
+		E->SetIntArrayRegion(env, int_out, 0, 5, ints);
+	}
+
+	chiaki_cloud_provision_result_fini(&res);
+	if(service_type_str) E->ReleaseStringUTFChars(env, service_type_str, service_type);
+	if(game_identifier_str) E->ReleaseStringUTFChars(env, game_identifier_str, game_identifier);
+	if(game_name_str) E->ReleaseStringUTFChars(env, game_name_str, game_name);
+	if(npsso_str) E->ReleaseStringUTFChars(env, npsso_str, npsso);
+	if(store_country_str) E->ReleaseStringUTFChars(env, store_country_str, store_country);
+	if(store_lang_str) E->ReleaseStringUTFChars(env, store_lang_str, store_lang);
+	if(game_language_str) E->ReleaseStringUTFChars(env, game_language_str, game_language);
+	if(owned_entitlement_str) E->ReleaseStringUTFChars(env, owned_entitlement_str, owned_entitlement);
+	if(owned_platform_str) E->ReleaseStringUTFChars(env, owned_platform_str, owned_platform);
+	if(forced_dc_str) E->ReleaseStringUTFChars(env, forced_dc_str, forced_dc);
+	if(prior_dc_str) E->ReleaseStringUTFChars(env, prior_dc_str, prior_dc);
+	return (jint)err;
 }
 
 // Cloud streaming language helpers (chiaki/cloudcatalog.h): the shared lib table
