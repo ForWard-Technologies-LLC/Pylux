@@ -342,6 +342,59 @@ static ChiakiErrorCode km_get_commerce_token(KamajiCtx *c)
 	return CHIAKI_ERR_SUCCESS;
 }
 
+// Percent-encode per RFC 3986 (unreserved A-Za-z0-9-_.~ left as-is).
+static void km_urlencode(const char *in, char *out, size_t out_size)
+{
+	static const char hex[] = "0123456789ABCDEF";
+	size_t o = 0;
+	for(const unsigned char *p = (const unsigned char *)in; *p && o + 4 < out_size; p++)
+	{
+		if((*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z') ||
+		   (*p >= '0' && *p <= '9') || *p == '-' || *p == '_' || *p == '.' || *p == '~')
+			out[o++] = (char)*p;
+		else { out[o++] = '%'; out[o++] = hex[*p >> 4]; out[o++] = hex[*p & 0xF]; }
+	}
+	out[o] = '\0';
+}
+
+// On an attributes failure, build the Sony "upgrade account" URL from the missing
+// privacy elements (error.validationErrors[].missingElements[].name), surfaced as
+// the "ACCOUNT_PRIVACY_SETTINGS:<url>" sentinel -- the platform opens it so the user
+// can complete the required settings. Mirrors pskamajisession.cpp:830-882.
+static char *km_build_privacy_sentinel(struct json_object *body)
+{
+	char elements[512] = "";
+	struct json_object *err = body ? cc_json_obj(body, "error") : NULL;
+	struct json_object *ve = err ? cc_json_arr(err, "validationErrors") : NULL;
+	if(ve) for(size_t i = 0; i < json_object_array_length(ve); i++)
+	{
+		struct json_object *me = cc_json_arr(json_object_array_get_idx(ve, i), "missingElements");
+		if(!me) continue;
+		for(size_t k = 0; k < json_object_array_length(me); k++)
+		{
+			const char *name = cc_json_str(json_object_array_get_idx(me, k), "name");
+			if(name && *name)
+			{
+				if(elements[0]) strncat(elements, ",", sizeof(elements) - strlen(elements) - 1);
+				strncat(elements, name, sizeof(elements) - strlen(elements) - 1);
+			}
+		}
+	}
+	if(!elements[0]) return strdup("ACCOUNT_PRIVACY_SETTINGS");
+	char enc_redir[256], enc_elem[768], url[2048];
+	km_urlencode(KM_REDIRECT_URI, enc_redir, sizeof(enc_redir));
+	km_urlencode(elements, enc_elem, sizeof(enc_elem));
+	snprintf(url, sizeof(url),
+		"ACCOUNT_PRIVACY_SETTINGS:https://id.sonyentertainmentnetwork.com/id/upgrade_account_ca/"
+		"?entry=upgrade_account&pr_referer=upgrade&redirect_uri=%s&applicationId=psnow&refererPage=websso"
+		"&service_logo=ps&tp_console=true&disableLinks=SENLink&renderMode=mobilePortrait&noEVBlock=true"
+		"&displayFooter=none&hidePageElements=SENLogo&layout_type=popup&missing_elements=%s&response_type=code"
+		"&service_entity=urn:service-entity:psn&smcid=pc:psnow&tp_psn=true&tp_social=true"
+		"&elements_visibility_upgrade=no_cancel",
+		enc_redir, enc_elem);
+	return strdup(url);
+}
+
 static ChiakiErrorCode km_check_account_attributes(KamajiCtx *c, char **out_error)
 {
 	if(c->cfg->skip_account_attr_check) return CHIAKI_ERR_SUCCESS;
@@ -360,9 +413,15 @@ static ChiakiErrorCode km_check_account_attributes(KamajiCtx *c, char **out_erro
 	free(h_auth); free(h_ua);
 	if(e != CHIAKI_ERR_SUCCESS) { cc_http_response_fini(&resp); return e; }
 	if(resp.status_code == 200 || resp.status_code == 204) { cc_http_response_fini(&resp); return CHIAKI_ERR_SUCCESS; }
-	// Privacy/account upgrade required: surface a sentinel the platform turns into the upgrade dialog.
+	// Privacy/account upgrade required: build the upgrade URL from the missing
+	// elements and surface it as the sentinel the platform turns into the dialog.
 	CHIAKI_LOGE(c->log, "[KAMAJI] account attributes failed (%ld)", resp.status_code);
-	if(out_error) *out_error = strdup("ACCOUNT_PRIVACY_SETTINGS");
+	if(out_error)
+	{
+		struct json_object *j = resp.data ? json_tokener_parse(resp.data) : NULL;
+		*out_error = km_build_privacy_sentinel(j);
+		if(j) json_object_put(j);
+	}
 	cc_http_response_fini(&resp);
 	return CHIAKI_ERR_UNKNOWN;
 }

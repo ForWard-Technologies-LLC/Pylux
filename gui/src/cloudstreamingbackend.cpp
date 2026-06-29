@@ -375,8 +375,15 @@ void CloudStreamingBackend::handleProvisionError(QString serviceType, QString er
         if (qmlBackend) qmlBackend->setShowPSPlusSubscriptionDialog(true);
         userMessage = tr("PS Plus subscription required");
     } else if (errorMessage.contains(QStringLiteral("ACCOUNT_PRIVACY_SETTINGS"))) {
+        // Sentinel is "ACCOUNT_PRIVACY_SETTINGS:<upgrade-url>" (URL omitted when no
+        // missing elements were parsed). Extract the URL for the dialog.
+        const QString prefix = QStringLiteral("ACCOUNT_PRIVACY_SETTINGS:");
+        QString upgradeUrl;
+        int idx = errorMessage.indexOf(prefix);
+        if (idx >= 0)
+            upgradeUrl = errorMessage.mid(idx + prefix.length());
         if (qmlBackend) {
-            qmlBackend->setAccountPrivacyUpgradeUrl(QString());
+            qmlBackend->setAccountPrivacyUpgradeUrl(upgradeUrl);
             qmlBackend->setShowAccountPrivacySettingsDialog(true);
         }
         userMessage = tr("Account privacy settings need updating");
