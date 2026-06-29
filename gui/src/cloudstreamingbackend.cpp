@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #include "cloudstreamingbackend.h"
-#include "cloudstreaming/pskamajisession.h"
-#include "cloudstreaming/psgaikaistreaming.h"
+#include "cloudstreaming/pskamajisession.h"   // KamajiConsts (auth check)
+#include "cloudstreaming/psgaikaistreaming.h" // GaikaiConsts (auth check)
 #include "streamsession.h"
 #include "exception.h"
 #include "chiaki/remote/holepunch.h"
 #include "chiaki/session.h"
+#include "chiaki/cloudsession.h"
+#include "chiaki/log.h"
 #include "qmlbackend.h"
 #include "cloudcatalogbackend.h"
 
@@ -21,6 +23,8 @@
 #include <QJsonDocument>
 #include <QUrlQuery>
 #include <functional>
+#include <thread>
+#include <cstring>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -45,7 +49,7 @@ void CloudStreamingBackend::startCompleteCloudSession(QString serviceType, QStri
     qInfo() << "=== Starting Complete Cloud Streaming Session ===";
     qInfo() << "Service Type:" << serviceType;
     qInfo() << "Game Identifier:" << gameIdentifier;
-    
+
     // Get NPSSO token from settings
     QString npssoToken = settings->GetNpssoToken();
     if (npssoToken.isEmpty()) {
@@ -53,10 +57,10 @@ void CloudStreamingBackend::startCompleteCloudSession(QString serviceType, QStri
     } else {
         qInfo() << "Using NPSSO:" << npssoToken.left(20) << "...";
     }
-    
+
     // Normalize service type to lowercase
     serviceType = serviceType.toLower();
-    
+
     // Validate parameters
     if (serviceType != "psnow" && serviceType != "pscloud") {
         qWarning() << "Invalid serviceType:" << serviceType << "Must be 'psnow' or 'pscloud'";
@@ -65,7 +69,7 @@ void CloudStreamingBackend::startCompleteCloudSession(QString serviceType, QStri
         }
         return;
     }
-    
+
     // Lookup game image from cache before starting session
     QmlBackend *qmlBackend = qobject_cast<QmlBackend*>(parent());
     if (qmlBackend && qmlBackend->cloudCatalog()) {
@@ -81,13 +85,13 @@ void CloudStreamingBackend::startCompleteCloudSession(QString serviceType, QStri
         qWarning() << "Could not access CloudCatalogBackend for image lookup";
         setGameImageUrl(QString()); // Clear any previous image
     }
-    
+
     // Generate DUID once - shared between authorization check and session creation
     size_t duid_size = CHIAKI_DUID_STR_SIZE;
     char duid_arr[duid_size];
     chiaki_holepunch_generate_client_device_uid(duid_arr, &duid_size);
     QString sharedDuid = QString(duid_arr);
-    
+
     // Centralized authorization check for both PSNOW and PSCLOUD
     checkAuthorization(serviceType, npssoToken, sharedDuid, [this, serviceType, gameIdentifier, callback, npssoToken, sharedDuid](bool success) {
         if (!success) {
@@ -96,401 +100,301 @@ void CloudStreamingBackend::startCompleteCloudSession(QString serviceType, QStri
             if (qmlBackend) {
                 qmlBackend->setShowAuthorizationFailedDialog(true);
                 // Also emit sessionError to trigger StreamView error handling and return to main menu
-                emit qmlBackend->sessionError(tr("Authentication Required"), 
+                emit qmlBackend->sessionError(tr("Authentication Required"),
                                              tr("Your NPSSO token is likely expired. Please re-login to continue using cloud streaming."));
             }
-            
+
             // Clear game image on authorization failure
             setGameImageUrl(QString());
-            
+
             if (callback.isCallable()) {
                 callback.call({false, "Authorization check failed"});
             }
             return;
         }
-        
+
         // Authorization successful - continue with cloud session setup
         continueCloudSessionAfterAuth(serviceType, gameIdentifier, callback, npssoToken, sharedDuid);
     });
 }
 
-void CloudStreamingBackend::continueCloudSessionAfterAuth(QString serviceType, QString gameIdentifier, const QJSValue &callback, QString npssoToken, QString sharedDuid, bool forceFullEntitlementFlow)
+// Runs the unified C provisioning flow on a worker thread, then hands the
+// stream-ready result back to the GUI thread. Kamaji + Gaikai + datacenter
+// ping/select + the owned fast-path + the one-shot noGameForEntitlementId retry
+// all live in libchiaki (chiaki_cloud_provision_session) now.
+void CloudStreamingBackend::continueCloudSessionAfterAuth(QString serviceType, QString gameIdentifier, const QJSValue &callback, QString npssoToken, QString sharedDuid)
 {
-    // Determine service-specific configuration
-    QString redirectUri;
-    QString userAgent;
-    QString oauthApiPath;
-    
-    if (serviceType == "pscloud") {
-        redirectUri = GaikaiConsts::REDIRECT_URI;
-        userAgent = GaikaiConsts::USER_AGENT;
-        oauthApiPath = "/authz/v3";  // ACCOUNT_BASE already includes /api
-    } else { // psnow
-        redirectUri = KamajiConsts::REDIRECT_URI;
-        userAgent = KamajiConsts::USER_AGENT;
-        oauthApiPath = "/v1";  // ACCOUNT_BASE already includes /api
-    }
-    
-    // ChiakiTarget (console type for the Chiaki core). PSCLOUD = PS5; PSNOW refined after the
-    // Kamaji platform detection.
-    ChiakiTarget target = (serviceType == "pscloud") ? CHIAKI_TARGET_PS5_1 : CHIAKI_TARGET_PS4_9;
-    qInfo() << "Using DUID:" << sharedDuid;
+    const bool pscloud = (serviceType == "pscloud");
 
-    // PS4 / PS3 (PSNOW) titles go through a Kamaji session: the PS4 store container exposes the
-    // streaming/full-game entitlement, which Kamaji converts and acquires via PS Plus.
-    // PS5 (PSCLOUD) titles skip Kamaji: PS5 store containers carry NO entitlements/skus to
-    // convert, so we stream the owned entitlement id directly via Gaikai (cronos).
-    if (serviceType == "psnow") {
-        qInfo() << "=== PSNOW Flow: Starting Kamaji Session ===";
-        PSKamajiSession *kamajiSession = new PSKamajiSession(
-            settings, sharedDuid, gameIdentifier, CloudConfig::ACCOUNT_BASE,
-            KamajiConsts::REDIRECT_URI, KamajiConsts::USER_AGENT, this);
+    // Snapshot everything the worker needs as owned byte arrays (must outlive the thread).
+    const QByteArray svc = serviceType.toUtf8();
+    const QByteArray gameId = gameIdentifier.toUtf8();
+    const QByteArray npsso = npssoToken.toUtf8();
+    const QByteArray storeCountry = settings->GetCloudResolvedStoreCountry().toUtf8();
+    const QByteArray storeLang = settings->GetCloudResolvedStoreLang().toUtf8();
+    const QByteArray gameLang = settings->GetCloudGameLanguage().toUtf8();
+    const QByteArray forcedDc = (pscloud ? settings->GetCloudDatacenterPSCloud()
+                                         : settings->GetCloudDatacenterPSNOW()).toUtf8();
+    const int resolution = pscloud ? settings->GetCloudResolutionPSCloud()
+                                    : settings->GetCloudResolutionPSNOW();
+    const int bitrate = static_cast<int>(pscloud ? settings->GetCloudBitratePSCloud()
+                                                  : settings->GetCloudBitratePSNOW());
+    const bool isForeign = settings->IsCloudCatalogIsForeign();
+    const bool attrPassed = settings->GetAccountAttributesCheckPassed();
 
-        // Owned-PSNOW fast-path: if the unified catalog already resolved this title's streaming
-        // entitlement from the user's owned cross-reference, hand it straight to Kamaji so it
-        // skips the resolve/acquire path (which 404s + fails in storefront-less regions). Disabled
-        // on the retry (forceFullEntitlementFlow) so a Gaikai rejection falls back to the full flow.
-        if (!forceFullEntitlementFlow) {
-            QmlBackend *qmlBackendLookup = qobject_cast<QmlBackend*>(parent());
-            QString ownedEntitlementId, ownedPlatform;
-            if (qmlBackendLookup && qmlBackendLookup->cloudCatalog()
-                && qmlBackendLookup->cloudCatalog()->getOwnedPsnowEntitlement(gameIdentifier, ownedEntitlementId, ownedPlatform)) {
-                qInfo() << "PSNOW owned fast-path: catalog entitlementId=" << ownedEntitlementId
-                        << "platform=" << ownedPlatform;
-                kamajiSession->setOwnedEntitlementFastPath(ownedEntitlementId, ownedPlatform);
-            }
-        } else {
-            qInfo() << "PSNOW: forcing full entitlement flow (fast-path retry fallback)";
+    // Owned-PSNOW fast-path: hand the catalog's resolved owned entitlement straight in so the
+    // C flow skips the resolve/acquire path. (If Gaikai rejects it, the orchestrator retries
+    // the full resolve flow once internally.)
+    QByteArray ownedEnt, ownedPlat;
+    if (!pscloud) {
+        QmlBackend *qb = qobject_cast<QmlBackend*>(parent());
+        QString e, p;
+        if (qb && qb->cloudCatalog() && qb->cloudCatalog()->getOwnedPsnowEntitlement(gameIdentifier, e, p)) {
+            qInfo() << "PSNOW owned fast-path: entitlementId=" << e << "platform=" << p;
+            ownedEnt = e.toUtf8();
+            ownedPlat = p.toUtf8();
         }
-
-        connect(kamajiSession, &PSKamajiSession::psPlusSubscriptionError, this, [this]() {
-            QmlBackend *qmlBackend = qobject_cast<QmlBackend*>(parent());
-            if (qmlBackend) qmlBackend->setShowPSPlusSubscriptionDialog(true);
-        });
-        connect(kamajiSession, &PSKamajiSession::accountPrivacySettingsError, this, [this](QString upgradeUrl) {
-            QmlBackend *qmlBackend = qobject_cast<QmlBackend*>(parent());
-            if (qmlBackend) {
-                qmlBackend->setAccountPrivacyUpgradeUrl(upgradeUrl);
-                qmlBackend->setShowAccountPrivacySettingsDialog(true);
-            }
-        });
-        connect(kamajiSession, &PSKamajiSession::sessionComplete, this,
-                [this, kamajiSession, callback, sharedDuid, serviceType, target, redirectUri, userAgent, oauthApiPath, gameIdentifier, npssoToken](bool success, QString message, QString entitlementId) {
-            if (!success) {
-                qWarning() << "Kamaji session creation failed:" << message;
-                setGameImageUrl(QString());
-                QmlBackend *qmlBackend = qobject_cast<QmlBackend*>(parent());
-                if (qmlBackend)
-                    emit qmlBackend->sessionError(tr("Cloud Streaming Failed"),
-                                                 QString("Session creation failed: %1").arg(message));
-                if (callback.isCallable())
-                    callback.call({false, QString("Session creation failed: %1").arg(message)});
-                kamajiSession->deleteLater();
-                return;
-            }
-            qInfo() << "=== Kamaji Session Created, Starting Allocation ===";
-            qInfo() << "Converted Entitlement ID:" << entitlementId;
-            QString detectedPlatform = kamajiSession->getPlatform(); // ps4 / ps3
-            ChiakiTarget platformTarget = CHIAKI_TARGET_PS4_9; // PS4 and PS3 both stream as PS4
-            const bool usedFastPath = kamajiSession->usedEntitlementFastPath();
-            startGaikaiAllocation(serviceType, detectedPlatform, entitlementId, sharedDuid,
-                                  redirectUri, userAgent, oauthApiPath, platformTarget, callback, kamajiSession,
-                                  usedFastPath, gameIdentifier, npssoToken);
-        });
-        kamajiSession->startSessionCreation();
-    } else {
-        // PSCLOUD: stream the owned entitlement id directly (no Kamaji — PS5 containers have none).
-        qInfo() << "=== PSCLOUD Flow: Direct Gaikai (PS5), entitlement:" << gameIdentifier << "===";
-        startGaikaiAllocation(serviceType, QStringLiteral("ps5"), gameIdentifier, sharedDuid,
-                              redirectUri, userAgent, oauthApiPath, target, callback, nullptr);
     }
+    Q_UNUSED(sharedDuid); // the C flow generates its own shared DUID for Kamaji+Gaikai
+
+    setAllocationProgress(tr("Starting cloud session..."));
+
+    std::thread([this, callback, svc, gameId, npsso, storeCountry, storeLang, gameLang,
+                 forcedDc, resolution, bitrate, isForeign, attrPassed, ownedEnt, ownedPlat]() mutable {
+        ChiakiLog log;
+        chiaki_log_init(&log, CHIAKI_LOG_INFO | CHIAKI_LOG_WARNING | CHIAKI_LOG_ERROR,
+                        chiaki_log_cb_print, nullptr);
+
+        ChiakiCloudProvisionConfig cfg;
+        memset(&cfg, 0, sizeof(cfg));
+        cfg.service_type = svc.constData();
+        cfg.game_identifier = gameId.constData();
+        cfg.npsso = npsso.constData();
+        cfg.store_country = storeCountry.constData();
+        cfg.store_lang = storeLang.constData();
+        cfg.game_language = gameLang.constData();
+        cfg.owned_entitlement_id = ownedEnt.constData();
+        cfg.owned_platform = ownedPlat.constData();
+        cfg.catalog_is_foreign = isForeign;
+        cfg.skip_account_attr_check = attrPassed;
+        cfg.forced_datacenter = forcedDc.constData();
+        cfg.cache_dir = "";
+        cfg.resolution = resolution;
+        cfg.bitrate_kbps = bitrate;
+        cfg.progress = &CloudStreamingBackend::provisionProgressThunk;
+        cfg.is_cancelled = nullptr;
+        cfg.user = this;
+
+        ChiakiCloudProvisionResult res;
+        ChiakiErrorCode err = chiaki_cloud_provision_session(&cfg, &res, &log);
+
+        const bool success = (err == CHIAKI_ERR_SUCCESS);
+        const QString serviceTypeStr = QString::fromUtf8(svc);
+        const QString serverIp = QString::fromUtf8(res.server_ip);
+        const int serverPort = res.server_port;
+        const QString handshakeKey = res.handshake_key ? QString::fromUtf8(res.handshake_key) : QString();
+        const QString launchSpec = res.launch_spec ? QString::fromUtf8(res.launch_spec) : QString();
+        const QString sessionId = res.session_id ? QString::fromUtf8(res.session_id) : QString();
+        const uint8_t wrap = res.psn_wrapper_type;
+        const uint32_t mtuIn = res.mtu_in, mtuOut = res.mtu_out;
+        const quint64 rttUs = res.rtt_us;
+        const QString errMsg = res.error_message ? QString::fromUtf8(res.error_message) : QString();
+        chiaki_cloud_provision_result_fini(&res);
+
+        QMetaObject::invokeMethod(this, [this, callback, success, serviceTypeStr, serverIp, serverPort,
+                                         handshakeKey, launchSpec, sessionId, wrap, mtuIn, mtuOut, rttUs, errMsg]() mutable {
+            if (success) {
+                finishCloudSession(serviceTypeStr, serverIp, serverPort, handshakeKey, launchSpec,
+                                   sessionId, wrap, mtuIn, mtuOut, rttUs, callback);
+            } else {
+                handleProvisionError(serviceTypeStr, errMsg, callback);
+            }
+        });
+    }).detach();
 }
 
-bool CloudStreamingBackend::isEntitlementRejectedError(const QString &error)
+// Build StreamSessionConnectInfo from the C result and start the StreamSession.
+// This boundary (and everything below it) is unchanged from the previous flow --
+// only the source of the parameters moved from PSGaikaiStreaming to the C result.
+void CloudStreamingBackend::finishCloudSession(QString serviceType, QString serverIp, int serverPort,
+                                               QString handshakeKey, QString launchSpec, QString sessionId,
+                                               uint8_t psnWrapperType, uint32_t mtuIn, uint32_t mtuOut, uint64_t rttUs,
+                                               const QJSValue &callback)
 {
-    // Gaikai's authorize step (step9) surfaces an unowned/invalid entitlement as
-    // "noGameForEntitlementId" in the errors[].description it bubbles up here. (If live testing
-    // shows a different marker for the unowned case, add it here -- this is the fast-path retry gate.)
-    return error.contains(QStringLiteral("noGameForEntitlement"), Qt::CaseInsensitive);
-}
+    qInfo() << "=== COMPLETE CLOUD SESSION SUCCESS ===";
+    qInfo() << "  IP:" << serverIp << " Port:" << serverPort << " SessionId len:" << sessionId.length();
+    qInfo() << "  handshake len:" << handshakeKey.length() << " launchSpec len:" << launchSpec.length();
 
-void CloudStreamingBackend::startGaikaiAllocation(QString serviceType, QString platform, QString entitlementId,
-                                                   QString duid,
-                                                   QString redirectUri, QString userAgent, QString oauthApiPath,
-                                                   ChiakiTarget target, const QJSValue &callback, QObject *kamajiSession,
-                                                   bool usedFastPath, QString gameIdentifier, QString npssoToken)
-{
-    // Step 7-13: Complete Gaikai allocation
-    PSGaikaiStreaming *gaikaiStreaming = new PSGaikaiStreaming(
+    // PSCLOUD streams as PS5, PSNOW (PS3 + PS4) as PS4.
+    const ChiakiTarget target = (serviceType == "pscloud") ? CHIAKI_TARGET_PS5_1 : CHIAKI_TARGET_PS4_9;
+
+    // Read window type from settings (same as remote play)
+    bool fullscreen = false, zoom = false, stretch = false;
+    switch (settings->GetWindowType()) {
+    case WindowType::SelectedResolution:
+    case WindowType::CustomResolution:
+    case WindowType::AdjustableResolution:
+        break;
+    case WindowType::Fullscreen: fullscreen = true; break;
+    case WindowType::Zoom: zoom = true; break;
+    case WindowType::Stretch: stretch = true; break;
+    default: break;
+    }
+
+    // Pass host as "IP:PORT"; StreamSession extracts the port for cloud mode.
+    StreamSessionConnectInfo connect_info(
         settings,
-        duid,
-        serviceType,
-        platform,
-        this
-    );
-    
-    // Connect progress updates - update our property which QML can bind to
-    connect(gaikaiStreaming, &PSGaikaiStreaming::AllocationProgress, this,
-            &CloudStreamingBackend::onAllocationProgress);
-    
-    // When Gaikai completes successfully
-    connect(gaikaiStreaming, &PSGaikaiStreaming::AllocationComplete, this,
-            [this, gaikaiStreaming, kamajiSession, callback, target, serviceType](QString serverIp, int serverPort, QString handshakeKey, QString launchSpec, QString sessionId) {
-        qInfo() << "=== COMPLETE CLOUD SESSION SUCCESS ===";
-        qInfo() << "Ready to connect to streaming server:";
-        qInfo() << "  IP:" << serverIp;
-        qInfo() << "  Port:" << serverPort;
-        qInfo() << "  Session ID:" << sessionId;
-        
-        qInfo() << "Creating StreamSessionConnectInfo for cloud streaming";
-        qInfo() << "  Server IP:" << serverIp;
-        qInfo() << "  Server Port:" << serverPort;
-        qInfo() << "  Session ID length:" << sessionId.length();
-        qInfo() << "  Handshake key length:" << handshakeKey.length();
-        qInfo() << "  Launch spec length:" << launchSpec.length();
-        
-        // Read window type from settings (same as remote play)
-        bool fullscreen = false, zoom = false, stretch = false;
-        switch (settings->GetWindowType()) {
-        case WindowType::SelectedResolution:
-            break;
-        case WindowType::CustomResolution:
-            break;
-        case WindowType::AdjustableResolution:
-            break;
-        case WindowType::Fullscreen:
-            fullscreen = true;
-            break;
-        case WindowType::Zoom:
-            zoom = true;
-            break;
-        case WindowType::Stretch:
-            stretch = true;
-            break;
-        default:
-            break;
-        }
-        
-        // Create StreamSessionConnectInfo with cloud parameters
-        // Pass host as "IP:PORT" format - StreamSession will extract port for cloud mode
-        StreamSessionConnectInfo connect_info(
-            settings,
-            target, // PSCLOUD->PS5 target, PSNOW->PS4 target
-            QString("%1:%2").arg(serverIp).arg(serverPort), // host:port (will be split in StreamSession)
-            QString(), // nickname
-            QByteArray(), // regist_key (not used for cloud)
-            QByteArray(), // morning (not used for cloud)
-            QString(), // initial_login_pin
-            QString(), // duid (not used for cloud, direct connection)
-            false, // auto_regist
-            fullscreen, // fullscreen (from settings)
-            zoom, // zoom (from settings)
-            stretch  // stretch (from settings)
-        );
-        
-        // Set service type for cloud streaming BEFORE any validation
-        connect_info.cloud_launch_spec = launchSpec;
-        connect_info.cloud_handshake_key = handshakeKey;
-        connect_info.cloud_session_id = sessionId;
-        if (serviceType == "pscloud") {
-            connect_info.service_type = CHIAKI_SERVICE_TYPE_PSCLOUD;
-        } else if (serviceType == "psnow") {
-            connect_info.service_type = CHIAKI_SERVICE_TYPE_PSNOW;
-        } else {
-            connect_info.service_type = CHIAKI_SERVICE_TYPE_REMOTE_PLAY;
-        }
-        connect_info.cloud_psn_wrapper_type = gaikaiStreaming->getPsnWrapperType();
-        
-        // Extract MTU values from ping results
-        QJsonObject pingResult = gaikaiStreaming->getSelectedDatacenterPingResult();
-        if (!pingResult.isEmpty()) {
-            connect_info.cloud_mtu_in = pingResult["mtu_in"].toInt(0);
-            connect_info.cloud_mtu_out = pingResult["mtu_out"].toInt(0);
-            int rtt_ms = pingResult["rtt"].toInt(0);
-            connect_info.cloud_rtt_us = rtt_ms > 0 ? (uint64_t)rtt_ms * 1000 : 0;
-            qInfo() << "Cloud mode: Using MTU values from ping results - mtu_in:" << connect_info.cloud_mtu_in
-                    << ", mtu_out:" << connect_info.cloud_mtu_out << ", rtt:" << rtt_ms << "ms";
-        } else {
-            connect_info.cloud_mtu_in = 0;
-            connect_info.cloud_mtu_out = 0;
-            connect_info.cloud_rtt_us = 0;
-            qWarning() << "Cloud mode: No ping results available, will use default MTU values";
-        }
-        
-        // Override Remote Play default video profile with cloud resolution/codec/bitrate.
-        connect_info.video_profile = settings->GetCloudVideoProfile(serviceType);
+        target,
+        QString("%1:%2").arg(serverIp).arg(serverPort),
+        QString(),     // nickname
+        QByteArray(),  // regist_key (not used for cloud)
+        QByteArray(),  // morning (not used for cloud)
+        QString(),     // initial_login_pin
+        QString(),     // duid (not used for cloud, direct connection)
+        false,         // auto_regist
+        fullscreen, zoom, stretch);
 
-        qInfo() << "Cloud streaming parameters set:";
-        qInfo() << "  service_type:" << chiaki_service_type_string(connect_info.service_type);
-        qInfo() << "  cloud_session_id set:" << !connect_info.cloud_session_id.isEmpty();
-        qInfo() << "  cloud_handshake_key set:" << !connect_info.cloud_handshake_key.isEmpty();
-        qInfo() << "  cloud_launch_spec set:" << !connect_info.cloud_launch_spec.isEmpty();
-        qInfo() << "  cloud_psn_wrapper_type:" << QString("0x%1").arg(connect_info.cloud_psn_wrapper_type, 2, 16, QChar('0'));
-        
-        // Resolve "auto" hardware decoder to actual decoder
-        if(connect_info.hw_decoder == "auto")
-        {
-            connect_info.hw_decoder = QString();
-            // Auto-detect available hardware decoder
-            static QSet<QString> allowed = {
-                "vulkan",
+    connect_info.cloud_launch_spec = launchSpec;
+    connect_info.cloud_handshake_key = handshakeKey;
+    connect_info.cloud_session_id = sessionId;
+    if (serviceType == "pscloud")
+        connect_info.service_type = CHIAKI_SERVICE_TYPE_PSCLOUD;
+    else if (serviceType == "psnow")
+        connect_info.service_type = CHIAKI_SERVICE_TYPE_PSNOW;
+    else
+        connect_info.service_type = CHIAKI_SERVICE_TYPE_REMOTE_PLAY;
+    connect_info.cloud_psn_wrapper_type = psnWrapperType;
+    connect_info.cloud_mtu_in = mtuIn;
+    connect_info.cloud_mtu_out = mtuOut;
+    connect_info.cloud_rtt_us = rttUs;
+    connect_info.video_profile = settings->GetCloudVideoProfile(serviceType);
+
+    qInfo() << "Cloud streaming parameters set:";
+    qInfo() << "  service_type:" << chiaki_service_type_string(connect_info.service_type);
+    qInfo() << "  cloud_psn_wrapper_type:" << QString("0x%1").arg(connect_info.cloud_psn_wrapper_type, 2, 16, QChar('0'));
+    qInfo() << "  mtu_in:" << mtuIn << " mtu_out:" << mtuOut << " rtt_us:" << rttUs;
+
+    // Resolve "auto" hardware decoder to an actual decoder.
+    if (connect_info.hw_decoder == "auto") {
+        connect_info.hw_decoder = QString();
+        static QSet<QString> allowed = {
+            "vulkan",
 #if defined(Q_OS_LINUX)
-                "vaapi",
+            "vaapi",
 #elif defined(Q_OS_MACOS)
-                "videotoolbox",
+            "videotoolbox",
 #elif defined(Q_OS_WIN)
-                "d3d11va",
+            "d3d11va",
 #endif
-            };
-            
-            enum AVHWDeviceType hw_dev = AV_HWDEVICE_TYPE_NONE;
-            QStringList available;
-            while (true) {
-                hw_dev = av_hwdevice_iterate_types(hw_dev);
-                if (hw_dev == AV_HWDEVICE_TYPE_NONE)
-                    break;
-                const QString name = QString::fromUtf8(av_hwdevice_get_type_name(hw_dev));
-                if (allowed.contains(name))
-                    available.append(name);
-            }
-            
-            // Select decoder based on platform preferences
-            if (available.contains("vulkan")) {
-                connect_info.hw_decoder = "vulkan";
-                qInfo() << "Auto-selected hardware decoder: vulkan";
-            }
+        };
+        enum AVHWDeviceType hw_dev = AV_HWDEVICE_TYPE_NONE;
+        QStringList available;
+        while (true) {
+            hw_dev = av_hwdevice_iterate_types(hw_dev);
+            if (hw_dev == AV_HWDEVICE_TYPE_NONE)
+                break;
+            const QString name = QString::fromUtf8(av_hwdevice_get_type_name(hw_dev));
+            if (allowed.contains(name))
+                available.append(name);
+        }
+        if (available.contains("vulkan")) {
+            connect_info.hw_decoder = "vulkan";
+            qInfo() << "Auto-selected hardware decoder: vulkan";
+        }
 #if defined(Q_OS_LINUX)
-            else if (available.contains("vaapi")) {
-                connect_info.hw_decoder = "vaapi";
-                qInfo() << "Auto-selected hardware decoder: vaapi";
-            }
+        else if (available.contains("vaapi")) {
+            connect_info.hw_decoder = "vaapi";
+            qInfo() << "Auto-selected hardware decoder: vaapi";
+        }
 #elif defined(Q_OS_WIN)
-            else if (available.contains("d3d11va")) {
-                connect_info.hw_decoder = "d3d11va";
-                qInfo() << "Auto-selected hardware decoder: d3d11va";
-            }
+        else if (available.contains("d3d11va")) {
+            connect_info.hw_decoder = "d3d11va";
+            qInfo() << "Auto-selected hardware decoder: d3d11va";
+        }
 #elif defined(Q_OS_MACOS)
-            else if (available.contains("videotoolbox")) {
-                connect_info.hw_decoder = "videotoolbox";
-                qInfo() << "Auto-selected hardware decoder: videotoolbox";
-            }
+        else if (available.contains("videotoolbox")) {
+            connect_info.hw_decoder = "videotoolbox";
+            qInfo() << "Auto-selected hardware decoder: videotoolbox";
+        }
 #endif
-            else {
-                qInfo() << "No hardware decoder available, using software decoding";
-            }
+        else {
+            qInfo() << "No hardware decoder available, using software decoding";
         }
-        
-        // Create and start StreamSession
-        qInfo() << "=== Creating StreamSession ===";
-        try {
-            qInfo() << "Instantiating StreamSession with cloud parameters...";
-            // Create session with QmlBackend as parent so it can manage it
-            StreamSession *session = new StreamSession(connect_info, parent());
-            qInfo() << "StreamSession created successfully, emitting sessionCreated signal...";
-            
-            // Emit signal so QmlBackend can register the session
-            emit sessionCreated(session);
-            
-            // Clear progress message since allocation is complete
-            setAllocationProgress("");
-        if (queue_position != -1) {
-            queue_position = -1;
-            emit queuePositionChanged();
-        }
-            
-            // Start the session
-            session->Start();
-            qInfo() << "StreamSession Start() called (connection is asynchronous)";
-            
-            // Success will be reported when the stream actually connects
-            // For now, just indicate that we've initiated the connection
-            if (callback.isCallable()) {
-                callback.call({
-                    true, 
-                    "Cloud session connection initiated (waiting for server response...)",
-                    serverIp
-                });
-            }
-        } catch (const Exception &e) {
-            qWarning() << "Failed to start cloud streaming session:" << e.what();
-            setGameImageUrl(QString()); // Clear image on error
-            if (callback.isCallable()) {
-                callback.call({
-                    false, 
-                    QString("Failed to start session: %1").arg(e.what())
-                });
-            }
-        }
-        
-        // Clean up
-        gaikaiStreaming->deleteLater();
-        if (kamajiSession) {
-            kamajiSession->deleteLater();
-        }
-    });
-    
-    // Connect dialog error signals
-    connect(gaikaiStreaming, &PSGaikaiStreaming::psPlusSubscriptionError, this, [this]() {
-        QmlBackend *qmlBackend = qobject_cast<QmlBackend*>(parent());
-        if (qmlBackend) {
-            qmlBackend->setShowPSPlusSubscriptionDialog(true);
-        }
-    });
-    
-    connect(gaikaiStreaming, &PSGaikaiStreaming::pingTimeoutError, this, [this]() {
-        QmlBackend *qmlBackend = qobject_cast<QmlBackend*>(parent());
-        if (qmlBackend) {
-            qmlBackend->setShowPingTimeoutDialog(true);
-        }
-    });
-    
-    // When Gaikai allocation fails
-    connect(gaikaiStreaming, &PSGaikaiStreaming::AllocationError, this,
-            [this, gaikaiStreaming, kamajiSession, callback, serviceType, duid, usedFastPath, gameIdentifier, npssoToken](QString error) {
-        qWarning() << "Gaikai allocation failed:" << error;
+    }
 
-        // Owned fast-path fallback: if we streamed a catalog-provided entitlement and Gaikai rejected
-        // it (the entitlement isn't actually valid/owned), retry exactly once via the full
-        // resolve/acquire flow -- i.e. behave like today. One shot only (forceFullEntitlementFlow
-        // disables the fast-path on the retry), so this can never loop.
-        if (usedFastPath && !gameIdentifier.isEmpty() && isEntitlementRejectedError(error)) {
-            qWarning() << "Owned fast-path entitlement rejected by Gaikai; retrying once with the full entitlement flow";
-            gaikaiStreaming->deleteLater();
-            if (kamajiSession)
-                kamajiSession->deleteLater();
-            continueCloudSessionAfterAuth(serviceType, gameIdentifier, callback, npssoToken, duid,
-                                          /*forceFullEntitlementFlow=*/true);
-            return;
-        }
+    qInfo() << "=== Creating StreamSession ===";
+    try {
+        StreamSession *session = new StreamSession(connect_info, parent());
+        emit sessionCreated(session);
 
-        // Clear game image on error
-        setGameImageUrl(QString());
-        
-        // Emit sessionError to dismiss loading screen
-        QmlBackend *qmlBackend = qobject_cast<QmlBackend*>(parent());
-        if (qmlBackend) {
-            emit qmlBackend->sessionError(tr("Cloud Streaming Failed"), 
-                                         QString("Allocation failed: %1").arg(error));
-        }
-        
-        if (callback.isCallable()) {
-            callback.call({false, QString("Allocation failed: %1").arg(error)});
-        }
-        gaikaiStreaming->deleteLater();
-        if (kamajiSession) {
-            kamajiSession->deleteLater();
-        }
-        
-        // Clear progress message on error
         setAllocationProgress("");
         if (queue_position != -1) {
             queue_position = -1;
             emit queuePositionChanged();
         }
-    });
-    
-    // Start Gaikai allocation with entitlement ID
-    gaikaiStreaming->StartAllocationFlow(entitlementId, QJSValue());
+
+        session->Start();
+        qInfo() << "StreamSession Start() called (connection is asynchronous)";
+
+        if (callback.isCallable()) {
+            callback.call({
+                true,
+                "Cloud session connection initiated (waiting for server response...)",
+                serverIp
+            });
+        }
+    } catch (const Exception &e) {
+        qWarning() << "Failed to start cloud streaming session:" << e.what();
+        setGameImageUrl(QString());
+        if (callback.isCallable()) {
+            callback.call({false, QString("Failed to start session: %1").arg(e.what())});
+        }
+    }
+}
+
+// Map the C error_message sentinels to the same dialogs the old flow raised.
+void CloudStreamingBackend::handleProvisionError(QString serviceType, QString errorMessage, const QJSValue &callback)
+{
+    Q_UNUSED(serviceType);
+    qWarning() << "Cloud provisioning failed:" << errorMessage;
+    setGameImageUrl(QString());
+
+    QmlBackend *qmlBackend = qobject_cast<QmlBackend*>(parent());
+    if (errorMessage.contains(QStringLiteral("PS_PLUS_SUBSCRIPTION_REQUIRED"))) {
+        if (qmlBackend) qmlBackend->setShowPSPlusSubscriptionDialog(true);
+    } else if (errorMessage.contains(QStringLiteral("ACCOUNT_PRIVACY_SETTINGS"))) {
+        if (qmlBackend) {
+            qmlBackend->setAccountPrivacyUpgradeUrl(QString());
+            qmlBackend->setShowAccountPrivacySettingsDialog(true);
+        }
+    } else if (errorMessage.contains(QStringLiteral("PING_TIMEOUT"))) {
+        if (qmlBackend) qmlBackend->setShowPingTimeoutDialog(true);
+    } else if (qmlBackend) {
+        emit qmlBackend->sessionError(tr("Cloud Streaming Failed"),
+            errorMessage.isEmpty() ? tr("Allocation failed")
+                                   : QString("Allocation failed: %1").arg(errorMessage));
+    }
+
+    if (callback.isCallable()) {
+        callback.call({false, errorMessage.isEmpty() ? QString("Allocation failed")
+                                                      : QString("Allocation failed: %1").arg(errorMessage)});
+    }
+
+    setAllocationProgress("");
+    if (queue_position != -1) {
+        queue_position = -1;
+        emit queuePositionChanged();
+    }
+}
+
+// C progress callback -- runs on the worker thread; marshal to the GUI thread.
+void CloudStreamingBackend::provisionProgressThunk(const char *stage, void *user)
+{
+    auto *self = static_cast<CloudStreamingBackend*>(user);
+    if (!self || !stage)
+        return;
+    const QString s = QString::fromUtf8(stage);
+    QMetaObject::invokeMethod(self, [self, s]() { self->setAllocationProgress(s); });
 }
 
 void CloudStreamingBackend::onAllocationProgress(QString message, int queuePosition)
@@ -529,13 +433,13 @@ void CloudStreamingBackend::checkAuthorization(QString serviceType, QString npss
         callback(false);
         return;
     }
-    
+
     // Determine configuration based on service type
     QString kamajiClientId;
     QString scopesStr;
     QString redirectUri;
     QString userAgent;
-    
+
     if (serviceType == "psnow") {
         // PSNOW configuration (matching PSKamajiSession)
         kamajiClientId = KamajiConsts::CLIENT_ID;
@@ -549,13 +453,13 @@ void CloudStreamingBackend::checkAuthorization(QString serviceType, QString npss
         redirectUri = GaikaiConsts::REDIRECT_URI;
         userAgent = GaikaiConsts::USER_AGENT;
     }
-    
+
     // Disable cookie jar on auth manager - we use manual Cookie headers only
     authManager->setCookieJar(nullptr);
-    
+
     // Create authorization check request (matching PSKamajiSession::step0_5a_AuthorizeCheck)
     QString url = CloudConfig::ACCOUNT_BASE + "/authz/v3/oauth/authorizeCheck";
-    
+
     QJsonObject body;
     body["client_id"] = kamajiClientId;
     body["scope"] = scopesStr;
@@ -563,7 +467,7 @@ void CloudStreamingBackend::checkAuthorization(QString serviceType, QString npss
     body["response_type"] = "code";
     body["service_entity"] = "urn:service-entity:psn";
     body["duid"] = duid;
-    
+
     QNetworkRequest req{QUrl(url)};
     req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json; charset=UTF-8");
     req.setRawHeader("User-Agent", userAgent.toUtf8());
@@ -571,16 +475,16 @@ void CloudStreamingBackend::checkAuthorization(QString serviceType, QString npss
     if (!npssoToken.isEmpty()) {
         req.setRawHeader("Cookie", QString("npsso=%1").arg(npssoToken).toUtf8());
     }
-    
+
     qInfo() << "=== Centralized Authorization Check ===";
     qInfo() << "Service Type:" << serviceType;
     qInfo() << "URL:" << url;
-    
+
     QNetworkReply *reply = authManager->post(req, QJsonDocument(body).toJson());
-    
+
     connect(reply, &QNetworkReply::finished, this, [reply, callback, serviceType]() {
         bool success = false;
-        
+
         // Match PSKamajiSession::handleAuthorizeCheckResponse logic
         if (reply->error() == QNetworkReply::NoError) {
             success = true;
@@ -588,9 +492,8 @@ void CloudStreamingBackend::checkAuthorization(QString serviceType, QString npss
         } else {
             qWarning() << "Authorization check failed for" << serviceType << ":" << reply->errorString();
         }
-        
+
         reply->deleteLater();
         callback(success);
     });
 }
-

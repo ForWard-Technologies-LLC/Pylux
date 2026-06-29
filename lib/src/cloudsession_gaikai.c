@@ -57,6 +57,7 @@ typedef struct
 	struct json_object *selected_ping; // borrowed ref into ping_results
 	char selected_datacenter[128];
 	int selected_dc_port;
+	bool ping_timeout;          // best measured RTT exceeded the auto-select gate (>80ms)
 } GaikaiCtx;
 
 static void gk_progress(GaikaiCtx *c, const char *stage)
@@ -673,6 +674,7 @@ static ChiakiErrorCode gk_step12_select(GaikaiCtx *c)
 		if(measured && rtt_ms > 80)
 		{
 			CHIAKI_LOGE(c->log, "[GAIKAI] best datacenter RTT %dms > 80ms", rtt_ms);
+			c->ping_timeout = true;
 			return CHIAKI_ERR_UNKNOWN; // ping-too-high
 		}
 	}
@@ -822,6 +824,8 @@ ChiakiErrorCode cc_gaikai_allocate(ChiakiLog *log,
 	}
 	if(psplus_err && !out->error_message)
 		out->error_message = strdup("PS_PLUS_SUBSCRIPTION_REQUIRED");
+	if(c.ping_timeout && !out->error_message)
+		out->error_message = strdup("PING_TIMEOUT");
 
 	free(c.config_key); free(c.lock_session_key); free(c.gaikai_session_id);
 	free(c.gk_cloud_auth_code); free(c.ps3_auth_code); free(c.stream_server_auth_code);

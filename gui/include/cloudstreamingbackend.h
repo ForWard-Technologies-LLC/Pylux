@@ -75,31 +75,27 @@ private:
     // Centralized authorization check (used by both PSNOW and PSCLOUD)
     void checkAuthorization(QString serviceType, QString npssoToken, QString duid, std::function<void(bool)> callback);
     
-    // Continue cloud session after successful authorization.
-    // forceFullEntitlementFlow=true disables the owned-PSNOW fast-path so the one-shot retry (after
-    // Gaikai rejects a fast-path entitlement) takes the full resolve/acquire path like today.
-    void continueCloudSessionAfterAuth(QString serviceType, QString gameIdentifier, const QJSValue &callback, QString npssoToken, QString sharedDuid, bool forceFullEntitlementFlow = false);
+    // Continue cloud session after successful authorization: runs the unified C
+    // provisioning flow (chiaki_cloud_provision_session) on a worker thread and
+    // hands the stream-ready result to StreamSession. Kamaji+Gaikai, the owned
+    // fast-path and the one-shot noGameForEntitlementId retry all live in libchiaki.
+    void continueCloudSessionAfterAuth(QString serviceType, QString gameIdentifier, const QJSValue &callback, QString npssoToken, QString sharedDuid);
+
+    // Build StreamSessionConnectInfo from a successful provision result and start the session.
+    void finishCloudSession(QString serviceType, QString serverIp, int serverPort,
+                            QString handshakeKey, QString launchSpec, QString sessionId,
+                            uint8_t psnWrapperType, uint32_t mtuIn, uint32_t mtuOut, uint64_t rttUs,
+                            const QJSValue &callback);
+    // Map a provisioning failure (error_message sentinels) to the right UI dialog.
+    void handleProvisionError(QString serviceType, QString errorMessage, const QJSValue &callback);
+    // C progress callback (called from the worker thread): marshals to setAllocationProgress.
+    static void provisionProgressThunk(const char *stage, void *user);
 
     Settings *settings;
     QString allocation_progress;
     int queue_position = -1;  // -1 means not queued or no position available
     QString game_image_url;  // Landscape image URL for current cloud game
     QNetworkAccessManager *authManager; // For authorization check
-    
-    // Helper method to start Gaikai allocation (shared between PSNOW and PSCLOUD flows).
-    // usedFastPath + gameIdentifier + npssoToken let the allocation-error handler retry once via the
-    // full entitlement flow when Gaikai rejects a fast-path (owned) entitlement.
-    void startGaikaiAllocation(QString serviceType, QString platform, QString entitlementId,
-                                QString duid,
-                                QString redirectUri, QString userAgent, QString oauthApiPath,
-                                ChiakiTarget target, const QJSValue &callback, QObject *kamajiSession,
-                                bool usedFastPath = false, QString gameIdentifier = QString(),
-                                QString npssoToken = QString());
-
-    // True when a Gaikai allocation error means "the entitlement we streamed isn't valid/owned"
-    // (e.g. noGameForEntitlementId) -- the signal that the owned fast-path guessed wrong and we
-    // should retry with the full resolve/acquire flow.
-    static bool isEntitlementRejectedError(const QString &error);
 };
 
 #endif // CLOUDSTREAMINGBACKEND_H
