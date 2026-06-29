@@ -27,8 +27,9 @@
 #define KM_COMMERCE_CLIENT_ID "dc523cc2-b51b-4190-bff0-3397c06871b3"
 #define KM_REDIRECT_URI "https://psnow.playstation.com/app/2.2.0/133/5cdcc037d/grc-response.html"
 #define KM_USER_AGENT   "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) playstation-now/0.0.0 Chrome/83.0.4103.104 Electron/9.0.4 Safari/537.36 gkApollo"
+// URL-encoded (these are spliced into OAuth query strings via %s, not re-encoded).
 #define KM_PS3_SCOPES   "kamaji:commerce_native"
-#define KM_PS4_SCOPES   "kamaji:commerce_native kamaji:commerce_container kamaji:lists kamaji:s2s.subscriptionsPremium.get"
+#define KM_PS4_SCOPES   "kamaji:commerce_native%20kamaji:commerce_container%20kamaji:lists%20kamaji:s2s.subscriptionsPremium.get"
 #define KM_REFERER      "https://psnow.playstation.com/app/2.2.0/133/5cdcc037d/"
 #define KM_ORIGIN       "https://psnow.playstation.com"
 
