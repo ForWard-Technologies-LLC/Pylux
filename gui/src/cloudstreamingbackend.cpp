@@ -132,7 +132,12 @@ void CloudStreamingBackend::continueCloudSessionAfterAuth(QString serviceType, Q
     const QByteArray npsso = npssoToken.toUtf8();
     const QByteArray storeCountry = settings->GetCloudResolvedStoreCountry().toUtf8();
     const QByteArray storeLang = settings->GetCloudResolvedStoreLang().toUtf8();
-    const QByteArray gameLang = settings->GetCloudGameLanguage().toUtf8();
+    // Streaming language: manual picker, else fall back to the auto-detected catalog
+    // locale (matches psgaikaistreaming.cpp) so non-English regions don't silently get "en".
+    QString gameLangStr = settings->GetCloudGameLanguage();
+    if (gameLangStr.isEmpty())
+        gameLangStr = settings->GetCloudStoreLocale();
+    const QByteArray gameLang = gameLangStr.toUtf8();
     const QByteArray forcedDc = (pscloud ? settings->GetCloudDatacenterPSCloud()
                                          : settings->GetCloudDatacenterPSNOW()).toUtf8();
     const int resolution = pscloud ? settings->GetCloudResolutionPSCloud()
