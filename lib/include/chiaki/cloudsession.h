@@ -45,6 +45,9 @@ typedef struct chiaki_cloud_provision_config_t
 	bool catalog_is_foreign;          /**< fallback-region account: skip the $0 acquire on 404 */
 	bool skip_account_attr_check;     /**< platform already passed (or user ignored) the privacy check */
 	const char *forced_datacenter;    /**< settings-selected region; "Auto"/"" => ping & auto-pick */
+	const char *prior_datacenters_json; /**< platform's stored datacenters for this service; merged
+	                                       with this run's pings into result.datacenter_pings (keeps
+	                                       previously-measured RTTs). May be NULL/"". */
 	const char *cache_dir;            /**< lib-owned datacenter-ping cache lives here; may be "" */
 	const char *game_language;        /**< streaming-language locale (e.g. "de-DE"); bare code derived */
 	int  resolution;                  /**< 720|1080|1440|2160 (platform picks the per-service value) */

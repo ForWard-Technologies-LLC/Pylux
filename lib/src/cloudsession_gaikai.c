@@ -54,7 +54,8 @@ typedef struct
 	char *ps3_auth_code;
 	char *stream_server_auth_code;
 	struct json_object *spec;          // requestGameSpecification (auth codes patched after 8b)
-	struct json_object *ping_results;  // sorted array (also returned to caller)
+	struct json_object *ping_results;  // sorted array (this run's measurements; used for select/allocate)
+	struct json_object *dc_picker;     // full datacenter list for the Settings picker (merged)
 	struct json_object *selected_ping; // borrowed ref into ping_results
 	char selected_datacenter[128];
 	int selected_dc_port;
@@ -621,6 +622,46 @@ static void *gk_ping_thread(void *arg)
 	return NULL;
 }
 
+// Find a row by dataCenter name in a json array (borrowed ref), or NULL.
+static struct json_object *gk_find_dc(struct json_object *arr, const char *name)
+{
+	if(!arr || json_object_get_type(arr) != json_type_array) return NULL;
+	size_t n = json_object_array_length(arr);
+	for(size_t i = 0; i < n; i++)
+	{
+		struct json_object *row = json_object_array_get_idx(arr, i);
+		if(strcmp(cc_json_str(row, "dataCenter"), name) == 0) return row;
+	}
+	return NULL;
+}
+
+// Build the full datacenter list for the Settings picker. Three-way merge over the
+// API list (@p dcs_api): this run's measurement wins, else the platform's prior
+// stored RTT (cfg->prior_datacenters_json), else a 0 placeholder. Mirrors the old
+// per-platform merge (keeps previously-measured RTTs for datacenters not pinged
+// this run, e.g. the non-selected ones in forced-datacenter mode).
+static struct json_object *gk_build_picker(GaikaiCtx *c, struct json_object *dcs_api)
+{
+	struct json_object *prior = (c->cfg->prior_datacenters_json && *c->cfg->prior_datacenters_json)
+		? json_tokener_parse(c->cfg->prior_datacenters_json) : NULL;
+	struct json_object *out = json_object_new_array();
+	size_t n = json_object_array_length(dcs_api);
+	for(size_t i = 0; i < n; i++)
+	{
+		struct json_object *dc = json_object_array_get_idx(dcs_api, i);
+		const char *name = cc_json_str(dc, "dataCenter");
+		struct json_object *row = gk_find_dc(c->ping_results, name);   // this run wins
+		if(!row) row = gk_find_dc(prior, name);                        // else prior measured
+		if(row)
+			json_object_array_add(out, cc_json_clone(row));
+		else                                                            // else 0 placeholder
+			json_object_array_add(out, gk_ping_obj(name, 0, 0, 0,
+				cc_json_int(dc, "port"), cc_json_str(dc, "publicIp"), cc_json_int(dc, "maxBandwidth"), false));
+	}
+	if(prior) json_object_put(prior);
+	return out;
+}
+
 // step11 datacenters + ping/select. Fills c->ping_results (sorted) + c->selected_*.
 static ChiakiErrorCode gk_step11_datacenters(GaikaiCtx *c)
 {
@@ -703,6 +744,8 @@ static ChiakiErrorCode gk_step11_datacenters(GaikaiCtx *c)
 		json_object_put(c->ping_results);
 		c->ping_results = sorted;
 	}
+	// Full datacenter list for the Settings picker (merged with prior stored RTTs).
+	c->dc_picker = gk_build_picker(c, dcs);
 	json_object_put(dcs);
 	return CHIAKI_ERR_SUCCESS;
 }
@@ -897,10 +940,11 @@ ChiakiErrorCode cc_gaikai_allocate(ChiakiLog *log,
 	if(e == CHIAKI_ERR_SUCCESS) e = gk_step12_select(&c);
 	if(e == CHIAKI_ERR_SUCCESS) e = gk_step13_allocate(&c, out);
 
-	// Return the ping results for the Settings UI (per-region ms).
-	if(c.ping_results)
+	// Return the full datacenter list (merged with prior stored RTTs) for the
+	// Settings picker -- the platform persists this verbatim, like the old code.
+	if(c.dc_picker)
 	{
-		const char *s = json_object_to_json_string(c.ping_results);
+		const char *s = json_object_to_json_string(c.dc_picker);
 		if(s) { free(out->datacenter_pings); out->datacenter_pings = strdup(s); }
 	}
 	if(psplus_err && !out->error_message)
@@ -919,5 +963,6 @@ ChiakiErrorCode cc_gaikai_allocate(ChiakiLog *log,
 	free(c.gk_cloud_auth_code); free(c.ps3_auth_code); free(c.stream_server_auth_code);
 	if(c.spec) json_object_put(c.spec);
 	if(c.ping_results) json_object_put(c.ping_results);
+	if(c.dc_picker) json_object_put(c.dc_picker);
 	return e;
 }

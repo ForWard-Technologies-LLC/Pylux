@@ -46,6 +46,7 @@ int main(int argc, char **argv)
 	cfg.owned_entitlement_id = env_or("OWNED_ENT", "");
 	cfg.owned_platform = env_or("OWNED_PLAT", "ps4");
 	cfg.forced_datacenter = env_or("FORCED_DC", "");
+	cfg.prior_datacenters_json = env_or("PRIOR_DC", "");
 	cfg.catalog_is_foreign = getenv("FOREIGN") && *getenv("FOREIGN");
 	cfg.resolution = atoi(env_or("RES", "1080"));
 	cfg.bitrate_kbps = atoi(env_or("BITRATE", "15000"));
@@ -73,6 +74,7 @@ int main(int argc, char **argv)
 			out.handshake_key ? "yes" : "no", out.launch_spec ? "yes" : "no",
 			(unsigned long long)out.rtt_us, out.mtu_in, out.mtu_out);
 		printf("   msg=%s\n", out.error_message ? out.error_message : "(none)");
+		printf("   datacenter_pings=%s\n", out.datacenter_pings ? out.datacenter_pings : "(none)");
 		chiaki_cloud_provision_result_fini(&out);
 		return e == CHIAKI_ERR_SUCCESS ? 0 : 1;
 	}
