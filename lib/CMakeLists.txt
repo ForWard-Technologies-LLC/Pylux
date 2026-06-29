@@ -41,6 +41,7 @@ set(HEADER_FILES
 		include/chiaki/orientation.h
 		include/chiaki/bitstream.h
 		include/chiaki/cloudcatalog.h
+		include/chiaki/cloudsession.h
 		include/chiaki/remote/holepunch.h
 		include/chiaki/remote/rudp.h
 		include/chiaki/remote/rudpsendbuffer.h)
@@ -96,6 +97,7 @@ set(SOURCE_FILES
 		src/cloudcatalog_merge.c
 		src/cloudcatalog_fetch.c
 		src/cloudcatalog_unified.c
+		src/cloudsession.c
 		src/remote/holepunch.c
 		src/remote/rudp.c
 		src/remote/rudpsendbuffer.c)
