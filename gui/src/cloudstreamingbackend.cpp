@@ -359,25 +359,36 @@ void CloudStreamingBackend::handleProvisionError(QString serviceType, QString er
     qWarning() << "Cloud provisioning failed:" << errorMessage;
     setGameImageUrl(QString());
 
+    // Set the specific dialog (supplementary), then ALWAYS emit sessionError so the
+    // stream/loading page dismisses and returns to the main menu -- the original
+    // emitted both its special signal AND AllocationError/sessionComplete(false)
+    // (which fired sessionError). Without the sessionError the page never exits and
+    // the dialog just toasts on the streaming page.
+    QString userMessage;
     QmlBackend *qmlBackend = qobject_cast<QmlBackend*>(parent());
     if (errorMessage.contains(QStringLiteral("PS_PLUS_SUBSCRIPTION_REQUIRED"))) {
         if (qmlBackend) qmlBackend->setShowPSPlusSubscriptionDialog(true);
+        userMessage = tr("PlayStation Plus subscription required");
     } else if (errorMessage.contains(QStringLiteral("ACCOUNT_PRIVACY_SETTINGS"))) {
         if (qmlBackend) {
             qmlBackend->setAccountPrivacyUpgradeUrl(QString());
             qmlBackend->setShowAccountPrivacySettingsDialog(true);
         }
+        userMessage = tr("Account privacy settings need updating");
     } else if (errorMessage.contains(QStringLiteral("PING_TIMEOUT"))) {
         if (qmlBackend) qmlBackend->setShowPingTimeoutDialog(true);
-    } else if (qmlBackend) {
-        emit qmlBackend->sessionError(tr("Cloud Streaming Failed"),
-            errorMessage.isEmpty() ? tr("Allocation failed")
-                                   : QString("Allocation failed: %1").arg(errorMessage));
+        userMessage = tr("Ping must be < 80ms to start a cloud session");
+    } else {
+        userMessage = errorMessage.isEmpty() ? tr("Allocation failed")
+                                             : QString("Allocation failed: %1").arg(errorMessage);
+    }
+
+    if (qmlBackend) {
+        emit qmlBackend->sessionError(tr("Cloud Streaming Failed"), userMessage);
     }
 
     if (callback.isCallable()) {
-        callback.call({false, errorMessage.isEmpty() ? QString("Allocation failed")
-                                                      : QString("Allocation failed: %1").arg(errorMessage)});
+        callback.call({false, userMessage});
     }
 
     setAllocationProgress("");
