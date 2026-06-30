@@ -8,7 +8,6 @@
 #include <QObject>
 #include <QString>
 #include <QJSValue>
-#include <QNetworkAccessManager>
 
 // ============================================================================
 // CONFIGURATION - Shared settings and values used by multiple classes
@@ -92,7 +91,6 @@ private:
     QString allocation_progress;
     int queue_position = -1;  // -1 means not queued or no position available
     QString game_image_url;  // Landscape image URL for current cloud game
-    QNetworkAccessManager *authManager; // For authorization check
 };
 
 #endif // CLOUDSTREAMINGBACKEND_H

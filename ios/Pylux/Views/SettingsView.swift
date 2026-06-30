@@ -264,7 +264,7 @@ enum CloudDatacenterStore {
         return !arr.isEmpty
     }
 
-    /// Save datacenter list after allocation (called from PSGaikaiStreaming)
+    /// Save datacenter list after allocation (called from the cloud streaming backend)
     static func saveDatacenters(_ datacenters: [[String: Any]], for serviceType: String) {
         guard let data = try? JSONSerialization.data(withJSONObject: datacenters) else { return }
         if serviceType == "pscloud" {

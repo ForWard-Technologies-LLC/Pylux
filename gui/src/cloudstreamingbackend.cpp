@@ -14,9 +14,6 @@
 #include <QDateTime>
 #include <QLoggingCategory>
 #include <QSet>
-#include <QNetworkAccessManager>
-#include <QNetworkRequest>
-#include <QNetworkReply>
 #include <QJsonObject>
 #include <QJsonDocument>
 #include <QUrlQuery>
@@ -34,7 +31,6 @@ CloudStreamingBackend::CloudStreamingBackend(Settings *settings, QObject *parent
     : QObject(parent)
     , settings(settings)
     , allocation_progress("")
-    , authManager(new QNetworkAccessManager(this))
 {
 }
 
