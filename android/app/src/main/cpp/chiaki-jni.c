@@ -13,6 +13,7 @@
 #include <chiaki/remote/holepunch.h>
 #include <chiaki/base64.h>
 #include <chiaki/cloudcatalog.h>
+#include <chiaki/cloudsession.h>
 
 #include <string.h>
 #include <stdlib.h>
@@ -1350,193 +1351,6 @@ JNIEXPORT jstring JNICALL JNI_FCN(holepunchGetRegistInfoLocalIp)(JNIEnv *env, jo
 	return E->NewStringUTF(env, info.regist_local_ip);
 }
 
-// Datacenter Ping JNI
-JNIEXPORT jobject JNICALL Java_com_metallic_chiaki_cloudplay_ping_DatacenterPingNative_performPing(
-	JNIEnv *env, jobject obj, jstring publicIp, jint port, jstring sessionKey, jstring serviceType)
-{
-	// Create a minimal logger (Qt line 54-55)
-	ChiakiLog log;
-	chiaki_log_init(&log, CHIAKI_LOG_ALL & ~CHIAKI_LOG_VERBOSE, chiaki_log_cb_print, NULL);
-	
-	const char *ip_str = (*env)->GetStringUTFChars(env, publicIp, NULL);
-	const char *session_key_str = (*env)->GetStringUTFChars(env, sessionKey, NULL);
-	const char *service_type_str = (*env)->GetStringUTFChars(env, serviceType, NULL);
-	
-	if(!ip_str || !session_key_str || !service_type_str)
-	{
-		CHIAKI_LOGI(&log, "DatacenterPing: Failed to get JNI strings");
-		
-		// Create failure result
-		jclass pingResultClass = (*env)->FindClass(env, "com/metallic/chiaki/cloudplay/ping/PingResult");
-		jmethodID constructor = (*env)->GetMethodID(env, pingResultClass, "<init>", "(JII)V");
-		jobject result = (*env)->NewObject(env, pingResultClass, constructor, (jlong)-1, (jint)0, (jint)0);
-		
-		if(ip_str) (*env)->ReleaseStringUTFChars(env, publicIp, ip_str);
-		if(session_key_str) (*env)->ReleaseStringUTFChars(env, sessionKey, session_key_str);
-		if(service_type_str) (*env)->ReleaseStringUTFChars(env, serviceType, service_type_str);
-		return result;
-	}
-	
-	CHIAKI_LOGI(&log, "DatacenterPing: Pinging %s:%d (service=%s)", ip_str, port, service_type_str);
-	
-	// Resolve hostname to IP
-	struct addrinfo hints;
-	memset(&hints, 0, sizeof(hints));
-	hints.ai_family = AF_INET;
-	hints.ai_socktype = SOCK_DGRAM;
-	hints.ai_protocol = IPPROTO_UDP;
-	
-	char port_str[16];
-	snprintf(port_str, sizeof(port_str), "%d", port);
-	
-	struct addrinfo *addrinfo_result = NULL;
-	int err = getaddrinfo(ip_str, port_str, &hints, &addrinfo_result);
-	if(err != 0 || !addrinfo_result)
-	{
-		CHIAKI_LOGE(&log, "DatacenterPing: Failed to resolve %s:%d - %s", ip_str, port, gai_strerror(err));
-		
-		// Create failure result
-		jclass pingResultClass = (*env)->FindClass(env, "com/metallic/chiaki/cloudplay/ping/PingResult");
-		jmethodID constructor = (*env)->GetMethodID(env, pingResultClass, "<init>", "(JII)V");
-		jobject result = (*env)->NewObject(env, pingResultClass, constructor, (jlong)-1, (jint)0, (jint)0);
-		
-		(*env)->ReleaseStringUTFChars(env, publicIp, ip_str);
-		(*env)->ReleaseStringUTFChars(env, sessionKey, session_key_str);
-		(*env)->ReleaseStringUTFChars(env, serviceType, service_type_str);
-		return result;
-	}
-	
-	// Allocate and initialize session buffer (Qt lines 115-132)
-	size_t session_size = sizeof(ChiakiSession);
-	ChiakiSession *session = (ChiakiSession *)calloc(1, session_size);
-	if(!session)
-	{
-		CHIAKI_LOGE(&log, "DatacenterPing: Failed to allocate session buffer");
-		freeaddrinfo(addrinfo_result);
-		
-		// Create failure result
-		jclass pingResultClass = (*env)->FindClass(env, "com/metallic/chiaki/cloudplay/ping/PingResult");
-		jmethodID constructor = (*env)->GetMethodID(env, pingResultClass, "<init>", "(JII)V");
-		jobject result = (*env)->NewObject(env, pingResultClass, constructor, (jlong)-1, (jint)0, (jint)0);
-		
-		(*env)->ReleaseStringUTFChars(env, publicIp, ip_str);
-		(*env)->ReleaseStringUTFChars(env, sessionKey, session_key_str);
-		(*env)->ReleaseStringUTFChars(env, serviceType, service_type_str);
-		return result;
-	}
-	
-	session->log = &log;
-	session->connect_info.host_addrinfo_selected = addrinfo_result;
-	session->connect_info.enable_dualsense = false;
-	session->target = CHIAKI_TARGET_PS5_1;
-	session->cloud_port = port;
-	
-	// Set service type for cloud ping (Qt lines 133-145)
-	if(strcmp(service_type_str, "pscloud") == 0)
-	{
-		session->cloud_psn_wrapper_type = 0;  // No PSN wrapper for PSCloud
-		session->service_type = CHIAKI_SERVICE_TYPE_PSCLOUD;
-	}
-	else  // "psnow" or fallback
-	{
-		session->cloud_psn_wrapper_type = 0x01;  // PSN wrapper for PSNOW
-		session->service_type = CHIAKI_SERVICE_TYPE_PSNOW;
-	}
-	
-	// Initialize senkusha (Qt lines 148-159)
-	ChiakiSenkusha senkusha;
-	ChiakiErrorCode chiaki_err = chiaki_senkusha_init(&senkusha, session);
-	if(chiaki_err != CHIAKI_ERR_SUCCESS)
-	{
-		CHIAKI_LOGE(&log, "DatacenterPing: Failed to initialize senkusha: %d", chiaki_err);
-		freeaddrinfo(addrinfo_result);
-		free(session);
-		
-		// Create failure result
-		jclass pingResultClass = (*env)->FindClass(env, "com/metallic/chiaki/cloudplay/ping/PingResult");
-		jmethodID constructor = (*env)->GetMethodID(env, pingResultClass, "<init>", "(JII)V");
-		jobject result = (*env)->NewObject(env, pingResultClass, constructor, (jlong)-1, (jint)0, (jint)0);
-		
-		(*env)->ReleaseStringUTFChars(env, publicIp, ip_str);
-		(*env)->ReleaseStringUTFChars(env, sessionKey, session_key_str);
-		(*env)->ReleaseStringUTFChars(env, serviceType, service_type_str);
-		return result;
-	}
-	
-	// Force protocol version to 9 for cloud ping (Qt line 162)
-	senkusha.protocol_version = 9;
-	
-	// Set session key (x-gaikai-session) for cloud mode BIG message (Qt lines 164-179)
-	size_t session_key_len = strlen(session_key_str);
-	senkusha.cloud_launch_spec = (char *)malloc(session_key_len + 1);
-	if(!senkusha.cloud_launch_spec)
-	{
-		CHIAKI_LOGE(&log, "DatacenterPing: Failed to allocate session key string");
-		chiaki_senkusha_fini(&senkusha);
-		freeaddrinfo(addrinfo_result);
-		free(session);
-		
-		// Create failure result
-		jclass pingResultClass = (*env)->FindClass(env, "com/metallic/chiaki/cloudplay/ping/PingResult");
-		jmethodID constructor = (*env)->GetMethodID(env, pingResultClass, "<init>", "(JII)V");
-		jobject result = (*env)->NewObject(env, pingResultClass, constructor, (jlong)-1, (jint)0, (jint)0);
-		
-		(*env)->ReleaseStringUTFChars(env, publicIp, ip_str);
-		(*env)->ReleaseStringUTFChars(env, sessionKey, session_key_str);
-		(*env)->ReleaseStringUTFChars(env, serviceType, service_type_str);
-		return result;
-	}
-	memcpy(senkusha.cloud_launch_spec, session_key_str, session_key_len);
-	senkusha.cloud_launch_spec[session_key_len] = '\0';
-	
-	// Run senkusha (this will do the full handshake + echo/ping test) (Qt line 186)
-	uint32_t mtu_in = 0;
-	uint32_t mtu_out = 0;
-	uint64_t rtt_us = 0;
-	
-	chiaki_err = chiaki_senkusha_run(&senkusha, &mtu_in, &mtu_out, &rtt_us, NULL);
-	
-	// Free resources (Qt lines 189-196)
-	if(senkusha.cloud_launch_spec)
-	{
-		free(senkusha.cloud_launch_spec);
-		senkusha.cloud_launch_spec = NULL;
-	}
-	
-	chiaki_senkusha_fini(&senkusha);
-	freeaddrinfo(addrinfo_result);
-	free(session);
-	
-	// Create result object (Qt lines 198-210)
-	jlong result_rtt_us = -1;
-	jint result_mtu_in = 0;
-	jint result_mtu_out = 0;
-	
-	if(chiaki_err == CHIAKI_ERR_SUCCESS)
-	{
-		result_rtt_us = (jlong)rtt_us;
-		result_mtu_in = (jint)mtu_in;
-		result_mtu_out = (jint)mtu_out;
-		CHIAKI_LOGI(&log, "DatacenterPing: %s:%d - RTT: %lld us, MTU in: %d, MTU out: %d", 
-			ip_str, port, (long long)rtt_us, mtu_in, mtu_out);
-	}
-	else
-	{
-		CHIAKI_LOGE(&log, "DatacenterPing: %s:%d - Ping failed with error: %d", ip_str, port, chiaki_err);
-	}
-	
-	// Release JNI strings
-	(*env)->ReleaseStringUTFChars(env, publicIp, ip_str);
-	(*env)->ReleaseStringUTFChars(env, sessionKey, session_key_str);
-	(*env)->ReleaseStringUTFChars(env, serviceType, service_type_str);
-	
-	// Create and return PingResult object
-	jclass pingResultClass = (*env)->FindClass(env, "com/metallic/chiaki/cloudplay/ping/PingResult");
-	jmethodID constructor = (*env)->GetMethodID(env, pingResultClass, "<init>", "(JII)V");
-	jobject result = (*env)->NewObject(env, pingResultClass, constructor, result_rtt_us, result_mtu_in, result_mtu_out);
-	
-	return result;
-}
 
 // Unified cloud catalog (chiaki/cloudcatalog.h): one fetch+dedup+ownership+tagging pass shared
 // with Qt and iOS. Returns the UTF-8 JSON contract as a byte[] (the payload has non-ASCII names
@@ -1616,6 +1430,142 @@ JNIEXPORT void JNICALL JNI_FCN(cloudCatalogInvalidateCache)(JNIEnv *env, jobject
 		chiaki_cloudcatalog_invalidate_cache(cache_dir);
 		E->ReleaseStringUTFChars(env, cache_dir_str, cache_dir);
 	}
+}
+
+// Unified cloud session provisioning (chiaki/cloudsession.h): the whole Kamaji+Gaikai flow
+// in C, shared with Qt/iOS. Blocking -- call from a background thread. Progress + cancellation
+// route back to a Kotlin CloudProvisionCallbacks object, called on THIS thread (so this JNIEnv
+// stays valid; the lib's parallel ping threads never touch JNI). Result comes back via
+// stringOut[8] + intOut[5]; returns the ChiakiErrorCode. All result strings are ASCII
+// (ip/keys/launchSpec/json/errorMessage), so NewStringUTF is safe (unlike the catalog payload).
+typedef struct
+{
+	JNIEnv *env;
+	jobject callbacks;
+	jmethodID on_progress;   // (Ljava/lang/String;)V
+	jmethodID is_cancelled;  // ()Z
+} CloudCbCtx;
+
+static void cloud_jni_progress(const char *stage, void *user)
+{
+	CloudCbCtx *c = (CloudCbCtx *)user;
+	if(!c || !c->callbacks || !c->on_progress) return;
+	JNIEnv *env = c->env;
+	jstring s = E->NewStringUTF(env, stage ? stage : "");
+	if(!s) return;
+	E->CallVoidMethod(env, c->callbacks, c->on_progress, s);
+	if(E->ExceptionCheck(env)) E->ExceptionClear(env);
+	E->DeleteLocalRef(env, s);
+}
+
+static bool cloud_jni_cancelled(void *user)
+{
+	CloudCbCtx *c = (CloudCbCtx *)user;
+	if(!c || !c->callbacks || !c->is_cancelled) return false;
+	JNIEnv *env = c->env;
+	jboolean b = E->CallBooleanMethod(env, c->callbacks, c->is_cancelled);
+	if(E->ExceptionCheck(env)) { E->ExceptionClear(env); return false; }
+	return b ? true : false;
+}
+
+static void cloud_set_str_out(JNIEnv *env, jobjectArray arr, int idx, const char *s)
+{
+	if(!s || !*s) return;
+	jstring js = E->NewStringUTF(env, s);
+	if(!js) return;
+	E->SetObjectArrayElement(env, arr, (jsize)idx, js);
+	E->DeleteLocalRef(env, js);
+}
+
+JNIEXPORT jint JNICALL JNI_FCN(cloudProvisionSession)(JNIEnv *env, jobject obj,
+	jstring service_type_str, jstring game_identifier_str, jstring game_name_str, jstring npsso_str,
+	jstring store_country_str, jstring store_lang_str, jstring game_language_str,
+	jstring owned_entitlement_str, jstring owned_platform_str, jstring forced_dc_str,
+	jstring prior_dc_str, jboolean catalog_is_foreign, jint resolution, jint bitrate_kbps,
+	jobject callbacks, jobjectArray string_out, jintArray int_out)
+{
+	(void)obj;
+	const char *service_type = service_type_str ? E->GetStringUTFChars(env, service_type_str, NULL) : NULL;
+	const char *game_identifier = game_identifier_str ? E->GetStringUTFChars(env, game_identifier_str, NULL) : NULL;
+	const char *game_name = game_name_str ? E->GetStringUTFChars(env, game_name_str, NULL) : NULL;
+	const char *npsso = npsso_str ? E->GetStringUTFChars(env, npsso_str, NULL) : NULL;
+	const char *store_country = store_country_str ? E->GetStringUTFChars(env, store_country_str, NULL) : NULL;
+	const char *store_lang = store_lang_str ? E->GetStringUTFChars(env, store_lang_str, NULL) : NULL;
+	const char *game_language = game_language_str ? E->GetStringUTFChars(env, game_language_str, NULL) : NULL;
+	const char *owned_entitlement = owned_entitlement_str ? E->GetStringUTFChars(env, owned_entitlement_str, NULL) : NULL;
+	const char *owned_platform = owned_platform_str ? E->GetStringUTFChars(env, owned_platform_str, NULL) : NULL;
+	const char *forced_dc = forced_dc_str ? E->GetStringUTFChars(env, forced_dc_str, NULL) : NULL;
+	const char *prior_dc = prior_dc_str ? E->GetStringUTFChars(env, prior_dc_str, NULL) : NULL;
+
+	CloudCbCtx cb;
+	memset(&cb, 0, sizeof(cb));
+	cb.env = env;
+	cb.callbacks = callbacks;
+	if(callbacks)
+	{
+		jclass cls = E->GetObjectClass(env, callbacks);
+		cb.on_progress = E->GetMethodID(env, cls, "onProgress", "(Ljava/lang/String;)V");
+		cb.is_cancelled = E->GetMethodID(env, cls, "isCancelled", "()Z");
+	}
+
+	ChiakiCloudProvisionConfig cfg;
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.service_type = service_type;
+	cfg.game_identifier = game_identifier;
+	cfg.game_name = game_name;
+	cfg.npsso = npsso;
+	cfg.store_country = store_country;
+	cfg.store_lang = store_lang;
+	cfg.game_language = game_language;
+	cfg.owned_entitlement_id = owned_entitlement;
+	cfg.owned_platform = owned_platform;
+	cfg.forced_datacenter = forced_dc;
+	cfg.prior_datacenters_json = prior_dc;
+	cfg.catalog_is_foreign = catalog_is_foreign ? true : false;
+	cfg.skip_account_attr_check = false;
+	cfg.resolution = resolution;
+	cfg.bitrate_kbps = bitrate_kbps;
+	cfg.progress = callbacks ? cloud_jni_progress : NULL;
+	cfg.is_cancelled = callbacks ? cloud_jni_cancelled : NULL;
+	cfg.user = &cb;
+
+	ChiakiCloudProvisionResult res;
+	memset(&res, 0, sizeof(res));
+	ChiakiErrorCode err = chiaki_cloud_provision_session(&cfg, &res, &global_log);
+
+	// stringOut: [serverIp, handshakeKey, launchSpec, sessionId, entitlementId, platform, datacenterPings, errorMessage]
+	if(string_out && E->GetArrayLength(env, string_out) >= 8)
+	{
+		cloud_set_str_out(env, string_out, 0, res.server_ip);
+		cloud_set_str_out(env, string_out, 1, res.handshake_key);
+		cloud_set_str_out(env, string_out, 2, res.launch_spec);
+		cloud_set_str_out(env, string_out, 3, res.session_id);
+		cloud_set_str_out(env, string_out, 4, res.entitlement_id);
+		cloud_set_str_out(env, string_out, 5, res.platform);
+		cloud_set_str_out(env, string_out, 6, res.datacenter_pings);
+		cloud_set_str_out(env, string_out, 7, res.error_message);
+	}
+	// intOut: [serverPort, psnWrapperType, mtuIn, mtuOut, rttMs]
+	if(int_out && E->GetArrayLength(env, int_out) >= 5)
+	{
+		jint ints[5] = { (jint)res.server_port, (jint)res.psn_wrapper_type,
+			(jint)res.mtu_in, (jint)res.mtu_out, (jint)(res.rtt_us / 1000) };
+		E->SetIntArrayRegion(env, int_out, 0, 5, ints);
+	}
+
+	chiaki_cloud_provision_result_fini(&res);
+	if(service_type_str) E->ReleaseStringUTFChars(env, service_type_str, service_type);
+	if(game_identifier_str) E->ReleaseStringUTFChars(env, game_identifier_str, game_identifier);
+	if(game_name_str) E->ReleaseStringUTFChars(env, game_name_str, game_name);
+	if(npsso_str) E->ReleaseStringUTFChars(env, npsso_str, npsso);
+	if(store_country_str) E->ReleaseStringUTFChars(env, store_country_str, store_country);
+	if(store_lang_str) E->ReleaseStringUTFChars(env, store_lang_str, store_lang);
+	if(game_language_str) E->ReleaseStringUTFChars(env, game_language_str, game_language);
+	if(owned_entitlement_str) E->ReleaseStringUTFChars(env, owned_entitlement_str, owned_entitlement);
+	if(owned_platform_str) E->ReleaseStringUTFChars(env, owned_platform_str, owned_platform);
+	if(forced_dc_str) E->ReleaseStringUTFChars(env, forced_dc_str, forced_dc);
+	if(prior_dc_str) E->ReleaseStringUTFChars(env, prior_dc_str, prior_dc);
+	return (jint)err;
 }
 
 // Cloud streaming language helpers (chiaki/cloudcatalog.h): the shared lib table

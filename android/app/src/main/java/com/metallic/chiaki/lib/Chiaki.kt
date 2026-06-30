@@ -182,7 +182,66 @@ private class ChiakiNative
 		@JvmStatic external fun cloudCatalogInvalidateCache(cacheDir: String)
 		@JvmStatic external fun cloudGaikaiLanguage(locale: String?): String
 		@JvmStatic external fun cloudSupportedLanguages(): Array<String>
+
+		// Unified cloud session provisioning (chiaki/cloudsession.h) — the whole Kamaji+Gaikai
+		// flow in C, shared with Qt/iOS. Blocking; call off the main thread. Progress/cancellation
+		// route through [callbacks] (invoked on the calling thread). Results come back via
+		// stringOut[8] = [serverIp, handshakeKey, launchSpec, sessionId, entitlementId, platform,
+		// datacenterPings, errorMessage] and intOut[5] = [serverPort, psnWrapperType, mtuIn, mtuOut,
+		// rttMs]; the return is the ChiakiErrorCode (0 == success).
+		@JvmStatic external fun cloudProvisionSession(
+			serviceType: String, gameIdentifier: String, gameName: String, npsso: String,
+			storeCountry: String, storeLang: String, gameLanguage: String,
+			ownedEntitlementId: String, ownedPlatform: String, forcedDatacenter: String,
+			priorDatacentersJson: String, catalogIsForeign: Boolean, resolution: Int, bitrateKbps: Int,
+			callbacks: CloudProvisionCallbacks?, stringOut: Array<String?>, intOut: IntArray): Int
 	}
+}
+
+/** Progress + cancellation routed from the native cloud provisioning flow (called on the worker thread). */
+interface CloudProvisionCallbacks
+{
+	fun onProgress(stage: String)
+	fun isCancelled(): Boolean
+}
+
+/** Result of [cloudProvisionSession]; [err] == 0 on a stream-ready allocation. */
+data class CloudProvisionResult(
+	val err: Int,
+	val serverIp: String, val serverPort: Int,
+	val handshakeKey: String, val launchSpec: String, val sessionId: String,
+	val entitlementId: String, val platform: String,
+	val psnWrapperType: Int, val mtuIn: Int, val mtuOut: Int, val rttMs: Int,
+	val datacenterPings: String, val errorMessage: String
+)
+
+/** Kotlin-friendly wrapper over [ChiakiNative.cloudProvisionSession]. Blocking; call off the main thread. */
+fun cloudProvisionSession(
+	serviceType: String, gameIdentifier: String, gameName: String, npsso: String,
+	storeCountry: String, storeLang: String, gameLanguage: String,
+	ownedEntitlementId: String, ownedPlatform: String, forcedDatacenter: String,
+	priorDatacentersJson: String, catalogIsForeign: Boolean, resolution: Int, bitrateKbps: Int,
+	onProgress: ((String) -> Unit)?, isCancelled: () -> Boolean
+): CloudProvisionResult
+{
+	val stringOut = arrayOfNulls<String>(8)
+	val intOut = IntArray(5)
+	val cb = object : CloudProvisionCallbacks
+	{
+		override fun onProgress(stage: String) { onProgress?.invoke(stage) }
+		override fun isCancelled(): Boolean = isCancelled()
+	}
+	val err = ChiakiNative.cloudProvisionSession(
+		serviceType, gameIdentifier, gameName, npsso, storeCountry, storeLang, gameLanguage,
+		ownedEntitlementId, ownedPlatform, forcedDatacenter, priorDatacentersJson,
+		catalogIsForeign, resolution, bitrateKbps, cb, stringOut, intOut)
+	return CloudProvisionResult(
+		err = err,
+		serverIp = stringOut[0] ?: "", serverPort = intOut[0],
+		handshakeKey = stringOut[1] ?: "", launchSpec = stringOut[2] ?: "", sessionId = stringOut[3] ?: "",
+		entitlementId = stringOut[4] ?: "", platform = stringOut[5] ?: "",
+		psnWrapperType = intOut[1], mtuIn = intOut[2], mtuOut = intOut[3], rttMs = intOut[4],
+		datacenterPings = stringOut[6] ?: "", errorMessage = stringOut[7] ?: "")
 }
 
 /** Holepunch port types */

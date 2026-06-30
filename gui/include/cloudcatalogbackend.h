@@ -67,7 +67,7 @@ public:
 
     // Owned-PSNOW launch fast-path: look up a title in the cached unified catalog by its launch
     // identifier and, if it is an owned PSNOW row with a pre-resolved streaming entitlement, return
-    // that entitlementId + platform so PSKamajiSession can skip the resolve/acquire path. Returns
+    // that entitlementId + platform so the C provisioning flow can skip the resolve/acquire path. Returns
     // false (out params untouched) for anything else (non-owned, pscloud, missing entitlementId, or
     // no cached catalog). Reads the catalog the lib wrote; account-specific ownership only.
     bool getOwnedPsnowEntitlement(const QString &gameIdentifier, QString &outEntitlementId, QString &outPlatform);

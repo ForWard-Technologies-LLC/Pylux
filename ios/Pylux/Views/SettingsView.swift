@@ -264,7 +264,7 @@ enum CloudDatacenterStore {
         return !arr.isEmpty
     }
 
-    /// Save datacenter list after allocation (called from PSGaikaiStreaming)
+    /// Save datacenter list after allocation (called from the cloud streaming backend)
     static func saveDatacenters(_ datacenters: [[String: Any]], for serviceType: String) {
         guard let data = try? JSONSerialization.data(withJSONObject: datacenters) else { return }
         if serviceType == "pscloud" {
@@ -548,7 +548,7 @@ struct SettingsView: View {
                 label: "Bitrate"
             )
         } header: {
-            Text("Game Library")
+            Text("Owned Games (PS5)")
         }
     }
 
@@ -597,7 +597,7 @@ struct SettingsView: View {
                 label: "Bitrate"
             )
         } header: {
-            Text("Game Catalog")
+            Text("Streamable Games (PS3/PS4)")
         }
     }
 

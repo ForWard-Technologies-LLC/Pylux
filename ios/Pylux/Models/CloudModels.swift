@@ -98,7 +98,7 @@ struct PingTimeoutError: Error, LocalizedError {
     static let alertMessage = """
 Ping must be less than 80ms to start a cloud session.
 
-To continue anyway, go to Settings → Cloud and manually select a datacenter for your service (Game Library or Game Catalog).
+To continue anyway, go to Settings → Cloud and manually select a datacenter for your service (Owned Games or Streamable Games).
 """
     var errorDescription: String? { Self.alertMessage }
 }
@@ -109,42 +109,35 @@ struct AuthorizationFailedError: Error, LocalizedError {
     var errorDescription: String? { message }
 }
 
+/// PSN account privacy settings need updating before cloud streaming (the C flow's
+/// "ACCOUNT_PRIVACY_SETTINGS:<url>" sentinel). iOS has no dedicated dialog for this,
+/// so it surfaces through CloudPlayView's generic error alert. `upgradeUrl` may be
+/// empty -- the message degrades gracefully when no URL is available.
+struct AccountPrivacySettingsError: Error, LocalizedError {
+    let upgradeUrl: String
+    var errorDescription: String? {
+        let base = "Your PlayStation account privacy settings need updating before you can use cloud streaming. Update them in your PSN account settings, then try again."
+        return upgradeUrl.isEmpty ? base : base + "\n\n" + upgradeUrl
+    }
+}
+
 /// General Gaikai allocation error
 struct GaikaiAllocationError: Error, LocalizedError {
     let message: String
     var errorDescription: String? { message }
 }
 
-/// Kamaji session error
-struct KamajiSessionError: Error, LocalizedError {
-    let message: String
-    var errorDescription: String? { message }
+/// A cached free PS+ title now costs money (stale catalog). `price` may be empty.
+/// Surfaces through CloudPlayView's generic error alert.
+struct GameNotFreeError: Error, LocalizedError {
+    let price: String
+    var errorDescription: String? {
+        let base = "This game is no longer free to stream. Your game list may be out of date — refresh it and try again."
+        return price.isEmpty ? base
+            : "This game is no longer free to stream (price: \(price)). Your game list may be out of date — refresh it and try again."
+    }
 }
 
-// MARK: - Cloud API Constants (matches Android PsnApiConstants.kt + GaikaiConsts)
-
-enum CloudApiConstants {
-    // Gaikai constants (matches GaikaiConsts in PSGaikaiStreaming.kt)
-    static let configBase = "https://config.cc.prod.gaikai.com/v1"
-    static let gaikaiBase = "https://cc.prod.gaikai.com/v1"
-    static let gaikaiAccountBase = "https://ca.account.sony.com"
-    static let gaikaiRedirectUri = "gaikai://local"
-    static let gaikaiUserAgent = "PlayStation Portal/6.0.0-rel.444+6a9cea6f5"
-
-    // PSNow / Kamaji constants (matches PsnApiConstants.kt)
-    static let kamajiBase = "https://psnow.playstation.com/kamaji/api/pcnow/00_09_000"
-    static let storeBase = "https://psnow.playstation.com/store/api/pcnow/00_09_000"
-    static let commerceBase = "https://commerce.api.np.km.playstation.net/commerce/api/v1"
-    static let kamajiClientId = "bc6b0777-abb5-40da-92ca-e133cf18e989"
-    static let kamajiRedirectUri = "https://psnow.playstation.com/app/2.2.0/133/5cdcc037d/grc-response.html"
-    static let kamajiOrigin = "https://psnow.playstation.com"
-    static let kamajiReferer = "https://psnow.playstation.com/app/2.2.0/133/5cdcc037d/"
-    static let kamajiUserAgent = "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) playstation-now/0.0.0 Chrome/83.0.4103.104 Electron/9.0.4 Safari/537.36 gkApollo"
-    static let ps4Scopes = "kamaji:commerce_native kamaji:commerce_container kamaji:lists kamaji:s2s.subscriptionsPremium.get"
-
-    // Cloud config (matches CloudConfig in CloudStreamingBackend.kt)
-    static let accountBase = "https://ca.account.sony.com/api"
-}
 
 // Region-group / Classics-container logic now lives in libchiaki (lib/src/cloudcatalog_consts.c)
 // and is reflected back to the client via the unified catalog's "fallbackRegion" field.
@@ -210,35 +203,6 @@ enum CloudLocaleSettings {
         return (country, lang)
     }
 
-    static func fromSession(language: String?, country: String?) -> String? {
-        let lang = language?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let cty = country?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !lang.isEmpty, !cty.isEmpty else { return nil }
-        return "\(lang)-\(cty.uppercased())"
-    }
-
-    static func setFromSession(language: String?, country: String?) {
-        guard let locale = fromSession(language: language, country: country) else {
-            os_log(.info, log: cloudLocaleLog,
-                   "Kamaji session: no language/country in response (stored=%{public}s)", stored)
-            return
-        }
-        if isConfigured {
-            // The country is the real region signal; the language part may get auto-corrected
-            // by the imagic fetch (e.g. hu-HU settles on en-HU). Only re-save when the country
-            // changes, otherwise we'd clobber the validated locale on every Kamaji session.
-            let storedCountry = parseStorePath(stored).country
-            let sessionCountry = parseStorePath(locale).country
-            if storedCountry == sessionCountry {
-                os_log(.info, log: cloudLocaleLog,
-                       "Kamaji session country unchanged (%{public}s), keeping validated locale %{public}s",
-                       sessionCountry, stored)
-                return
-            }
-        }
-        setStored(locale)
-    }
-
     /// Persist the locale the lib actually settled on (unified catalog "settledLocale"),
     /// WITHOUT wiping the cache. The lib owns its own cache invalidation; this only keeps
     /// the locale we pass next time (and the streaming language) in sync with the lib.
@@ -276,94 +240,4 @@ enum CloudLocaleSettings {
         }
     }
 
-    static func applyLocaleFromKamajiSessionBody(_ body: String) {
-        guard let data = body.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let dataObj = json["data"] as? [String: Any] else { return }
-        setFromSession(
-            language: dataObj["language"] as? String,
-            country: dataObj["country"] as? String
-        )
-    }
-
-    private static let bootstrapLock = NSLock()
-
-    @discardableResult
-    static func ensureConfigured(npssoToken: String) -> Bool {
-        if isConfigured { return true }
-        guard !npssoToken.isEmpty else {
-            os_log(.info, log: cloudLocaleLog, "Locale bootstrap skipped: no npsso token")
-            return false
-        }
-
-        bootstrapLock.lock()
-        defer { bootstrapLock.unlock() }
-        if isConfigured { return true }
-
-        os_log(.info, log: cloudLocaleLog, "Bootstrapping cloud locale via Kamaji session (first time only)")
-        let duid = generateBootstrapDuid()
-        guard let code = fetchBootstrapOAuthCode(npssoToken: npssoToken, duid: duid) else {
-            os_log(.info, log: cloudLocaleLog, "Locale bootstrap failed: OAuth")
-            return false
-        }
-        guard postBootstrapKamajiSession(oauthCode: code, duid: duid) else {
-            os_log(.info, log: cloudLocaleLog, "Locale bootstrap failed: Kamaji session")
-            return false
-        }
-        os_log(.info, log: cloudLocaleLog, "Locale bootstrap OK: %{public}s", stored)
-        return isConfigured
-    }
-
-    private static func fetchBootstrapOAuthCode(npssoToken: String, duid: String) -> String? {
-        let params: [(String, String)] = [
-            ("smcid", "pc:psnow"), ("applicationId", "psnow"),
-            ("response_type", "code"), ("scope", CloudApiConstants.ps4Scopes),
-            ("client_id", CloudApiConstants.kamajiClientId),
-            ("redirect_uri", CloudApiConstants.kamajiRedirectUri),
-            ("service_entity", "urn:service-entity:psn"), ("prompt", "none"),
-            ("renderMode", "mobilePortrait"), ("hidePageElements", "forgotPasswordLink"),
-            ("displayFooter", "none"), ("disableLinks", "qriocityLink"),
-            ("mid", "PSNOW"), ("duid", duid), ("layout_type", "popup"),
-            ("service_logo", "ps"), ("tp_psn", "true"), ("noEVBlock", "true")
-        ]
-        let query = params.map { "\($0.0)=\($0.1.cloudUrlEncoded)" }.joined(separator: "&")
-        let url = "\(CloudApiConstants.accountBase)/v1/oauth/authorize?\(query)"
-
-        guard let response = CloudHttpClient.get(url: url, headers: [
-            "Cookie": "npsso=\(npssoToken)"
-        ], followRedirects: false), response.statusCode == 302,
-              let location = CloudHttpClient.extractLocation(from: response),
-              let comps = URLComponents(string: location),
-              let code = comps.queryItems?.first(where: { $0.name == "code" })?.value,
-              !code.isEmpty else { return nil }
-        return code
-    }
-
-    private static func postBootstrapKamajiSession(oauthCode: String, duid: String) -> Bool {
-        let url = "\(CloudApiConstants.kamajiBase)/user/session"
-        let body = "code=\(oauthCode)&client_id=\(CloudApiConstants.kamajiClientId)&duid=\(duid)"
-
-        guard let response = CloudHttpClient.post(url: url, body: body, headers: [
-            "Content-Type": "text/plain;charset=UTF-8",
-            "X-Alt-Referer": CloudApiConstants.kamajiRedirectUri,
-            "Origin": CloudApiConstants.kamajiOrigin,
-            "Referer": CloudApiConstants.kamajiReferer,
-            "Accept": "*/*"
-        ]), response.statusCode == 200 else { return false }
-
-        guard let data = response.body.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let header = json["header"] as? [String: Any],
-              header["status_code"] as? String == "0x0000" else { return false }
-
-        applyLocaleFromKamajiSessionBody(response.body)
-        return isConfigured
-    }
-
-    private static func generateBootstrapDuid() -> String {
-        let prefix = "0000000700410080"
-        var randomBytes = [UInt8](repeating: 0, count: 16)
-        _ = SecRandomCopyBytes(kSecRandomDefault, 16, &randomBytes)
-        return prefix + randomBytes.map { String(format: "%02x", $0) }.joined()
-    }
 }

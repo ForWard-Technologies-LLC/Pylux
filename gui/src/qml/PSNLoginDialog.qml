@@ -488,7 +488,7 @@ DialogView {
             Label {
                 Layout.columnSpan: 2
                 Layout.topMargin: 5
-                text: qsTr("Required for Game Catalog and Game Library. Sign in first, then copy the full token from the page.")
+                text: qsTr("Required for cloud game streaming. Sign in first, then copy the full token from the page.")
                 wrapMode: Text.Wrap
                 font.pixelSize: 11
                 opacity: 0.8

@@ -49,14 +49,6 @@ set(SOURCE_FILES
 	src/cloudstreamingbackend.cpp
 	include/cloudcatalogbackend.h
 	src/cloudcatalogbackend.cpp
-	include/cloudstreaming/pscloudauth.h
-	src/cloudstreaming/pscloudauth.cpp
-	include/cloudstreaming/pskamajisession.h
-	src/cloudstreaming/pskamajisession.cpp
-	include/cloudstreaming/psgaikaistreaming.h
-	src/cloudstreaming/psgaikaistreaming.cpp
-	include/cloudstreaming/datacenterping.h
-	src/cloudstreaming/datacenterping.cpp
 	include/jsonrequester.h
 	src/jsonrequester.cpp
 	src/qml/qml.qrc

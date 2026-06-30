@@ -23,6 +23,7 @@
 		A1000110 /* DiscoveryBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = A1000101 /* DiscoveryBridge.m */; };
 		A1000111 /* RegistBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = A1000103 /* RegistBridge.m */; };
 		A10001C0 /* CloudCatalogBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = A10001C2 /* CloudCatalogBridge.m */; };
+		A10001D0 /* CloudProvisionBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = A10001D2 /* CloudProvisionBridge.m */; };
 		A1000112 /* HostModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000104 /* HostModels.swift */; };
 		A1000113 /* HostCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000105 /* HostCardView.swift */; };
 		A1000114 /* RemotePlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000106 /* RemotePlayView.swift */; };
@@ -45,13 +46,9 @@
 		A1000169 /* StreamTouchControlsButtonViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000170 /* StreamTouchControlsButtonViews.swift */; };
 		A1000171 /* StreamTouchControlsTouchpadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000172 /* StreamTouchControlsTouchpadView.swift */; };
 		A1000173 /* StreamTouchControlsContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000174 /* StreamTouchControlsContainerView.swift */; };
-		A1000180 /* ChiakiDatacenterPing.m in Sources */ = {isa = PBXBuildFile; fileRef = A1000182 /* ChiakiDatacenterPing.m */; };
 		A1000192 /* PyluxChiakiLog.m in Sources */ = {isa = PBXBuildFile; fileRef = A1000191 /* PyluxChiakiLog.m */; };
 		A1000201 /* PictureInPictureManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000200 /* PictureInPictureManager.swift */; };
 		A3000011 /* CloudModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000001 /* CloudModels.swift */; };
-		A3000012 /* CloudHttpClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000002 /* CloudHttpClient.swift */; };
-		A3000013 /* PSGaikaiStreaming.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000003 /* PSGaikaiStreaming.swift */; };
-		A3000014 /* PSKamajiSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000004 /* PSKamajiSession.swift */; };
 		A3000015 /* CloudStreamingBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000005 /* CloudStreamingBackend.swift */; };
 		A3000016 /* CloudCatalogService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000006 /* CloudCatalogService.swift */; };
 		A3000017 /* CloudPlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000007 /* CloudPlayView.swift */; };
@@ -93,6 +90,8 @@
 		A1000103 /* RegistBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = RegistBridge.m; sourceTree = "<group>"; };
 		A10001C1 /* CloudCatalogBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CloudCatalogBridge.h; sourceTree = "<group>"; };
 		A10001C2 /* CloudCatalogBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = CloudCatalogBridge.m; sourceTree = "<group>"; };
+		A10001D1 /* CloudProvisionBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CloudProvisionBridge.h; sourceTree = "<group>"; };
+		A10001D2 /* CloudProvisionBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = CloudProvisionBridge.m; sourceTree = "<group>"; };
 		A1000104 /* HostModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostModels.swift; sourceTree = "<group>"; };
 		A1000105 /* HostCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostCardView.swift; sourceTree = "<group>"; };
 		A1000106 /* RemotePlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemotePlayView.swift; sourceTree = "<group>"; };
@@ -117,15 +116,10 @@
 		A1000170 /* StreamTouchControlsButtonViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamTouchControlsButtonViews.swift; sourceTree = "<group>"; };
 		A1000172 /* StreamTouchControlsTouchpadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamTouchControlsTouchpadView.swift; sourceTree = "<group>"; };
 		A1000174 /* StreamTouchControlsContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamTouchControlsContainerView.swift; sourceTree = "<group>"; };
-		A1000181 /* ChiakiDatacenterPing.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ChiakiDatacenterPing.h; sourceTree = "<group>"; };
-		A1000182 /* ChiakiDatacenterPing.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ChiakiDatacenterPing.m; sourceTree = "<group>"; };
 		A1000190 /* PyluxChiakiLog.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PyluxChiakiLog.h; sourceTree = "<group>"; };
 		A1000191 /* PyluxChiakiLog.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PyluxChiakiLog.m; sourceTree = "<group>"; };
 		A1000200 /* PictureInPictureManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PictureInPictureManager.swift; sourceTree = "<group>"; };
 		A3000001 /* CloudModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudModels.swift; sourceTree = "<group>"; };
-		A3000002 /* CloudHttpClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudHttpClient.swift; sourceTree = "<group>"; };
-		A3000003 /* PSGaikaiStreaming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PSGaikaiStreaming.swift; sourceTree = "<group>"; };
-		A3000004 /* PSKamajiSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PSKamajiSession.swift; sourceTree = "<group>"; };
 		A3000005 /* CloudStreamingBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudStreamingBackend.swift; sourceTree = "<group>"; };
 		A3000006 /* CloudCatalogService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudCatalogService.swift; sourceTree = "<group>"; };
 		A3000007 /* CloudPlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudPlayView.swift; sourceTree = "<group>"; };
@@ -206,8 +200,6 @@
 				A1000017 /* ChiakiSessionBridge.m */,
 				A1000141 /* ChiakiAudioOutputIOS.h */,
 				A1000142 /* ChiakiAudioOutputIOS.m */,
-				A1000181 /* ChiakiDatacenterPing.h */,
-				A1000182 /* ChiakiDatacenterPing.m */,
 				A1000190 /* PyluxChiakiLog.h */,
 				A1000191 /* PyluxChiakiLog.m */,
 				A1000100 /* DiscoveryBridge.h */,
@@ -218,6 +210,8 @@
 				A1000103 /* RegistBridge.m */,
 				A10001C1 /* CloudCatalogBridge.h */,
 				A10001C2 /* CloudCatalogBridge.m */,
+				A10001D1 /* CloudProvisionBridge.h */,
+				A10001D2 /* CloudProvisionBridge.m */,
 				A1000024 /* SessionEventReceiver.h */,
 				A1000023 /* SessionEventReceiver.m */,
 				A1000022 /* VideoDecoder.h */,
@@ -240,10 +234,7 @@
 			isa = PBXGroup;
 			children = (
 				A3000006 /* CloudCatalogService.swift */,
-				A3000002 /* CloudHttpClient.swift */,
 				A3000005 /* CloudStreamingBackend.swift */,
-				A3000003 /* PSGaikaiStreaming.swift */,
-				A3000004 /* PSKamajiSession.swift */,
 				A1000200 /* PictureInPictureManager.swift */,
 				A1000120 /* PsnTokenManager.swift */,
 				A1000130 /* PyluxLoginService.swift */,
@@ -375,7 +366,6 @@
 				A1000192 /* PyluxChiakiLog.m in Sources */,
 				A1000005 /* ChiakiSessionBridge.m in Sources */,
 				A1000140 /* ChiakiAudioOutputIOS.m in Sources */,
-				A1000180 /* ChiakiDatacenterPing.m in Sources */,
 				A1000007 /* VideoDecoder.m in Sources */,
 				A1000008 /* SessionEventReceiver.m in Sources */,
 				A1000201 /* PictureInPictureManager.swift in Sources */,
@@ -395,6 +385,7 @@
 				A1000110 /* DiscoveryBridge.m in Sources */,
 				A1000111 /* RegistBridge.m in Sources */,
 				A10001C0 /* CloudCatalogBridge.m in Sources */,
+				A10001D0 /* CloudProvisionBridge.m in Sources */,
 				A1000112 /* HostModels.swift in Sources */,
 				A1000113 /* HostCardView.swift in Sources */,
 				A1000114 /* RemotePlayView.swift in Sources */,
@@ -409,9 +400,6 @@
 				A1000128 /* SecureStore.swift in Sources */,
 				A1000126 /* AutoRegistrationView.swift in Sources */,
 				A3000011 /* CloudModels.swift in Sources */,
-				A3000012 /* CloudHttpClient.swift in Sources */,
-				A3000013 /* PSGaikaiStreaming.swift in Sources */,
-				A3000014 /* PSKamajiSession.swift in Sources */,
 				A3000015 /* CloudStreamingBackend.swift in Sources */,
 				A3000016 /* CloudCatalogService.swift in Sources */,
 				A3000017 /* CloudPlayView.swift in Sources */,
