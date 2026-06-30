@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 //
 // Dev harness for the unified cloud-provisioning flow (not built on device).
-//   NPSSO=... cloudsession-probe <productId/entitlementId> [resolve|provision|ping]
+//   NPSSO=... cloudsession-probe <productId/entitlementId> [resolve|provision]
 // Env overrides (drive every path):
 //   SERVICE=psnow|pscloud   STORE_CC=US   STORE_LANG=en
 //   OWNED_ENT=<ent>  OWNED_PLAT=ps4    (owned fast-path / one-shot fallback)
@@ -55,15 +55,6 @@ int main(int argc, char **argv)
 		mode, cfg.service_type, product, cfg.store_country, cfg.store_lang,
 		cfg.owned_entitlement_id[0] ? cfg.owned_entitlement_id : "(none)",
 		cfg.forced_datacenter[0] ? cfg.forced_datacenter : "(auto)", cfg.catalog_is_foreign);
-
-	if(strcmp(mode, "ping") == 0)
-	{
-		char *pings = NULL;
-		ChiakiErrorCode e = chiaki_cloud_ping_datacenters(&cfg, &pings, &log);
-		printf("== PING err=%d pings=%s\n", e, pings ? pings : "(none)");
-		free(pings);
-		return e == CHIAKI_ERR_SUCCESS ? 0 : 1;
-	}
 
 	if(strcmp(mode, "provision") == 0)
 	{

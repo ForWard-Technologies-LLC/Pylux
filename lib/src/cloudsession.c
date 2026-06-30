@@ -189,19 +189,3 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_cloud_provision_session(
 	out->err = e;
 	return e;
 }
-
-CHIAKI_EXPORT ChiakiErrorCode chiaki_cloud_ping_datacenters(
-	const ChiakiCloudProvisionConfig *cfg,
-	char **out_pings_json,
-	ChiakiLog *log)
-{
-	if(!cfg || !out_pings_json)
-		return CHIAKI_ERR_INVALID_DATA;
-	*out_pings_json = NULL;
-	// The datacenter list is only available inside an authenticated Gaikai
-	// session (step11), so per-region latency comes back as result.datacenter_pings
-	// from chiaki_cloud_provision_session. A standalone ping-only path (auth ->
-	// step11 -> ping -> stop) can be added when the Settings refresh button needs it.
-	CHIAKI_LOGW(log, "[CLOUDSESSION] standalone datacenter ping not wired; use provision result.datacenter_pings");
-	return CHIAKI_ERR_UNKNOWN;
-}

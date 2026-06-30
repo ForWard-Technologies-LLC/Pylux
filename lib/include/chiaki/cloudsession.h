@@ -99,17 +99,6 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_cloud_provision_session(
 /** Release the heap-owned fields of a result populated by the call above. */
 CHIAKI_EXPORT void chiaki_cloud_provision_result_fini(ChiakiCloudProvisionResult *out);
 
-/**
- * Ping the account's reachable datacenters and return per-region latency for
- * the Settings/overlay UI, without starting a stream. @p out_pings_json is a
- * heap-owned JSON array [{"dataCenter":...,"rtt_ms":...}, ...]; free() it.
- * Uses the same senkusha-based ping as the provisioning flow.
- */
-CHIAKI_EXPORT ChiakiErrorCode chiaki_cloud_ping_datacenters(
-	const ChiakiCloudProvisionConfig *cfg,
-	char **out_pings_json,
-	ChiakiLog *log);
-
 #ifdef __cplusplus
 }
 #endif
