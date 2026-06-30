@@ -4,7 +4,6 @@ package com.metallic.chiaki.cloudplay.api
 
 import android.content.Context
 import android.util.Log
-import com.metallic.chiaki.cloudplay.CloudLocaleBootstrap
 import com.metallic.chiaki.cloudplay.model.CloudStreamSession
 import com.metallic.chiaki.common.Preferences
 import kotlinx.coroutines.Dispatchers
@@ -83,13 +82,11 @@ class CloudStreamingBackend(
 				return@withContext Result.failure(Exception("Invalid serviceType: $normalizedServiceType"))
 			}
 			
-			// The C provisioning flow runs the NPSSO authorizeCheck itself as its first
+			// The store locale is resolved + persisted by the unified catalog fetch
+			// (settledLocale -> cloud_store_locale); the streaming-language fallback reads
+			// it. The C provisioning flow runs the NPSSO authorizeCheck itself as its first
 			// (silent) step and returns AUTHORIZATION_FAILED if the token is expired.
 
-			// PSCloud skips Kamaji; bootstrap locale once if PSNow never ran
-			if (normalizedServiceType == "pscloud")
-				CloudLocaleBootstrap.ensureConfigured(preferences, npssoToken)
-			
 			// Continue with cloud session setup
 			val result = continueCloudSessionAfterAuth(
 				normalizedServiceType,

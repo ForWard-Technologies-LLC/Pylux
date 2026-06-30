@@ -38,12 +38,10 @@ final class CloudStreamingBackend {
             throw GaikaiAllocationError(message: "Invalid serviceType: \(normalizedServiceType)")
         }
 
-        if normalizedServiceType == "pscloud" {
-            CloudLocaleSettings.ensureConfigured(npssoToken: npssoToken)
-        }
-
-        // The C flow runs the NPSSO authorizeCheck itself as its first (silent) step
-        // and returns AUTHORIZATION_FAILED if the token is expired.
+        // The store locale is resolved + persisted by the unified catalog fetch
+        // (settledLocale -> cloud_store_locale); the streaming-language fallback reads
+        // it. The C flow runs the NPSSO authorizeCheck itself as its first (silent)
+        // step and returns AUTHORIZATION_FAILED if the token is expired.
         return try continueCloudSessionAfterAuth(
             serviceType: normalizedServiceType,
             gameIdentifier: gameIdentifier,

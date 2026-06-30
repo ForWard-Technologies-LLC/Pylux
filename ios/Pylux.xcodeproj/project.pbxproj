@@ -50,7 +50,6 @@
 		A1000192 /* PyluxChiakiLog.m in Sources */ = {isa = PBXBuildFile; fileRef = A1000191 /* PyluxChiakiLog.m */; };
 		A1000201 /* PictureInPictureManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000200 /* PictureInPictureManager.swift */; };
 		A3000011 /* CloudModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000001 /* CloudModels.swift */; };
-		A3000012 /* CloudHttpClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000002 /* CloudHttpClient.swift */; };
 		A3000015 /* CloudStreamingBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000005 /* CloudStreamingBackend.swift */; };
 		A3000016 /* CloudCatalogService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000006 /* CloudCatalogService.swift */; };
 		A3000017 /* CloudPlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000007 /* CloudPlayView.swift */; };
@@ -124,7 +123,6 @@
 		A1000191 /* PyluxChiakiLog.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PyluxChiakiLog.m; sourceTree = "<group>"; };
 		A1000200 /* PictureInPictureManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PictureInPictureManager.swift; sourceTree = "<group>"; };
 		A3000001 /* CloudModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudModels.swift; sourceTree = "<group>"; };
-		A3000002 /* CloudHttpClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudHttpClient.swift; sourceTree = "<group>"; };
 		A3000005 /* CloudStreamingBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudStreamingBackend.swift; sourceTree = "<group>"; };
 		A3000006 /* CloudCatalogService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudCatalogService.swift; sourceTree = "<group>"; };
 		A3000007 /* CloudPlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudPlayView.swift; sourceTree = "<group>"; };
@@ -241,7 +239,6 @@
 			isa = PBXGroup;
 			children = (
 				A3000006 /* CloudCatalogService.swift */,
-				A3000002 /* CloudHttpClient.swift */,
 				A3000005 /* CloudStreamingBackend.swift */,
 				A1000200 /* PictureInPictureManager.swift */,
 				A1000120 /* PsnTokenManager.swift */,
@@ -409,7 +406,6 @@
 				A1000128 /* SecureStore.swift in Sources */,
 				A1000126 /* AutoRegistrationView.swift in Sources */,
 				A3000011 /* CloudModels.swift in Sources */,
-				A3000012 /* CloudHttpClient.swift in Sources */,
 				A3000015 /* CloudStreamingBackend.swift in Sources */,
 				A3000016 /* CloudCatalogService.swift in Sources */,
 				A3000017 /* CloudPlayView.swift in Sources */,
