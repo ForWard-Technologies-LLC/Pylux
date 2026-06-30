@@ -95,13 +95,15 @@ static bool cp_is_cancelled(void *user) {
 
     PyluxCloudProvisionResult *out = [PyluxCloudProvisionResult new];
     out.err = (int)err;
-    out.serverIp = res.server_ip[0] ? [NSString stringWithUTF8String:res.server_ip] : @"";
+    // `?: @""` guards the nonnull copy properties: stringWithUTF8String returns nil on
+    // non-UTF-8 bytes (server data is ASCII, so this is belt-and-suspenders).
+    out.serverIp = res.server_ip[0] ? ([NSString stringWithUTF8String:res.server_ip] ?: @"") : @"";
     out.serverPort = res.server_port;
-    out.handshakeKey = res.handshake_key ? [NSString stringWithUTF8String:res.handshake_key] : @"";
-    out.launchSpec = res.launch_spec ? [NSString stringWithUTF8String:res.launch_spec] : @"";
-    out.sessionId = res.session_id ? [NSString stringWithUTF8String:res.session_id] : @"";
-    out.entitlementId = res.entitlement_id[0] ? [NSString stringWithUTF8String:res.entitlement_id] : @"";
-    out.platform = res.platform[0] ? [NSString stringWithUTF8String:res.platform] : @"";
+    out.handshakeKey = res.handshake_key ? ([NSString stringWithUTF8String:res.handshake_key] ?: @"") : @"";
+    out.launchSpec = res.launch_spec ? ([NSString stringWithUTF8String:res.launch_spec] ?: @"") : @"";
+    out.sessionId = res.session_id ? ([NSString stringWithUTF8String:res.session_id] ?: @"") : @"";
+    out.entitlementId = res.entitlement_id[0] ? ([NSString stringWithUTF8String:res.entitlement_id] ?: @"") : @"";
+    out.platform = res.platform[0] ? ([NSString stringWithUTF8String:res.platform] ?: @"") : @"";
     out.psnWrapperType = res.psn_wrapper_type;
     out.mtuIn = (int)res.mtu_in;
     out.mtuOut = (int)res.mtu_out;

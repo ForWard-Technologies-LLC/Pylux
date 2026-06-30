@@ -346,7 +346,6 @@ static struct json_object *gk_build_spec(GaikaiCtx *c, const char *entitlement_i
 	#undef S_STR
 	#undef S_INT
 	#undef S_BOOL
-	(void)c;
 	return s;
 }
 
@@ -715,6 +714,12 @@ static ChiakiErrorCode gk_step11_datacenters(GaikaiCtx *c)
 		GkPingJob *jobs = (GkPingJob *)calloc(n, sizeof(GkPingJob));
 		ChiakiThread *threads = (ChiakiThread *)calloc(n, sizeof(ChiakiThread));
 		bool *threaded = (bool *)calloc(n, sizeof(bool)); // which slots actually started a thread
+		if(!jobs || !threads || !threaded)
+		{
+			free(jobs); free(threads); free(threaded);
+			json_object_put(dcs);
+			return CHIAKI_ERR_MEMORY;
+		}
 		for(size_t i = 0; i < n; i++)
 		{
 			struct json_object *dc = json_object_array_get_idx(dcs, i);
@@ -745,16 +750,19 @@ static ChiakiErrorCode gk_step11_datacenters(GaikaiCtx *c)
 				CHIAKI_LOGI(c->log, "[GAIKAI] ping %s = unreachable", jobs[i].name);
 		}
 		free(jobs); free(threads); free(threaded);
-		// sort by RTT
+		// sort by RTT (skip the sort on OOM rather than crash -- leaves API order)
 		size_t rn = json_object_array_length(c->ping_results);
 		struct json_object **arr = (struct json_object **)malloc(rn * sizeof(*arr));
-		for(size_t i = 0; i < rn; i++) arr[i] = json_object_get(json_object_array_get_idx(c->ping_results, i));
-		qsort(arr, rn, sizeof(*arr), gk_cmp_rtt);
-		struct json_object *sorted = json_object_new_array();
-		for(size_t i = 0; i < rn; i++) json_object_array_add(sorted, arr[i]);
-		free(arr);
-		json_object_put(c->ping_results);
-		c->ping_results = sorted;
+		if(arr)
+		{
+			for(size_t i = 0; i < rn; i++) arr[i] = json_object_get(json_object_array_get_idx(c->ping_results, i));
+			qsort(arr, rn, sizeof(*arr), gk_cmp_rtt);
+			struct json_object *sorted = json_object_new_array();
+			for(size_t i = 0; i < rn; i++) json_object_array_add(sorted, arr[i]);
+			free(arr);
+			json_object_put(c->ping_results);
+			c->ping_results = sorted;
+		}
 	}
 	// Full datacenter list for the Settings picker (merged with prior stored RTTs).
 	c->dc_picker = gk_build_picker(c, dcs);
@@ -841,6 +849,8 @@ static ChiakiErrorCode gk_step13_allocate(GaikaiCtx *c, ChiakiCloudProvisionResu
 		json_object_object_add(net, "bwLossUpstream", json_object_new_int(0));
 		json_object_object_add(net, "mtuUpstream", json_object_new_int(mtu_out));
 		json_object_object_add(extra, "network", net);
+		// Fixed client-telemetry timings the allocate body schema expects (sampled from the
+		// PS Portal client); the server records but doesn't act on them, so they're constant.
 		json_object_object_add(extra, "stateExecutionTime", json_object_new_double(5974.7632));
 		json_object_object_add(extra, "streamTestTime", json_object_new_double(11262.8423));
 

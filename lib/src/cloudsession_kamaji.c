@@ -479,6 +479,9 @@ static ChiakiErrorCode km_checkout_acquire(KamajiCtx *c, char **out_error)
 	if(total != 0)
 	{
 		CHIAKI_LOGE(c->log, "[KAMAJI] title is not free (price value %d)", total);
+		// Defensive: the catalog only offers $0 PS+ titles for the acquire path, so this
+		// should be unreachable. No dedicated UI -- platforms surface it via the generic
+		// allocation-error path, which is fine for an unexpected paid SKU.
 		if(out_error) *out_error = strdup("GAME_NOT_FREE");
 		if(pj) json_object_put(pj);
 		free(h_auth); free(h_ua); free(h_cookie); cc_http_response_fini(&presp);

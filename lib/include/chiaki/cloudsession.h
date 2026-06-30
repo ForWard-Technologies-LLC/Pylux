@@ -52,7 +52,6 @@ typedef struct chiaki_cloud_provision_config_t
 	const char *game_language;        /**< streaming-language locale (e.g. "de-DE"); bare code derived */
 	int  resolution;                  /**< 720|1080|1440|2160 (platform picks the per-service value) */
 	int  bitrate_kbps;                /**< cloud stream bitrate (platform picks the per-service value) */
-	int  rtt_safety_offset_ms;        /**< cloud-only RTT offset (e.g. -20); Remote Play unaffected */
 
 	/** Progress callback: @p stage is a UI-ready string shown verbatim. May be NULL. */
 	void (*progress)(const char *stage, void *user);
