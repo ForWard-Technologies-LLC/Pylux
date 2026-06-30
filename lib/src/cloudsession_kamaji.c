@@ -414,6 +414,7 @@ static ChiakiErrorCode km_check_account_attributes(KamajiCtx *c, char **out_erro
 		"\"PRIVACY_SETTING_RECOMMENDUSERS\",\"PRIVACY_SETTING_BROADCAST\"]}";
 	char *h_auth = NULL; cc_http_make_bearer_header(&h_auth, c->commerce_token);
 	char *h_ua = km_hdr("User-Agent", KM_USER_AGENT);
+	if(!h_auth || !h_ua) { free(h_auth); free(h_ua); return CHIAKI_ERR_MEMORY; } // OOM guard (else NULL header)
 	const char *hdrs[] = { h_auth, h_ua, "Accept: application/json", "Content-Type: application/json" };
 	CCHttpRequest req = { 0 };
 	req.method = "POST"; req.url = "https://accounts.api.playstation.com/api/v2/accounts/me/attributes";
@@ -443,6 +444,7 @@ static ChiakiErrorCode km_checkout_acquire(KamajiCtx *c, char **out_error)
 	char *h_ua = km_hdr("User-Agent", KM_USER_AGENT);
 	char *h_cookie = NULL;
 	if(c->jsessionid) cc_http_make_cookie_header(&h_cookie, "JSESSIONID", c->jsessionid);
+	if(!h_auth || !h_ua) { free(h_auth); free(h_ua); free(h_cookie); return CHIAKI_ERR_MEMORY; } // OOM guard
 
 	// --- preview: confirm $0 then take the authoritative sku ---
 	char prev_body[256];
@@ -531,6 +533,7 @@ static ChiakiErrorCode km_step0_5e_check_acquire(KamajiCtx *c, char **out_error)
 		"internal_entitlements/%s?fields=game_meta", c->entitlement_id);
 	char *h_auth = NULL; cc_http_make_bearer_header(&h_auth, c->commerce_token);
 	char *h_ua = km_hdr("User-Agent", KM_USER_AGENT);
+	if(!h_auth || !h_ua) { free(h_auth); free(h_ua); return CHIAKI_ERR_MEMORY; } // OOM guard (else NULL header)
 	const char *hdrs[] = { h_auth, h_ua, "Accept: application/json" };
 	CCHttpRequest req = { 0 };
 	req.url = url; req.headers = hdrs; req.header_count = 3;

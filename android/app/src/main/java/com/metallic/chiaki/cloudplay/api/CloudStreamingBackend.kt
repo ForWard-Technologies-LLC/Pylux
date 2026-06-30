@@ -14,15 +14,15 @@ import kotlinx.coroutines.withContext
  * 
  * This class is the main entry point for cloud gaming. It:
  * - Holds shared configuration (CloudConfig namespace)
- * - Orchestrates Kamaji authentication (PSKamajiSession) 
- * - Orchestrates Gaikai allocation (PSGaikaiStreaming)
+ * - Runs the whole provisioning flow (auth check, Kamaji resolve, Gaikai
+ *   allocation, datacenter ping/select) in libchiaki via
+ *   ChiakiNative.cloudProvisionSession, off the main thread
  * - Provides a single unified API for the frontend
- * 
+ *
  * Architecture:
- *   CloudStreamingBackend (orchestrator)
- *     └─> PSKamajiSession (Steps 1-6: Kamaji auth)
- *     └─> PSGaikaiStreaming (Steps 7-13: Gaikai allocation)
- *     
+ *   CloudStreamingBackend (thin Kotlin wrapper)
+ *     └─> libchiaki chiaki_cloud_provision_session (the unified C flow)
+ *
  * Mirrors: gui/src/cloudstreamingbackend.cpp
  */
 class CloudStreamingBackend(

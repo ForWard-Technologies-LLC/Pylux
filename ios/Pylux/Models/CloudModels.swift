@@ -127,12 +127,6 @@ struct GaikaiAllocationError: Error, LocalizedError {
     var errorDescription: String? { message }
 }
 
-/// Kamaji session error
-struct KamajiSessionError: Error, LocalizedError {
-    let message: String
-    var errorDescription: String? { message }
-}
-
 
 // Region-group / Classics-container logic now lives in libchiaki (lib/src/cloudcatalog_consts.c)
 // and is reflected back to the client via the unified catalog's "fallbackRegion" field.
