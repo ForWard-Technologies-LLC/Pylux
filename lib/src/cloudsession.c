@@ -47,6 +47,65 @@ CHIAKI_EXPORT void chiaki_cloud_provision_result_fini(ChiakiCloudProvisionResult
 	out->error_message = NULL;
 }
 
+// --- Pre-flight authorization check (was each platform's checkAuthorization) ---
+// POST the service's authorize parameters to authorizeCheck with the npsso cookie;
+// HTTP 200/204 means the NPSSO is still valid. Scopes are SPACE-separated here (they
+// go in a JSON body), unlike the %20-encoded OAuth-query scopes in
+// cloudsession_kamaji.c. The pscloud client id is the fixed pre-flight id the
+// platforms used (distinct from the step0-fetched streaming client id).
+#define CA_URL            "https://ca.account.sony.com/api/authz/v3/oauth/authorizeCheck"
+#define CA_PSNOW_CLIENT   "bc6b0777-abb5-40da-92ca-e133cf18e989"
+#define CA_PSNOW_SCOPE    "kamaji:commerce_native kamaji:commerce_container kamaji:lists kamaji:s2s.subscriptionsPremium.get"
+#define CA_PSNOW_REDIR    "https://psnow.playstation.com/app/2.2.0/133/5cdcc037d/grc-response.html"
+#define CA_PSNOW_UA       "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) playstation-now/0.0.0 Chrome/83.0.4103.104 Electron/9.0.4 Safari/537.36 gkApollo"
+#define CA_PSCLOUD_CLIENT "19ae39c4-3f88-4d11-a792-94e4f52c996d"
+#define CA_PSCLOUD_SCOPE  "id_token:psn.basic_claims kamaji:s2s.subscriptionsPremium.get id_token:duid id_token:online_id openid psn:s2s"
+#define CA_PSCLOUD_REDIR  "gaikai://local"
+#define CA_PSCLOUD_UA     "PlayStation Portal/6.0.0-rel.444+6a9cea6f5"
+
+// Validate the NPSSO before any real work (silently, like the old platform pre-flight).
+// Returns SUCCESS on HTTP 200/204; any other status / transport error -> failure.
+static ChiakiErrorCode cc_authorize_check(ChiakiLog *log,
+	const ChiakiCloudProvisionConfig *cfg, const char *duid)
+{
+	bool pscloud = cfg->service_type && strcmp(cfg->service_type, "pscloud") == 0;
+	const char *client_id = pscloud ? CA_PSCLOUD_CLIENT : CA_PSNOW_CLIENT;
+	const char *scope     = pscloud ? CA_PSCLOUD_SCOPE  : CA_PSNOW_SCOPE;
+	const char *redirect  = pscloud ? CA_PSCLOUD_REDIR  : CA_PSNOW_REDIR;
+	const char *ua        = pscloud ? CA_PSCLOUD_UA     : CA_PSNOW_UA;
+
+	char body[768];
+	snprintf(body, sizeof(body),
+		"{\"client_id\":\"%s\",\"scope\":\"%s\",\"redirect_uri\":\"%s\","
+		"\"response_type\":\"code\",\"service_entity\":\"urn:service-entity:psn\",\"duid\":\"%s\"}",
+		client_id, scope, redirect, duid);
+
+	char *h_cookie = NULL;
+	if(cc_http_make_cookie_header(&h_cookie, "npsso", cfg->npsso) != CHIAKI_ERR_SUCCESS)
+		return CHIAKI_ERR_UNKNOWN;
+	char ua_hdr[512];
+	snprintf(ua_hdr, sizeof(ua_hdr), "User-Agent: %s", ua);
+	const char *hdrs[] = {
+		"Content-Type: application/json; charset=UTF-8",
+		ua_hdr,
+		h_cookie
+	};
+	CCHttpRequest req = { 0 };
+	req.method = "POST"; req.url = CA_URL;
+	req.headers = hdrs; req.header_count = 3; req.body = body;
+	CCHttpResponse resp = { 0 };
+	ChiakiErrorCode e = cc_http_perform(log, &req, &resp);
+	long status = resp.status_code;
+	cc_http_response_fini(&resp);
+	free(h_cookie);
+	if(e != CHIAKI_ERR_SUCCESS)
+		return e;
+	if(status == 200 || status == 204)
+		return CHIAKI_ERR_SUCCESS;
+	CHIAKI_LOGE(log, "[CLOUDSESSION] authorizeCheck failed (HTTP %ld); NPSSO likely expired", status);
+	return CHIAKI_ERR_UNKNOWN;
+}
+
 // One provisioning attempt: PSNOW resolves via Kamaji then allocates via Gaikai;
 // PSCLOUD allocates directly (game_identifier is already the PS5 entitlementId).
 static ChiakiErrorCode provision_once(ChiakiLog *log,
@@ -96,6 +155,16 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_cloud_provision_session(
 	size_t duid_size = sizeof(duid);
 	if(chiaki_holepunch_generate_client_device_uid(duid, &duid_size) != CHIAKI_ERR_SUCCESS)
 	{
+		out->err = CHIAKI_ERR_UNKNOWN;
+		return out->err;
+	}
+
+	// Pre-flight: validate the NPSSO before any real work (silently, like the old
+	// per-platform checkAuthorization) so an expired token fails fast with no progress
+	// UI. Platforms map AUTHORIZATION_FAILED -> "token expired, please re-login".
+	if(cc_authorize_check(log, cfg, duid) != CHIAKI_ERR_SUCCESS)
+	{
+		out->error_message = strdup("AUTHORIZATION_FAILED");
 		out->err = CHIAKI_ERR_UNKNOWN;
 		return out->err;
 	}
