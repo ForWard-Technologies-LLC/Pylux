@@ -71,11 +71,8 @@ private slots:
 
 private:
     void setAllocationProgress(const QString &message);
-    
-    // Centralized authorization check (used by both PSNOW and PSCLOUD)
-    void checkAuthorization(QString serviceType, QString npssoToken, QString duid, std::function<void(bool)> callback);
-    
-    // Continue cloud session after successful authorization: runs the unified C
+
+    // Continue cloud session: runs the unified C
     // provisioning flow (chiaki_cloud_provision_session) on a worker thread and
     // hands the stream-ready result to StreamSession. Kamaji+Gaikai, the owned
     // fast-path and the one-shot noGameForEntitlementId retry all live in libchiaki.

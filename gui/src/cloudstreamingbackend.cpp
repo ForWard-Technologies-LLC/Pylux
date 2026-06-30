@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 
 #include "cloudstreamingbackend.h"
-#include "cloudstreaming/pskamajisession.h"   // KamajiConsts (auth check)
-#include "cloudstreaming/psgaikaistreaming.h" // GaikaiConsts (auth check)
 #include "streamsession.h"
 #include "exception.h"
 #include "chiaki/remote/holepunch.h"
@@ -86,36 +84,10 @@ void CloudStreamingBackend::startCompleteCloudSession(QString serviceType, QStri
         setGameImageUrl(QString()); // Clear any previous image
     }
 
-    // Generate DUID once - shared between authorization check and session creation
-    size_t duid_size = CHIAKI_DUID_STR_SIZE;
-    char duid_arr[duid_size];
-    chiaki_holepunch_generate_client_device_uid(duid_arr, &duid_size);
-    QString sharedDuid = QString(duid_arr);
-
-    // Centralized authorization check for both PSNOW and PSCLOUD
-    checkAuthorization(serviceType, npssoToken, sharedDuid, [this, serviceType, gameIdentifier, callback, npssoToken, sharedDuid](bool success) {
-        if (!success) {
-            // Authorization failed - set flag to show dialog (following ping timeout pattern)
-            QmlBackend *qmlBackend = qobject_cast<QmlBackend*>(parent());
-            if (qmlBackend) {
-                qmlBackend->setShowAuthorizationFailedDialog(true);
-                // Also emit sessionError to trigger StreamView error handling and return to main menu
-                emit qmlBackend->sessionError(tr("Authentication Required"),
-                                             tr("Your NPSSO token is likely expired. Please re-login to continue using cloud streaming."));
-            }
-
-            // Clear game image on authorization failure
-            setGameImageUrl(QString());
-
-            if (callback.isCallable()) {
-                callback.call({false, "Authorization check failed"});
-            }
-            return;
-        }
-
-        // Authorization successful - continue with cloud session setup
-        continueCloudSessionAfterAuth(serviceType, gameIdentifier, callback, npssoToken, sharedDuid);
-    });
+    // The C provisioning flow runs the NPSSO authorizeCheck itself as its first
+    // (silent) step and surfaces AUTHORIZATION_FAILED (handled in handleProvisionError)
+    // if the token is expired -- no separate pre-flight pass is needed here anymore.
+    continueCloudSessionAfterAuth(serviceType, gameIdentifier, callback, npssoToken, QString());
 }
 
 // Runs the unified C provisioning flow on a worker thread, then hands the
@@ -383,7 +355,10 @@ void CloudStreamingBackend::handleProvisionError(QString serviceType, QString er
     // the dialog just toasts on the streaming page.
     QString userMessage;
     QmlBackend *qmlBackend = qobject_cast<QmlBackend*>(parent());
-    if (errorMessage.contains(QStringLiteral("PS_PLUS_SUBSCRIPTION_REQUIRED"))) {
+    if (errorMessage.contains(QStringLiteral("AUTHORIZATION_FAILED"))) {
+        if (qmlBackend) qmlBackend->setShowAuthorizationFailedDialog(true);
+        userMessage = tr("Your NPSSO token is likely expired. Please re-login to continue using cloud streaming.");
+    } else if (errorMessage.contains(QStringLiteral("PS_PLUS_SUBSCRIPTION_REQUIRED"))) {
         if (qmlBackend) qmlBackend->setShowPSPlusSubscriptionDialog(true);
         userMessage = tr("PS Plus subscription required");
     } else if (errorMessage.contains(QStringLiteral("ACCOUNT_PRIVACY_SETTINGS"))) {
@@ -458,77 +433,3 @@ void CloudStreamingBackend::setGameImageUrl(const QString &url)
     }
 }
 
-// ============================================================================
-// Centralized Authorization Check (used by both PSNOW and PSCLOUD)
-// ============================================================================
-void CloudStreamingBackend::checkAuthorization(QString serviceType, QString npssoToken, QString duid, std::function<void(bool)> callback)
-{
-    if (npssoToken.isEmpty()) {
-        qWarning() << "Authorization check: NPSSO token is empty";
-        callback(false);
-        return;
-    }
-
-    // Determine configuration based on service type
-    QString kamajiClientId;
-    QString scopesStr;
-    QString redirectUri;
-    QString userAgent;
-
-    if (serviceType == "psnow") {
-        // PSNOW configuration (matching PSKamajiSession)
-        kamajiClientId = KamajiConsts::CLIENT_ID;
-        scopesStr = KamajiConsts::PS4_SCOPES;
-        redirectUri = KamajiConsts::REDIRECT_URI;
-        userAgent = KamajiConsts::USER_AGENT;
-    } else { // pscloud
-        // PSCLOUD configuration
-        kamajiClientId = "19ae39c4-3f88-4d11-a792-94e4f52c996d";
-        scopesStr = "id_token:psn.basic_claims kamaji:s2s.subscriptionsPremium.get id_token:duid id_token:online_id openid psn:s2s";
-        redirectUri = GaikaiConsts::REDIRECT_URI;
-        userAgent = GaikaiConsts::USER_AGENT;
-    }
-
-    // Disable cookie jar on auth manager - we use manual Cookie headers only
-    authManager->setCookieJar(nullptr);
-
-    // Create authorization check request (matching PSKamajiSession::step0_5a_AuthorizeCheck)
-    QString url = CloudConfig::ACCOUNT_BASE + "/authz/v3/oauth/authorizeCheck";
-
-    QJsonObject body;
-    body["client_id"] = kamajiClientId;
-    body["scope"] = scopesStr;
-    body["redirect_uri"] = redirectUri;
-    body["response_type"] = "code";
-    body["service_entity"] = "urn:service-entity:psn";
-    body["duid"] = duid;
-
-    QNetworkRequest req{QUrl(url)};
-    req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json; charset=UTF-8");
-    req.setRawHeader("User-Agent", userAgent.toUtf8());
-    // Set npsso cookie manually
-    if (!npssoToken.isEmpty()) {
-        req.setRawHeader("Cookie", QString("npsso=%1").arg(npssoToken).toUtf8());
-    }
-
-    qInfo() << "=== Centralized Authorization Check ===";
-    qInfo() << "Service Type:" << serviceType;
-    qInfo() << "URL:" << url;
-
-    QNetworkReply *reply = authManager->post(req, QJsonDocument(body).toJson());
-
-    connect(reply, &QNetworkReply::finished, this, [reply, callback, serviceType]() {
-        bool success = false;
-
-        // Match PSKamajiSession::handleAuthorizeCheckResponse logic
-        if (reply->error() == QNetworkReply::NoError) {
-            success = true;
-            qInfo() << "Authorization check: SUCCESS for" << serviceType;
-        } else {
-            qWarning() << "Authorization check failed for" << serviceType << ":" << reply->errorString();
-        }
-
-        reply->deleteLater();
-        callback(success);
-    });
-}
