@@ -645,13 +645,21 @@ static struct json_object *gk_build_picker(GaikaiCtx *c, struct json_object *dcs
 	struct json_object *prior = (c->cfg->prior_datacenters_json && *c->cfg->prior_datacenters_json)
 		? json_tokener_parse(c->cfg->prior_datacenters_json) : NULL;
 	struct json_object *out = json_object_new_array();
+	const char *forced = c->cfg->forced_datacenter;
+	bool use_forced = forced && *forced && strcmp(forced, "Auto") != 0;
 	size_t n = json_object_array_length(dcs_api);
 	for(size_t i = 0; i < n; i++)
 	{
 		struct json_object *dc = json_object_array_get_idx(dcs_api, i);
 		const char *name = cc_json_str(dc, "dataCenter");
-		struct json_object *row = gk_find_dc(c->ping_results, name);   // this run wins
+		// In forced-DC mode the only this-run "ping" is a dummy (RTT 20) for the forced
+		// datacenter; don't let it clobber a previously-measured RTT in the persisted
+		// picker. Prefer prior measured data, and seed the dummy only when there's no
+		// prior (mirrors the old per-platform seed-only-when-empty behavior).
+		bool is_forced_dummy = use_forced && name && strcmp(name, forced) == 0;
+		struct json_object *row = is_forced_dummy ? NULL : gk_find_dc(c->ping_results, name); // this run wins
 		if(!row) row = gk_find_dc(prior, name);                        // else prior measured
+		if(!row && is_forced_dummy) row = gk_find_dc(c->ping_results, name); // else the forced dummy
 		if(row)
 			json_object_array_add(out, cc_json_clone(row));
 		else                                                            // else 0 placeholder

@@ -11,7 +11,6 @@
 #import "DiscoveryBridge.h"
 #import "RegistBridge.h"
 #import "HolepunchBridge.h"
-#import "ChiakiDatacenterPing.h"
 #import "CloudCatalogBridge.h"
 #import "CloudProvisionBridge.h"
 

@@ -46,7 +46,6 @@
 		A1000169 /* StreamTouchControlsButtonViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000170 /* StreamTouchControlsButtonViews.swift */; };
 		A1000171 /* StreamTouchControlsTouchpadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000172 /* StreamTouchControlsTouchpadView.swift */; };
 		A1000173 /* StreamTouchControlsContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000174 /* StreamTouchControlsContainerView.swift */; };
-		A1000180 /* ChiakiDatacenterPing.m in Sources */ = {isa = PBXBuildFile; fileRef = A1000182 /* ChiakiDatacenterPing.m */; };
 		A1000192 /* PyluxChiakiLog.m in Sources */ = {isa = PBXBuildFile; fileRef = A1000191 /* PyluxChiakiLog.m */; };
 		A1000201 /* PictureInPictureManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000200 /* PictureInPictureManager.swift */; };
 		A3000011 /* CloudModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000001 /* CloudModels.swift */; };
@@ -117,8 +116,6 @@
 		A1000170 /* StreamTouchControlsButtonViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamTouchControlsButtonViews.swift; sourceTree = "<group>"; };
 		A1000172 /* StreamTouchControlsTouchpadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamTouchControlsTouchpadView.swift; sourceTree = "<group>"; };
 		A1000174 /* StreamTouchControlsContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamTouchControlsContainerView.swift; sourceTree = "<group>"; };
-		A1000181 /* ChiakiDatacenterPing.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ChiakiDatacenterPing.h; sourceTree = "<group>"; };
-		A1000182 /* ChiakiDatacenterPing.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ChiakiDatacenterPing.m; sourceTree = "<group>"; };
 		A1000190 /* PyluxChiakiLog.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = PyluxChiakiLog.h; sourceTree = "<group>"; };
 		A1000191 /* PyluxChiakiLog.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PyluxChiakiLog.m; sourceTree = "<group>"; };
 		A1000200 /* PictureInPictureManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PictureInPictureManager.swift; sourceTree = "<group>"; };
@@ -203,8 +200,6 @@
 				A1000017 /* ChiakiSessionBridge.m */,
 				A1000141 /* ChiakiAudioOutputIOS.h */,
 				A1000142 /* ChiakiAudioOutputIOS.m */,
-				A1000181 /* ChiakiDatacenterPing.h */,
-				A1000182 /* ChiakiDatacenterPing.m */,
 				A1000190 /* PyluxChiakiLog.h */,
 				A1000191 /* PyluxChiakiLog.m */,
 				A1000100 /* DiscoveryBridge.h */,
@@ -371,7 +366,6 @@
 				A1000192 /* PyluxChiakiLog.m in Sources */,
 				A1000005 /* ChiakiSessionBridge.m in Sources */,
 				A1000140 /* ChiakiAudioOutputIOS.m in Sources */,
-				A1000180 /* ChiakiDatacenterPing.m in Sources */,
 				A1000007 /* VideoDecoder.m in Sources */,
 				A1000008 /* SessionEventReceiver.m in Sources */,
 				A1000201 /* PictureInPictureManager.swift in Sources */,

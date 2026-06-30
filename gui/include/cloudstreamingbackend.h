@@ -22,14 +22,14 @@ namespace CloudConfig {
  * 
  * This class is the main entry point for cloud gaming. It:
  * - Holds shared configuration (CloudConfig namespace in header)
- * - Orchestrates Kamaji authentication (PSKamajiSession) 
- * - Orchestrates Gaikai allocation (PSGaikaiStreaming)
+ * - Runs the whole provisioning flow (auth check, Kamaji resolve, Gaikai
+ *   allocation, datacenter ping/select) in libchiaki via
+ *   chiaki_cloud_provision_session, on a worker thread
  * - Provides a single unified API for the frontend
- * 
+ *
  * Architecture:
- *   CloudStreamingBackend (orchestrator)
- *     └─> PSKamajiSession (Steps 1-6: Kamaji auth)
- *     └─> PSGaikaiStreaming (Steps 7-13: Gaikai allocation)
+ *   CloudStreamingBackend (thin Qt wrapper)
+ *     └─> libchiaki chiaki_cloud_provision_session (the unified C flow)
  */
 class StreamSession; // Forward declaration
 
