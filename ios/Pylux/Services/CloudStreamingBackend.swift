@@ -139,6 +139,17 @@ final class CloudStreamingBackend {
             throw AuthorizationFailedError(message: "Your NPSSO token is likely expired. Please re-login.")
         } else if msg.contains("PS_PLUS_SUBSCRIPTION_REQUIRED") {
             throw PsPlusSubscriptionError(message: "PS Plus subscription required")
+        } else if msg.contains("ACCOUNT_PRIVACY_SETTINGS") {
+            // Sentinel is "ACCOUNT_PRIVACY_SETTINGS:<upgrade-url>" (URL may be absent).
+            // Parse defensively -- any missing/garbage URL degrades to an empty string,
+            // and the error surfaces through CloudPlayView's generic catch -> alert
+            // (no dedicated dialog needed). This path is untested live; keep it total.
+            let prefix = "ACCOUNT_PRIVACY_SETTINGS:"
+            var upgradeUrl = ""
+            if let r = msg.range(of: prefix) {
+                upgradeUrl = String(msg[r.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            throw AccountPrivacySettingsError(upgradeUrl: upgradeUrl)
         } else if msg.contains("PING_TIMEOUT") {
             throw PingTimeoutError()
         } else {

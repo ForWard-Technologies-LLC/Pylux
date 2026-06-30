@@ -109,6 +109,18 @@ struct AuthorizationFailedError: Error, LocalizedError {
     var errorDescription: String? { message }
 }
 
+/// PSN account privacy settings need updating before cloud streaming (the C flow's
+/// "ACCOUNT_PRIVACY_SETTINGS:<url>" sentinel). iOS has no dedicated dialog for this,
+/// so it surfaces through CloudPlayView's generic error alert. `upgradeUrl` may be
+/// empty -- the message degrades gracefully when no URL is available.
+struct AccountPrivacySettingsError: Error, LocalizedError {
+    let upgradeUrl: String
+    var errorDescription: String? {
+        let base = "Your PlayStation account privacy settings need updating before you can use cloud streaming. Update them in your PSN account settings, then try again."
+        return upgradeUrl.isEmpty ? base : base + "\n\n" + upgradeUrl
+    }
+}
+
 /// General Gaikai allocation error
 struct GaikaiAllocationError: Error, LocalizedError {
     let message: String
