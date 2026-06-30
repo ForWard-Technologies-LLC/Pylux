@@ -127,6 +127,17 @@ struct GaikaiAllocationError: Error, LocalizedError {
     var errorDescription: String? { message }
 }
 
+/// A cached free PS+ title now costs money (stale catalog). `price` may be empty.
+/// Surfaces through CloudPlayView's generic error alert.
+struct GameNotFreeError: Error, LocalizedError {
+    let price: String
+    var errorDescription: String? {
+        let base = "This game is no longer free to stream. Your game list may be out of date — refresh it and try again."
+        return price.isEmpty ? base
+            : "This game is no longer free to stream (price: \(price)). Your game list may be out of date — refresh it and try again."
+    }
+}
+
 
 // Region-group / Classics-container logic now lives in libchiaki (lib/src/cloudcatalog_consts.c)
 // and is reflected back to the client via the unified catalog's "fallbackRegion" field.

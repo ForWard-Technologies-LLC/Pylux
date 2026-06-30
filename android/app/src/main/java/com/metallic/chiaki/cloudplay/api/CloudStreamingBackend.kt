@@ -194,6 +194,10 @@ class CloudStreamingBackend(
 					AuthorizationFailedException("Your NPSSO token is likely expired. Please re-login to continue using cloud streaming.")
 				msg.contains("PS_PLUS_SUBSCRIPTION_REQUIRED") ->
 					PsPlusSubscriptionException("PS Plus subscription required")
+				msg.startsWith("GAME_NOT_FREE") ->
+					// Stale catalog: a free PS+ title now costs money. Sentinel is
+					// "GAME_NOT_FREE:<price>" (price may be empty).
+					GameNotFreeException(msg.substringAfter("GAME_NOT_FREE:", ""))
 				msg.startsWith("ACCOUNT_PRIVACY_SETTINGS") ->
 					AccountPrivacySettingsException(msg.substringAfter("ACCOUNT_PRIVACY_SETTINGS:", ""),
 						"Account privacy settings need updating")

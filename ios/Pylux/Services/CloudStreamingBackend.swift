@@ -150,6 +150,14 @@ final class CloudStreamingBackend {
                 upgradeUrl = String(msg[r.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
             }
             throw AccountPrivacySettingsError(upgradeUrl: upgradeUrl)
+        } else if msg.contains("GAME_NOT_FREE") {
+            // Stale catalog: a free PS+ title now costs money. Sentinel is
+            // "GAME_NOT_FREE:<price>" (price may be empty). Parse defensively.
+            var price = ""
+            if let r = msg.range(of: "GAME_NOT_FREE:") {
+                price = String(msg[r.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            throw GameNotFreeError(price: price)
         } else if msg.contains("PING_TIMEOUT") {
             throw PingTimeoutError()
         } else {

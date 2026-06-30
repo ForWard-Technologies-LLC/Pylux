@@ -478,11 +478,17 @@ static ChiakiErrorCode km_checkout_acquire(KamajiCtx *c, char **out_error)
 	int total = cart ? cc_json_int(cart, "total_price_value") : -1;
 	if(total != 0)
 	{
-		CHIAKI_LOGE(c->log, "[KAMAJI] title is not free (price value %d)", total);
-		// Defensive: the catalog only offers $0 PS+ titles for the acquire path, so this
-		// should be unreachable. No dedicated UI -- platforms surface it via the generic
-		// allocation-error path, which is fine for an unexpected paid SKU.
-		if(out_error) *out_error = strdup("GAME_NOT_FREE");
+		const char *price = cart ? cc_json_str(cart, "total_price") : "";
+		CHIAKI_LOGE(c->log, "[KAMAJI] title is not free (price %s / value %d)", price, total);
+		// Reachable when the cached catalog is stale: a title that was a free PS+ offer
+		// now costs money. Carry the display price in the sentinel so the UI can tell the
+		// user the title is no longer free (and to refresh their game list).
+		if(out_error)
+		{
+			char sentinel[160];
+			snprintf(sentinel, sizeof(sentinel), "GAME_NOT_FREE:%s", price);
+			*out_error = strdup(sentinel);
+		}
 		if(pj) json_object_put(pj);
 		free(h_auth); free(h_ua); free(h_cookie); cc_http_response_fini(&presp);
 		return CHIAKI_ERR_UNKNOWN;

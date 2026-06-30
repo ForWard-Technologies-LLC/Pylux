@@ -373,6 +373,16 @@ void CloudStreamingBackend::handleProvisionError(QString serviceType, QString er
     } else if (errorMessage.contains(QStringLiteral("PING_TIMEOUT"))) {
         if (qmlBackend) qmlBackend->setShowPingTimeoutDialog(true);
         userMessage = tr("Ping must be < 80ms to start a cloud session");
+    } else if (errorMessage.contains(QStringLiteral("GAME_NOT_FREE"))) {
+        // Stale catalog: a title that was a free PS+ offer now costs money. Sentinel is
+        // "GAME_NOT_FREE:<price>" (price may be empty). Tell the user to refresh.
+        const QString prefix = QStringLiteral("GAME_NOT_FREE:");
+        QString price;
+        int idx = errorMessage.indexOf(prefix);
+        if (idx >= 0) price = errorMessage.mid(idx + prefix.length()).trimmed();
+        userMessage = price.isEmpty()
+            ? tr("This game is no longer free to stream. Your game list may be out of date — refresh it and try again.")
+            : tr("This game is no longer free to stream (price: %1). Your game list may be out of date — refresh it and try again.").arg(price);
     } else {
         userMessage = errorMessage.isEmpty() ? tr("Allocation failed")
                                              : QString("Allocation failed: %1").arg(errorMessage);
