@@ -86,13 +86,21 @@ final class CloudStreamingBackend {
         let priorData = pscloud ? SecureStore.shared.pscloudDatacentersData : SecureStore.shared.psnowDatacentersData
         let priorDatacentersJson = priorData.flatMap { String(data: $0, encoding: .utf8) } ?? ""
 
-        // Store country/language: fall back to the store locale (de-DE -> DE/de) when the
-        // server-authoritative values are empty, so non-English native stores don't 404 on US/en.
+        // Store country/language for the resolve container URL -- byte-faithful to the old
+        // Kamaji step0_5d: native mode (resolvedStoreCountry empty) derives BOTH from the store
+        // locale; fallback mode uses the resolved country and resolved-else-locale language.
         let (localeCountry, localeLang) = CloudLocaleSettings.parseStorePath(CloudLocaleSettings.stored)
         let resolvedCountry = SecureStore.shared.cloudResolvedStoreCountry
         let resolvedLang = SecureStore.shared.cloudResolvedStoreLang
-        let storeCountry = resolvedCountry.isEmpty ? localeCountry : resolvedCountry
-        let storeLang = resolvedLang.isEmpty ? localeLang : resolvedLang
+        let storeCountry: String
+        let storeLang: String
+        if !resolvedCountry.isEmpty {
+            storeCountry = resolvedCountry
+            storeLang = resolvedLang.isEmpty ? localeLang : resolvedLang
+        } else {
+            storeCountry = localeCountry
+            storeLang = localeLang
+        }
 
         let result = PyluxCloudProvision.provision(
             withServiceType: serviceType,

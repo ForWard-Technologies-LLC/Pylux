@@ -98,16 +98,23 @@ void CloudStreamingBackend::continueCloudSessionAfterAuth(QString serviceType, Q
     const QByteArray svc = serviceType.toUtf8();
     const QByteArray gameId = gameIdentifier.toUtf8();
     const QByteArray npsso = npssoToken.toUtf8();
-    // Store country/language for the resolve container URL. When the server-authoritative
-    // values are empty, fall back to the store locale (e.g. "de-DE" -> DE/de) so a non-English
-    // native store doesn't 404 on US/en (matches the old Kamaji step0_5d fallback).
-    QString cc = settings->GetCloudResolvedStoreCountry();
-    QString cl = settings->GetCloudResolvedStoreLang();
-    if (cc.isEmpty() || cl.isEmpty()) {
-        QString loc = settings->GetCloudStoreLocale();
-        const QStringList lp = (loc.isEmpty() ? QStringLiteral("en-US") : loc).split('-');
-        if (cc.isEmpty()) cc = (lp.size() > 1 && !lp[1].isEmpty()) ? lp[1].toUpper() : QStringLiteral("US");
-        if (cl.isEmpty()) cl = (!lp.isEmpty() && !lp[0].isEmpty()) ? lp[0].toLower() : QStringLiteral("en");
+    // Store country/language for the resolve container URL -- byte-faithful to the old
+    // Kamaji step0_5d (commit a43e8af2): in native mode (resolvedStoreCountry empty) derive
+    // BOTH from the store locale; in fallback mode use the resolved country and the resolved
+    // language (else the locale language). Hardcoded US/en would 404 a non-US native store.
+    QString loc = settings->GetCloudStoreLocale();
+    const QStringList lp = (loc.isEmpty() ? QStringLiteral("en-US") : loc).split('-');
+    const QString localeLang = (!lp.isEmpty() && !lp[0].isEmpty()) ? lp[0].toLower() : QStringLiteral("en");
+    const QString localeCountry = (lp.size() > 1 && !lp[1].isEmpty()) ? lp[1].toUpper() : QStringLiteral("US");
+    const QString resolvedCountry = settings->GetCloudResolvedStoreCountry();
+    const QString resolvedLang = settings->GetCloudResolvedStoreLang();
+    QString cc, cl;
+    if (!resolvedCountry.isEmpty()) {
+        cc = resolvedCountry;
+        cl = !resolvedLang.isEmpty() ? resolvedLang : localeLang;
+    } else {
+        cc = localeCountry;
+        cl = localeLang;
     }
     const QByteArray storeCountry = cc.toUtf8();
     const QByteArray storeLang = cl.toUtf8();

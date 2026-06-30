@@ -138,11 +138,21 @@ class CloudStreamingBackend(
 			// picker keeps previously-measured RTTs.
 			val priorDatacenters = if (pscloud) preferences.getCloudDatacentersJsonPscloud() else preferences.getCloudDatacentersJsonPsnow()
 
-			// Store country/language: fall back to the store locale (de-DE -> DE/de) when the
-			// server-authoritative values are empty, so non-English native stores don't 404 on US/en.
+			// Store country/language for the resolve container URL -- byte-faithful to the old
+			// Kamaji step0_5d: native mode (resolvedStoreCountry empty) derives BOTH from the store
+			// locale; fallback mode uses the resolved country and resolved-else-locale language.
 			val (localeCountry, localeLang) = com.metallic.chiaki.cloudplay.CloudLocale.parseStorePath(preferences.getCloudStoreLocale())
-			val storeCountry = preferences.getCloudResolvedStoreCountry().ifEmpty { localeCountry }
-			val storeLang = preferences.getCloudResolvedStoreLang().ifEmpty { localeLang }
+			val resolvedCountry = preferences.getCloudResolvedStoreCountry()
+			val resolvedLang = preferences.getCloudResolvedStoreLang()
+			val storeCountry: String
+			val storeLang: String
+			if (resolvedCountry.isNotEmpty()) {
+				storeCountry = resolvedCountry
+				storeLang = resolvedLang.ifEmpty { localeLang }
+			} else {
+				storeCountry = localeCountry
+				storeLang = localeLang
+			}
 
 			val result = com.metallic.chiaki.lib.cloudProvisionSession(
 				serviceType = serviceType,
