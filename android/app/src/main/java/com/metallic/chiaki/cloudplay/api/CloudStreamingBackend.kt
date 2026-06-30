@@ -138,13 +138,19 @@ class CloudStreamingBackend(
 			// picker keeps previously-measured RTTs.
 			val priorDatacenters = if (pscloud) preferences.getCloudDatacentersJsonPscloud() else preferences.getCloudDatacentersJsonPsnow()
 
+			// Store country/language: fall back to the store locale (de-DE -> DE/de) when the
+			// server-authoritative values are empty, so non-English native stores don't 404 on US/en.
+			val (localeCountry, localeLang) = com.metallic.chiaki.cloudplay.CloudLocale.parseStorePath(preferences.getCloudStoreLocale())
+			val storeCountry = preferences.getCloudResolvedStoreCountry().ifEmpty { localeCountry }
+			val storeLang = preferences.getCloudResolvedStoreLang().ifEmpty { localeLang }
+
 			val result = com.metallic.chiaki.lib.cloudProvisionSession(
 				serviceType = serviceType,
 				gameIdentifier = gameIdentifier,
 				gameName = gameName,
 				npsso = npssoToken,
-				storeCountry = preferences.getCloudResolvedStoreCountry(),
-				storeLang = preferences.getCloudResolvedStoreLang(),
+				storeCountry = storeCountry,
+				storeLang = storeLang,
 				gameLanguage = gameLanguage,
 				ownedEntitlementId = ownedEntitlementId,
 				ownedPlatform = ownedPlatform,

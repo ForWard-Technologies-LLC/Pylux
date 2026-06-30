@@ -98,8 +98,19 @@ void CloudStreamingBackend::continueCloudSessionAfterAuth(QString serviceType, Q
     const QByteArray svc = serviceType.toUtf8();
     const QByteArray gameId = gameIdentifier.toUtf8();
     const QByteArray npsso = npssoToken.toUtf8();
-    const QByteArray storeCountry = settings->GetCloudResolvedStoreCountry().toUtf8();
-    const QByteArray storeLang = settings->GetCloudResolvedStoreLang().toUtf8();
+    // Store country/language for the resolve container URL. When the server-authoritative
+    // values are empty, fall back to the store locale (e.g. "de-DE" -> DE/de) so a non-English
+    // native store doesn't 404 on US/en (matches the old Kamaji step0_5d fallback).
+    QString cc = settings->GetCloudResolvedStoreCountry();
+    QString cl = settings->GetCloudResolvedStoreLang();
+    if (cc.isEmpty() || cl.isEmpty()) {
+        QString loc = settings->GetCloudStoreLocale();
+        const QStringList lp = (loc.isEmpty() ? QStringLiteral("en-US") : loc).split('-');
+        if (cc.isEmpty()) cc = (lp.size() > 1 && !lp[1].isEmpty()) ? lp[1].toUpper() : QStringLiteral("US");
+        if (cl.isEmpty()) cl = (!lp.isEmpty() && !lp[0].isEmpty()) ? lp[0].toLower() : QStringLiteral("en");
+    }
+    const QByteArray storeCountry = cc.toUtf8();
+    const QByteArray storeLang = cl.toUtf8();
     // Streaming language: manual picker, else fall back to the auto-detected catalog
     // store locale so non-English regions don't silently get "en".
     QString gameLangStr = settings->GetCloudGameLanguage();

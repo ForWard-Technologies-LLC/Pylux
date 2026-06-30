@@ -86,13 +86,21 @@ final class CloudStreamingBackend {
         let priorData = pscloud ? SecureStore.shared.pscloudDatacentersData : SecureStore.shared.psnowDatacentersData
         let priorDatacentersJson = priorData.flatMap { String(data: $0, encoding: .utf8) } ?? ""
 
+        // Store country/language: fall back to the store locale (de-DE -> DE/de) when the
+        // server-authoritative values are empty, so non-English native stores don't 404 on US/en.
+        let (localeCountry, localeLang) = CloudLocaleSettings.parseStorePath(CloudLocaleSettings.stored)
+        let resolvedCountry = SecureStore.shared.cloudResolvedStoreCountry
+        let resolvedLang = SecureStore.shared.cloudResolvedStoreLang
+        let storeCountry = resolvedCountry.isEmpty ? localeCountry : resolvedCountry
+        let storeLang = resolvedLang.isEmpty ? localeLang : resolvedLang
+
         let result = PyluxCloudProvision.provision(
             withServiceType: serviceType,
             gameIdentifier: gameIdentifier,
             gameName: gameName,
             npsso: npssoToken,
-            storeCountry: SecureStore.shared.cloudResolvedStoreCountry,
-            storeLang: SecureStore.shared.cloudResolvedStoreLang,
+            storeCountry: storeCountry,
+            storeLang: storeLang,
             gameLanguage: gameLanguage,
             ownedEntitlementId: ownedEntitlementId,
             ownedPlatform: ownedPlatform,

@@ -505,7 +505,7 @@ static ChiakiErrorCode gk_step8b_server_authcode(GaikaiCtx *c)
 	return CHIAKI_ERR_SUCCESS;
 }
 
-static ChiakiErrorCode gk_step9_authorize(GaikaiCtx *c, bool *out_psplus_err)
+static ChiakiErrorCode gk_step9_authorize(GaikaiCtx *c, ChiakiCloudProvisionResult *out, bool *out_psplus_err)
 {
 	gk_progress(c, "Authorizing Session - Step 6 of 10");
 	CCHttpResponse resp = { 0 };
@@ -514,8 +514,13 @@ static ChiakiErrorCode gk_step9_authorize(GaikaiCtx *c, bool *out_psplus_err)
 	if(resp.status_code != 200)
 	{
 		char *ev = gk_header_value(resp.headers, "x-gaikai-event");
-		if(ev && strstr(ev, "002.2001")) *out_psplus_err = true;
-		if(resp.data && strstr(resp.data, "002.2001")) *out_psplus_err = true;
+		bool psplus = (ev && strstr(ev, "002.2001")) || (resp.data && strstr(resp.data, "002.2001"));
+		if(psplus)
+			*out_psplus_err = true;
+		// Otherwise forward the reject body so the orchestrator's one-shot
+		// noGameForEntitlementId fallback fires when Gaikai rejects an owned entitlement
+		// at authorize (step9), not just at start (step8) -- matches both originals.
+		else if(resp.data) { free(out->error_message); out->error_message = strdup(resp.data); }
 		CHIAKI_LOGE(c->log, "[GAIKAI] step9 authorize http %ld: %s", resp.status_code, resp.data ? resp.data : "");
 		free(ev); cc_http_response_fini(&resp);
 		return CHIAKI_ERR_UNKNOWN;
@@ -956,7 +961,7 @@ ChiakiErrorCode cc_gaikai_allocate(ChiakiLog *log,
 	if(e == CHIAKI_ERR_SUCCESS) e = gk_step8_start(&c, out);
 	if(e == CHIAKI_ERR_SUCCESS) e = gk_step8a_gk_authcode(&c);
 	if(e == CHIAKI_ERR_SUCCESS) e = gk_step8b_server_authcode(&c);
-	if(e == CHIAKI_ERR_SUCCESS) e = gk_step9_authorize(&c, &psplus_err);
+	if(e == CHIAKI_ERR_SUCCESS) e = gk_step9_authorize(&c, out, &psplus_err);
 	if(e == CHIAKI_ERR_SUCCESS) e = gk_step10_lock(&c);
 	if(e == CHIAKI_ERR_SUCCESS) e = gk_step11_datacenters(&c);
 	if(e == CHIAKI_ERR_SUCCESS) e = gk_step12_select(&c);

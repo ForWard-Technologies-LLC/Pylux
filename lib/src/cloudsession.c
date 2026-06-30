@@ -100,7 +100,7 @@ static ChiakiErrorCode cc_authorize_check(ChiakiLog *log,
 	free(h_cookie);
 	if(e != CHIAKI_ERR_SUCCESS)
 		return e;
-	if(status == 200 || status == 204)
+	if(status >= 200 && status < 300)   // any 2xx (the original accepted all QNetworkReply::NoError)
 		return CHIAKI_ERR_SUCCESS;
 	CHIAKI_LOGE(log, "[CLOUDSESSION] authorizeCheck failed (HTTP %ld); NPSSO likely expired", status);
 	return CHIAKI_ERR_UNKNOWN;
@@ -141,10 +141,10 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_cloud_provision_session(
 	ChiakiCloudProvisionResult *out,
 	ChiakiLog *log)
 {
-	if(!cfg || !out)
+	if(!out)
 		return CHIAKI_ERR_INVALID_DATA;
-	result_init(out);
-	if(!cfg->npsso || !*cfg->npsso)
+	result_init(out);   // init before any other check so the caller's result_fini is always safe
+	if(!cfg || !cfg->npsso || !*cfg->npsso)
 	{
 		out->err = CHIAKI_ERR_INVALID_DATA;
 		return out->err;
