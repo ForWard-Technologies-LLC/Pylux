@@ -156,7 +156,6 @@ void CloudStreamingBackend::continueCloudSessionAfterAuth(QString serviceType, Q
         cfg.skip_account_attr_check = attrPassed;
         cfg.forced_datacenter = forcedDc.constData();
         cfg.prior_datacenters_json = priorDc.constData();
-        cfg.cache_dir = "";
         cfg.resolution = resolution;
         cfg.bitrate_kbps = bitrate;
         cfg.progress = &CloudStreamingBackend::provisionProgressThunk;

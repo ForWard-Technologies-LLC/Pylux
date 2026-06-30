@@ -1708,7 +1708,6 @@ JNIEXPORT jint JNICALL JNI_FCN(cloudProvisionSession)(JNIEnv *env, jobject obj,
 	cfg.owned_platform = owned_platform;
 	cfg.forced_datacenter = forced_dc;
 	cfg.prior_datacenters_json = prior_dc;
-	cfg.cache_dir = "";
 	cfg.catalog_is_foreign = catalog_is_foreign ? true : false;
 	cfg.skip_account_attr_check = false;
 	cfg.resolution = resolution;

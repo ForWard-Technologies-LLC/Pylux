@@ -51,7 +51,6 @@ typedef struct chiaki_cloud_provision_config_t
 	const char *prior_datacenters_json; /**< platform's stored datacenters for this service; merged
 	                                       with this run's pings into result.datacenter_pings (keeps
 	                                       previously-measured RTTs). May be NULL/"". */
-	const char *cache_dir;            /**< lib-owned datacenter-ping cache lives here; may be "" */
 	const char *game_language;        /**< streaming-language locale (e.g. "de-DE"); bare code derived */
 	int  resolution;                  /**< 720|1080|1440|2160 (platform picks the per-service value) */
 	int  bitrate_kbps;                /**< cloud stream bitrate (platform picks the per-service value) */

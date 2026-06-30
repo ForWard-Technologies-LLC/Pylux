@@ -80,7 +80,6 @@ static bool cp_is_cancelled(void *user) {
     cfg.owned_platform = ownedPlatform.UTF8String;
     cfg.forced_datacenter = forcedDatacenter.UTF8String;
     cfg.prior_datacenters_json = priorDatacentersJson.UTF8String;
-    cfg.cache_dir = "";
     cfg.catalog_is_foreign = catalogIsForeign ? true : false;
     cfg.skip_account_attr_check = false;  // iOS has no "ignore forever" flag
     cfg.resolution = resolution;
