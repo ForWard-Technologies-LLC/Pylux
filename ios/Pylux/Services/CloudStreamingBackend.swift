@@ -38,27 +38,17 @@ final class CloudStreamingBackend {
             throw GaikaiAllocationError(message: "Invalid serviceType: \(normalizedServiceType)")
         }
 
-        // Generate shared DUID
-        let sharedDuid = generateDuid()
-        os_log(.info, log: cloudLog, "Using DUID: %{public}s", String(sharedDuid.prefix(20)))
-
-        // Centralized authorization check (matches Qt lines 91-119)
-        guard checkAuthorization(serviceType: normalizedServiceType, npssoToken: npssoToken, duid: sharedDuid) else {
-            throw AuthorizationFailedError(message: "Your NPSSO token is likely expired. Please re-login.")
-        }
-        os_log(.info, log: cloudLog, "✓ Authorization check passed")
-
         if normalizedServiceType == "pscloud" {
             CloudLocaleSettings.ensureConfigured(npssoToken: npssoToken)
         }
 
-        // Continue with session setup
+        // The C flow runs the NPSSO authorizeCheck itself as its first (silent) step
+        // and returns AUTHORIZATION_FAILED if the token is expired.
         return try continueCloudSessionAfterAuth(
             serviceType: normalizedServiceType,
             gameIdentifier: gameIdentifier,
             gameName: gameName,
             npssoToken: npssoToken,
-            sharedDuid: sharedDuid,
             ownedEntitlementId: ownedEntitlementId,
             ownedPlatform: ownedPlatform,
             onProgress: onProgress,
@@ -76,7 +66,6 @@ final class CloudStreamingBackend {
         gameIdentifier: String,
         gameName: String,
         npssoToken: String,
-        sharedDuid: String,
         ownedEntitlementId: String = "",
         ownedPlatform: String = "",
         onProgress: ((String) -> Void)?,
@@ -98,9 +87,6 @@ final class CloudStreamingBackend {
         // and returns the full list, so the Settings picker keeps previously-measured RTTs.
         let priorData = pscloud ? SecureStore.shared.pscloudDatacentersData : SecureStore.shared.psnowDatacentersData
         let priorDatacentersJson = priorData.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-
-        // sharedDuid is only the auth-check DUID; the C flow generates its own shared one.
-        _ = sharedDuid
 
         let result = PyluxCloudProvision.provision(
             withServiceType: serviceType,
@@ -151,7 +137,9 @@ final class CloudStreamingBackend {
         // Map the C error_message sentinels to the error types CloudPlayView catches.
         let msg = result.errorMessage ?? "Allocation failed"
         os_log(.error, log: cloudLog, "Cloud provisioning failed: %{public}s", msg)
-        if msg.contains("PS_PLUS_SUBSCRIPTION_REQUIRED") {
+        if msg.contains("AUTHORIZATION_FAILED") {
+            throw AuthorizationFailedError(message: "Your NPSSO token is likely expired. Please re-login.")
+        } else if msg.contains("PS_PLUS_SUBSCRIPTION_REQUIRED") {
             throw PsPlusSubscriptionError(message: "PS Plus subscription required")
         } else if msg.contains("PING_TIMEOUT") {
             throw PingTimeoutError()
@@ -160,52 +148,4 @@ final class CloudStreamingBackend {
         }
     }
 
-    // MARK: - Authorization Check (matches Qt lines 543-613)
-
-    private func checkAuthorization(serviceType: String, npssoToken: String, duid: String) -> Bool {
-        guard !npssoToken.isEmpty else { return false }
-
-        let kamajiClientId: String
-        let scopesStr: String
-        let redirectUri: String
-        let userAgent: String
-
-        if serviceType == "psnow" {
-            kamajiClientId = CloudApiConstants.kamajiClientId
-            scopesStr = CloudApiConstants.ps4Scopes
-            redirectUri = CloudApiConstants.kamajiRedirectUri
-            userAgent = CloudApiConstants.kamajiUserAgent
-        } else {
-            kamajiClientId = "19ae39c4-3f88-4d11-a792-94e4f52c996d"
-            scopesStr = "id_token:psn.basic_claims kamaji:s2s.subscriptionsPremium.get id_token:duid id_token:online_id openid psn:s2s"
-            redirectUri = CloudApiConstants.gaikaiRedirectUri
-            userAgent = CloudApiConstants.gaikaiUserAgent
-        }
-
-        let url = "\(CloudApiConstants.accountBase)/authz/v3/oauth/authorizeCheck"
-        let body: [String: Any] = [
-            "client_id": kamajiClientId, "scope": scopesStr,
-            "redirect_uri": redirectUri, "response_type": "code",
-            "service_entity": "urn:service-entity:psn", "duid": duid
-        ]
-
-        guard let bodyData = try? JSONSerialization.data(withJSONObject: body),
-              let bodyStr = String(data: bodyData, encoding: .utf8),
-              let response = CloudHttpClient.post(url: url, body: bodyStr, headers: [
-                  "Content-Type": "application/json; charset=UTF-8",
-                  "User-Agent": userAgent,
-                  "Cookie": "npsso=\(npssoToken)"
-              ]) else { return false }
-
-        return response.statusCode == 200 || response.statusCode == 204
-    }
-
-    // MARK: - DUID Generation (matches Android DuidUtil)
-
-    private func generateDuid() -> String {
-        let prefix = "0000000700410080"
-        var randomBytes = [UInt8](repeating: 0, count: 16)
-        _ = SecRandomCopyBytes(kSecRandomDefault, 16, &randomBytes)
-        return prefix + randomBytes.map { String(format: "%02x", $0) }.joined()
-    }
 }
