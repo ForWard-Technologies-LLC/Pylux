@@ -36,7 +36,10 @@ typedef struct chiaki_cloud_provision_config_t
 {
 	const char *service_type;         /**< "psnow" (PS3/PS4) | "pscloud" (PS5) */
 	const char *game_identifier;      /**< productId (psnow) or entitlementId (pscloud) */
-	const char *game_name;            /**< display name (logging / result echo) */
+	const char *game_name;            /**< display name, logging only -- the provisioning flow
+	                                   *   never reads it. (The Rich-Presence/window-title game
+	                                   *   name is a separate StreamSessionConnectInfo.game_name,
+	                                   *   which the cloud path has never wired up -- pre-existing.) */
 	const char *npsso;                /**< cookie value only (no "npsso=" prefix) */
 	const char *store_country;        /**< resolvedStoreCountry for the step0_5d container URL */
 	const char *store_lang;           /**< resolvedStoreLang for the step0_5d container URL */
