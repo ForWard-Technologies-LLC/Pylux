@@ -20,6 +20,13 @@ extern "C" {
 
 struct json_object; // json-c, forward-declared so this header needs no umbrella include
 
+// Shared PSNOW/Kamaji OAuth constants -- single source of truth for the cloudsession
+// units (each file aliases its local macro to these). Protocol-stable Sony values; the
+// catalog module (cloudcatalog_fetch.c) keeps its own copy as it's a separate module.
+#define CS_PSNOW_CLIENT_ID  "bc6b0777-abb5-40da-92ca-e133cf18e989"
+#define CS_PSNOW_REDIRECT   "https://psnow.playstation.com/app/2.2.0/133/5cdcc037d/grc-response.html"
+#define CS_PSNOW_USER_AGENT "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) playstation-now/0.0.0 Chrome/83.0.4103.104 Electron/9.0.4 Safari/537.36 gkApollo"
+
 /**
  * Pure picker for the PS Plus full-game ("*GD") fallback that step 0.5d uses when a
  * title exposes no license_type==4 streaming reservation. Scans @p sku's

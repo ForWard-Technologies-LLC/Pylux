@@ -26,8 +26,8 @@
 #define GK_CONFIG_BASE "https://config.cc.prod.gaikai.com/v1"
 #define ACCOUNT_BASE   "https://ca.account.sony.com"
 #define GK_UA_PSCLOUD  "PlayStation Portal/6.0.0-rel.444+6a9cea6f5"
-#define GK_UA_PSNOW    "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) playstation-now/0.0.0 Chrome/83.0.4103.104 Electron/9.0.4 Safari/537.36 gkApollo"
-#define GK_REDIR_PSNOW "https://psnow.playstation.com/app/2.2.0/133/5cdcc037d/grc-response.html"
+#define GK_UA_PSNOW    CS_PSNOW_USER_AGENT  // shared (cloudsession_internal.h)
+#define GK_REDIR_PSNOW CS_PSNOW_REDIRECT
 #define GK_REDIR_PSCLOUD "gaikai://local"
 #define MAX_LOCK_RETRIES 12
 #define DEFAULT_ALLOC_WAIT_S 300

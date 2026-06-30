@@ -54,10 +54,10 @@ CHIAKI_EXPORT void chiaki_cloud_provision_result_fini(ChiakiCloudProvisionResult
 // cloudsession_kamaji.c. The pscloud client id is the fixed pre-flight id the
 // platforms used (distinct from the step0-fetched streaming client id).
 #define CA_URL            "https://ca.account.sony.com/api/authz/v3/oauth/authorizeCheck"
-#define CA_PSNOW_CLIENT   "bc6b0777-abb5-40da-92ca-e133cf18e989"
+#define CA_PSNOW_CLIENT   CS_PSNOW_CLIENT_ID  // shared (cloudsession_internal.h)
 #define CA_PSNOW_SCOPE    "kamaji:commerce_native kamaji:commerce_container kamaji:lists kamaji:s2s.subscriptionsPremium.get"
-#define CA_PSNOW_REDIR    "https://psnow.playstation.com/app/2.2.0/133/5cdcc037d/grc-response.html"
-#define CA_PSNOW_UA       "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) playstation-now/0.0.0 Chrome/83.0.4103.104 Electron/9.0.4 Safari/537.36 gkApollo"
+#define CA_PSNOW_REDIR    CS_PSNOW_REDIRECT
+#define CA_PSNOW_UA       CS_PSNOW_USER_AGENT
 #define CA_PSCLOUD_CLIENT "19ae39c4-3f88-4d11-a792-94e4f52c996d"
 #define CA_PSCLOUD_SCOPE  "id_token:psn.basic_claims kamaji:s2s.subscriptionsPremium.get id_token:duid id_token:online_id openid psn:s2s"
 #define CA_PSCLOUD_REDIR  "gaikai://local"
