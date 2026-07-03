@@ -803,7 +803,14 @@ static ChiakiErrorCode gk_step12_select(GaikaiCtx *c)
 		c->selected_ping = json_object_array_get_idx(c->ping_results, 0); // lowest RTT
 		bool measured = cc_json_bool(c->selected_ping, "measured");
 		int rtt_ms = cc_json_int(c->selected_ping, "rtt");
-		if(measured && rtt_ms > 80)
+		if(!measured)
+		{
+			// Rows are RTT-sorted, so an unmeasured best row means no ping succeeded.
+			CHIAKI_LOGE(c->log, "[GAIKAI] all datacenter pings failed");
+			c->ping_timeout = true;
+			return CHIAKI_ERR_UNKNOWN; // ping-too-high / unreachable
+		}
+		if(rtt_ms > 80)
 		{
 			CHIAKI_LOGE(c->log, "[GAIKAI] best datacenter RTT %dms > 80ms", rtt_ms);
 			c->ping_timeout = true;
