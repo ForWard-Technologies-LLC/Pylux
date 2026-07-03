@@ -109,6 +109,14 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_stop(ChiakiStreamConnecti
 
 CHIAKI_EXPORT ChiakiErrorCode stream_connection_send_corrupt_frame(ChiakiStreamConnection *stream_connection, ChiakiSeqNum16 start, ChiakiSeqNum16 end);
 
+/**
+ * Thread-safe read of the currently-decoded video resolution (the negotiated/adaptive
+ * profile). Returns false if no profile is active yet (caller should fall back to the
+ * requested connect_info profile).
+ */
+CHIAKI_EXPORT bool chiaki_stream_connection_video_resolution(ChiakiStreamConnection *stream_connection,
+		unsigned int *width, unsigned int *height);
+
 #ifdef __cplusplus
 }
 #endif

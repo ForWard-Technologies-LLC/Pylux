@@ -727,13 +727,12 @@ JNIEXPORT jdoubleArray JNICALL JNI_FCN(sessionGetMetrics)(JNIEnv *env, jobject o
 		vals[4] = sc->measured_rtt_ms;
 		ChiakiVideoReceiver *vr = sc->video_receiver;
 		if(vr)
-		{
 			vals[2] = (jdouble)vr->cumulative_frames_lost;
-			if(vr->profile_cur >= 0 && (size_t)vr->profile_cur < vr->profiles_count)
-			{
-				vals[5] = (jdouble)vr->profiles[vr->profile_cur].width;
-				vals[6] = (jdouble)vr->profiles[vr->profile_cur].height;
-			}
+		unsigned int vw = 0, vh = 0;
+		if(chiaki_stream_connection_video_resolution(sc, &vw, &vh))
+		{
+			vals[5] = (jdouble)vw;
+			vals[6] = (jdouble)vh;
 		}
 		// Fall back to the requested profile before the first adaptive profile is selected.
 		if(vals[5] == 0 || vals[6] == 0)

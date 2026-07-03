@@ -351,11 +351,11 @@ class StreamSession : public QObject
 			// than requested. Fall back to the requested profile before the first
 			// frame selects an adaptive profile.
 			int w = 0, h = 0;
-			ChiakiVideoReceiver *vr = session.stream_connection.video_receiver;
-			if(vr && vr->profile_cur >= 0 && (size_t)vr->profile_cur < vr->profiles_count)
+			unsigned int uw = 0, uh = 0;
+			if(chiaki_stream_connection_video_resolution(&session.stream_connection, &uw, &uh))
 			{
-				w = (int)vr->profiles[vr->profile_cur].width;
-				h = (int)vr->profiles[vr->profile_cur].height;
+				w = (int)uw;
+				h = (int)uh;
 			}
 			else
 			{
