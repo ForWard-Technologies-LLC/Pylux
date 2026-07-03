@@ -1100,7 +1100,7 @@ class CloudPlayFragment : Fragment()
 					ownedEntitlementId = game.entitlementId,
 					ownedPlatform = game.platform,
 					onProgress = { message ->
-						requireActivity().runOnUiThread {
+						activity?.runOnUiThread {
 							allocationProgressTextView?.text = message
 						}
 					},
