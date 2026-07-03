@@ -490,7 +490,7 @@ QString CloudCatalogBackend::getGameLandscapeImageFromCache(const QString &servi
     QString productIdForCatalog; // For PSCloud: productId to use in catalog lookup
     
     if (serviceType.toLower() == "psnow") {
-        cacheKey = "psnow_catalog";
+        cacheKey = "unified_catalog_v3";
     } else if (serviceType.toLower() == "pscloud") {
         // For PSCloud, check game details cache first (has landscape images from API)
         // If gameIdentifier is an entitlement ID, we need to find the productId from library first
@@ -603,8 +603,10 @@ QString CloudCatalogBackend::getGameLandscapeImageFromCache(const QString &servi
         
         // Match based on service type
         if (serviceType.toLower() == "psnow") {
-            // PSNOW: Match by "id" field (product ID)
-            if (game.contains("id") && game["id"].toString() == gameIdentifier) {
+            // PSNOW: unified catalog rows may carry the identifier under several keys.
+            if ((game.contains("id") && game["id"].toString() == gameIdentifier)
+                || (game.contains("storeProductId") && game["storeProductId"].toString() == gameIdentifier)
+                || (game.contains("productId") && game["productId"].toString() == gameIdentifier)) {
                 gameObj = game;
                 found = true;
                 break;
