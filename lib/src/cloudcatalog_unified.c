@@ -264,8 +264,11 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_cloudcatalog_fetch_unified(
 		struct json_object *g = cc_json_arr(v6, "games");
 		struct json_object *s = cc_json_arr(v6, "plusLibrarySupplement");
 		struct json_object *a = cc_json_obj(v6, "productIdAliases");
-		browse = cc_json_clone(g ? g : json_object_new_array());
-		supplement = cc_json_clone(s ? s : json_object_new_array());
+		struct json_object *fb = NULL;
+		browse = cc_json_clone(g ? g : (fb = json_object_new_array()));
+		if(fb) { json_object_put(fb); fb = NULL; }
+		supplement = cc_json_clone(s ? s : (fb = json_object_new_array()));
+		if(fb) { json_object_put(fb); fb = NULL; }
 		aliases = a ? cc_json_clone(a) : json_object_new_object();
 		const char *cl = cc_json_str(v6, "locale");
 		if(*cl)
@@ -319,7 +322,9 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_cloudcatalog_fetch_unified(
 		{
 			struct json_object *g = cc_json_arr(lib, "games");
 			struct json_object *c = cc_json_obj(lib, "componentIdsByProductId");
-			owned = cc_json_clone(g ? g : json_object_new_array());
+			struct json_object *fb2 = NULL;
+			owned = cc_json_clone(g ? g : (fb2 = json_object_new_array()));
+			if(fb2) json_object_put(fb2);
 			components = c ? cc_json_clone(c) : json_object_new_object();
 			json_object_put(lib);
 		}
