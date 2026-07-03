@@ -687,7 +687,20 @@ static struct json_object *gk_build_picker(GaikaiCtx *c, struct json_object *dcs
 			json_object_array_add(out, gk_ping_obj(name, 0, 0, 0,
 				cc_json_int(dc, "port"), cc_json_str(dc, "publicIp"), cc_json_int(dc, "maxBandwidth"), false));
 	}
-	if(prior) json_object_put(prior);
+	// Union: keep previously-persisted datacenters this title's API list doesn't offer
+	// (the old per-platform merge preserved them and their measured RTTs).
+	if(prior)
+	{
+		size_t pn = json_object_array_length(prior);
+		for(size_t i = 0; i < pn; i++)
+		{
+			struct json_object *prow = json_object_array_get_idx(prior, i);
+			const char *pname = cc_json_str(prow, "dataCenter");
+			if(*pname && !gk_find_dc(out, pname))
+				json_object_array_add(out, cc_json_clone(prow));
+		}
+		json_object_put(prior);
+	}
 	return out;
 }
 
