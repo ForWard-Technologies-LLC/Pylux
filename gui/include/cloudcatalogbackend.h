@@ -19,6 +19,8 @@
 #include <QFile>
 #include <QStandardPaths>
 
+#include <QHash>
+#include <QPointer>
 #include <atomic>
 #include <vector>
 
@@ -99,6 +101,9 @@ private:
     // the GUI/engine thread (Q_INVOKABLE entry + the queued completion handler).
     std::atomic<bool> unifiedFetchInFlight{false};
     std::vector<QJSValue> pendingUnifiedCallbacks;
+
+    QHash<quint64, QJSValue> pending_callbacks; // GUI thread only
+    quint64 next_request_id = 0;
 
     // Game details fetching state
     struct GameDetailsState {

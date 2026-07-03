@@ -22,6 +22,7 @@
 #include <QEventLoop>
 #include <QTimer>
 #include <QCoreApplication>
+#include <QPointer>
 #include <QProcessEnvironment>
 #include <QImageReader>
 #include <QPainter>
@@ -224,12 +225,16 @@ void CloudCatalogBackend::fetchUnifiedCatalog(const QJSValue &callback)
         return;
     }
 
+    const quint64 reqId = ++next_request_id;
+    pending_callbacks.insert(reqId, cb);
+    QPointer<CloudCatalogBackend> self(this);
+
     const QByteArray npsso = getNpSsoToken().toUtf8();
     const QByteArray locale =
         (settings ? settings->GetCloudStoreLocale() : QStringLiteral("en-US")).toUtf8();
     const QByteArray cacheDir = cacheDirectory.toUtf8();
 
-    std::thread([this, cb, npsso, locale, cacheDir]() mutable {
+    std::thread([self, reqId, npsso, locale, cacheDir]() mutable {
         ChiakiLog log;
         chiaki_log_init(&log, CHIAKI_LOG_INFO | CHIAKI_LOG_WARNING | CHIAKI_LOG_ERROR,
                         chiaki_log_cb_print, nullptr);
@@ -250,14 +255,16 @@ void CloudCatalogBackend::fetchUnifiedCatalog(const QJSValue &callback)
             : QString::fromUtf8(res.error_message ? res.error_message : "Failed to fetch cloud catalog");
         chiaki_cloudcatalog_result_fini(&res);
 
-        // QJSValue must be invoked on the engine (main) thread; the queued call is
-        // discarded automatically if `this` is destroyed first. The in-flight flag is
-        // cleared here (on the GUI thread) AFTER draining any callbacks that were
-        // coalesced while this fetch ran, so they all receive the same result.
-        QMetaObject::invokeMethod(this, [this, cb, success, message, json]() mutable {
+        // QJSValue must be invoked on the engine (main) thread. Route through qApp so
+        // the callback is fetched and invoked on the GUI thread even if `self` is
+        // destroyed before the worker finishes.
+        QMetaObject::invokeMethod(qApp, [self, reqId, success, message, json]() mutable {
+            if (!self)
+                return; // backend destroyed while the worker ran
+            const QJSValue cb = self->pending_callbacks.take(reqId);
             std::vector<QJSValue> parked;
-            parked.swap(pendingUnifiedCallbacks);
-            unifiedFetchInFlight.store(false);
+            parked.swap(self->pendingUnifiedCallbacks);
+            self->unifiedFetchInFlight.store(false);
 
             // Persist the locale the lib actually settled on (region detection now lives
             // entirely in libchiaki: it re-bases the locale on the account's Kamaji-session
@@ -265,14 +272,14 @@ void CloudCatalogBackend::fetchUnifiedCatalog(const QJSValue &callback)
             // Mirrors iOS noteSettledLocale / Android noteCloudStoreLocaleSettled. Uses the core
             // Settings setter (NOT QmlSettings), so it does NOT invalidate the cache the lib
             // just wrote; otherwise an international account would thrash the catalog.
-            if (success && settings) {
+            if (success && self->settings) {
                 const QJsonObject root = QJsonDocument::fromJson(json.toUtf8()).object();
                 const QString settled = root.value(QStringLiteral("settledLocale")).toString();
-                if (!settled.isEmpty() && settled != settings->GetCloudStoreLocale())
-                    settings->SetCloudStoreLocale(settled);
-                settings->SetCloudResolvedStoreCountry(root.value(QStringLiteral("fallbackRegion")).toString());
-                settings->SetCloudResolvedStoreLang(root.value(QStringLiteral("resolvedStoreLang")).toString());
-                settings->SetCloudCatalogNativeMode(root.value(QStringLiteral("nativeMode")).toBool(true));
+                if (!settled.isEmpty() && settled != self->settings->GetCloudStoreLocale())
+                    self->settings->SetCloudStoreLocale(settled);
+                self->settings->SetCloudResolvedStoreCountry(root.value(QStringLiteral("fallbackRegion")).toString());
+                self->settings->SetCloudResolvedStoreLang(root.value(QStringLiteral("resolvedStoreLang")).toString());
+                self->settings->SetCloudCatalogNativeMode(root.value(QStringLiteral("nativeMode")).toBool(true));
             }
 
             const QJSValue payload = success ? QJSValue(json) : QJSValue();

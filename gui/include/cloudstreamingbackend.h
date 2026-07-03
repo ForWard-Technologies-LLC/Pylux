@@ -8,6 +8,8 @@
 #include <QObject>
 #include <QString>
 #include <QJSValue>
+#include <QHash>
+#include <QPointer>
 
 // ============================================================================
 // CONFIGURATION - Shared settings and values used by multiple classes
@@ -94,6 +96,9 @@ private:
     QString allocation_progress;
     int queue_position = -1;  // -1 means not queued or no position available
     QString game_image_url;  // Landscape image URL for current cloud game
+
+    QHash<quint64, QJSValue> pending_callbacks; // GUI thread only
+    quint64 next_request_id = 0;
 };
 
 #endif // CLOUDSTREAMINGBACKEND_H

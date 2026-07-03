@@ -11,8 +11,10 @@
 #include "cloudcatalogbackend.h"
 
 #include <QObject>
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QLoggingCategory>
+#include <QPointer>
 #include <QSet>
 #include <QJsonObject>
 #include <QJsonDocument>
@@ -154,7 +156,11 @@ void CloudStreamingBackend::continueCloudSessionAfterAuth(QString serviceType, Q
 
     setAllocationProgress(tr("Starting cloud session..."));
 
-    std::thread([this, callback, svc, gameId, npsso, storeCountry, storeLang, gameLang,
+    const quint64 reqId = ++next_request_id;
+    pending_callbacks.insert(reqId, callback);
+    QPointer<CloudStreamingBackend> self(this);
+
+    std::thread([self, reqId, svc, gameId, npsso, storeCountry, storeLang, gameLang,
                  forcedDc, priorDc, resolution, bitrate, isForeign, attrPassed, ownedEnt, ownedPlat]() mutable {
         ChiakiLog log;
         chiaki_log_init(&log, CHIAKI_LOG_INFO | CHIAKI_LOG_WARNING | CHIAKI_LOG_ERROR,
@@ -178,7 +184,7 @@ void CloudStreamingBackend::continueCloudSessionAfterAuth(QString serviceType, Q
         cfg.bitrate_kbps = bitrate;
         cfg.progress = &CloudStreamingBackend::provisionProgressThunk;
         cfg.is_cancelled = nullptr;
-        cfg.user = this;
+        cfg.user = &self; // address of the lambda-local QPointer — valid for the blocking call's lifetime
 
         ChiakiCloudProvisionResult res;
         ChiakiErrorCode err = chiaki_cloud_provision_session(&cfg, &res, &log);
@@ -197,21 +203,24 @@ void CloudStreamingBackend::continueCloudSessionAfterAuth(QString serviceType, Q
         const QString dcPings = res.datacenter_pings ? QString::fromUtf8(res.datacenter_pings) : QString();
         chiaki_cloud_provision_result_fini(&res);
 
-        QMetaObject::invokeMethod(this, [this, callback, success, serviceTypeStr, serverIp, serverPort,
+        QMetaObject::invokeMethod(qApp, [self, reqId, success, serviceTypeStr, serverIp, serverPort,
                                          handshakeKey, launchSpec, sessionId, wrap, mtuIn, mtuOut, rttUs, errMsg, dcPings]() mutable {
+            if (!self)
+                return; // backend destroyed while the worker ran
+            const QJSValue callback = self->pending_callbacks.take(reqId);
             // Persist the merged datacenter list so Settings shows the measured RTTs
             // (done whether or not allocation succeeded -- the old code saved during the ping).
             if (!dcPings.isEmpty()) {
-                if (serviceTypeStr == "pscloud") settings->SetCloudDatacentersJsonPSCloud(dcPings);
-                else settings->SetCloudDatacentersJsonPSNOW(dcPings);
+                if (serviceTypeStr == "pscloud") self->settings->SetCloudDatacentersJsonPSCloud(dcPings);
+                else self->settings->SetCloudDatacentersJsonPSNOW(dcPings);
             }
             if (success) {
-                finishCloudSession(serviceTypeStr, serverIp, serverPort, handshakeKey, launchSpec,
-                                   sessionId, wrap, mtuIn, mtuOut, rttUs, callback);
+                self->finishCloudSession(serviceTypeStr, serverIp, serverPort, handshakeKey, launchSpec,
+                                         sessionId, wrap, mtuIn, mtuOut, rttUs, callback);
             } else {
-                handleProvisionError(serviceTypeStr, errMsg, callback);
+                self->handleProvisionError(serviceTypeStr, errMsg, callback);
             }
-        });
+        }, Qt::QueuedConnection);
     }).detach();
 }
 
@@ -423,11 +432,15 @@ void CloudStreamingBackend::handleProvisionError(QString serviceType, QString er
 // C progress callback -- runs on the worker thread; marshal to the GUI thread.
 void CloudStreamingBackend::provisionProgressThunk(const char *stage, void *user)
 {
-    auto *self = static_cast<CloudStreamingBackend*>(user);
-    if (!self || !stage)
+    auto *holder = static_cast<QPointer<CloudStreamingBackend>*>(user);
+    if (!holder || !stage)
         return;
+    QPointer<CloudStreamingBackend> self = *holder; // QPointer copy is thread-safe
     const QString s = QString::fromUtf8(stage);
-    QMetaObject::invokeMethod(self, [self, s]() { self->setAllocationProgress(s); });
+    QMetaObject::invokeMethod(qApp, [self, s]() {
+        if (self)
+            self->setAllocationProgress(s);
+    }, Qt::QueuedConnection);
 }
 
 void CloudStreamingBackend::onAllocationProgress(QString message, int queuePosition)
