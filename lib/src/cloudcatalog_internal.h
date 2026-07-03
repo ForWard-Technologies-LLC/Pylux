@@ -162,6 +162,10 @@ void cc_merge_imagic_list(const char *category_list, struct json_object *list_do
 /** Cover-image extraction (images[type 10]>12>13, then imageUrl). Returns "" if none. */
 const char *cc_extract_cover_image(struct json_object *game_obj, char *out, size_t out_sz);
 
+/** Stable-key derivation for ownership-match: splits product_id on [-_], drops the last
+ *  token, joins with '|'. Returns "" if fewer than 2 tokens. */
+const char *cc_stable_key(const char *product_id, char *out, size_t out_sz);
+
 /**
  * Strip Sony's numeric serviceType and set canonical pscloud/psnow from
  * entitlement_attributes[].platform_id. Mirrors sanitizeOwnedEntitlementServiceType.

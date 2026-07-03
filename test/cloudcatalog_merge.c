@@ -320,6 +320,20 @@ static MunitResult test_parse_container_store_locale(const MunitParameter p[], v
 	return MUNIT_OK;
 }
 
+static MunitResult test_stable_key(const MunitParameter params[], void *user)
+{
+	(void)params; (void)user;
+	char out[128];
+	munit_assert_string_equal(
+		cc_stable_key("UP9000-CUSA00552_00-GODOFWAR3HDGAME0", out, sizeof(out)),
+		"UP9000|CUSA00552|00");
+	munit_assert_string_equal(cc_stable_key("A-B-C", out, sizeof(out)), "A|B");
+	munit_assert_string_equal(cc_stable_key("SINGLETOKEN", out, sizeof(out)), "");
+	munit_assert_string_equal(cc_stable_key("", out, sizeof(out)), "");
+	munit_assert_string_equal(cc_stable_key(NULL, out, sizeof(out)), "");
+	return MUNIT_OK;
+}
+
 MunitTest tests_cloudcatalog_merge[] = {
 	{ "/apollo_dedup", test_apollo_dedup, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/device_based_ps5", test_device_based_ps5, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
@@ -328,5 +342,6 @@ MunitTest tests_cloudcatalog_merge[] = {
 	{ "/sort_and_envelope", test_sort_and_envelope, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/cloud_language_helpers", test_cloud_language_helpers, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/parse_container_store_locale", test_parse_container_store_locale, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
+	{ "/stable_key", test_stable_key, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ NULL, NULL, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL }
 };
