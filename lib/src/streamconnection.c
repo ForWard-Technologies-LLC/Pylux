@@ -452,6 +452,14 @@ CHIAKI_EXPORT bool chiaki_stream_connection_video_resolution(ChiakiStreamConnect
 	return ok;
 }
 
+CHIAKI_EXPORT uint64_t chiaki_stream_connection_video_frames_lost(ChiakiStreamConnection *stream_connection)
+{
+	chiaki_mutex_lock(&stream_connection->state_mutex);
+	uint64_t v = stream_connection->video_receiver ? stream_connection->video_receiver->cumulative_frames_lost : 0;
+	chiaki_mutex_unlock(&stream_connection->state_mutex);
+	return v;
+}
+
 static void stream_connection_takion_cb(ChiakiTakionEvent *event, void *user)
 {
 	ChiakiStreamConnection *stream_connection = user;

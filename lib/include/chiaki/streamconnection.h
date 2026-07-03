@@ -117,6 +117,12 @@ CHIAKI_EXPORT ChiakiErrorCode stream_connection_send_corrupt_frame(ChiakiStreamC
 CHIAKI_EXPORT bool chiaki_stream_connection_video_resolution(ChiakiStreamConnection *stream_connection,
 		unsigned int *width, unsigned int *height);
 
+/**
+ * Thread-safe read of the cumulative dropped-frames counter for the stats overlay.
+ * Returns 0 if no video receiver is active (yet or anymore).
+ */
+CHIAKI_EXPORT uint64_t chiaki_stream_connection_video_frames_lost(ChiakiStreamConnection *stream_connection);
+
 #ifdef __cplusplus
 }
 #endif

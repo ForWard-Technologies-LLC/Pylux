@@ -712,7 +712,8 @@ JNIEXPORT void JNICALL JNI_FCN(sessionSetSurface)(JNIEnv *env, jobject obj, jlon
 // them. Returns a double[7]:
 //   [0] bitrate (Mbit/s)   [1] packet loss (0..1)   [2] dropped frames (cumulative)
 //   [3] fps                [4] rtt (ms)             [5] width   [6] height
-// Cheap best-effort read with no locking (same as Qt's polling timer); only
+// Cheap best-effort read (same as Qt's polling timer); video_receiver-derived
+// values go through locked accessors, the rest are unlocked scalar reads. Only
 // called while a session is live and the overlay is toggled on.
 JNIEXPORT jdoubleArray JNICALL JNI_FCN(sessionGetMetrics)(JNIEnv *env, jobject obj, jlong ptr)
 {
@@ -725,9 +726,7 @@ JNIEXPORT jdoubleArray JNICALL JNI_FCN(sessionGetMetrics)(JNIEnv *env, jobject o
 		vals[1] = sc->congestion_control.packet_loss;
 		vals[3] = sc->measured_fps;
 		vals[4] = sc->measured_rtt_ms;
-		ChiakiVideoReceiver *vr = sc->video_receiver;
-		if(vr)
-			vals[2] = (jdouble)vr->cumulative_frames_lost;
+		vals[2] = (jdouble)chiaki_stream_connection_video_frames_lost(sc); // 0 when no receiver — same as the zero-initialized array
 		unsigned int vw = 0, vh = 0;
 		if(chiaki_stream_connection_video_resolution(sc, &vw, &vh))
 		{
