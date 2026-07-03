@@ -150,6 +150,16 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_cloud_provision_session(
 		return out->err;
 	}
 
+	// NULL fields treated as "" (documented config contract) — normalise before first use.
+	ChiakiCloudProvisionConfig c = *cfg;
+	#define CC_NZ(f) do { if(!c.f) c.f = ""; } while(0)
+	CC_NZ(service_type); CC_NZ(game_identifier); CC_NZ(npsso);
+	CC_NZ(store_country); CC_NZ(store_lang); CC_NZ(game_language);
+	CC_NZ(owned_entitlement_id); CC_NZ(owned_platform);
+	CC_NZ(forced_datacenter); CC_NZ(prior_datacenters_json);
+	#undef CC_NZ
+	cfg = &c;
+
 	// One shared client device uid for the Kamaji + Gaikai OAuth exchanges.
 	char duid[64];
 	size_t duid_size = sizeof(duid);
