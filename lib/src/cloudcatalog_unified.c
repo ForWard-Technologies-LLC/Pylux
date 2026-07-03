@@ -167,9 +167,11 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_cloudcatalog_fetch_unified(
 	char acct_country[8] = "", acct_language[8] = "";
 	char store_country[8] = "", store_lang[8] = "";
 
+	bool apollo_complete = true;
 	CCNativeResult nr = cc_fetch_psnow_native(log, npsso, &apollo,
 		acct_country, sizeof(acct_country), acct_language, sizeof(acct_language),
-		store_country, sizeof(store_country), store_lang, sizeof(store_lang));
+		store_country, sizeof(store_country), store_lang, sizeof(store_lang),
+		&apollo_complete);
 	if(nr == CC_NATIVE_OK)
 	{
 		native = true;
@@ -360,7 +362,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_cloudcatalog_fetch_unified(
 	// 7. cache write guard (non-empty + not auth error).
 	struct json_object *games = cc_json_arr(env, "games");
 	int total = games ? (int)json_object_array_length(games) : 0;
-	if(total > 0 && !auth_error)
+	if(total > 0 && !auth_error && apollo_complete)
 		cc_cache_write(log, cache_dir, "unified_catalog_v3", env);
 
 	ChiakiErrorCode e = finish_ok(out, env);

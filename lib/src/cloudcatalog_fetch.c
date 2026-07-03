@@ -357,7 +357,8 @@ static bool psnow_root_categories(ChiakiLog *log, const char *base_url, const ch
 }
 
 // GET one category page (?start=0&size=500), append product rows to all_games.
-static void psnow_fetch_category(ChiakiLog *log, const char *cat_url, struct json_object *all_games)
+// Returns true on success (HTTP 200 + parseable body), false on HTTP/parse failure.
+static bool psnow_fetch_category(ChiakiLog *log, const char *cat_url, struct json_object *all_games)
 {
 	char url[1200];
 	snprintf(url, sizeof(url), strchr(cat_url, '?') ? "%s&start=0&size=500" : "%s?start=0&size=500", cat_url);
@@ -374,12 +375,12 @@ static void psnow_fetch_category(ChiakiLog *log, const char *cat_url, struct jso
 	if(cc_http_perform(log, &req, &resp) != CHIAKI_ERR_SUCCESS || resp.status_code != 200)
 	{
 		cc_http_response_fini(&resp);
-		return;
+		return false;
 	}
 	struct json_object *obj = parse_body(&resp);
 	cc_http_response_fini(&resp);
 	if(!obj)
-		return;
+		return false;
 	struct json_object *links = cc_json_arr(obj, "links");
 	if(links)
 	{
@@ -398,11 +399,13 @@ static void psnow_fetch_category(ChiakiLog *log, const char *cat_url, struct jso
 		}
 	}
 	json_object_put(obj);
+	return true;
 }
 
 CCNativeResult cc_fetch_psnow_native(ChiakiLog *log, const char *npsso, struct json_object **out_games,
 	char *out_country, size_t cc_sz, char *out_language, size_t lang_sz,
-	char *out_store_country, size_t store_cc_sz, char *out_store_lang, size_t store_lang_sz)
+	char *out_store_country, size_t store_cc_sz, char *out_store_lang, size_t store_lang_sz,
+	bool *out_complete)
 {
 	*out_games = NULL;
 	if(out_country && cc_sz)
@@ -446,8 +449,22 @@ CCNativeResult cc_fetch_psnow_native(ChiakiLog *log, const char *npsso, struct j
 		return CC_NATIVE_REGION_UNSUPPORTED;
 
 	struct json_object *all = json_object_new_array();
+	bool complete = true;
+	if(out_complete) *out_complete = true;
 	for(int i = 0; i < cat_count; i++)
-		psnow_fetch_category(log, cat_urls[i], all);
+	{
+		if(i) CC_MS_SLEEP(100);
+		if(!psnow_fetch_category(log, cat_urls[i], all))
+		{
+			CC_MS_SLEEP(500);
+			if(!psnow_fetch_category(log, cat_urls[i], all))
+			{
+				complete = false;
+				if(out_complete) *out_complete = false;
+				CHIAKI_LOGW(log, "[PSNOW] category %d failed; catalog incomplete", i);
+			}
+		}
+	}
 
 	// Dedup by id (first-wins).
 	struct json_object *seen = json_object_new_object();
@@ -818,6 +835,7 @@ CCOwnedResult cc_fetch_owned(ChiakiLog *log, const char *npsso,
 		if(page_count < OWNED_PAGE_SIZE)
 			break;
 		start += page_count;
+		CC_MS_SLEEP(100);
 	}
 	free(bearer);
 
