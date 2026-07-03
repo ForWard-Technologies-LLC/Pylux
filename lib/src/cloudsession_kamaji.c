@@ -322,9 +322,9 @@ static ChiakiErrorCode km_step0_5d_resolve(KamajiCtx *c)
 	{
 		const char *s = json_object_get_string(json_object_array_get_idx(pp, i));
 		if(!s) continue;
-		if(strcasestr(s, "PS5")) ps5 = true;
-		else if(strcasestr(s, "PS4")) ps4 = true;
-		else if(strcasestr(s, "PS3")) ps3 = true;
+		if(cc_strcasestr(s, "PS5")) ps5 = true;
+		else if(cc_strcasestr(s, "PS4")) ps4 = true;
+		else if(cc_strcasestr(s, "PS3")) ps3 = true;
 	}
 	snprintf(c->platform, sizeof(c->platform), "%s", ps5 ? "ps5" : (ps4 ? "ps4" : (ps3 ? "ps3" : "ps4")));
 	c->scopes = (strcmp(c->platform, "ps3") == 0) ? KM_PS3_SCOPES : KM_PS4_SCOPES;

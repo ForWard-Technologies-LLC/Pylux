@@ -19,7 +19,6 @@
 #include <string.h>
 #include <stdio.h>
 #include <strings.h>
-#include <unistd.h>
 #include <time.h>
 
 #define GK_BASE        "https://cc.prod.gaikai.com/v1"
@@ -77,7 +76,7 @@ static bool gk_sleep_cancellable(GaikaiCtx *c, int seconds)
 	for(int i = 0; i < seconds * 10; i++)
 	{
 		if(gk_cancelled(c)) return false;
-		usleep(100000);
+		CC_MS_SLEEP(100);
 	}
 	return true;
 }
@@ -238,9 +237,17 @@ static struct json_object *gk_build_spec(GaikaiCtx *c, const char *entitlement_i
 	char tz[16];
 	{
 		time_t t = time(NULL);
-		struct tm lt;
+		struct tm lt, gt;
+#ifdef _WIN32
+		// Windows CRT localtime/gmtime return per-thread storage — safe to copy out.
+		lt = *localtime(&t);
+		gt = *gmtime(&t);
+#else
 		localtime_r(&t, &lt);
-		long off = lt.tm_gmtoff;
+		gmtime_r(&t, &gt);
+#endif
+		gt.tm_isdst = lt.tm_isdst; // keep mktime from applying a DST delta twice
+		long off = (long)difftime(mktime(&lt), mktime(&gt));
 		int oh = (int)(off / 3600);
 		int om = (int)((off < 0 ? -off : off) % 3600) / 60;
 		snprintf(tz, sizeof(tz), "UTC%c%02d:%02d", off >= 0 ? '+' : '-', oh < 0 ? -oh : oh, om);
