@@ -43,6 +43,9 @@ class CloudStreamingBackend : public QObject
 public:
     explicit CloudStreamingBackend(Settings *settings, QObject *parent = nullptr);
 
+    // Rebind to a new profile's Settings (profile switch deletes the old object).
+    void setSettings(Settings *new_settings) { settings = new_settings; }
+
     // MAIN ENTRY POINT - Complete cloud streaming session (Steps 1-13)
     // Parameters:
     //   serviceType: "psnow" or "pscloud"

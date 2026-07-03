@@ -737,6 +737,8 @@ void QmlBackend::profileChanged()
         cloud_catalog_backend->setSettings(settings);
         cloud_catalog_backend->invalidateCache();
     }
+    if(cloud_streaming_backend)
+        cloud_streaming_backend->setSettings(settings);
 
     auto_connect_mac = settings->GetAutoConnectHost().GetServerMAC();
     auto_connect_nickname = settings->GetAutoConnectHost().GetServerNickname();
