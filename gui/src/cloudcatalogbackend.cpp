@@ -479,6 +479,37 @@ QJsonObject CloudCatalogBackend::extractGameImages(const QJsonObject &gameData)
     return images;
 }
 
+QString CloudCatalogBackend::findProductIdForEntitlement(const QString &entitlementId)
+{
+    QString libraryCached = getCachedData("ps5_cloud_library", INT_MAX);
+    if (libraryCached.isEmpty())
+        return entitlementId;
+    QJsonDocument libraryDoc = QJsonDocument::fromJson(libraryCached.toUtf8());
+    if (!libraryDoc.isObject())
+        return entitlementId;
+    QJsonObject libraryRoot = libraryDoc.object();
+    if (!libraryRoot.contains("games") || !libraryRoot["games"].isArray())
+        return entitlementId;
+    QJsonArray libraryGames = libraryRoot["games"].toArray();
+    for (const QJsonValue &gameValue : libraryGames) {
+        if (!gameValue.isObject()) continue;
+        QJsonObject game = gameValue.toObject();
+        if (!game.contains("id") || game["id"].toString() != entitlementId) continue;
+        if (game.contains("product_id")) {
+            QString productId = game["product_id"].toString();
+            if (!productId.isEmpty())
+                return productId;
+        }
+        // Fallback: id itself (same as input — return it explicitly so callers can detect no-op)
+        if (game.contains("id")) {
+            QString id = game["id"].toString();
+            if (!id.isEmpty())
+                return id;
+        }
+    }
+    return entitlementId;
+}
+
 QString CloudCatalogBackend::getGameLandscapeImageFromCache(const QString &serviceType, const QString &gameIdentifier)
 {
     if (gameIdentifier.isEmpty()) {
@@ -492,45 +523,10 @@ QString CloudCatalogBackend::getGameLandscapeImageFromCache(const QString &servi
     if (serviceType.toLower() == "psnow") {
         cacheKey = "unified_catalog_v3";
     } else if (serviceType.toLower() == "pscloud") {
-        // For PSCloud, check game details cache first (has landscape images from API)
-        // If gameIdentifier is an entitlement ID, we need to find the productId from library first
-        // Use very large maxAge to never invalidate cache (read-only operation)
-        QString libraryCached = getCachedData("ps5_cloud_library", INT_MAX);
-        if (!libraryCached.isEmpty()) {
-            QJsonDocument libraryDoc = QJsonDocument::fromJson(libraryCached.toUtf8());
-            if (libraryDoc.isObject()) {
-                QJsonObject libraryRoot = libraryDoc.object();
-                if (libraryRoot.contains("games") && libraryRoot["games"].isArray()) {
-                    QJsonArray libraryGames = libraryRoot["games"].toArray();
-                    for (const QJsonValue &gameValue : libraryGames) {
-                        if (!gameValue.isObject()) continue;
-                        QJsonObject game = gameValue.toObject();
-                        // Match by entitlement ID (id field)
-                        if (game.contains("id") && game["id"].toString() == gameIdentifier) {
-                            // Found in library, get productId - prioritize product_id, fallback to id
-                            if (game.contains("product_id")) {
-                                QString productId = game["product_id"].toString();
-                                if (!productId.isEmpty()) {
-                                    productIdForCatalog = productId;
-                                    qInfo() << "getGameLandscapeImage: Found productId" << productIdForCatalog << "for entitlement ID" << gameIdentifier;
-                                    break;
-                                }
-                            }
-                            // Fallback to id if product_id is missing or empty
-                            if (productIdForCatalog.isEmpty() && game.contains("id")) {
-                                QString id = game["id"].toString();
-                                if (!id.isEmpty()) {
-                                    productIdForCatalog = id;
-                                    qInfo() << "getGameLandscapeImage: Using id as productId fallback" << productIdForCatalog << "for entitlement ID" << gameIdentifier;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
+        // For PSCloud, gameIdentifier is an entitlement ID; resolve productId from library.
+        productIdForCatalog = findProductIdForEntitlement(gameIdentifier);
+        qInfo() << "getGameLandscapeImage: resolved productId" << productIdForCatalog << "for entitlement ID" << gameIdentifier;
+
         // Try game details cache first (has landscape images from API)
         // Use very large maxAge to never invalidate cache (read-only operation)
         QString lookupId = productIdForCatalog.isEmpty() ? gameIdentifier : productIdForCatalog;
@@ -699,19 +695,6 @@ QString CloudCatalogBackend::getGameLandscapeImageFromCache(const QString &servi
     return QString();
 }
 
-void CloudCatalogBackend::invalidatePs5CatalogCache()
-{
-    for (const QString &key :
-         {QStringLiteral("ps5_cloud_catalog_v6"), QStringLiteral("ps5_cloud_catalog_v5"), QStringLiteral("ps5_cloud_catalog_v4"), QStringLiteral("ps5_cloud_catalog_v3"),
-          QStringLiteral("ps5_cloud_catalog_v2"), QStringLiteral("ps5_cloud_catalog")}) {
-        const QString path = getCacheFilePath(key);
-        if (QFile::exists(path)) {
-            QFile::remove(path);
-            qInfo() << "[CACHE INVALIDATED] Removed PS5 cloud catalog cache:" << key;
-        }
-    }
-}
-
 void CloudCatalogBackend::invalidateCache()
 {
     // libchiaki owns every cache file and its versioned key (current + legacy), so
@@ -872,47 +855,13 @@ void CloudCatalogBackend::createCloudSteamShortcut(const QString &gameIdentifier
         return;
     }
     
-    // For PSCloud (cloudGameLibrary), gameIdentifier is entitlement ID, need to look up product_id
-    // For PSNOW (cloudGameCatalog), gameIdentifier is already the product ID
-    QString productIdForCache = gameIdentifier;
-    if (command == "cloudGameLibrary") {
-        // Look up product_id from library using entitlement ID
-        QString libraryCached = getCachedData("ps5_cloud_library", INT_MAX);
-        if (!libraryCached.isEmpty()) {
-            QJsonDocument libraryDoc = QJsonDocument::fromJson(libraryCached.toUtf8());
-            if (libraryDoc.isObject()) {
-                QJsonObject libraryRoot = libraryDoc.object();
-                if (libraryRoot.contains("games") && libraryRoot["games"].isArray()) {
-                    QJsonArray libraryGames = libraryRoot["games"].toArray();
-                    for (const QJsonValue &gameValue : libraryGames) {
-                        if (!gameValue.isObject()) continue;
-                        QJsonObject game = gameValue.toObject();
-                        // Match by entitlement ID (id field)
-                        if (game.contains("id") && game["id"].toString() == gameIdentifier) {
-                            // Found in library, get productId - prioritize product_id, fallback to id
-                            if (game.contains("product_id")) {
-                                QString productId = game["product_id"].toString();
-                                if (!productId.isEmpty()) {
-                                    productIdForCache = productId;
-                                    qInfo() << "createCloudSteamShortcut: Found productId" << productIdForCache << "for entitlement ID" << gameIdentifier;
-                                    break;
-                                }
-                            }
-                            // Fallback to id if product_id is missing or empty
-                            if (productIdForCache == gameIdentifier && game.contains("id")) {
-                                QString id = game["id"].toString();
-                                if (!id.isEmpty()) {
-                                    productIdForCache = id;
-                                    qInfo() << "createCloudSteamShortcut: Using id as productId fallback" << productIdForCache << "for entitlement ID" << gameIdentifier;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+    // For PSCloud (cloudGameLibrary), gameIdentifier is entitlement ID, need to look up product_id.
+    // For PSNOW (cloudGameCatalog), gameIdentifier is already the product ID.
+    QString productIdForCache = (command == "cloudGameLibrary")
+        ? findProductIdForEntitlement(gameIdentifier)
+        : gameIdentifier;
+    if (command == "cloudGameLibrary")
+        qInfo() << "createCloudSteamShortcut: resolved productId" << productIdForCache << "for entitlement ID" << gameIdentifier;
     
     // Get cached game details using product ID
     QString cacheKey = QString("game_details_%1").arg(productIdForCache);

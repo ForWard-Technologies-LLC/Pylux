@@ -39,7 +39,6 @@ class CloudStreamingBackend : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(QString allocationProgress READ getAllocationProgress NOTIFY allocationProgressChanged)
-    Q_PROPERTY(int queuePosition READ getQueuePosition NOTIFY queuePositionChanged)
     Q_PROPERTY(QString gameImageUrl READ getGameImageUrl WRITE setGameImageUrl NOTIFY gameImageUrlChanged)
 
 public:
@@ -56,7 +55,6 @@ public:
     Q_INVOKABLE void startCompleteCloudSession(QString serviceType, QString gameIdentifier, const QJSValue &callback);
     
     QString getAllocationProgress() const { return allocation_progress; }
-    int getQueuePosition() const { return queue_position; }
     QString getGameImageUrl() const { return game_image_url; }
     void setGameImageUrl(const QString &url);
 
@@ -65,13 +63,11 @@ signals:
     void sessionCreated(StreamSession *session);
     // Emitted when allocation progress updates
     void allocationProgressChanged();
-    // Emitted when queue position changes
-    void queuePositionChanged();
     // Emitted when game image URL changes
     void gameImageUrlChanged();
 
 private slots:
-    void onAllocationProgress(QString message, int queuePosition = -1);
+    void onAllocationProgress(QString message);
 
 private:
     void setAllocationProgress(const QString &message);
@@ -94,7 +90,6 @@ private:
 
     Settings *settings;
     QString allocation_progress;
-    int queue_position = -1;  // -1 means not queued or no position available
     QString game_image_url;  // Landscape image URL for current cloud game
 
     QHash<quint64, QJSValue> pending_callbacks; // GUI thread only

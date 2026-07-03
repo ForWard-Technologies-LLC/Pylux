@@ -341,11 +341,6 @@ void CloudStreamingBackend::finishCloudSession(QString serviceType, QString serv
         emit sessionCreated(session);
 
         setAllocationProgress("");
-        if (queue_position != -1) {
-            queue_position = -1;
-            emit queuePositionChanged();
-        }
-
         session->Start();
         qInfo() << "StreamSession Start() called (connection is asynchronous)";
 
@@ -425,10 +420,6 @@ void CloudStreamingBackend::handleProvisionError(QString serviceType, QString er
     }
 
     setAllocationProgress("");
-    if (queue_position != -1) {
-        queue_position = -1;
-        emit queuePositionChanged();
-    }
 }
 
 // C progress callback -- runs on the worker thread; marshal to the GUI thread.
@@ -445,13 +436,9 @@ void CloudStreamingBackend::provisionProgressThunk(const char *stage, void *user
     }, Qt::QueuedConnection);
 }
 
-void CloudStreamingBackend::onAllocationProgress(QString message, int queuePosition)
+void CloudStreamingBackend::onAllocationProgress(QString message)
 {
     setAllocationProgress(message);
-    if (queue_position != queuePosition) {
-        queue_position = queuePosition;
-        emit queuePositionChanged();
-    }
 }
 
 
