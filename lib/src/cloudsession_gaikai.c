@@ -15,6 +15,7 @@
 // json-c: the specific headers come via cloudcatalog_internal.h (the umbrella
 // <json-c/json.h> is not present in the iOS/Android FetchContent build).
 
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -617,11 +618,18 @@ static int gk_cmp_rtt(const void *a, const void *b)
 typedef struct
 {
 	ChiakiLog *log;
-	const char *name, *ip;       // borrowed from the datacenters json (outlives the join)
+	char *name, *ip, *session_key, *service_type; // strdup'd — owned by the job
 	int port, bw;
-	const char *session_key, *service_type;
 	int64_t rtt_us; uint32_t mtu_in, mtu_out; bool ok;
+	atomic_int handoff; // 0 = thread running; first of {owner,thread} to exchange→1 must NOT free, second frees
 } GkPingJob;
+
+static void gk_ping_job_free(GkPingJob *j)
+{
+	if(!j) return;
+	free(j->name); free(j->ip); free(j->session_key); free(j->service_type);
+	free(j);
+}
 
 static void *gk_ping_thread(void *arg)
 {
@@ -630,6 +638,8 @@ static void *gk_ping_thread(void *arg)
 	cc_ping_datacenter(j->log, j->ip, j->port, j->session_key, j->service_type,
 		&j->rtt_us, &j->mtu_in, &j->mtu_out);
 	j->ok = (j->rtt_us > 0);
+	if(atomic_exchange(&j->handoff, 1) == 1)
+		gk_ping_job_free(j); // owner already abandoned us — the job is ours to free
 	return NULL;
 }
 
@@ -723,7 +733,7 @@ static ChiakiErrorCode gk_step11_datacenters(GaikaiCtx *c)
 		if(gk_cancelled(c)) { json_object_put(dcs); return CHIAKI_ERR_CANCELED; }
 
 		// Ping every datacenter in parallel (one thread each), then collect.
-		GkPingJob *jobs = (GkPingJob *)calloc(n, sizeof(GkPingJob));
+		GkPingJob **jobs = (GkPingJob **)calloc(n, sizeof(GkPingJob*));
 		ChiakiThread *threads = (ChiakiThread *)calloc(n, sizeof(ChiakiThread));
 		bool *threaded = (bool *)calloc(n, sizeof(bool)); // which slots actually started a thread
 		if(!jobs || !threads || !threaded)
@@ -735,33 +745,91 @@ static ChiakiErrorCode gk_step11_datacenters(GaikaiCtx *c)
 		for(size_t i = 0; i < n; i++)
 		{
 			struct json_object *dc = json_object_array_get_idx(dcs, i);
-			jobs[i].log = c->log;
-			jobs[i].name = cc_json_str(dc, "dataCenter");
-			jobs[i].ip = cc_json_str(dc, "publicIp");
-			jobs[i].port = cc_json_int(dc, "port");
-			jobs[i].bw = cc_json_int(dc, "maxBandwidth");
-			jobs[i].session_key = c->lock_session_key;
-			jobs[i].service_type = c->cfg->service_type;
-			if(chiaki_thread_create(&threads[i], gk_ping_thread, &jobs[i]) == CHIAKI_ERR_SUCCESS)
+			GkPingJob *j = (GkPingJob *)calloc(1, sizeof(GkPingJob));
+			if(!j)
+			{
+				// Allocation failed: skip this slot, append unmeasured row from dcs fields.
+				json_object_array_add(c->ping_results, gk_ping_obj(
+					cc_json_str(dc, "dataCenter"), 999, 0, 0,
+					cc_json_int(dc, "port"), cc_json_str(dc, "publicIp"),
+					cc_json_int(dc, "maxBandwidth"), false));
+				continue;
+			}
+			j->log = c->log;
+			j->name = strdup(cc_json_str(dc, "dataCenter"));
+			j->ip   = strdup(cc_json_str(dc, "publicIp"));
+			j->port = cc_json_int(dc, "port");
+			j->bw   = cc_json_int(dc, "maxBandwidth");
+			j->session_key   = strdup(c->lock_session_key ? c->lock_session_key : "");
+			j->service_type  = strdup(c->cfg->service_type ? c->cfg->service_type : "");
+			atomic_init(&j->handoff, 0);
+			jobs[i] = j;
+			if(chiaki_thread_create(&threads[i], gk_ping_thread, j) == CHIAKI_ERR_SUCCESS)
 				threaded[i] = true;
 			else
-				gk_ping_thread(&jobs[i]); // fall back to inline if a thread won't start
+			{
+				gk_ping_thread(j); // fall back to inline if a thread won't start
+				// gk_ping_thread set handoff to 1 (returned 0 so it did NOT free).
+				// Discard our exchange result; collect loop sees joined=true and frees.
+				(void)atomic_exchange(&j->handoff, 1);
+			}
 		}
+		const uint64_t PING_DEADLINE_MS = 15000;
+		uint64_t waited = 0;
+		bool cancelled = false;
 		for(size_t i = 0; i < n; i++)
 		{
-			if(threaded[i]) // only join slots whose thread started; a zeroed pthread_t join is UB
-				chiaki_thread_join(&threads[i], NULL);
-			if(jobs[i].ok)
-				json_object_array_add(c->ping_results, gk_ping_obj(jobs[i].name, (int)(jobs[i].rtt_us / 1000),
-					jobs[i].mtu_in, jobs[i].mtu_out, jobs[i].port, jobs[i].ip, jobs[i].bw, true));
+			if(!jobs[i]) continue; // allocation failed; row already appended
+			bool joined = !threaded[i]; // inline runs are already complete
+			while(threaded[i] && !joined && !cancelled && waited < PING_DEADLINE_MS)
+			{
+				if(gk_cancelled(c)) { cancelled = true; break; }
+				if(chiaki_thread_timedjoin(&threads[i], NULL, 100) == CHIAKI_ERR_SUCCESS)
+					joined = true;
+				else
+					waited += 100;
+			}
+			bool have_result = joined;
+			if(!joined && threaded[i])
+			{
+				chiaki_thread_detach(&threads[i]);
+				if(atomic_exchange(&jobs[i]->handoff, 1) == 1)
+				{
+					have_result = true; // finished in the race window — results are valid, we free
+					joined = true;
+				}
+			}
+			if(have_result)
+			{
+				GkPingJob *j = jobs[i];
+				if(j->ok)
+					json_object_array_add(c->ping_results, gk_ping_obj(j->name, (int)(j->rtt_us / 1000),
+						j->mtu_in, j->mtu_out, j->port, j->ip, j->bw, true));
+				else
+					json_object_array_add(c->ping_results, gk_ping_obj(j->name, 999, 0, 0, j->port, j->ip, j->bw, false));
+				if(j->ok)
+					CHIAKI_LOGI(c->log, "[GAIKAI] ping %s = %dms", j->name, (int)(j->rtt_us / 1000));
+				else
+					CHIAKI_LOGI(c->log, "[GAIKAI] ping %s = unreachable", j->name);
+				gk_ping_job_free(j);
+			}
 			else
-				json_object_array_add(c->ping_results, gk_ping_obj(jobs[i].name, 999, 0, 0, jobs[i].port, jobs[i].ip, jobs[i].bw, false));
-			if(jobs[i].ok)
-				CHIAKI_LOGI(c->log, "[GAIKAI] ping %s = %dms", jobs[i].name, (int)(jobs[i].rtt_us / 1000));
-			else
-				CHIAKI_LOGI(c->log, "[GAIKAI] ping %s = unreachable", jobs[i].name);
+			{
+				// Abandoned: the thread will free the job. Row from the dcs entry (outlives this loop).
+				struct json_object *dc = json_object_array_get_idx(dcs, i);
+				json_object_array_add(c->ping_results,
+					gk_ping_obj(cc_json_str(dc, "dataCenter"), 999, 0, 0,
+						cc_json_int(dc, "port"), cc_json_str(dc, "publicIp"),
+						cc_json_int(dc, "maxBandwidth"), false));
+				CHIAKI_LOGI(c->log, "[GAIKAI] ping %s = abandoned (deadline/cancel)", cc_json_str(dc, "dataCenter"));
+			}
 		}
 		free(jobs); free(threads); free(threaded);
+		if(cancelled)
+		{
+			json_object_put(dcs);
+			return CHIAKI_ERR_CANCELED;
+		}
 		// sort by RTT (skip the sort on OOM rather than crash -- leaves API order)
 		size_t rn = json_object_array_length(c->ping_results);
 		struct json_object **arr = (struct json_object **)malloc(rn * sizeof(*arr));
