@@ -26,9 +26,6 @@ NS_ASSUME_NONNULL_BEGIN
                                     forceRefresh:(BOOL)forceRefresh
                                     errorMessage:(NSString * _Nullable * _Nullable)errorMessage;
 
-/// Bare lowercase language code Gaikai expects ("de-DE" -> "de"); "en" default.
-+ (NSString *)gaikaiLanguageForLocale:(nullable NSString *)locale;
-
 /// Locales offered in the language picker (BCP-47, e.g. "en-GB").
 + (NSArray<NSString *> *)supportedCloudLanguages;
 

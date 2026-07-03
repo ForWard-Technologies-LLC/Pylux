@@ -36,7 +36,6 @@ final class CloudPlayViewModel: ObservableObject {
     @Published var refreshing = false
     @Published var error: String?
     @Published var warning: String?
-    @Published var fallbackRegion: String = SecureStore.shared.cloudResolvedStoreCountry
     @Published var catalogIsForeign: Bool = SecureStore.shared.isCloudCatalogIsForeign
     @Published var searchQuery = ""
     @Published var sortOrder: SortOrder = .defaultOrder
@@ -154,7 +153,6 @@ final class CloudPlayViewModel: ObservableObject {
     private func applyLoadedGames(_ loadedGames: [CloudGame]) {
         games = loadedGames
         loading = false
-        fallbackRegion = SecureStore.shared.cloudResolvedStoreCountry
         catalogIsForeign = SecureStore.shared.isCloudCatalogIsForeign
         if let fetchError = catalogService.lastLibraryFetchError {
             error = fetchError
