@@ -203,7 +203,7 @@ void CloudStreamingBackend::continueCloudSessionAfterAuth(QString serviceType, Q
         const QString dcPings = res.datacenter_pings ? QString::fromUtf8(res.datacenter_pings) : QString();
         chiaki_cloud_provision_result_fini(&res);
 
-        QMetaObject::invokeMethod(qApp, [self, reqId, success, serviceTypeStr, serverIp, serverPort,
+        QMetaObject::invokeMethod(qApp, [self, reqId, success, attrPassed, serviceTypeStr, serverIp, serverPort,
                                          handshakeKey, launchSpec, sessionId, wrap, mtuIn, mtuOut, rttUs, errMsg, dcPings]() mutable {
             if (!self)
                 return; // backend destroyed while the worker ran
@@ -215,6 +215,8 @@ void CloudStreamingBackend::continueCloudSessionAfterAuth(QString serviceType, Q
                 else self->settings->SetCloudDatacentersJsonPSNOW(dcPings);
             }
             if (success) {
+                if (!attrPassed)
+                    self->settings->SetAccountAttributesCheckPassed(true);
                 self->finishCloudSession(serviceTypeStr, serverIp, serverPort, handshakeKey, launchSpec,
                                          sessionId, wrap, mtuIn, mtuOut, rttUs, callback);
             } else {
