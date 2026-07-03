@@ -621,6 +621,7 @@ typedef struct
 	char *name, *ip, *session_key, *service_type; // strdup'd — owned by the job
 	int port, bw;
 	int64_t rtt_us; uint32_t mtu_in, mtu_out; bool ok;
+	atomic_int done;    // 1 once results are written; portable poll target for the deadline wait
 	atomic_int handoff; // 0 = thread running; first of {owner,thread} to exchange→1 must NOT free, second frees
 } GkPingJob;
 
@@ -638,6 +639,7 @@ static void *gk_ping_thread(void *arg)
 	cc_ping_datacenter(j->log, j->ip, j->port, j->session_key, j->service_type,
 		&j->rtt_us, &j->mtu_in, &j->mtu_out);
 	j->ok = (j->rtt_us > 0);
+	atomic_store(&j->done, 1);
 	if(atomic_exchange(&j->handoff, 1) == 1)
 		gk_ping_job_free(j); // owner already abandoned us — the job is ours to free
 	return NULL;
@@ -775,6 +777,7 @@ static ChiakiErrorCode gk_step11_datacenters(GaikaiCtx *c)
 			j->bw   = cc_json_int(dc, "maxBandwidth");
 			j->session_key   = strdup(c->lock_session_key ? c->lock_session_key : "");
 			j->service_type  = strdup(c->cfg->service_type ? c->cfg->service_type : "");
+			atomic_init(&j->done, 0);
 			atomic_init(&j->handoff, 0);
 			jobs[i] = j;
 			if(chiaki_thread_create(&threads[i], gk_ping_thread, j) == CHIAKI_ERR_SUCCESS)
@@ -782,35 +785,51 @@ static ChiakiErrorCode gk_step11_datacenters(GaikaiCtx *c)
 			else
 			{
 				gk_ping_thread(j); // fall back to inline if a thread won't start
-				// gk_ping_thread set handoff to 1 (returned 0 so it did NOT free).
-				// Discard our exchange result; collect loop sees joined=true and frees.
-				(void)atomic_exchange(&j->handoff, 1);
+				// gk_ping_thread set done+handoff (exchange returned 0, so it did NOT
+				// free); the collect loop treats the slot as complete and frees it.
 			}
 		}
+		// Phase 1: portable deadline wait. Poll each job's done flag instead of a
+		// timed join: the timed-join primitive is compiled out on macOS/iOS
+		// (undefined symbol once this object is linked) and on Android its
+		// pre-API-26 fallback is a plain blocking pthread_join that ignores the
+		// timeout, so the 15s deadline and cancel polling silently didn't work.
 		const uint64_t PING_DEADLINE_MS = 15000;
 		uint64_t waited = 0;
 		bool cancelled = false;
+		size_t remaining = 0;
+		for(size_t i = 0; i < n; i++)
+			if(jobs[i] && threaded[i] && !atomic_load(&jobs[i]->done))
+				remaining++;
+		while(remaining > 0 && waited < PING_DEADLINE_MS)
+		{
+			if(gk_cancelled(c)) { cancelled = true; break; }
+			CC_MS_SLEEP(100);
+			waited += 100;
+			remaining = 0;
+			for(size_t i = 0; i < n; i++)
+				if(jobs[i] && threaded[i] && !atomic_load(&jobs[i]->done))
+					remaining++;
+		}
+		// Phase 2: collect. Done jobs are joined (returns almost immediately: the
+		// job already signalled done) and their rows appended; unfinished jobs are
+		// detached and abandoned via the handoff exchange (whoever exchanges second
+		// frees the job).
 		for(size_t i = 0; i < n; i++)
 		{
 			if(!jobs[i]) continue; // allocation failed; row already appended
-			bool joined = !threaded[i]; // inline runs are already complete
-			while(threaded[i] && !joined && !cancelled && waited < PING_DEADLINE_MS)
+			bool done = !threaded[i] || atomic_load(&jobs[i]->done) != 0;
+			bool have_result = done;
+			if(done)
 			{
-				if(gk_cancelled(c)) { cancelled = true; break; }
-				if(chiaki_thread_timedjoin(&threads[i], NULL, 100) == CHIAKI_ERR_SUCCESS)
-					joined = true;
-				else
-					waited += 100;
+				if(threaded[i])
+					chiaki_thread_join(&threads[i], NULL); // returns almost immediately: job signalled done
 			}
-			bool have_result = joined;
-			if(!joined && threaded[i])
+			else
 			{
 				chiaki_thread_detach(&threads[i]);
 				if(atomic_exchange(&jobs[i]->handoff, 1) == 1)
-				{
-					have_result = true; // finished in the race window — results are valid, we free
-					joined = true;
-				}
+					have_result = true; // finished in the race window — results valid, we free (no join: detached)
 			}
 			if(have_result)
 			{
