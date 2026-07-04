@@ -797,6 +797,7 @@ static ChiakiErrorCode gk_step11_datacenters(GaikaiCtx *c)
 		const uint64_t PING_DEADLINE_MS = 15000;
 		uint64_t waited = 0;
 		bool cancelled = false;
+		bool detached_any = false; // any thread abandoned (detached, not joined) -- see the threads[] free below
 		size_t remaining = 0;
 		for(size_t i = 0; i < n; i++)
 			if(jobs[i] && threaded[i] && !atomic_load(&jobs[i]->done))
@@ -828,6 +829,7 @@ static ChiakiErrorCode gk_step11_datacenters(GaikaiCtx *c)
 			else
 			{
 				chiaki_thread_detach(&threads[i]);
+				detached_any = true; // still running and NOT joined -> its threads[] slot must outlive this scope on Windows
 				if(atomic_exchange(&jobs[i]->handoff, 1) == 1)
 					have_result = true; // finished in the race window — results valid, we free (no join: detached)
 			}
@@ -856,7 +858,19 @@ static ChiakiErrorCode gk_step11_datacenters(GaikaiCtx *c)
 				CHIAKI_LOGI(c->log, "[GAIKAI] ping %s = abandoned (deadline/cancel)", cc_json_str(dc, "dataCenter"));
 			}
 		}
-		free(jobs); free(threads); free(threaded);
+		free(jobs); free(threaded);
+#ifdef _WIN32
+		// On Windows the OS thread wrapper writes thread->ret into its threads[] slot AFTER the
+		// ping body returns (thread.c win32_thread_func). A detached thread still running past the
+		// 15s deadline would then write into freed memory, so threads[] must not be freed when any
+		// slot was abandoned. Bounded, rare (one array, only when a datacenter hung past the
+		// deadline) -- leaked intentionally on that path.
+		if(!detached_any)
+			free(threads);
+#else
+		(void)detached_any; // POSIX ChiakiThread holds only pthread_t; nothing is written post-detach, safe to free
+		free(threads);
+#endif
 		if(cancelled)
 		{
 			json_object_put(dcs);
