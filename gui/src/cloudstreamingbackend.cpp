@@ -428,7 +428,12 @@ void CloudStreamingBackend::provisionProgressThunk(const char *stage, void *user
     auto *holder = static_cast<QPointer<CloudStreamingBackend>*>(user);
     if (!holder || !stage)
         return;
-    QPointer<CloudStreamingBackend> self = *holder; // QPointer copy is thread-safe
+    // NOTE: copying a QPointer off the GUI thread is not strictly thread-safe (it touches the
+    // QWeakPointer control block, which the GUI thread mutates on destruction). It is safe HERE
+    // only because CloudStreamingBackend is owned by QmlBackend and outlives every provision, so
+    // it is never destroyed concurrently with a progress callback. Do not copy this pattern to a
+    // backend with a shorter lifetime.
+    QPointer<CloudStreamingBackend> self = *holder;
     const QString s = QString::fromUtf8(stage);
     QMetaObject::invokeMethod(qApp, [self, s]() {
         if (self)
