@@ -250,7 +250,7 @@ static bool km_pick_fullgame(KamajiCtx *c, struct json_object *sku, bool require
 	return true;
 }
 
-static ChiakiErrorCode km_step0_5d_resolve(KamajiCtx *c)
+static ChiakiErrorCode km_step0_5d_resolve(KamajiCtx *c, char **out_error)
 {
 	if(c->cfg->progress) c->cfg->progress("Resolving Game - Step 2 of 5", c->cfg->user);
 	const char *country = (c->cfg->store_country && *c->cfg->store_country) ? c->cfg->store_country : "US";
@@ -270,6 +270,12 @@ static ChiakiErrorCode km_step0_5d_resolve(KamajiCtx *c)
 	if(resp.status_code == 404)
 	{
 		CHIAKI_LOGE(c->log, "[KAMAJI] 0.5d product not found (404)");
+		if(out_error)
+		{
+			char b[256];
+			snprintf(b, sizeof(b), "Game not found: Product ID '%s' does not exist or is not available for cloud streaming", c->cfg->game_identifier);
+			*out_error = strdup(b);
+		}
 		cc_http_response_fini(&resp);
 		return CHIAKI_ERR_UNKNOWN;
 	}
@@ -322,15 +328,25 @@ static ChiakiErrorCode km_step0_5d_resolve(KamajiCtx *c)
 	{
 		const char *s = json_object_get_string(json_object_array_get_idx(pp, i));
 		if(!s) continue;
-		if(strcasestr(s, "PS5")) ps5 = true;
-		else if(strcasestr(s, "PS4")) ps4 = true;
-		else if(strcasestr(s, "PS3")) ps3 = true;
+		if(cc_strcasestr(s, "PS5")) ps5 = true;
+		else if(cc_strcasestr(s, "PS4")) ps4 = true;
+		else if(cc_strcasestr(s, "PS3")) ps3 = true;
 	}
 	snprintf(c->platform, sizeof(c->platform), "%s", ps5 ? "ps5" : (ps4 ? "ps4" : (ps3 ? "ps3" : "ps4")));
 	c->scopes = (strcmp(c->platform, "ps3") == 0) ? KM_PS3_SCOPES : KM_PS4_SCOPES;
 	json_object_put(obj);
 
-	if(!c->entitlement_id[0]) { CHIAKI_LOGE(c->log, "[KAMAJI] 0.5d no entitlement resolved"); return CHIAKI_ERR_UNKNOWN; }
+	if(!c->entitlement_id[0])
+	{
+		CHIAKI_LOGE(c->log, "[KAMAJI] 0.5d no entitlement resolved");
+		if(out_error)
+		{
+			char b[256];
+			snprintf(b, sizeof(b), "Could not determine Entitlement ID from Product ID '%s'. Game may not be available for cloud streaming.", c->cfg->game_identifier);
+			*out_error = strdup(b);
+		}
+		return CHIAKI_ERR_UNKNOWN;
+	}
 	CHIAKI_LOGI(c->log, "[KAMAJI] 0.5d -> entitlement %s platform %s sku %s", c->entitlement_id, c->platform, c->streaming_sku);
 	return CHIAKI_ERR_SUCCESS;
 }
@@ -630,7 +646,7 @@ ChiakiErrorCode cc_kamaji_resolve(ChiakiLog *log,
 		e = km_step0_5b_anon_authcode(&c, &anon_code);
 		if(e == CHIAKI_ERR_SUCCESS) e = km_step0_5c_anon_session(&c, anon_code);
 		free(anon_code);
-		if(e == CHIAKI_ERR_SUCCESS) e = km_step0_5d_resolve(&c);
+		if(e == CHIAKI_ERR_SUCCESS) e = km_step0_5d_resolve(&c, out_error);
 		if(e == CHIAKI_ERR_SUCCESS) e = km_step0_5e_check_acquire(&c, out_error);
 	}
 

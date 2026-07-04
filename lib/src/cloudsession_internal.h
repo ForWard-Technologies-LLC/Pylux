@@ -10,9 +10,40 @@
 #include <chiaki/cloudsession.h>
 #include <chiaki/log.h>
 
+#include <ctype.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
+
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN // keep windows.h from dragging in winsock 1 / macro pollution
+#endif
+#include <windows.h>
+#define CC_MS_SLEEP(ms) Sleep(ms)
+#else
+#include <unistd.h>
+#define CC_MS_SLEEP(ms) usleep((ms) * 1000)
+#endif
+
+// Portable case-insensitive substring search (strcasestr is a GNU extension).
+static inline const char *cc_strcasestr(const char *haystack, const char *needle)
+{
+	if(!haystack || !needle || !*needle)
+		return haystack;
+	size_t nlen = strlen(needle);
+	for(; *haystack; haystack++)
+	{
+		size_t i = 0;
+		while(i < nlen && haystack[i]
+			&& tolower((unsigned char)haystack[i]) == tolower((unsigned char)needle[i]))
+			i++;
+		if(i == nlen)
+			return haystack;
+	}
+	return NULL;
+}
 
 #ifdef __cplusplus
 extern "C" {

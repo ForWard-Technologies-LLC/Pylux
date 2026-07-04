@@ -2,6 +2,7 @@
 // iOS bridge helpers - see ios_bridge_helpers.h for rationale.
 
 #include <chiaki/ios_bridge_helpers.h>
+#include <chiaki/streamconnection.h> // F5 thread-safe video metric accessors
 
 CHIAKI_EXPORT size_t chiaki_session_get_sizeof(void)
 {
@@ -82,15 +83,14 @@ CHIAKI_EXPORT void chiaki_session_get_stream_metrics_ex(ChiakiSession *session,
 		v_loss = sc->congestion_control.packet_loss;
 		v_fps = sc->measured_fps;
 		v_rtt = sc->measured_rtt_ms;
-		ChiakiVideoReceiver *vr = sc->video_receiver;
-		if(vr)
+		// Thread-safe reads (state_mutex-guarded): the takion thread can free video_receiver
+		// during teardown while this metrics poll runs on another thread (F5).
+		v_drops = chiaki_stream_connection_video_frames_lost(sc);
+		unsigned int rw = 0, rh = 0;
+		if(chiaki_stream_connection_video_resolution(sc, &rw, &rh))
 		{
-			v_drops = vr->cumulative_frames_lost;
-			if(vr->profile_cur >= 0 && (size_t)vr->profile_cur < vr->profiles_count)
-			{
-				v_w = (int)vr->profiles[vr->profile_cur].width;
-				v_h = (int)vr->profiles[vr->profile_cur].height;
-			}
+			v_w = (int)rw;
+			v_h = (int)rh;
 		}
 		// Fall back to the requested profile before the first adaptive profile is selected.
 		if(v_w == 0 || v_h == 0)

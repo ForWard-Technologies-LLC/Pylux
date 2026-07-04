@@ -21,6 +21,17 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#define CC_MS_SLEEP(ms) Sleep(ms)
+#else
+#include <unistd.h>
+#define CC_MS_SLEEP(ms) usleep((ms) * 1000)
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -162,6 +173,10 @@ void cc_merge_imagic_list(const char *category_list, struct json_object *list_do
 /** Cover-image extraction (images[type 10]>12>13, then imageUrl). Returns "" if none. */
 const char *cc_extract_cover_image(struct json_object *game_obj, char *out, size_t out_sz);
 
+/** Stable-key derivation for ownership-match: splits product_id on [-_], drops the last
+ *  token, joins with '|'. Returns "" if fewer than 2 tokens. */
+const char *cc_stable_key(const char *product_id, char *out, size_t out_sz);
+
 /**
  * Strip Sony's numeric serviceType and set canonical pscloud/psnow from
  * entitlement_attributes[].platform_id. Mirrors sanitizeOwnedEntitlementServiceType.
@@ -199,7 +214,8 @@ bool cc_parse_container_store_locale(const char *base_url,
  */
 CCNativeResult cc_fetch_psnow_native(ChiakiLog *log, const char *npsso, struct json_object **out_games,
 	char *out_country, size_t cc_sz, char *out_language, size_t lang_sz,
-	char *out_store_country, size_t store_cc_sz, char *out_store_lang, size_t store_lang_sz);
+	char *out_store_country, size_t store_cc_sz, char *out_store_lang, size_t store_lang_sz,
+	bool *out_complete);
 
 /** Public APOLLOROOT fallback pagination for @p account_country. New array or NULL. */
 struct json_object *cc_fetch_apollo_fallback(ChiakiLog *log, const char *account_country);

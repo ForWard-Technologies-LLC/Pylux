@@ -19,6 +19,8 @@
 #include <QFile>
 #include <QStandardPaths>
 
+#include <QHash>
+#include <QPointer>
 #include <atomic>
 #include <vector>
 
@@ -61,7 +63,6 @@ public:
 
     // Utility methods
     Q_INVOKABLE void invalidateCache();
-    Q_INVOKABLE void invalidatePs5CatalogCache();
     Q_INVOKABLE QString getCachedData(const QString &key, int maxAge);
     Q_INVOKABLE QString getGameLandscapeImageFromCache(const QString &serviceType, const QString &gameIdentifier);
 
@@ -100,6 +101,9 @@ private:
     std::atomic<bool> unifiedFetchInFlight{false};
     std::vector<QJSValue> pendingUnifiedCallbacks;
 
+    QHash<quint64, QJSValue> pending_callbacks; // GUI thread only
+    quint64 next_request_id = 0;
+
     // Game details fetching state
     struct GameDetailsState {
         QJSValue callback;
@@ -107,6 +111,10 @@ private:
     } gameDetailsState;
 
     // Helper methods
+    // PSCloud entitlement → productId library lookup (used by getGameLandscapeImageFromCache
+    // and createCloudSteamShortcut). Returns productId from ps5_cloud_library cache, or
+    // entitlementId if not found.
+    QString findProductIdForEntitlement(const QString &entitlementId);
     void setCachedData(const QString &key, const QJsonDocument &data);
     QString getCachedPs5CatalogV3(int maxAge);
     QString getCacheFilePath(const QString &key);

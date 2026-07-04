@@ -204,7 +204,7 @@ static bool is_plus_catalog_list(const char *list)
 
 // productId stable key: drop last token of the dash/underscore split, join with '|'.
 // Writes into out (>=128). Returns out (empty if <2 tokens).
-static const char *stable_key(const char *product_id, char *out, size_t out_sz)
+const char *cc_stable_key(const char *product_id, char *out, size_t out_sz)
 {
 	out[0] = 0;
 	if(!product_id || !*product_id)
@@ -213,13 +213,8 @@ static const char *stable_key(const char *product_id, char *out, size_t out_sz)
 	int ntok = 0;
 	char buf[256];
 	snprintf(buf, sizeof(buf), "%s", product_id);
-	for(char *dash = strtok(buf, "-"); dash && ntok < 16; dash = strtok(NULL, "-"))
-	{
-		char sub[128];
-		snprintf(sub, sizeof(sub), "%s", dash);
-		for(char *us = strtok(sub, "_"); us && ntok < 16; us = strtok(NULL, "_"))
-			snprintf(tokens[ntok++], 64, "%s", us);
-	}
+	for(char *tok = strtok(buf, "-_"); tok && ntok < 16; tok = strtok(NULL, "-_"))
+		snprintf(tokens[ntok++], 64, "%s", tok);
 	if(ntok < 2)
 		return out;
 	ntok--; // drop last token
@@ -543,7 +538,7 @@ static void streamability_add_product(StreamabilityIndex *ix, const char *pid)
 		return;
 	set_add(ix->product_keys, pid);
 	char sk[128];
-	stable_key(pid, sk, sizeof(sk));
+	cc_stable_key(pid, sk, sizeof(sk));
 	if(*sk)
 		set_add(ix->product_keys, sk);
 }
@@ -584,7 +579,7 @@ static StreamabilityIndex streamability_build(struct json_object *apollo,
 				continue;
 			const char *pid = game_product_id(row);
 			char sk[128];
-			stable_key(pid, sk, sizeof(sk));
+			cc_stable_key(pid, sk, sizeof(sk));
 			if(set_has(ix.product_keys, pid) || (*sk && set_has(ix.product_keys, sk)))
 				set_add(ix.streamable_concepts, concept);
 		}
@@ -602,7 +597,7 @@ static bool streamability_is_streamable(StreamabilityIndex *ix, struct json_obje
 		if(set_has(ix->product_keys, ids[i]))
 			return true;
 		char sk[128];
-		stable_key(ids[i], sk, sizeof(sk));
+		cc_stable_key(ids[i], sk, sizeof(sk));
 		if(*sk && set_has(ix->product_keys, sk))
 			return true;
 	}
@@ -849,7 +844,7 @@ static void build_stable_index(struct json_object *arr, struct json_object *map)
 	{
 		struct json_object *g = json_object_array_get_idx(arr, i);
 		char sk[128];
-		stable_key(game_product_id(g), sk, sizeof(sk));
+		cc_stable_key(game_product_id(g), sk, sizeof(sk));
 		if(*sk)
 			objmap_put_first(map, sk, g);
 	}
@@ -1074,8 +1069,8 @@ struct json_object *cc_build_owned_cross_ref(ChiakiLog *log,
 		bool skip_demo = cc_contains(ent_name_lc, "demo");
 
 		char stable_k[128], ent_stable_k[128], owned_concept[24];
-		stable_key(product_id, stable_k, sizeof(stable_k));
-		stable_key(entitlement_id, ent_stable_k, sizeof(ent_stable_k));
+		cc_stable_key(product_id, stable_k, sizeof(stable_k));
+		cc_stable_key(entitlement_id, ent_stable_k, sizeof(ent_stable_k));
 		owned_concept_id(ow, owned_concept, sizeof(owned_concept));
 
 		struct json_object *meta = NULL;
@@ -1118,7 +1113,7 @@ struct json_object *cc_build_owned_cross_ref(ChiakiLog *log,
 				else
 				{
 					char sk[128];
-					stable_key(sibling_id, sk, sizeof(sk));
+					cc_stable_key(sibling_id, sk, sizeof(sk));
 					if(*sk && !skip_demo)
 					{
 						if((sibling_meta = objmap_get(browse_stable, sk))) { }

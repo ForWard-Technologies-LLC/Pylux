@@ -432,6 +432,34 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_stop(ChiakiStreamConnecti
 	return err == CHIAKI_ERR_SUCCESS ? unlock_err : err;
 }
 
+CHIAKI_EXPORT bool chiaki_stream_connection_video_resolution(ChiakiStreamConnection *stream_connection,
+		unsigned int *width, unsigned int *height)
+{
+	bool ok = false;
+	chiaki_mutex_lock(&stream_connection->state_mutex);
+	ChiakiVideoReceiver *vr = stream_connection->video_receiver;
+	if(vr)
+	{
+		int pc = vr->profile_cur; // snapshot: written by the takion thread on adaptive switch
+		if(pc >= 0 && (size_t)pc < vr->profiles_count)
+		{
+			*width = vr->profiles[pc].width;
+			*height = vr->profiles[pc].height;
+			ok = true;
+		}
+	}
+	chiaki_mutex_unlock(&stream_connection->state_mutex);
+	return ok;
+}
+
+CHIAKI_EXPORT uint64_t chiaki_stream_connection_video_frames_lost(ChiakiStreamConnection *stream_connection)
+{
+	chiaki_mutex_lock(&stream_connection->state_mutex);
+	uint64_t v = stream_connection->video_receiver ? stream_connection->video_receiver->cumulative_frames_lost : 0;
+	chiaki_mutex_unlock(&stream_connection->state_mutex);
+	return v;
+}
+
 static void stream_connection_takion_cb(ChiakiTakionEvent *event, void *user)
 {
 	ChiakiStreamConnection *stream_connection = user;

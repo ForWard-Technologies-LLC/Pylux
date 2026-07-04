@@ -84,11 +84,11 @@ struct json_object *cc_cache_read(ChiakiLog *log, const char *cache_dir, const c
 	}
 
 	time_t now = time(NULL);
-	long age_ms = (long)(now - st.st_mtime) * 1000L;
+	int64_t age_ms = (int64_t)difftime(now, st.st_mtime) * 1000;
 	if(age_ms > max_age_ms)
 	{
 		remove(path);
-		CHIAKI_LOGI(log, "[CACHE EXPIRED] %s (age %lds)", key, age_ms / 1000);
+		CHIAKI_LOGI(log, "[CACHE EXPIRED] %s (age %lldsec)", key, (long long)(age_ms / 1000));
 		return NULL;
 	}
 
@@ -121,7 +121,7 @@ struct json_object *cc_cache_read(ChiakiLog *log, const char *cache_dir, const c
 		remove(path);
 		return NULL;
 	}
-	CHIAKI_LOGI(log, "[CACHE HIT] %s (%ldKB, age %lds)", key, sz / 1024, age_ms / 1000);
+	CHIAKI_LOGI(log, "[CACHE HIT] %s (%ldKB, age %lldsec)", key, sz / 1024, (long long)(age_ms / 1000));
 	return obj;
 }
 

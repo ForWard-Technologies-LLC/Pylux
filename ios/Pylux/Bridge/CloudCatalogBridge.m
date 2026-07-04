@@ -55,12 +55,6 @@ static void cc_log_cb(ChiakiLogLevel level, const char *msg, void *user) {
     return json;
 }
 
-+ (NSString *)gaikaiLanguageForLocale:(NSString *)locale {
-    char buf[16];
-    chiaki_cloud_gaikai_language(locale.length > 0 ? locale.UTF8String : NULL, buf, sizeof(buf));
-    return [NSString stringWithUTF8String:buf];
-}
-
 + (NSArray<NSString *> *)supportedCloudLanguages {
     NSMutableArray<NSString *> *out = [NSMutableArray array];
     size_t n = chiaki_cloud_supported_locale_count();

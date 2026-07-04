@@ -167,9 +167,11 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_cloudcatalog_fetch_unified(
 	char acct_country[8] = "", acct_language[8] = "";
 	char store_country[8] = "", store_lang[8] = "";
 
+	bool apollo_complete = true;
 	CCNativeResult nr = cc_fetch_psnow_native(log, npsso, &apollo,
 		acct_country, sizeof(acct_country), acct_language, sizeof(acct_language),
-		store_country, sizeof(store_country), store_lang, sizeof(store_lang));
+		store_country, sizeof(store_country), store_lang, sizeof(store_lang),
+		&apollo_complete);
 	if(nr == CC_NATIVE_OK)
 	{
 		native = true;
@@ -262,8 +264,11 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_cloudcatalog_fetch_unified(
 		struct json_object *g = cc_json_arr(v6, "games");
 		struct json_object *s = cc_json_arr(v6, "plusLibrarySupplement");
 		struct json_object *a = cc_json_obj(v6, "productIdAliases");
-		browse = cc_json_clone(g ? g : json_object_new_array());
-		supplement = cc_json_clone(s ? s : json_object_new_array());
+		struct json_object *fb = NULL;
+		browse = cc_json_clone(g ? g : (fb = json_object_new_array()));
+		if(fb) { json_object_put(fb); fb = NULL; }
+		supplement = cc_json_clone(s ? s : (fb = json_object_new_array()));
+		if(fb) { json_object_put(fb); fb = NULL; }
 		aliases = a ? cc_json_clone(a) : json_object_new_object();
 		const char *cl = cc_json_str(v6, "locale");
 		if(*cl)
@@ -317,7 +322,9 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_cloudcatalog_fetch_unified(
 		{
 			struct json_object *g = cc_json_arr(lib, "games");
 			struct json_object *c = cc_json_obj(lib, "componentIdsByProductId");
-			owned = cc_json_clone(g ? g : json_object_new_array());
+			struct json_object *fb2 = NULL;
+			owned = cc_json_clone(g ? g : (fb2 = json_object_new_array()));
+			if(fb2) json_object_put(fb2);
 			components = c ? cc_json_clone(c) : json_object_new_object();
 			json_object_put(lib);
 		}
@@ -360,7 +367,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_cloudcatalog_fetch_unified(
 	// 7. cache write guard (non-empty + not auth error).
 	struct json_object *games = cc_json_arr(env, "games");
 	int total = games ? (int)json_object_array_length(games) : 0;
-	if(total > 0 && !auth_error)
+	if(total > 0 && !auth_error && apollo_complete)
 		cc_cache_write(log, cache_dir, "unified_catalog_v3", env);
 
 	ChiakiErrorCode e = finish_ok(out, env);
