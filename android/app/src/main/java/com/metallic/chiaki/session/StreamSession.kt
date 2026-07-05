@@ -185,6 +185,7 @@ class StreamSession(val connectInfo: ConnectInfo, val logManager: LogManager, va
 				val psnConnectInfo = connectInfo.copy(holepunchSessionPtr = hpSession.getPtr())
 				val session = Session(psnConnectInfo, logManager.createNewFile().file.absolutePath, logVerbose)
 				session.eventCallback = this::eventCallback
+				session.setPsChord(true) // always on: safe, no user toggle
 				session.start()
 				val surface = surface
 				if(surface != null)
@@ -218,6 +219,7 @@ class StreamSession(val connectInfo: ConnectInfo, val logManager: LogManager, va
 			{
 				val session = Session(connectInfo, logManager.createNewFile().file.absolutePath, logVerbose)
 				session.eventCallback = this::eventCallback
+				session.setPsChord(true) // always on: safe, no user toggle
 				session.start()
 				val surface = surface
 				if(surface != null)

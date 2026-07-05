@@ -311,6 +311,20 @@ static void android_chiaki_event_cb(ChiakiEvent *event, void *user)
 			E->CallVoidMethod(env, session->java_session,
 							  session->java_session_event_holepunch_meth);
 			break;
+		case CHIAKI_EVENT_TRIGGER_EFFECTS:
+		case CHIAKI_EVENT_HAPTIC_INTENSITY:
+		case CHIAKI_EVENT_TRIGGER_INTENSITY:
+		case CHIAKI_EVENT_LED_COLOR:
+		case CHIAKI_EVENT_PLAYER_INDEX:
+		case CHIAKI_EVENT_MOTION_RESET:
+			// Intentionally unhandled on Android: DualSense adaptive triggers and
+			// audio haptics have no public Android API (they are only reachable via
+			// raw USB/BT HID output reports, which we deliberately do not do), and
+			// the same goes for controller LED / player-index. enable_dualsense
+			// stays false in the Android connect info, so the console keeps sending
+			// classic CHIAKI_EVENT_RUMBLE (handled above) instead of DualSense-only
+			// feedback this platform cannot deliver.
+			break;
 		default:
 			break;
 	}
@@ -341,6 +355,10 @@ JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject 
 	jclass connect_video_profile_class = E->GetObjectClass(env, connect_video_profile_obj);
 
 	ChiakiConnectInfo connect_info = { 0 };
+	// enable_dualsense stays false (zero-init) on Android BY DESIGN: with it off
+	// the console sends classic rumble events (which Android can deliver) instead
+	// of DualSense audio-haptics / adaptive-trigger data, for which Android has no
+	// public API. See the feedback-event switch in event_cb() for details.
 	connect_info.ps5 = ps5;
 
 	const char *str_borrow = E->GetStringUTFChars(env, host_string, NULL);
@@ -787,6 +805,14 @@ JNIEXPORT void JNICALL JNI_FCN(sessionSetControllerState)(JNIEnv *env, jobject o
 	controller_state.orient_z = E->GetFloatField(env, controller_state_java, session->java_controller_state_orient_z);
 	controller_state.orient_w = E->GetFloatField(env, controller_state_java, session->java_controller_state_orient_w);
 	chiaki_session_set_controller_state(&session->session, &controller_state);
+}
+
+JNIEXPORT void JNICALL JNI_FCN(sessionSetPsChord)(JNIEnv *env, jobject obj, jlong ptr, jboolean enabled, jint hold_ms)
+{
+	AndroidChiakiSession *session = (AndroidChiakiSession *)ptr;
+	if(!session)
+		return;
+	chiaki_session_set_ps_chord(&session->session, enabled, hold_ms > 0 ? (uint32_t)hold_ms : 0);
 }
 
 JNIEXPORT void JNICALL JNI_FCN(sessionSetLoginPin)(JNIEnv *env, jobject obj, jlong ptr, jstring pin_java)

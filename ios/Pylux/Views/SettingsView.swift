@@ -64,6 +64,7 @@ struct StreamPreferences: Codable {
     var rumbleEnabled: Bool = true      // matches Android default true
     var motionEnabled: Bool = true      // matches Android default true
     var touchHapticsEnabled: Bool = true // matches Android default true
+    var adaptiveTriggersEnabled: Bool = true // DualSense adaptive triggers (physical DualSense only)
     var logVerbose: Bool = false
 
     /// Stream overlay: full on-screen controls (matches Android `onScreenControlsEnabled`, default true)
@@ -94,6 +95,7 @@ struct StreamPreferences: Codable {
     private enum CodingKeys: String, CodingKey {
         case resolutionIndex, fps, bitrate, codec
         case swapCrossMoon, rumbleEnabled, motionEnabled, touchHapticsEnabled, logVerbose
+        case adaptiveTriggersEnabled
         case onScreenControlsEnabled, touchpadOnlyEnabled
         case cloudResolutionPscloud, cloudDatacenterPscloud, cloudBitratePscloud
         case cloudResolutionPsnow, cloudDatacenterPsnow, cloudBitratePsnow
@@ -151,6 +153,7 @@ struct StreamPreferences: Codable {
         rumbleEnabled = try c.decodeIfPresent(Bool.self, forKey: .rumbleEnabled) ?? true
         motionEnabled = try c.decodeIfPresent(Bool.self, forKey: .motionEnabled) ?? true
         touchHapticsEnabled = try c.decodeIfPresent(Bool.self, forKey: .touchHapticsEnabled) ?? true
+        adaptiveTriggersEnabled = try c.decodeIfPresent(Bool.self, forKey: .adaptiveTriggersEnabled) ?? true
         logVerbose = try c.decodeIfPresent(Bool.self, forKey: .logVerbose) ?? false
         onScreenControlsEnabled = try c.decodeIfPresent(Bool.self, forKey: .onScreenControlsEnabled) ?? true
         touchpadOnlyEnabled = try c.decodeIfPresent(Bool.self, forKey: .touchpadOnlyEnabled) ?? false
@@ -178,6 +181,7 @@ struct StreamPreferences: Codable {
         try c.encode(rumbleEnabled, forKey: .rumbleEnabled)
         try c.encode(motionEnabled, forKey: .motionEnabled)
         try c.encode(touchHapticsEnabled, forKey: .touchHapticsEnabled)
+        try c.encode(adaptiveTriggersEnabled, forKey: .adaptiveTriggersEnabled)
         try c.encode(logVerbose, forKey: .logVerbose)
         try c.encode(onScreenControlsEnabled, forKey: .onScreenControlsEnabled)
         try c.encode(touchpadOnlyEnabled, forKey: .touchpadOnlyEnabled)
@@ -399,6 +403,14 @@ struct SettingsView: View {
                 Toggle("Rumble", isOn: $prefs.rumbleEnabled)
                     .onChange(of: prefs.rumbleEnabled) { _ in prefs.save() }
                 Text("Play console rumble on this device (Core Haptics on supported iPhones; legacy vibrate otherwise)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Toggle("Adaptive Triggers", isOn: $prefs.adaptiveTriggersEnabled)
+                    .onChange(of: prefs.adaptiveTriggersEnabled) { _ in prefs.save() }
+                Text("DualSense adaptive-trigger resistance (physical DualSense only)")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }

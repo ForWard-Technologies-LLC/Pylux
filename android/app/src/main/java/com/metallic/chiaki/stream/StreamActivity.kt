@@ -184,8 +184,13 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 
 		if(Preferences(this).rumbleEnabled)
 		{
-			val vibrator = getSystemService(VIBRATOR_SERVICE) as Vibrator
+			val phoneVibrator = getSystemService(VIBRATOR_SERVICE) as Vibrator
 			viewModel.session.rumbleState.observe(this, Observer {
+				// Prefer the connected controller's own motor over the phone's
+				// (resolved per event so controller hotplug just works; the device
+				// list is tiny and rumble events are sparse). L/R are averaged into
+				// one amplitude because both targets expose a single channel here.
+				val vibrator = controllerVibrator() ?: phoneVibrator
 				val amplitude = min(255, (it.left.toInt() + it.right.toInt()) / 2)
 				vibrator.cancel()
 				if(amplitude == 0)
@@ -235,6 +240,11 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 	{
 		super.onPause()
 		Log.i("StreamActivity", "onPause: pip=$isInPictureInPictureMode finishing=$isFinishing")
+		if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+		{
+			binding.surfaceView.releasePointerCapture()
+			viewModel.input.releaseCapturedTouchpad()
+		}
 		// In PiP mode the stream should keep running, so skip pause.
 		// isInPictureInPictureMode is the built-in Activity property.
 		if (!isInPictureInPictureMode)
@@ -486,7 +496,74 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 	{
 		super.onWindowFocusChanged(hasFocus)
 		if(hasFocus)
+		{
 			hideSystemUI()
+			updatePhysicalTouchpadCapture()
+		}
+	}
+
+	// The system releases pointer capture on its own (e.g. pulling the notification
+	// shade) without pausing us; drop any held touchpad touches so a finger can't
+	// stay stuck on the virtual pad until the next pause.
+	override fun onPointerCaptureChanged(hasCapture: Boolean)
+	{
+		super.onPointerCaptureChanged(hasCapture)
+		if(!hasCapture)
+			viewModel.input.releaseCapturedTouchpad()
+	}
+
+	/**
+	 * The connected gamepad's own vibrator, if it has one. VibratorManager on
+	 * API 31+, the legacy InputDevice.vibrator below that. Null when no attached
+	 * gamepad can rumble (caller falls back to the phone vibrator).
+	 */
+	private fun controllerVibrator(): Vibrator?
+		= InputDevice.getDeviceIds().asSequence()
+			.mapNotNull { InputDevice.getDevice(it) }
+			.filter {
+				it.sources and InputDevice.SOURCE_GAMEPAD == InputDevice.SOURCE_GAMEPAD
+					|| it.sources and InputDevice.SOURCE_CLASS_JOYSTICK == InputDevice.SOURCE_CLASS_JOYSTICK
+			}
+			.mapNotNull { dev ->
+				if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+					dev.vibratorManager.defaultVibrator.takeIf { it.hasVibrator() }
+				else
+					@Suppress("DEPRECATION") dev.vibrator.takeIf { it.hasVibrator() }
+			}
+			.firstOrNull()
+
+	/**
+	 * Physical controller touchpad (DualSense/DS4) support: Android only delivers
+	 * a controller touchpad's absolute finger positions to an app while a view
+	 * holds pointer capture (API 26+). Capture is requested only when a gamepad
+	 * that actually has a touchpad source is attached, so mice/laptop touchpads
+	 * are never hijacked. Re-evaluated on window-focus changes; released in
+	 * onPause. Below API 26 the physical pad is unavailable (the on-screen
+	 * touchpad overlay remains the touchpad path there).
+	 */
+	private fun updatePhysicalTouchpadCapture()
+	{
+		if(Build.VERSION.SDK_INT < Build.VERSION_CODES.O)
+			return
+		val hasControllerTouchpad = InputDevice.getDeviceIds().any { id ->
+			InputDevice.getDevice(id)?.let { dev ->
+				dev.sources and InputDevice.SOURCE_TOUCHPAD == InputDevice.SOURCE_TOUCHPAD
+					&& (dev.sources and InputDevice.SOURCE_GAMEPAD == InputDevice.SOURCE_GAMEPAD
+						|| dev.sources and InputDevice.SOURCE_CLASS_JOYSTICK == InputDevice.SOURCE_CLASS_JOYSTICK)
+			} ?: false
+		}
+		if(hasControllerTouchpad)
+		{
+			binding.surfaceView.setOnCapturedPointerListener { _, event ->
+				viewModel.input.onCapturedPointerEvent(event)
+			}
+			binding.surfaceView.requestPointerCapture()
+		}
+		else
+		{
+			binding.surfaceView.releasePointerCapture()
+			viewModel.input.releaseCapturedTouchpad()
+		}
 	}
 
 	private fun hideSystemUI()

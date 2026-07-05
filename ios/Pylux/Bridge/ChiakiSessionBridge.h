@@ -54,6 +54,13 @@ typedef struct ChiakiSessionBridgeEvent {
     uint8_t regist_rp_regist_key[16];    // CHIAKI_SESSION_AUTH_SIZE
     uint32_t regist_rp_key_type;
     uint8_t regist_rp_key[16];
+    // DualSense adaptive triggers (when type == TriggerEffects): the raw PS5
+    // trigger-effect descriptors (mode byte + 10 param bytes per trigger), decoded
+    // to GCDualSenseAdaptiveTrigger calls on the Swift side.
+    uint8_t trigger_type_left;
+    uint8_t trigger_type_right;
+    uint8_t trigger_left[10];
+    uint8_t trigger_right[10];
 } ChiakiSessionBridgeEvent;
 
 /**
@@ -75,6 +82,7 @@ typedef struct ChiakiSessionBridgeConnectInfo {
     unsigned int video_max_fps;
     unsigned int video_bitrate;
     int video_codec; // 0=H264, 1=H265, 2=H265_HDR
+    bool enable_dualsense; // request DualSense haptics/adaptive-trigger data from the console
     // PSN holepunch fields (optional, 0/NULL for local connections)
     uintptr_t holepunch_session;  // ChiakiHolepunchSession ptr (owned by native session after create)
     bool auto_regist;
@@ -135,6 +143,20 @@ int chiaki_session_bridge_join(ChiakiSessionRef ref);
  * Set controller state. state layout must match ChiakiControllerState.
  */
 int chiaki_session_bridge_set_controller_state(ChiakiSessionRef ref, const void *state);
+
+/**
+ * Configure the OPTIONS+SHARE -> PS button chord (see chiaki_session_set_ps_chord).
+ * hold_ms == 0 keeps the default hold duration.
+ */
+void chiaki_session_bridge_set_ps_chord(ChiakiSessionRef ref, bool enabled, uint32_t hold_ms);
+
+/**
+ * Register a haptics sink that converts DualSense haptic-audio frames back into
+ * rumble events. Call only when streaming with enable_dualsense = true (a
+ * DualSense connected), so classic rumble isn't lost when the console switches to
+ * haptic-audio delivery.
+ */
+void chiaki_session_bridge_enable_haptics_rumble(ChiakiSessionRef ref);
 
 /**
  * Set login PIN (e.g. when LoginPinRequest event received).

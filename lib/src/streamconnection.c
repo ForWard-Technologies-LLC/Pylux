@@ -335,6 +335,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_run(ChiakiStreamConnectio
 		goto disconnect;
 	}
 	stream_connection->feedback_sender_active = true;
+	chiaki_feedback_sender_set_ps_chord(&stream_connection->feedback_sender, session->ps_chord_enabled, session->ps_chord_hold_ms);
 	chiaki_feedback_sender_set_controller_state(&stream_connection->feedback_sender, &session->controller_state);
 	chiaki_mutex_unlock(&stream_connection->feedback_sender_mutex);
 

@@ -17,7 +17,8 @@ add_executable(chiaki-unit
 		bitstream.c
 		regist.c
 		cloudcatalog_merge.c
-		cloudsession_kamaji.c)
+		cloudsession_kamaji.c
+		pschord.c)
 
 target_link_libraries(chiaki-unit chiaki-lib munit)
 if(TARGET PkgConfig::json-c)

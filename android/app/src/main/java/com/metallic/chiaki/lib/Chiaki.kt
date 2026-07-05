@@ -151,6 +151,7 @@ private class ChiakiNative
 		@JvmStatic external fun sessionSetSurface(ptr: Long, surface: Surface?)
 		@JvmStatic external fun sessionGetMetrics(ptr: Long): DoubleArray
 		@JvmStatic external fun sessionSetControllerState(ptr: Long, controllerState: ControllerState)
+		@JvmStatic external fun sessionSetPsChord(ptr: Long, enabled: Boolean, holdMs: Int)
 		@JvmStatic external fun sessionSetLoginPin(ptr: Long, pin: String)
 		@JvmStatic external fun discoveryServiceCreate(result: CreateResult, options: DiscoveryServiceOptions, javaService: DiscoveryService)
 		@JvmStatic external fun discoveryServiceFree(ptr: Long)
@@ -692,6 +693,11 @@ class Session(connectInfo: ConnectInfo, logFile: String?, logVerbose: Boolean)
 	fun setControllerState(controllerState: ControllerState)
 	{
 		ChiakiNative.sessionSetControllerState(nativePtr, controllerState)
+	}
+
+	fun setPsChord(enabled: Boolean, holdMs: Int = 0)
+	{
+		ChiakiNative.sessionSetPsChord(nativePtr, enabled, holdMs)
 	}
 
 	fun setLoginPin(pin: String)

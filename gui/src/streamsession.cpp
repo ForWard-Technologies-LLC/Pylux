@@ -454,6 +454,7 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 	err = chiaki_session_init(&session, &chiaki_connect_info, GetChiakiLog());
 	if(err != CHIAKI_ERR_SUCCESS)
 		throw ChiakiException("Chiaki Session Init failed: " + QString::fromLocal8Bit(chiaki_error_string(err)));
+	chiaki_session_set_ps_chord(&session, true, 0); // always on: safe, no user toggle
 	ChiakiCtrlDisplaySink display_sink;
 	display_sink.user = this;
 	display_sink.cantdisplay_cb = CantDisplayCb;

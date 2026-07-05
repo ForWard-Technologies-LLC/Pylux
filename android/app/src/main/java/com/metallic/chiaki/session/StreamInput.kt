@@ -49,7 +49,7 @@ class StreamInput(val context: Context, val preferences: Preferences)
 			controllerState = controllerState or dpadTouchControllerState
 		}
 
-		return controllerState or touchControllerState
+		return controllerState or touchControllerState or capturedTouchpadControllerState
 	}
 
 	private val sensorControllerState = ControllerState() // from Motion Sensors
@@ -62,6 +62,10 @@ class StreamInput(val context: Context, val preferences: Preferences)
 			field = value
 			controllerStateUpdated()
 		}
+	// Physical controller touchpad (DualSense/DS4) delivered via pointer capture
+	// (StreamActivity requests capture on the stream view, API 26+).
+	private val capturedTouchpadControllerState = ControllerState()
+	private val capturedTouchIds = mutableMapOf<Int, UByte>() // MotionEvent pointerId -> chiaki touch id
 
 	private val swapCrossMoon = preferences.swapCrossMoon
 	private val mapSelectToTouchpad = preferences.mapSelectToTouchpad
@@ -110,6 +114,105 @@ class StreamInput(val context: Context, val preferences: Preferences)
 	{
 		cancelDpadTouchTimers()
 		stopDpadTouch()
+		releaseCapturedTouchpad()
+	}
+
+	/**
+	 * Drop all captured-touchpad state (touches + click). Called when pointer
+	 * capture is lost/released so no finger stays "stuck" on the virtual pad.
+	 */
+	fun releaseCapturedTouchpad()
+	{
+		var changed = capturedTouchIds.isNotEmpty()
+			|| capturedTouchpadControllerState.buttons and ControllerState.BUTTON_TOUCHPAD != 0U
+		capturedTouchIds.values.forEach { capturedTouchpadControllerState.stopTouch(it) }
+		capturedTouchIds.clear()
+		capturedTouchpadControllerState.buttons =
+			capturedTouchpadControllerState.buttons and ControllerState.BUTTON_TOUCHPAD.inv()
+		if(changed)
+			controllerStateUpdated()
+	}
+
+	/**
+	 * Events delivered while the stream view holds pointer capture. Under capture
+	 * a physical controller touchpad (DualSense/DS4) reports ABSOLUTE per-finger
+	 * positions with SOURCE_TOUCHPAD; positions are scaled to the PS touchpad
+	 * coordinate space. The pad's physical click arrives as BUTTON_PRIMARY (also
+	 * when the pad is presented as a mouse on some Android versions, which is why
+	 * the click is handled for every captured source).
+	 */
+	fun onCapturedPointerEvent(event: MotionEvent): Boolean
+	{
+		var changed = false
+
+		val clicked = event.buttonState and MotionEvent.BUTTON_PRIMARY != 0
+		val hadClick = capturedTouchpadControllerState.buttons and ControllerState.BUTTON_TOUCHPAD != 0U
+		if(clicked != hadClick)
+		{
+			capturedTouchpadControllerState.buttons =
+				if(clicked) capturedTouchpadControllerState.buttons or ControllerState.BUTTON_TOUCHPAD
+				else capturedTouchpadControllerState.buttons and ControllerState.BUTTON_TOUCHPAD.inv()
+			changed = true
+		}
+
+		if(event.source and InputDevice.SOURCE_TOUCHPAD == InputDevice.SOURCE_TOUCHPAD)
+		{
+			val xRange = event.device?.getMotionRange(MotionEvent.AXIS_X, event.source)
+			val yRange = event.device?.getMotionRange(MotionEvent.AXIS_Y, event.source)
+			fun scale(v: Float, min: Float, max: Float, target: UShort): UShort
+			{
+				val norm = if(max > min) ((v - min) / (max - min)).coerceIn(0f, 1f) else 0f
+				return (norm * (target.toInt() - 1).toFloat()).toInt().toUShort()
+			}
+			fun scaledX(i: Int) = scale(event.getX(i), xRange?.min ?: 0f, xRange?.max ?: 1f, ControllerState.TOUCHPAD_WIDTH)
+			fun scaledY(i: Int) = scale(event.getY(i), yRange?.min ?: 0f, yRange?.max ?: 1f, ControllerState.TOUCHPAD_HEIGHT)
+
+			when(event.actionMasked)
+			{
+				MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN ->
+				{
+					val idx = event.actionIndex
+					val pid = event.getPointerId(idx)
+					// If this pointer id is somehow already mapped (e.g. a missed UP
+					// after a capture blip), release the stale chiaki touch first so
+					// we don't leak a touch slot / leave a finger stuck.
+					capturedTouchIds.remove(pid)?.let {
+						capturedTouchpadControllerState.stopTouch(it)
+						changed = true
+					}
+					capturedTouchpadControllerState.startTouch(scaledX(idx), scaledY(idx))?.let {
+						capturedTouchIds[pid] = it
+						changed = true
+					}
+				}
+				MotionEvent.ACTION_MOVE ->
+					for(i in 0 until event.pointerCount)
+						capturedTouchIds[event.getPointerId(i)]?.let {
+							if(capturedTouchpadControllerState.setTouchPos(it, scaledX(i), scaledY(i)))
+								changed = true
+						}
+				MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP ->
+				{
+					capturedTouchIds.remove(event.getPointerId(event.actionIndex))?.let {
+						capturedTouchpadControllerState.stopTouch(it)
+						changed = true
+					}
+				}
+				MotionEvent.ACTION_CANCEL ->
+				{
+					if(capturedTouchIds.isNotEmpty())
+					{
+						capturedTouchIds.values.forEach { capturedTouchpadControllerState.stopTouch(it) }
+						capturedTouchIds.clear()
+						changed = true
+					}
+				}
+			}
+		}
+
+		if(changed)
+			controllerStateUpdated()
+		return true
 	}
 
 	private val sensorEventListener = object: SensorEventListener {

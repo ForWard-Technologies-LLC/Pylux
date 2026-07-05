@@ -82,12 +82,14 @@ final class StreamSession: ObservableObject {
     private var rumbleFeedback: StreamRumbleFeedback?
     /// Cached from `StreamPreferences` (refreshed on `resume()` and `.streamPreferencesDidChange`) — avoids keychain read on every rumble packet.
     private var rumbleEffectsEnabled: Bool
+    private var adaptiveTriggersEnabled: Bool
     private var streamPrefsObserver: NSObjectProtocol?
 
     init(connectInfo: StreamConnectInfo, input: StreamInput) {
         self.connectInfo = connectInfo
         self.input = input
         rumbleEffectsEnabled = StreamPreferences.load().rumbleEnabled
+        adaptiveTriggersEnabled = StreamPreferences.load().adaptiveTriggersEnabled
         input.controllerStateChangedCallback = { [weak self] statePtr in
             guard let self = self, let ref = self.sessionRef else { return }
             _ = chiaki_session_bridge_set_controller_state(ref, statePtr)
@@ -99,6 +101,11 @@ final class StreamSession: ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.rumbleEffectsEnabled = StreamPreferences.load().rumbleEnabled
+                let triggers = StreamPreferences.load().adaptiveTriggersEnabled
+                if self?.adaptiveTriggersEnabled == true && !triggers {
+                    StreamTriggerFeedback.reset(controller: self?.input.currentController) // don't leave a resistance latched
+                }
+                self?.adaptiveTriggersEnabled = triggers
             }
         }
     }
@@ -318,6 +325,7 @@ final class StreamSession: ObservableObject {
     // MARK: - Create and start native session
 
     private nonisolated func createAndStartSession(connectInfo: StreamConnectInfo, holepunchPtr: UInt) async {
+        let hasDualSense = input.hasDualSense
         let receiver = SessionEventReceiver()
         receiver.eventBlock = { [weak self] eventPtr in
             guard let self = self, let eventPtr = eventPtr else { return }
@@ -339,9 +347,18 @@ final class StreamSession: ObservableObject {
                         right: event.rumble_right,
                         rumbleEnabled: self.rumbleEffectsEnabled
                     )
+                case 10: // ChiakiSessionBridgeEventTriggerEffects
+                    if self.adaptiveTriggersEnabled {
+                        let l = withUnsafeBytes(of: event.trigger_left) { Array($0) }
+                        let r = withUnsafeBytes(of: event.trigger_right) { Array($0) }
+                        StreamTriggerFeedback.apply(controller: self.input.currentController,
+                                                    typeLeft: event.trigger_type_left, left: l,
+                                                    typeRight: event.trigger_type_right, right: r)
+                    }
                 case 9: // ChiakiSessionBridgeEventQuit
                     self.rumbleFeedback?.shutdown()
                     self.rumbleFeedback = nil
+                    StreamTriggerFeedback.reset(controller: self.input.currentController)
                     let reasonStr = event.quit_reason_str.map { String(cString: $0) }
                     let quitMsg = reasonStr ?? String(format: "reason=0x%08x", event.quit_reason)
                     os_log(.error, log: sessionLog, "[StreamSession] Session quit: %{public}s", quitMsg)
@@ -414,6 +431,7 @@ final class StreamSession: ObservableObject {
                         cInfo.video_max_fps = connectInfo.videoMaxFps
                         cInfo.video_bitrate = connectInfo.videoBitrate
                         cInfo.video_codec = Int32(connectInfo.videoCodec)
+                        cInfo.enable_dualsense = hasDualSense // only advertise DualSense when one is attached (else the console switches to haptic-audio and classic rumble is lost)
                         cInfo.holepunch_session = holepunchPtr
                         cInfo.auto_regist = connectInfo.autoRegist
                         // Cloud streaming fields (matching Android JNI)
@@ -452,6 +470,12 @@ final class StreamSession: ObservableObject {
                 self?.state = .createError(errorCode: capturedErr != 0 ? capturedErr : 1, message: nil)
             }
             return
+        }
+
+        chiaki_session_bridge_set_ps_chord(ref, true, 0) // always on: safe, no user toggle
+        if hasDualSense {
+            // Console will deliver rumble as DualSense haptic-audio; convert it back to rumble.
+            chiaki_session_bridge_enable_haptics_rumble(ref)
         }
 
         await MainActor.run { [weak self] in
@@ -519,6 +543,7 @@ final class StreamSession: ObservableObject {
     // MARK: - Synchronous session creation for PSN connections (runs on dedicated thread)
 
     private func createAndStartSessionSync(connectInfo: StreamConnectInfo, holepunchPtr: UInt, hpSession: PyluxHolepunchSession) {
+        let hasDualSense = input.hasDualSense
         let receiver = SessionEventReceiver()
         receiver.eventBlock = { [weak self] eventPtr in
             guard let self = self, let eventPtr = eventPtr else { return }
@@ -540,9 +565,18 @@ final class StreamSession: ObservableObject {
                         right: event.rumble_right,
                         rumbleEnabled: self.rumbleEffectsEnabled
                     )
+                case 10: // ChiakiSessionBridgeEventTriggerEffects
+                    if self.adaptiveTriggersEnabled {
+                        let l = withUnsafeBytes(of: event.trigger_left) { Array($0) }
+                        let r = withUnsafeBytes(of: event.trigger_right) { Array($0) }
+                        StreamTriggerFeedback.apply(controller: self.input.currentController,
+                                                    typeLeft: event.trigger_type_left, left: l,
+                                                    typeRight: event.trigger_type_right, right: r)
+                    }
                 case 9:
                     self.rumbleFeedback?.shutdown()
                     self.rumbleFeedback = nil
+                    StreamTriggerFeedback.reset(controller: self.input.currentController)
                     let reasonStr = event.quit_reason_str.map { String(cString: $0) }
                     let quitMsg = reasonStr ?? String(format: "reason=0x%08x", event.quit_reason)
                     os_log(.error, log: sessionLog, "[StreamSession] Session quit: %{public}s", quitMsg)
@@ -594,6 +628,7 @@ final class StreamSession: ObservableObject {
             cInfo.video_max_fps = connectInfo.videoMaxFps
             cInfo.video_bitrate = connectInfo.videoBitrate
             cInfo.video_codec = Int32(connectInfo.videoCodec)
+            cInfo.enable_dualsense = hasDualSense // only advertise DualSense when one is attached (else the console switches to haptic-audio and classic rumble is lost)
             cInfo.holepunch_session = holepunchPtr
             cInfo.auto_regist = connectInfo.autoRegist
             _ = withUnsafeMutableBytes(of: &cInfo.regist_key) { buf in
@@ -619,6 +654,12 @@ final class StreamSession: ObservableObject {
                 self?.state = .createError(errorCode: err != 0 ? err : 1, message: nil)
             }
             return
+        }
+
+        chiaki_session_bridge_set_ps_chord(ref, true, 0) // always on: safe, no user toggle
+        if hasDualSense {
+            // Console will deliver rumble as DualSense haptic-audio; convert it back to rumble.
+            chiaki_session_bridge_enable_haptics_rumble(ref)
         }
 
         // Native session owns holepunch pointer now

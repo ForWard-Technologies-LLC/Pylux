@@ -20,6 +20,11 @@ class StreamInput {
 
     private var controllerState = ChiakiControllerState()
     private var touchOverlayState = ChiakiControllerState()
+    // Physical DualSense touchpad (click + up to two fingers). Tracked persistently
+    // because chiaki touch ids are handles that must survive across merges.
+    private var physicalTouchpadState = ChiakiControllerState()
+    private var padFinger1Id: Int8 = -1
+    private var padFinger2Id: Int8 = -1
     private weak var attachedController: GCController?
     private var lastStateHash: Int = -1
     private let swapButtons: Bool
@@ -27,12 +32,18 @@ class StreamInput {
     /// The currently attached physical controller (if any). Used by `StreamRumbleFeedback` to route haptics.
     var currentController: GCController? { attachedController ?? GCController.controllers().first }
 
+    /// True when the attached controller is a physical DualSense. Gates
+    /// `enable_dualsense`: only advertise DualSense to the console when one is
+    /// actually connected, so non-DualSense users keep classic rumble.
+    var hasDualSense: Bool { (currentController?.extendedGamepad as? GCDualSenseGamepad) != nil }
+
     // MARK: - Lifecycle
 
     init() {
         swapButtons = StreamPreferences.load().swapCrossMoon
         chiaki_controller_state_set_idle(&controllerState)
         chiaki_controller_state_set_idle(&touchOverlayState)
+        chiaki_controller_state_set_idle(&physicalTouchpadState)
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(controllerDidConnect),
@@ -95,6 +106,14 @@ class StreamInput {
         controller.microGamepad?.valueChangedHandler = { [weak self] _, _ in
             self?.mergeGamepadWithTouchAndNotify()
         }
+        // DualSense touchpad elements aren't reliably covered by the extendedGamepad
+        // handler, so subscribe to them directly to drive merges on pad activity.
+        if let ds = controller.extendedGamepad as? GCDualSenseGamepad {
+            let onChange: () -> Void = { [weak self] in self?.mergeGamepadWithTouchAndNotify() }
+            ds.touchpadButton.pressedChangedHandler = { _, _, _ in onChange() }
+            ds.touchpadPrimary.valueChangedHandler = { _, _, _ in onChange() }
+            ds.touchpadSecondary.valueChangedHandler = { _, _, _ in onChange() }
+        }
         mergeGamepadWithTouchAndNotify()
     }
 
@@ -106,9 +125,64 @@ class StreamInput {
         let controller = attachedController ?? GCController.controllers().first
         if let c = controller {
             fillGamepadState(&gamepad, controller: c)
+            updatePhysicalTouchpad(c)
+        } else {
+            clearPhysicalTouchpad()
         }
-        chiaki_controller_state_or(&controllerState, &gamepad, &touchOverlayState)
+        var merged = ChiakiControllerState()
+        chiaki_controller_state_set_idle(&merged)
+        chiaki_controller_state_or(&merged, &gamepad, &touchOverlayState)
+        chiaki_controller_state_or(&controllerState, &merged, &physicalTouchpadState)
         notifyIfChanged()
+    }
+
+    // MARK: - Physical DualSense touchpad
+
+    /// Poll the physical DualSense touchpad into `physicalTouchpadState`: the pad
+    /// click -> BUTTON_TOUCHPAD (bit 14), and up to two fingers -> `touches[]`.
+    /// DS4 and non-DualSense controllers expose no touchpad through GameController,
+    /// so this is a no-op for them (physical pad unavailable — the on-screen
+    /// overlay remains the touchpad path).
+    private func updatePhysicalTouchpad(_ controller: GCController) {
+        guard let ds = controller.extendedGamepad as? GCDualSenseGamepad else {
+            clearPhysicalTouchpad()
+            return
+        }
+        let touchpadBit = UInt32(1 << 14)
+        if ds.touchpadButton.isPressed { physicalTouchpadState.buttons |= touchpadBit }
+        else { physicalTouchpadState.buttons &= ~touchpadBit }
+
+        // Finger 1 presence comes from touchpadButton.isTouched (a finger resting on
+        // the surface, distinct from a physical click).
+        updatePadFinger(present: ds.touchpadButton.isTouched, dpad: ds.touchpadPrimary, id: &padFinger1Id)
+        // Finger 2 has no dedicated touch flag; treat non-zero secondary axes as
+        // present. Only false-negative is a second finger resting exactly at center
+        // — a public-API limitation, not worked around.
+        let sec = ds.touchpadSecondary
+        updatePadFinger(present: sec.xAxis.value != 0 || sec.yAxis.value != 0, dpad: sec, id: &padFinger2Id)
+    }
+
+    private func updatePadFinger(present: Bool, dpad: GCControllerDirectionPad, id: inout Int8) {
+        if present {
+            // touchpad axes are [-1, 1]; PS touchpad space is [0, 1919] x [0, 941],
+            // y down-positive (GameController y is up-positive, so invert).
+            let x = UInt16(max(0, min(1919, Int(((dpad.xAxis.value + 1) / 2) * 1919))))
+            let y = UInt16(max(0, min(941, Int(((1 - dpad.yAxis.value) / 2) * 941))))
+            if id < 0 {
+                id = chiaki_controller_state_start_touch(&physicalTouchpadState, x, y)
+            } else {
+                chiaki_controller_state_set_touch_pos(&physicalTouchpadState, UInt8(id), x, y)
+            }
+        } else if id >= 0 {
+            chiaki_controller_state_stop_touch(&physicalTouchpadState, UInt8(id))
+            id = -1
+        }
+    }
+
+    private func clearPhysicalTouchpad() {
+        if padFinger1Id >= 0 { chiaki_controller_state_stop_touch(&physicalTouchpadState, UInt8(padFinger1Id)); padFinger1Id = -1 }
+        if padFinger2Id >= 0 { chiaki_controller_state_stop_touch(&physicalTouchpadState, UInt8(padFinger2Id)); padFinger2Id = -1 }
+        physicalTouchpadState.buttons &= ~UInt32(1 << 14)
     }
 
     private func fillGamepadState(_ state: inout ChiakiControllerState, controller: GCController) {

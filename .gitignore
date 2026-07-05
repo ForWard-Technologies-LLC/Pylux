@@ -88,3 +88,6 @@ macos/fastlane/report.xml
 scripts/flatpak/test-flatpak-local.sh
 pylux-test.flatpak
 lib/test_cloudcatalog/.npsso
+
+# iOS build/run logs (build artifacts, never track)
+ios/logs/

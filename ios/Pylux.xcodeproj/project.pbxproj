@@ -40,6 +40,7 @@
 		A1000145 /* PyluxAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000146 /* PyluxAppDelegate.swift */; };
 		A1000147 /* StreamTouchControlsOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000148 /* StreamTouchControlsOverlay.swift */; };
 		A1000151 /* StreamRumbleFeedback.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000152 /* StreamRumbleFeedback.swift */; };
+		A1000161 /* StreamTriggerFeedback.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000160 /* StreamTriggerFeedback.swift */; };
 		A1000163 /* ControlSVGPathParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000164 /* ControlSVGPathParser.swift */; };
 		A1000165 /* StreamTouchControlsTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000166 /* StreamTouchControlsTypes.swift */; };
 		A1000167 /* StreamTouchControlsStickDPad.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000168 /* StreamTouchControlsStickDPad.swift */; };
@@ -110,6 +111,7 @@
 		A1000146 /* PyluxAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PyluxAppDelegate.swift; sourceTree = "<group>"; };
 		A1000148 /* StreamTouchControlsOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamTouchControlsOverlay.swift; sourceTree = "<group>"; };
 		A1000152 /* StreamRumbleFeedback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamRumbleFeedback.swift; sourceTree = "<group>"; };
+		A1000160 /* StreamTriggerFeedback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamTriggerFeedback.swift; sourceTree = "<group>"; };
 		A1000164 /* ControlSVGPathParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlSVGPathParser.swift; sourceTree = "<group>"; };
 		A1000166 /* StreamTouchControlsTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamTouchControlsTypes.swift; sourceTree = "<group>"; };
 		A1000168 /* StreamTouchControlsStickDPad.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamTouchControlsStickDPad.swift; sourceTree = "<group>"; };
@@ -242,6 +244,7 @@
 				A1000025 /* StreamSession.swift */,
 				A1000027 /* StreamInput.swift */,
 				A1000152 /* StreamRumbleFeedback.swift */,
+				A1000160 /* StreamTriggerFeedback.swift */,
 				A6000001 /* AppReviewHelper.swift */,
 			);
 			path = Services;
@@ -373,6 +376,7 @@
 				A1000010 /* StreamState.swift in Sources */,
 				A1000028 /* StreamInput.swift in Sources */,
 				A1000151 /* StreamRumbleFeedback.swift in Sources */,
+				A1000161 /* StreamTriggerFeedback.swift in Sources */,
 				A1000037 /* StreamView.swift in Sources */,
 				A1000147 /* StreamTouchControlsOverlay.swift in Sources */,
 				A1000165 /* StreamTouchControlsTypes.swift in Sources */,

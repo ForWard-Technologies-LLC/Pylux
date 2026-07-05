@@ -289,6 +289,12 @@ typedef struct chiaki_session_t
 	ChiakiStreamConnection stream_connection;
 
 	ChiakiControllerState controller_state;
+
+	// Unified PS-button chord (OPTIONS+SHARE hold -> BUTTON_PS pulse), applied in
+	// the feedback sender. Stored here so platforms can configure it before the
+	// stream (feedback sender) exists; seeded on feedback-sender start.
+	bool ps_chord_enabled;
+	uint32_t ps_chord_hold_ms;
 } ChiakiSession;
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_init(ChiakiSession *session, ChiakiConnectInfo *connect_info, ChiakiLog *log);
@@ -297,6 +303,11 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_session_start(ChiakiSession *session);
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_stop(ChiakiSession *session);
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_join(ChiakiSession *session);
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_set_controller_state(ChiakiSession *session, ChiakiControllerState *state);
+/**
+ * Configure the OPTIONS+SHARE -> PS chord (see ChiakiPsChord). Safe to call
+ * before or during a stream. hold_ms == 0 keeps the current hold duration.
+ */
+CHIAKI_EXPORT ChiakiErrorCode chiaki_session_set_ps_chord(ChiakiSession *session, bool enabled, uint32_t hold_ms);
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_set_login_pin(ChiakiSession *session, const uint8_t *pin, size_t pin_size);
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_set_stream_connection_switch_received(ChiakiSession *session);
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_goto_bed(ChiakiSession *session);
