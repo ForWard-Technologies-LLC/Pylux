@@ -115,6 +115,73 @@ static MunitResult test_early_release_completes_pulse(const MunitParameter param
 	return MUNIT_OK;
 }
 
+static MunitResult test_staggered_release_after_fire_is_consumed(const MunitParameter params[], void *user)
+{
+	// Regression: after the chord fires, the user is still holding both buttons
+	// and releases them a few frames apart. The button released LAST must not
+	// land as a real press (SHARE would otherwise open the PS5 capture gallery
+	// on top of the home overlay the chord just opened).
+	ChiakiPsChord chord = chord_default();
+
+	ChiakiControllerState state = state_with_buttons(CHORD_BITS);
+	chiaki_ps_chord_apply(&chord, &state, 1000);   // chord starts
+	state = state_with_buttons(CHORD_BITS);
+	chiaki_ps_chord_apply(&chord, &state, 3000);   // threshold crossed -> fired + pulse
+	munit_assert_uint32(state.buttons & CHIAKI_CONTROLLER_BUTTON_PS, !=, 0);
+
+	state = state_with_buttons(CHORD_BITS);
+	chiaki_ps_chord_apply(&chord, &state, 3000 + CHIAKI_PS_CHORD_PULSE_MS); // pulse over, both still down
+	munit_assert_uint32(state.buttons, ==, 0);
+
+	// OPTIONS released first, SHARE still held -> SHARE must stay consumed
+	state = state_with_buttons(CHIAKI_CONTROLLER_BUTTON_SHARE);
+	chiaki_ps_chord_apply(&chord, &state, 3500);
+	munit_assert_uint32(state.buttons, ==, 0);
+	munit_assert_uint32(state.buttons & CHIAKI_CONTROLLER_BUTTON_PS, ==, 0);
+
+	// keeps hanging on to SHARE much longer -> still consumed, no second pulse
+	state = state_with_buttons(CHIAKI_CONTROLLER_BUTTON_SHARE);
+	chiaki_ps_chord_apply(&chord, &state, 6000);
+	munit_assert_uint32(state.buttons, ==, 0);
+
+	// full release re-arms; a later lone SHARE tap passes through normally
+	state = state_with_buttons(0);
+	chiaki_ps_chord_apply(&chord, &state, 6100);
+	state = state_with_buttons(CHIAKI_CONTROLLER_BUTTON_SHARE);
+	chiaki_ps_chord_apply(&chord, &state, 6200);
+	munit_assert_uint32(state.buttons, ==, CHIAKI_CONTROLLER_BUTTON_SHARE);
+	return MUNIT_OK;
+}
+
+static MunitResult test_staggered_release_before_fire_is_consumed(const MunitParameter params[], void *user)
+{
+	// Regression: the user engages the chord (both down) but lets go BEFORE the
+	// 2s threshold, releasing the two buttons a few frames apart. The button
+	// released last must not leak -- aborting the hold shouldn't fire OPTIONS or
+	// open the SHARE capture menu.
+	ChiakiPsChord chord = chord_default();
+
+	ChiakiControllerState state = state_with_buttons(CHORD_BITS);
+	chiaki_ps_chord_apply(&chord, &state, 1000);   // engaged (both down), not fired
+	munit_assert_uint32(state.buttons, ==, 0);
+	state = state_with_buttons(CHORD_BITS);
+	chiaki_ps_chord_apply(&chord, &state, 1500);   // still under threshold
+	munit_assert_uint32(state.buttons & CHIAKI_CONTROLLER_BUTTON_PS, ==, 0); // never fired
+
+	// OPTIONS released first, SHARE lingers -> SHARE consumed, not leaked
+	state = state_with_buttons(CHIAKI_CONTROLLER_BUTTON_SHARE);
+	chiaki_ps_chord_apply(&chord, &state, 1600);
+	munit_assert_uint32(state.buttons, ==, 0);
+
+	// full release re-arms; a later lone SHARE tap passes through normally
+	state = state_with_buttons(0);
+	chiaki_ps_chord_apply(&chord, &state, 1700);
+	state = state_with_buttons(CHIAKI_CONTROLLER_BUTTON_SHARE);
+	chiaki_ps_chord_apply(&chord, &state, 1800);
+	munit_assert_uint32(state.buttons, ==, CHIAKI_CONTROLLER_BUTTON_SHARE);
+	return MUNIT_OK;
+}
+
 static MunitResult test_disabled_passthrough_and_other_buttons(const MunitParameter params[], void *user)
 {
 	ChiakiPsChord chord = chord_default();
@@ -145,6 +212,8 @@ MunitTest tests_ps_chord[] = {
 	{ "/fires_once_with_pulse", test_fires_once_with_pulse_then_release, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/rearm_after_release", test_rearm_after_release, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/early_release_completes_pulse", test_early_release_completes_pulse, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
+	{ "/staggered_release_after_fire", test_staggered_release_after_fire_is_consumed, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
+	{ "/staggered_release_before_fire", test_staggered_release_before_fire_is_consumed, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/disabled_passthrough", test_disabled_passthrough_and_other_buttons, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ NULL, NULL, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL }
 };

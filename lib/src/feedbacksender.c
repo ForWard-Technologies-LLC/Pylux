@@ -115,12 +115,13 @@ CHIAKI_EXPORT void chiaki_ps_chord_apply(ChiakiPsChord *chord, ChiakiControllerS
 	{
 		// Suppress the two source buttons while BOTH are held, so the console
 		// doesn't act on them during the hold (notably SHARE-hold opens the PS5
-		// capture menu). Note: this only covers the window where both are already
-		// down together — if the user presses them staggered (one clearly before
-		// the other), the first button is a normal press until the second joins,
-		// so a brief OPTIONS/SHARE tap can still reach the console. Pressing them
-		// together avoids that; we deliberately do NOT defer single presses (that
-		// would add latency to every OPTIONS/SHARE press for a cosmetic edge).
+		// capture menu). The staggered *release* tail is handled in the branch
+		// below. The staggered *press* entry is not: if the user presses them
+		// clearly one-then-the-other, the first is a normal press until the second
+		// joins, so a brief OPTIONS/SHARE tap can still reach the console. We
+		// deliberately do NOT defer single presses to close that -- it would add
+		// latency to every OPTIONS/SHARE press for a cosmetic edge; pressing the
+		// two together (the natural chord motion) avoids it.
 		state->buttons &= ~both;
 		if(chord->chord_start_ms == 0)
 			chord->chord_start_ms = now_ms;
@@ -129,6 +130,18 @@ CHIAKI_EXPORT void chiaki_ps_chord_apply(ChiakiPsChord *chord, ChiakiControllerS
 			chord->fired = true; // latch: at most one PS pulse per hold
 			chord->pulse_until_ms = now_ms + CHIAKI_PS_CHORD_PULSE_MS;
 		}
+	}
+	else if(chord->chord_start_ms != 0 && (state->buttons & both))
+	{
+		// Both buttons were down together (chord engaged -- whether or not it
+		// reached the PS threshold) and now exactly one is still held mid-release.
+		// Keep consuming it until BOTH are up. Releases are practically never on
+		// the same frame, so without this the button let go of last lands as a
+		// real press: SHARE opening the capture gallery on top of the PS home
+		// overlay the chord just summoned, or a stray OPTIONS/SHARE if the user
+		// aborts the hold before it fires. chord_start_ms/fired are left intact so
+		// a fresh press of both is required before it can fire again.
+		state->buttons &= ~both;
 	}
 	else
 	{
