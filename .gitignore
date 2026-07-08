@@ -91,3 +91,6 @@ lib/test_cloudcatalog/.npsso
 
 # iOS build/run logs (build artifacts, never track)
 ios/logs/
+
+# Local scratch: build + logcat captures (may contain PSN session tokens) -- never track
+tmp/

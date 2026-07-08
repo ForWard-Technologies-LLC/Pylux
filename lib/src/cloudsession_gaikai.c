@@ -32,6 +32,10 @@
 #define MAX_LOCK_RETRIES 12
 #define DEFAULT_ALLOC_WAIT_S 300
 #define MAX_ALLOC_WAIT_S 900
+// Tolerate a few transient network blips (DNS-resolve / connect / TLS) during the
+// allocate poll loop before failing -- the slot is usually still coming.
+#define GK_ALLOC_MAX_NET_ERRORS 5
+#define GK_ALLOC_NET_RETRY_S 5
 
 typedef struct
 {
@@ -962,6 +966,7 @@ static ChiakiErrorCode gk_step13_allocate(GaikaiCtx *c, ChiakiCloudProvisionResu
 {
 	gk_progress(c, "Allocating Streaming Slot - Step 10 of 10");
 	int max_wait = DEFAULT_ALLOC_WAIT_S, elapsed = 0, attempt = 0;
+	int net_errors = 0; // consecutive transient network failures during the poll
 	bool wait_started = false;
 	for(;;)
 	{
@@ -989,7 +994,31 @@ static ChiakiErrorCode gk_step13_allocate(GaikaiCtx *c, ChiakiCloudProvisionResu
 
 		CCHttpResponse resp = { 0 };
 		ChiakiErrorCode e = gk_post_session(c, "/allocate", extra, &resp);
-		if(e != CHIAKI_ERR_SUCCESS) { cc_http_response_fini(&resp); return e; }
+		if(e != CHIAKI_ERR_SUCCESS)
+		{
+			// Transient network blip (DNS-resolve / connect / TLS) mid-allocation: the
+			// slot is usually still coming (we can be minutes into a queue/migration),
+			// so retry a few times rather than aborting the whole allocation on one drop.
+			cc_http_response_fini(&resp);
+			if(gk_cancelled(c)) return CHIAKI_ERR_CANCELED;
+			if(++net_errors > GK_ALLOC_MAX_NET_ERRORS || elapsed >= max_wait)
+			{
+				CHIAKI_LOGE(c->log, "[GAIKAI] allocate failed after %d consecutive network errors", net_errors);
+				free(out->error_message);
+				// Friendly message: clients show error_message verbatim when it isn't one
+				// of the known sentinels (AUTHORIZATION_FAILED, PS_PLUS_...), so this
+				// replaces the generic "Allocation failed" with the real cause.
+				out->error_message = strdup("Couldn't reach the cloud server (network error). Please try again.");
+				return e;
+			}
+			CHIAKI_LOGW(c->log, "[GAIKAI] allocate network error (%d/%d), retrying in %ds",
+				net_errors, GK_ALLOC_MAX_NET_ERRORS, GK_ALLOC_NET_RETRY_S);
+			gk_progress(c, "Allocating streaming slot - reconnecting...");
+			if(!gk_sleep_cancellable(c, GK_ALLOC_NET_RETRY_S)) return CHIAKI_ERR_CANCELED;
+			elapsed += GK_ALLOC_NET_RETRY_S;
+			continue;
+		}
+		net_errors = 0; // request completed -> network is back
 		if(resp.status_code != 200) { CHIAKI_LOGE(c->log, "[GAIKAI] step13 allocate http %ld: %s", resp.status_code, resp.data ? resp.data : ""); cc_http_response_fini(&resp); return CHIAKI_ERR_UNKNOWN; }
 		gk_update_session_key(c, &resp);
 		struct json_object *a = resp.data ? json_tokener_parse(resp.data) : NULL;
