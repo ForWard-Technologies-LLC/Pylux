@@ -48,11 +48,19 @@ DialogView {
             event.accepted = true;
             break;
         case Qt.Key_Up:
-            event.accepted = false;
+        case Qt.Key_Down: {
+            // If focus hasn't landed on a tab control yet (still on the dialog
+            // root), seed it onto the current tab's first control instead of
+            // dropping the key. Otherwise let the focused control move focus.
+            let afi = dialog.Window.activeFocusItem;
+            if (!afi || afi === dialog) {
+                stackLayout.focusCurrentTab();
+                event.accepted = true;
+            } else {
+                event.accepted = false;
+            }
             break;
-        case Qt.Key_Down:
-            event.accepted = false;
-            break;
+        }
         }
     }
 
@@ -201,13 +209,37 @@ DialogView {
                 topMargin: 10
             }
             currentIndex: bar.currentIndex
-            // Focus the first control of the newly-shown tab so controller/keyboard
-            // Up/Down work immediately. MUST be deferred: running it synchronously on
-            // the index change lands focus on the tab that is not yet visible/laid out,
-            // so forceActiveFocus silently no-ops and nothing ends up focused -- which is
-            // why Down did nothing until you clicked a control. Qt.callLater runs it after
-            // the StackLayout has shown the new page. Also fired once for the initial tab.
-            function focusCurrentTab() { nextItemInFocusChain().forceActiveFocus(Qt.TabFocusReason); }
+            // Seed active focus onto the first control of the current tab so
+            // controller/keyboard Up/Down work as soon as the tab is shown. Every
+            // tab's first control is marked `firstInFocusChain: true`; find it by
+            // walking the current page's subtree. We do NOT use nextItemInFocusChain()
+            // here: called on the StackLayout it walks the Tab-focus order and lands on
+            // nothing, so no control ends up focused and Down does nothing until you
+            // click a control. Deferred with Qt.callLater so it runs after the newly
+            // current page has been laid out. Also fired once for the initial tab.
+            function findFirstInFocusChain(item, anyControl) {
+                if (!item || item.visible === false)
+                    return null;
+                var isMatch = anyControl ? (item.firstInFocusChain !== undefined)
+                                         : (item.firstInFocusChain === true);
+                if (isMatch && item.enabled)
+                    return item;
+                var kids = item.children;
+                for (var i = 0; kids && i < kids.length; ++i) {
+                    var found = findFirstInFocusChain(kids[i], anyControl);
+                    if (found)
+                        return found;
+                }
+                return null;
+            }
+            function focusCurrentTab() {
+                var page = stackLayout.children[stackLayout.currentIndex];
+                // Prefer the tab's explicitly-marked first control; fall back to the
+                // first custom control on the page so no tab is ever left unfocusable.
+                var target = findFirstInFocusChain(page) || findFirstInFocusChain(page, true);
+                if (target)
+                    target.forceActiveFocus(Qt.TabFocusReason);
+            }
             onCurrentIndexChanged: Qt.callLater(focusCurrentTab)
             Component.onCompleted: Qt.callLater(focusCurrentTab)
 
@@ -579,6 +611,7 @@ DialogView {
 
                     C.ComboBox {
                         Layout.preferredWidth: 400
+                        firstInFocusChain: true
                         model: Chiaki.settings.availableDecoders
                         currentIndex: Math.max(0, model.indexOf(Chiaki.settings.decoder))
                         onActivated: (index) => Chiaki.settings.decoder = index ? model[index] : ""
