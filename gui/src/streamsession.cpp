@@ -1951,6 +1951,13 @@ void StreamSession::Event(ChiakiEvent *event)
 			connected = true;
 			emit ConnectedChanged();
 			break;
+		case CHIAKI_EVENT_PS_CHORD:
+			// OPTIONS+SHARE chord fired. The synthesized PS pulse already went to
+			// the console via the feedback sender; also surface our in-stream menu
+			// so a controller-only player can reach disconnect/stats.
+			CHIAKI_LOGI(GetChiakiLog(), "PS chord fired -> requesting in-stream menu");
+			emit PsChordFired();
+			break;
 		case CHIAKI_EVENT_QUIT:
 			// Do not auto-retry when the console reports RP crashed or session in use — rapid
 			// sess/init loops stress the console and match the repeated 403 + 0x80108b15 pattern.

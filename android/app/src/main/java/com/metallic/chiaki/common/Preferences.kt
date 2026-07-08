@@ -58,6 +58,9 @@ class Preferences(context: Context)
 		const val DPAD_TOUCH_INCREMENT_MIN = 1
 		const val DPAD_TOUCH_INCREMENT_MAX = 1079
 		const val DPAD_TOUCH_INCREMENT_DEFAULT = 30
+		const val RUMBLE_INTENSITY_MIN = 0
+		const val RUMBLE_INTENSITY_MAX = 500
+		const val RUMBLE_INTENSITY_DEFAULT = 100
 		const val DPAD_TOUCH_SHORTCUT1_DEFAULT = 9
 		const val DPAD_TOUCH_SHORTCUT2_DEFAULT = 10
 		const val DPAD_TOUCH_SHORTCUT3_DEFAULT = 7
@@ -103,6 +106,12 @@ class Preferences(context: Context)
 	var rumbleEnabled
 		get() = sharedPreferences.getBoolean(rumbleEnabledKey, true)
 		set(value) { sharedPreferences.edit().putBoolean(rumbleEnabledKey, value).apply() }
+
+	val rumbleIntensityKey get() = resources.getString(R.string.preferences_rumble_intensity_key)
+	var rumbleIntensity // percent, 0..500 (100 = 1x). Applied at stream start.
+		get() = sharedPreferences.getInt(rumbleIntensityKey, RUMBLE_INTENSITY_DEFAULT)
+			.coerceIn(RUMBLE_INTENSITY_MIN, RUMBLE_INTENSITY_MAX)
+		set(value) { sharedPreferences.edit().putInt(rumbleIntensityKey, value.coerceIn(RUMBLE_INTENSITY_MIN, RUMBLE_INTENSITY_MAX)).apply() }
 
 	val motionEnabledKey get() = resources.getString(R.string.preferences_motion_enabled_key)
 	var motionEnabled

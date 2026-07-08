@@ -246,6 +246,11 @@ struct StreamView: View {
         .sheet(isPresented: $donationCoordinator.showPaywall) {
             DonationPaywallView()
         }
+        .onChange(of: session.menuRequestToken) { _ in
+            // OPTIONS+SHARE chord fired -> surface the in-stream menu (auto-hides), same as a tap.
+            showOverlay = true
+            scheduleHideOverlay()
+        }
         .onChange(of: session.state) { newState in
             switch newState {
             case .connected:

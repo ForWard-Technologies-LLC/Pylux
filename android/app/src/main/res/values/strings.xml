@@ -129,6 +129,8 @@
     <string name="preferences_dpad_touch_shortcut4_title">Touch Combo Button 4</string>
     <string name="preferences_rumble_enabled_title">Rumble</string>
     <string name="preferences_rumble_enabled_summary">Rumble on the controller\'s motor when it has one, otherwise the phone</string>
+    <string name="preferences_rumble_intensity_title">Rumble Intensity</string>
+    <string name="preferences_rumble_intensity_summary">Rumble strength (100 = normal, 0 = off, up to 500)</string>
     <string name="preferences_motion_enabled_title">Motion</string>
     <string name="preferences_motion_enabled_summary">Use device\'s motion sensors for controller motion</string>
     <string name="preferences_button_haptic_enabled_title">Touch Haptics</string>
@@ -269,6 +271,7 @@
     <string name="preferences_on_screen_controls_enabled_key">on_screen_controls_enabled</string>
     <string name="preferences_touchpad_only_enabled_key">touchpad_only_enabled</string>
     <string name="preferences_rumble_enabled_key">rumble_enabled</string>
+    <string name="preferences_rumble_intensity_key">rumble_intensity</string>
     <string name="preferences_motion_enabled_key">motion_enabled</string>
     <string name="preferences_button_haptic_enabled_key">button_haptic_enabled</string>
     <string name="preferences_log_verbose_key">log_verbose</string>

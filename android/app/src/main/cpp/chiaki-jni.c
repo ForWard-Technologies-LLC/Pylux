@@ -209,6 +209,7 @@ typedef struct android_chiaki_session_t
 	jmethodID java_session_event_rumble_meth;
 	jmethodID java_session_event_regist_meth;
 	jmethodID java_session_event_holepunch_meth;
+	jmethodID java_session_event_ps_chord_meth;
 	// Cached class refs for CHIAKI_EVENT_REGIST (FindClass doesn't work from native threads)
 	jclass java_target_class;
 	jmethodID java_target_from_value;
@@ -241,6 +242,7 @@ typedef struct android_chiaki_session_t
 	AndroidChiakiOpusDecoder opus_decoder;
 	bool use_opus_decoder; // true for PSCloud, false for PSNow/Remote Play
 	void *audio_output;
+	uint8_t last_haptic_amp; // last haptic-audio-derived rumble amplitude emitted (throttle)
 } AndroidChiakiSession;
 
 static void android_chiaki_event_cb(ChiakiEvent *event, void *user)
@@ -311,6 +313,12 @@ static void android_chiaki_event_cb(ChiakiEvent *event, void *user)
 			E->CallVoidMethod(env, session->java_session,
 							  session->java_session_event_holepunch_meth);
 			break;
+		case CHIAKI_EVENT_PS_CHORD:
+			// OPTIONS+SHARE chord fired: PS pulse already went to the console;
+			// tell Kotlin so the activity can also surface its in-stream menu.
+			E->CallVoidMethod(env, session->java_session,
+							  session->java_session_event_ps_chord_meth);
+			break;
 		case CHIAKI_EVENT_TRIGGER_EFFECTS:
 		case CHIAKI_EVENT_HAPTIC_INTENSITY:
 		case CHIAKI_EVENT_TRIGGER_INTENSITY:
@@ -330,6 +338,41 @@ static void android_chiaki_event_cb(ChiakiEvent *event, void *user)
 	}
 
 	(*global_vm)->DetachCurrentThread(global_vm);
+}
+
+// With enable_dualsense=true a PS5 streams rumble as DualSense haptic-audio PCM
+// (interleaved stereo int16) rather than classic rumble packets. Android can't play
+// rich body haptics, so -- like Qt and iOS -- collapse each frame to a single motor
+// amplitude and re-emit it through the normal rumble path (android_chiaki_event_cb ->
+// eventRumble -> vibrator). Throttled to amplitude changes so we don't churn the JVM.
+static void android_chiaki_haptics_frame_cb(uint8_t *buf, size_t buf_size, void *user)
+{
+	AndroidChiakiSession *session = user;
+	if(!buf)
+		return;
+	const size_t sample_size = 2 * sizeof(int16_t); // interleaved stereo int16
+	size_t n = buf_size / sample_size;
+	if(n == 0)
+		return;
+	uint64_t sum = 0;
+	for(size_t i = 0; i < n; i++)
+	{
+		int16_t l = 0, r = 0;
+		memcpy(&l, buf + i * sample_size, sizeof(int16_t));
+		memcpy(&r, buf + i * sample_size + sizeof(int16_t), sizeof(int16_t));
+		int al = l < 0 ? -l : l, ar = r < 0 ? -r : r;
+		sum += (uint64_t)(al > ar ? al : ar);
+	}
+	uint32_t avg = (uint32_t)(sum / n); // 0..32767
+	uint8_t amp = avg >= 32767 ? 255 : (uint8_t)((avg * 255) / 32767);
+	if(amp == session->last_haptic_amp)
+		return; // only emit on meaningful change
+	session->last_haptic_amp = amp;
+	ChiakiEvent event = { 0 };
+	event.type = CHIAKI_EVENT_RUMBLE;
+	event.rumble.left = amp;
+	event.rumble.right = amp;
+	android_chiaki_event_cb(&event, session); // reuse the existing rumble dispatch
 }
 
 JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject result, jobject connect_info_obj, jstring log_file_str, jboolean log_verbose, jobject java_session)
@@ -355,10 +398,15 @@ JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject 
 	jclass connect_video_profile_class = E->GetObjectClass(env, connect_video_profile_obj);
 
 	ChiakiConnectInfo connect_info = { 0 };
-	// enable_dualsense stays false (zero-init) on Android BY DESIGN: with it off
-	// the console sends classic rumble events (which Android can deliver) instead
-	// of DualSense audio-haptics / adaptive-trigger data, for which Android has no
-	// public API. See the feedback-event switch in event_cb() for details.
+	// enable_dualsense=true so a PS5 sends rumble at all in Remote Play. With it OFF an
+	// RP PS5 delivers rumble ONLY as DualSense haptic audio (a DualShock4-declared client
+	// never gets classic type-7 rumble packets -- confirmed on-device: only type-9
+	// PAD_INFO arrives, which carries no motor data), so RP rumble was silent while Cloud
+	// still worked. We can't play rich body haptics or adaptive triggers on Android (no
+	// public API -- those events stay ignored), but the haptics sink registered below
+	// converts the haptic-audio PCM to one motor amplitude and re-emits it as a normal
+	// rumble event (same approach as Qt/iOS), so rumble works for both RP and Cloud.
+	connect_info.enable_dualsense = true;
 	connect_info.ps5 = ps5;
 
 	const char *str_borrow = E->GetStringUTFChars(env, host_string, NULL);
@@ -610,6 +658,7 @@ JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject 
 	session->java_session_event_rumble_meth = E->GetMethodID(env, session->java_session_class, "eventRumble", "(II)V");
 	session->java_session_event_regist_meth = E->GetMethodID(env, session->java_session_class, "eventRegist", "(L"BASE_PACKAGE"/RegistHost;)V");
 	session->java_session_event_holepunch_meth = E->GetMethodID(env, session->java_session_class, "eventHolepunch", "()V");
+	session->java_session_event_ps_chord_meth = E->GetMethodID(env, session->java_session_class, "eventPsChord", "()V");
 
 	// Cache class refs for CHIAKI_EVENT_REGIST (FindClass won't work from native threads)
 	session->java_target_class = E->NewGlobalRef(env, E->FindClass(env, BASE_PACKAGE"/Target"));
@@ -662,6 +711,13 @@ JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject 
 	else
 		android_chiaki_audio_decoder_get_sink(&session->audio_decoder, &audio_sink);
 	chiaki_session_set_audio_sink(&session->session, &audio_sink);
+
+	// DualSense haptic-audio -> motor rumble (see android_chiaki_haptics_frame_cb).
+	// Required because enable_dualsense=true makes the PS5 deliver rumble as haptic audio.
+	ChiakiAudioSink haptics_sink;
+	haptics_sink.user = session;
+	haptics_sink.frame_cb = android_chiaki_haptics_frame_cb;
+	chiaki_session_set_haptics_sink(&session->session, &haptics_sink);
 
 beach:
 	if(!session && log)

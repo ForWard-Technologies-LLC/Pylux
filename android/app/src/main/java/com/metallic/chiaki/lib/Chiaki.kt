@@ -611,6 +611,7 @@ data class QuitEvent(val reason: QuitReason, val reasonString: String?): Event()
 data class RumbleEvent(val left: UByte, val right: UByte): Event()
 data class AutoRegistEvent(val host: RegistHost): Event()
 object HolepunchEvent: Event()
+object PsChordEvent: Event() // OPTIONS+SHARE chord fired -> surface the in-stream menu
 
 class CreateError(val errorCode: ErrorCode): Exception("Failed to create a native object: $errorCode")
 
@@ -679,6 +680,12 @@ class Session(connectInfo: ConnectInfo, logFile: String?, logVerbose: Boolean)
 	private fun eventHolepunch()
 	{
 		event(HolepunchEvent)
+	}
+
+	// Called from native (chiaki-jni.c) when the OPTIONS+SHARE chord fires.
+	private fun eventPsChord()
+	{
+		event(PsChordEvent)
 	}
 
 	fun setSurface(surface: Surface?)

@@ -27,6 +27,9 @@ class StreamSession(val connectInfo: ConnectInfo, val logManager: LogManager, va
 	val state: LiveData<StreamState> get() = _state
 	private val _rumbleState = MutableLiveData<RumbleEvent>(RumbleEvent(0U, 0U))
 	val rumbleState: LiveData<RumbleEvent> get() = _rumbleState
+	// Bumped each time the OPTIONS+SHARE chord fires, so the activity surfaces the in-stream menu.
+	private val _menuRequest = MutableLiveData(0)
+	val menuRequest: LiveData<Int> get() = _menuRequest
 
 	private var surfaceTexture: SurfaceTexture? = null
 	private var surface: Surface? = null
@@ -264,6 +267,10 @@ class StreamSession(val connectInfo: ConnectInfo, val logManager: LogManager, va
 			is RumbleEvent -> _rumbleState.postValue(event)
 			is AutoRegistEvent -> Log.i("StreamSession", "EVENT: AutoRegist host=${event.host.serverNickname}")
 			is HolepunchEvent -> Log.i("StreamSession", "EVENT: Holepunch")
+			is PsChordEvent -> {
+				Log.i("StreamSession", "EVENT: PsChord -> requesting in-stream menu")
+				_menuRequest.postValue((_menuRequest.value ?: 0) + 1)
+			}
 		}
 	}
 

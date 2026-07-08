@@ -175,6 +175,16 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 		//viewModel.session.attachToTextureView(textureView)
 		viewModel.session.attachToSurfaceView(binding.surfaceView)
 		viewModel.session.state.observe(this, Observer { this.stateChanged(it) })
+		// OPTIONS+SHARE chord fired -> surface the in-stream menu (parity with Qt/iOS).
+		// Seed from the current token so LiveData's replay on every (re)subscription --
+		// including each rotation/config-change, since the session lives in the ViewModel
+		// and survives -- does NOT re-show the overlay for an old chord. Only a strictly
+		// newer token opens the menu.
+		var lastMenuRequest = viewModel.session.menuRequest.value ?: 0
+		viewModel.session.menuRequest.observe(this, Observer {
+			if (it > lastMenuRequest) showOverlay()
+			lastMenuRequest = it
+		})
 		adjustStreamViewAspect()
 
 		if (isTv()) {
@@ -185,13 +195,17 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 		if(Preferences(this).rumbleEnabled)
 		{
 			val phoneVibrator = getSystemService(VIBRATOR_SERVICE) as Vibrator
+			// User-scalable strength (0..500%). Read once at stream start (restart to change);
+			// avoids reading SharedPreferences on every rumble event (~80/s).
+			val rumbleScale = Preferences(this).rumbleIntensity / 100f
 			viewModel.session.rumbleState.observe(this, Observer {
 				// Prefer the connected controller's own motor over the phone's
 				// (resolved per event so controller hotplug just works; the device
 				// list is tiny and rumble events are sparse). L/R are averaged into
 				// one amplitude because both targets expose a single channel here.
-				val vibrator = controllerVibrator() ?: phoneVibrator
-				val amplitude = min(255, (it.left.toInt() + it.right.toInt()) / 2)
+				val cv = controllerVibrator()
+				val vibrator = cv ?: phoneVibrator
+				val amplitude = (((it.left.toInt() + it.right.toInt()) / 2) * rumbleScale).toInt().coerceIn(0, 255)
 				vibrator.cancel()
 				if(amplitude == 0)
 					return@Observer
@@ -554,6 +568,13 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 		}
 		if(hasControllerTouchpad)
 		{
+			// Captured pointer events are delivered to the FOCUSED view. A SurfaceView is
+			// not focusable by default, so without this the window holds capture (dumpsys
+			// shows ABSOLUTE) yet onCapturedPointerEvent never fires and the touchpad keeps
+			// acting as a system mouse (the stray cursor). Make it focusable + take focus.
+			binding.surfaceView.isFocusableInTouchMode = true
+			binding.surfaceView.isFocusable = true
+			binding.surfaceView.requestFocus()
 			binding.surfaceView.setOnCapturedPointerListener { _, event ->
 				viewModel.input.onCapturedPointerEvent(event)
 			}

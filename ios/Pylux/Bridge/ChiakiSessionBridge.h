@@ -35,6 +35,7 @@ typedef enum {
     ChiakiSessionBridgeEventPlayerIndex = 13,
     ChiakiSessionBridgeEventHapticIntensity = 14,
     ChiakiSessionBridgeEventTriggerIntensity = 15,
+    ChiakiSessionBridgeEventPsChord = 16, // OPTIONS+SHARE chord fired -> surface the in-stream menu
 } ChiakiSessionBridgeEventType;
 
 /**

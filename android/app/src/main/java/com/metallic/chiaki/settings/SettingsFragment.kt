@@ -117,6 +117,7 @@ class DataStore(val preferences: Preferences): PreferenceDataStore()
 		preferences.cloudBitratePscloudKey -> preferences.getCloudBitratePscloud() / 1000
 		preferences.cloudBitratePsnowKey -> preferences.getCloudBitratePsnow() / 1000
 		preferences.dpadTouchIncrementKey -> preferences.dpadTouchIncrement
+		preferences.rumbleIntensityKey -> preferences.rumbleIntensity
 		else -> defValue
 	}
 
@@ -127,6 +128,7 @@ class DataStore(val preferences: Preferences): PreferenceDataStore()
 			preferences.cloudBitratePscloudKey -> preferences.setCloudBitratePscloud(value * 1000)
 			preferences.cloudBitratePsnowKey -> preferences.setCloudBitratePsnow(value * 1000)
 			preferences.dpadTouchIncrementKey -> preferences.dpadTouchIncrement = value
+			preferences.rumbleIntensityKey -> preferences.rumbleIntensity = value
 		}
 	}
 

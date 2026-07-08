@@ -24,6 +24,8 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_feedback_sender_init(ChiakiFeedbackSender *
 	feedback_sender->ps_chord.chord_start_ms = 0;
 	feedback_sender->ps_chord.pulse_until_ms = 0;
 	feedback_sender->ps_chord.fired = false;
+	feedback_sender->ps_chord_fired_cb = NULL;
+	feedback_sender->ps_chord_fired_user = NULL;
 
 	feedback_sender->state_seq_num = 0;
 
@@ -103,6 +105,15 @@ CHIAKI_EXPORT void chiaki_feedback_sender_set_ps_chord(ChiakiFeedbackSender *fee
 	feedback_sender->ps_chord.fired = false;
 	chiaki_mutex_unlock(&feedback_sender->state_mutex);
 	chiaki_cond_signal(&feedback_sender->state_cond);
+}
+
+CHIAKI_EXPORT void chiaki_feedback_sender_set_ps_chord_fired_cb(ChiakiFeedbackSender *feedback_sender, void (*cb)(void *user), void *user)
+{
+	if(chiaki_mutex_lock(&feedback_sender->state_mutex) != CHIAKI_ERR_SUCCESS)
+		return;
+	feedback_sender->ps_chord_fired_cb = cb;
+	feedback_sender->ps_chord_fired_user = user;
+	chiaki_mutex_unlock(&feedback_sender->state_mutex);
 }
 
 CHIAKI_EXPORT void chiaki_ps_chord_apply(ChiakiPsChord *chord, ChiakiControllerState *state, uint64_t now_ms)
@@ -347,8 +358,10 @@ static void *feedback_sender_thread_func(void *user)
 		// apart), so it must be re-evaluated on every wake and must never
 		// accumulate into the raw copy.
 		feedback_sender->controller_state = feedback_sender->controller_state_raw;
+		bool chord_fired_before = feedback_sender->ps_chord.fired;
 		chiaki_ps_chord_apply(&feedback_sender->ps_chord, &feedback_sender->controller_state,
 			chiaki_time_now_monotonic_ms());
+		bool chord_just_fired = !chord_fired_before && feedback_sender->ps_chord.fired;
 
 		// State packet: as upstream — re-send on every timeout (keepalive), and on
 		// input pushes only when something state-relevant changed.
@@ -369,6 +382,20 @@ static void *feedback_sender_thread_func(void *user)
 			feedback_sender_send_history(feedback_sender);
 
 		feedback_sender->controller_state_prev = feedback_sender->controller_state;
+
+		// The chord just crossed its hold threshold on this wake. Notify the owner
+		// OUTSIDE state_mutex -- the client callback may re-enter the lib (e.g. push
+		// a controller state), which would deadlock on this same mutex. The PS pulse
+		// itself already rode the history channel above; this is the extra "chord
+		// fired" signal a client uses to also surface its own in-stream menu.
+		if(chord_just_fired && feedback_sender->ps_chord_fired_cb)
+		{
+			chiaki_mutex_unlock(&feedback_sender->state_mutex);
+			feedback_sender->ps_chord_fired_cb(feedback_sender->ps_chord_fired_user);
+			err = chiaki_mutex_lock(&feedback_sender->state_mutex);
+			if(err != CHIAKI_ERR_SUCCESS)
+				return NULL;
+		}
 	}
 
 	chiaki_mutex_unlock(&feedback_sender->state_mutex);

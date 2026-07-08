@@ -55,6 +55,16 @@ typedef enum {
 
 void chiaki_session_send_event(ChiakiSession *session, ChiakiEvent *event);
 
+// Bridges a feedback-sender PS-chord fire to a client event. Invoked on the
+// feedback-sender thread with its state_mutex released; @a user is the session.
+static void stream_connection_ps_chord_fired(void *user)
+{
+	ChiakiSession *session = user;
+	ChiakiEvent event = { 0 };
+	event.type = CHIAKI_EVENT_PS_CHORD;
+	chiaki_session_send_event(session, &event);
+}
+
 static void stream_connection_takion_cb(ChiakiTakionEvent *event, void *user);
 static void stream_connection_takion_data(ChiakiStreamConnection *stream_connection, ChiakiTakionMessageDataType data_type, uint8_t *buf, size_t buf_size);
 static void stream_connection_takion_data_protobuf(ChiakiStreamConnection *stream_connection, uint8_t *buf, size_t buf_size);
@@ -335,6 +345,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_run(ChiakiStreamConnectio
 		goto disconnect;
 	}
 	stream_connection->feedback_sender_active = true;
+	chiaki_feedback_sender_set_ps_chord_fired_cb(&stream_connection->feedback_sender, stream_connection_ps_chord_fired, session);
 	chiaki_feedback_sender_set_ps_chord(&stream_connection->feedback_sender, session->ps_chord_enabled, session->ps_chord_hold_ms);
 	chiaki_feedback_sender_set_controller_state(&stream_connection->feedback_sender, &session->controller_state);
 	chiaki_mutex_unlock(&stream_connection->feedback_sender_mutex);

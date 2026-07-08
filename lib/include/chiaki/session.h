@@ -174,6 +174,7 @@ typedef enum {
 	CHIAKI_EVENT_PLAYER_INDEX,
 	CHIAKI_EVENT_HAPTIC_INTENSITY,
 	CHIAKI_EVENT_TRIGGER_INTENSITY,
+	CHIAKI_EVENT_PS_CHORD, // OPTIONS+SHARE chord fired: PS pulse still goes to the console; clients may also surface their own in-stream menu
 } ChiakiEventType;
 
 typedef struct chiaki_event_t

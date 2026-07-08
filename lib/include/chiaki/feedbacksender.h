@@ -50,6 +50,10 @@ typedef struct chiaki_feedback_sender_t
 	ChiakiControllerState controller_state;
 	bool controller_state_changed;
 	ChiakiPsChord ps_chord;
+	// Invoked (outside state_mutex) on the rising edge of a chord fire, so the
+	// owner can emit a client event. NULL = no notification. Set by streamconnection.
+	void (*ps_chord_fired_cb)(void *user);
+	void *ps_chord_fired_user;
 	ChiakiMutex state_mutex;
 	ChiakiCond state_cond;
 } ChiakiFeedbackSender;
@@ -58,6 +62,13 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_feedback_sender_init(ChiakiFeedbackSender *
 CHIAKI_EXPORT void chiaki_feedback_sender_fini(ChiakiFeedbackSender *feedback_sender);
 CHIAKI_EXPORT ChiakiErrorCode chiaki_feedback_sender_set_controller_state(ChiakiFeedbackSender *feedback_sender, ChiakiControllerState *state);
 CHIAKI_EXPORT void chiaki_feedback_sender_set_ps_chord(ChiakiFeedbackSender *feedback_sender, bool enabled, uint32_t hold_ms);
+
+/**
+ * Set the callback invoked (with state_mutex released) on the rising edge of a chord
+ * fire. Takes state_mutex so the store is published under the same lock the feedback
+ * thread reads it with. Pass NULL to disable.
+ */
+CHIAKI_EXPORT void chiaki_feedback_sender_set_ps_chord_fired_cb(ChiakiFeedbackSender *feedback_sender, void (*cb)(void *user), void *user);
 
 /**
  * Apply the PS-chord transform to @a state (pure function of state+chord+now;

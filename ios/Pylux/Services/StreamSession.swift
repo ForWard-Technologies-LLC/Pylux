@@ -67,6 +67,8 @@ final class StreamSession: ObservableObject {
     @Published private(set) var connectionPhase: String = ""
     /// Published when auto-registration succeeds (caller should save to HostStore)
     @Published private(set) var autoRegisteredHost: RegisteredHost?
+    /// Bumped each time the OPTIONS+SHARE chord fires, so the view surfaces the in-stream menu.
+    @Published private(set) var menuRequestToken: Int = 0
 
     let connectInfo: StreamConnectInfo
     let input: StreamInput
@@ -341,6 +343,9 @@ final class StreamSession: ObservableObject {
                     self.rumbleFeedback?.shutdown()
                     self.rumbleFeedback = StreamRumbleFeedback(input: self.input)
                     self.rumbleFeedback?.prepare()
+                case 16: // ChiakiSessionBridgeEventPsChord -> surface the in-stream menu
+                    os_log(.default, log: sessionLog, "[StreamSession] PS chord fired -> requesting in-stream menu")
+                    self.menuRequestToken &+= 1
                 case 8: // ChiakiSessionBridgeEventRumble
                     self.rumbleFeedback?.applyRumble(
                         left: event.rumble_left,

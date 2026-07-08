@@ -555,6 +555,12 @@ void QmlMainWindow::init(Settings *settings, bool exit_app_on_stream_exit, Steam
         {
             connect(session, &StreamSession::SessionQuit, qGuiApp, &QGuiApplication::quit);
         }
+        if(session)
+        {
+            // OPTIONS+SHARE chord fired -> open the in-stream menu, same as Ctrl+O,
+            // so a controller-only player can reach disconnect/stats without a keyboard.
+            connect(session, &StreamSession::PsChordFired, this, &QmlMainWindow::menuRequested, Qt::QueuedConnection);
+        }
         if(!session)
         {
             setStreamWindowAdjustable(false);
