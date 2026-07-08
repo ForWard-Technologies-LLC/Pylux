@@ -25,6 +25,13 @@ DialogView {
     title: qsTr("Settings")
     header: qsTr("* Defaults in () to right of value or marked with (Default)")
     buttonVisible: false
+    // Override DialogView's activation seed: its generic tab-chain walk does not
+    // resolve to a settings control here, so it used to clobber the tab-aware
+    // seed right after the push transition finished -- leaving nothing focused
+    // until a control was clicked. Land on the current tab's first control.
+    function seedFocus() {
+        stackLayout.focusCurrentTab();
+    }
     Keys.onPressed: (event) => {
         if (event.modifiers)
             return;
@@ -49,11 +56,12 @@ DialogView {
             break;
         case Qt.Key_Up:
         case Qt.Key_Down: {
-            // If focus hasn't landed on a tab control yet (still on the dialog
-            // root), seed it onto the current tab's first control instead of
-            // dropping the key. Otherwise let the focused control move focus.
+            // If focus is not on one of the tab's controls (dialog root, or a
+            // stray target left by a failed or clobbered seed), seed it onto the
+            // current tab's first control instead of dropping the key. Every
+            // focusable settings control declares firstInFocusChain.
             let afi = dialog.Window.activeFocusItem;
-            if (!afi || afi === dialog) {
+            if (!afi || afi.firstInFocusChain === undefined) {
                 stackLayout.focusCurrentTab();
                 event.accepted = true;
             } else {
@@ -233,6 +241,12 @@ DialogView {
                 return null;
             }
             function focusCurrentTab() {
+                // Only seed while this dialog is (becoming) the StackView's current
+                // page -- seeding while hidden would steal focus from whatever
+                // screen is actually visible.
+                var status = dialog.StackView.status;
+                if (status !== StackView.Active && status !== StackView.Activating)
+                    return;
                 var page = stackLayout.children[stackLayout.currentIndex];
                 // Prefer the tab's explicitly-marked first control; fall back to the
                 // first custom control on the page so no tab is ever left unfocusable.

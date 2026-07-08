@@ -13,6 +13,7 @@ int main(int argc, char *argv[]) { return real_main(argc, argv); }
 #include <cloudstreamingbackend.h>
 #include <QApplication>
 #include <QMessageBox>
+#include <QStyleHints>
 #ifdef CHIAKI_ENABLE_STEAMWORKS
 #include <steamworks/steamworks_wrapper.h>
 #endif
@@ -138,6 +139,13 @@ int real_main(int argc, char *argv[])
 	QtWebEngineQuick::initialize();
 #endif
 	QApplication app(argc, argv);
+
+	// Controller/keyboard navigation moves focus with nextItemInFocusChain().
+	// On macOS the platform default (Full Keyboard Access off) excludes
+	// non-editable controls (combo boxes, checkboxes, sliders) from that chain,
+	// which left Up/Down navigation dead on any view without hand-written
+	// KeyNavigation chains. Treat all controls as tab-focusable everywhere.
+	QGuiApplication::styleHints()->setTabFocusBehavior(Qt::TabFocusAllControls);
 
 #ifdef Q_OS_MACOS
 	QGuiApplication::setWindowIcon(QIcon(":/icons/chiaking_macos.svg"));
