@@ -201,7 +201,15 @@ DialogView {
                 topMargin: 10
             }
             currentIndex: bar.currentIndex
-            onCurrentIndexChanged: nextItemInFocusChain().forceActiveFocus(Qt.TabFocusReason)
+            // Focus the first control of the newly-shown tab so controller/keyboard
+            // Up/Down work immediately. MUST be deferred: running it synchronously on
+            // the index change lands focus on the tab that is not yet visible/laid out,
+            // so forceActiveFocus silently no-ops and nothing ends up focused -- which is
+            // why Down did nothing until you clicked a control. Qt.callLater runs it after
+            // the StackLayout has shown the new page. Also fired once for the initial tab.
+            function focusCurrentTab() { nextItemInFocusChain().forceActiveFocus(Qt.TabFocusReason); }
+            onCurrentIndexChanged: Qt.callLater(focusCurrentTab)
+            Component.onCompleted: Qt.callLater(focusCurrentTab)
 
             Item {
                 // General
@@ -2741,7 +2749,7 @@ DialogView {
                         visible: selectedCloudService == SettingsDialog.CloudService.PSCloud
                         KeyNavigation.right: datacenterPSCloud
                         KeyNavigation.up: cloudServiceSelection
-                        KeyNavigation.down: datacenterPSCloud
+                        KeyNavigation.down: cloudLanguage
                         KeyNavigation.priority: {
                             if(!popup.visible)
                                 KeyNavigation.BeforeItem
@@ -2781,7 +2789,7 @@ DialogView {
                         visible: selectedCloudService == SettingsDialog.CloudService.PSNOW
                         KeyNavigation.right: datacenterPSNOW
                         KeyNavigation.up: cloudServiceSelection
-                        KeyNavigation.down: datacenterPSNOW
+                        KeyNavigation.down: cloudLanguage
                         KeyNavigation.priority: {
                             if(!popup.visible)
                                 KeyNavigation.BeforeItem
@@ -2843,6 +2851,19 @@ DialogView {
                         onActivated: index => {
                             // "" (Auto) clears the override; otherwise store the pick.
                             Chiaki.settings.cloudGameLanguage = languageValues[index] || "";
+                        }
+                        // Thread this control into the cloud-tab focus chain, between
+                        // Resolution and Datacenter for whichever service is visible (it
+                        // shows for both PSCLOUD and PSNOW). priority BeforeItem so these
+                        // win over the ComboBox's own nextItemInFocusChain() default,
+                        // exactly like the sibling combos -- without it this row was skipped.
+                        KeyNavigation.up: selectedCloudService == SettingsDialog.CloudService.PSCloud ? resolutionPSCloud : resolutionPSNOW
+                        KeyNavigation.down: selectedCloudService == SettingsDialog.CloudService.PSCloud ? datacenterPSCloud : datacenterPSNOW
+                        KeyNavigation.priority: {
+                            if(!popup.visible)
+                                KeyNavigation.BeforeItem
+                            else
+                                KeyNavigation.AfterItem
                         }
                     }
 
@@ -2915,7 +2936,7 @@ DialogView {
                         }
                         visible: selectedCloudService == SettingsDialog.CloudService.PSCloud
                         KeyNavigation.left: resolutionPSCloud
-                        KeyNavigation.up: resolutionPSCloud
+                        KeyNavigation.up: cloudLanguage
                         KeyNavigation.down: cloudBitratePSCloud
                         KeyNavigation.priority: {
                             if(!popup.visible)
@@ -2981,7 +3002,7 @@ DialogView {
                         }
                         visible: selectedCloudService == SettingsDialog.CloudService.PSNOW
                         KeyNavigation.left: resolutionPSNOW
-                        KeyNavigation.up: resolutionPSNOW
+                        KeyNavigation.up: cloudLanguage
                         KeyNavigation.down: cloudBitratePSNOW
                         KeyNavigation.priority: {
                             if(!popup.visible)
