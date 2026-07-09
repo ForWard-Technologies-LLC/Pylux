@@ -88,3 +88,10 @@ macos/fastlane/report.xml
 scripts/flatpak/test-flatpak-local.sh
 pylux-test.flatpak
 lib/test_cloudcatalog/.npsso
+
+# iOS build/run logs (build artifacts, never track)
+ios/logs/
+
+# Local scratch: build + logcat captures (may contain PSN session tokens) -- never track
+# (anchored to the repo root so legitimate nested tmp/ dirs aren't swallowed)
+/tmp/

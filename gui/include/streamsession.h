@@ -422,6 +422,7 @@ class StreamSession : public QObject
 		void CantDisplayChanged(bool cant_display);
 		void LoadingMessageChanged();
 		void GameLaunchCompleted();
+		void PsChordFired(); // OPTIONS+SHARE chord fired -> open the in-stream menu
 
 	private slots:
 		void UpdateGamepads();

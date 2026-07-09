@@ -14,6 +14,7 @@
 #include <chiaki/base64.h>
 #include <chiaki/cloudcatalog.h>
 #include <chiaki/cloudsession.h>
+#include <chiaki/orientation.h>
 
 #include <string.h>
 #include <stdlib.h>
@@ -188,6 +189,52 @@ JNIEXPORT jboolean JNICALL JNI_FCN(quitReasonIsError)(JNIEnv *env, jobject obj, 
 	return chiaki_quit_reason_is_error(value);
 }
 
+// --- Orientation tracker (controller gyro -> orientation quaternion) ---
+// Thin wrappers around the shared Madgwick tracker (lib/src/orientation.c) so the
+// Kotlin controller-motion path computes orientation with the SAME algorithm as
+// Qt (SDL sensors) and iOS (GCMotion), instead of duplicating it in Kotlin.
+// Controller sensors on Android (InputDevice.getSensorManager, API 31+) provide
+// only gyro/accel -- no rotation vector -- hence the tracker.
+
+JNIEXPORT jlong JNICALL JNI_FCN(orientationTrackerCreate)(JNIEnv *env, jobject obj)
+{
+	ChiakiOrientationTracker *tracker = malloc(sizeof(ChiakiOrientationTracker));
+	if(!tracker)
+		return 0;
+	chiaki_orientation_tracker_init(tracker);
+	return (jlong)(uintptr_t)tracker;
+}
+
+JNIEXPORT void JNICALL JNI_FCN(orientationTrackerFree)(JNIEnv *env, jobject obj, jlong ptr)
+{
+	free((ChiakiOrientationTracker *)(uintptr_t)ptr);
+}
+
+/**
+ * Feed one gyro (rad/s) + accel (G) sample and return the tracked state:
+ * out[0..2] = gyro, out[3..5] = accel, out[6..9] = orientation quaternion x/y/z/w
+ * (as chiaki_orientation_tracker_apply_to_controller_state would write them).
+ */
+JNIEXPORT void JNICALL JNI_FCN(orientationTrackerUpdate)(JNIEnv *env, jobject obj, jlong ptr,
+	jfloat gx, jfloat gy, jfloat gz, jfloat ax, jfloat ay, jfloat az, jlong timestamp_us, jfloatArray out)
+{
+	ChiakiOrientationTracker *tracker = (ChiakiOrientationTracker *)(uintptr_t)ptr;
+	if(!tracker)
+		return;
+	ChiakiAccelNewZero accel_zero;
+	chiaki_accel_new_zero_set_inactive(&accel_zero, false);
+	chiaki_orientation_tracker_update(tracker, gx, gy, gz, ax, ay, az, &accel_zero, true, (uint32_t)timestamp_us);
+	ChiakiControllerState state;
+	chiaki_controller_state_set_idle(&state);
+	chiaki_orientation_tracker_apply_to_controller_state(tracker, &state);
+	jfloat vals[10] = {
+		state.gyro_x, state.gyro_y, state.gyro_z,
+		state.accel_x, state.accel_y, state.accel_z,
+		state.orient_x, state.orient_y, state.orient_z, state.orient_w,
+	};
+	(*env)->SetFloatArrayRegion(env, out, 0, 10, vals);
+}
+
 JNIEXPORT jobject JNICALL JNI_FCN(videoProfilePreset)(JNIEnv *env, jobject obj, jint resolution_preset, jint fps_preset, jobject codec)
 {
 	ChiakiConnectVideoProfile profile = { 0 };
@@ -209,6 +256,7 @@ typedef struct android_chiaki_session_t
 	jmethodID java_session_event_rumble_meth;
 	jmethodID java_session_event_regist_meth;
 	jmethodID java_session_event_holepunch_meth;
+	jmethodID java_session_event_ps_chord_meth;
 	// Cached class refs for CHIAKI_EVENT_REGIST (FindClass doesn't work from native threads)
 	jclass java_target_class;
 	jmethodID java_target_from_value;
@@ -241,6 +289,8 @@ typedef struct android_chiaki_session_t
 	AndroidChiakiOpusDecoder opus_decoder;
 	bool use_opus_decoder; // true for PSCloud, false for PSNow/Remote Play
 	void *audio_output;
+	uint8_t last_haptic_amp; // last haptic-audio-derived rumble amplitude emitted (throttle)
+	uint16_t haptic_same_amp_frames; // consecutive frames suppressed by the throttle
 } AndroidChiakiSession;
 
 static void android_chiaki_event_cb(ChiakiEvent *event, void *user)
@@ -311,11 +361,74 @@ static void android_chiaki_event_cb(ChiakiEvent *event, void *user)
 			E->CallVoidMethod(env, session->java_session,
 							  session->java_session_event_holepunch_meth);
 			break;
+		case CHIAKI_EVENT_PS_CHORD:
+			// OPTIONS+SHARE chord fired: PS pulse already went to the console;
+			// tell Kotlin so the activity can also surface its in-stream menu.
+			E->CallVoidMethod(env, session->java_session,
+							  session->java_session_event_ps_chord_meth);
+			break;
+		case CHIAKI_EVENT_TRIGGER_EFFECTS:
+		case CHIAKI_EVENT_HAPTIC_INTENSITY:
+		case CHIAKI_EVENT_TRIGGER_INTENSITY:
+		case CHIAKI_EVENT_LED_COLOR:
+		case CHIAKI_EVENT_PLAYER_INDEX:
+		case CHIAKI_EVENT_MOTION_RESET:
+			// Intentionally unhandled on Android: DualSense adaptive triggers and
+			// audio haptics have no public Android API (they are only reachable via
+			// raw USB/BT HID output reports, which we deliberately do not do), and
+			// the same goes for controller LED / player-index. enable_dualsense
+			// stays false in the Android connect info, so the console keeps sending
+			// classic CHIAKI_EVENT_RUMBLE (handled above) instead of DualSense-only
+			// feedback this platform cannot deliver.
+			break;
 		default:
 			break;
 	}
 
 	(*global_vm)->DetachCurrentThread(global_vm);
+}
+
+// With enable_dualsense=true a PS5 streams rumble as DualSense haptic-audio PCM
+// (interleaved stereo int16) rather than classic rumble packets. Android can't play
+// rich body haptics, so -- like Qt and iOS -- collapse each frame to a single motor
+// amplitude and re-emit it through the normal rumble path (android_chiaki_event_cb ->
+// eventRumble -> vibrator). Throttled to amplitude changes so we don't churn the JVM.
+static void android_chiaki_haptics_frame_cb(uint8_t *buf, size_t buf_size, void *user)
+{
+	AndroidChiakiSession *session = user;
+	if(!buf)
+		return;
+	const size_t sample_size = 2 * sizeof(int16_t); // interleaved stereo int16
+	size_t n = buf_size / sample_size;
+	if(n == 0)
+		return;
+	uint64_t sum = 0;
+	for(size_t i = 0; i < n; i++)
+	{
+		int16_t l = 0, r = 0;
+		memcpy(&l, buf + i * sample_size, sizeof(int16_t));
+		memcpy(&r, buf + i * sample_size + sizeof(int16_t), sizeof(int16_t));
+		int al = l < 0 ? -l : l, ar = r < 0 ? -r : r;
+		sum += (uint64_t)(al > ar ? al : ar);
+	}
+	uint32_t avg = (uint32_t)(sum / n); // 0..32767
+	uint8_t amp = avg >= 32767 ? 255 : (uint8_t)((avg * 255) / 32767);
+	// Only emit on change -- but the consumer plays a FINITE (1s) effect, so a
+	// constant non-zero amplitude sustained past that would go silent. Let equal
+	// amplitudes through periodically to re-arm the effect (~every 0.5s at the
+	// ~100 frames/s haptic rate).
+	if(amp == session->last_haptic_amp)
+	{
+		if(amp == 0 || ++session->haptic_same_amp_frames < 50)
+			return;
+	}
+	session->haptic_same_amp_frames = 0;
+	session->last_haptic_amp = amp;
+	ChiakiEvent event = { 0 };
+	event.type = CHIAKI_EVENT_RUMBLE;
+	event.rumble.left = amp;
+	event.rumble.right = amp;
+	android_chiaki_event_cb(&event, session); // reuse the existing rumble dispatch
 }
 
 JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject result, jobject connect_info_obj, jstring log_file_str, jboolean log_verbose, jobject java_session)
@@ -341,6 +454,15 @@ JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject 
 	jclass connect_video_profile_class = E->GetObjectClass(env, connect_video_profile_obj);
 
 	ChiakiConnectInfo connect_info = { 0 };
+	// enable_dualsense=true so a PS5 sends rumble at all in Remote Play. With it OFF an
+	// RP PS5 delivers rumble ONLY as DualSense haptic audio (a DualShock4-declared client
+	// never gets classic type-7 rumble packets -- confirmed on-device: only type-9
+	// PAD_INFO arrives, which carries no motor data), so RP rumble was silent while Cloud
+	// still worked. We can't play rich body haptics or adaptive triggers on Android (no
+	// public API -- those events stay ignored), but the haptics sink registered below
+	// converts the haptic-audio PCM to one motor amplitude and re-emits it as a normal
+	// rumble event (same approach as Qt/iOS), so rumble works for both RP and Cloud.
+	connect_info.enable_dualsense = true;
 	connect_info.ps5 = ps5;
 
 	const char *str_borrow = E->GetStringUTFChars(env, host_string, NULL);
@@ -592,6 +714,7 @@ JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject 
 	session->java_session_event_rumble_meth = E->GetMethodID(env, session->java_session_class, "eventRumble", "(II)V");
 	session->java_session_event_regist_meth = E->GetMethodID(env, session->java_session_class, "eventRegist", "(L"BASE_PACKAGE"/RegistHost;)V");
 	session->java_session_event_holepunch_meth = E->GetMethodID(env, session->java_session_class, "eventHolepunch", "()V");
+	session->java_session_event_ps_chord_meth = E->GetMethodID(env, session->java_session_class, "eventPsChord", "()V");
 
 	// Cache class refs for CHIAKI_EVENT_REGIST (FindClass won't work from native threads)
 	session->java_target_class = E->NewGlobalRef(env, E->FindClass(env, BASE_PACKAGE"/Target"));
@@ -644,6 +767,16 @@ JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject 
 	else
 		android_chiaki_audio_decoder_get_sink(&session->audio_decoder, &audio_sink);
 	chiaki_session_set_audio_sink(&session->session, &audio_sink);
+
+	// DualSense haptic-audio -> motor rumble (see android_chiaki_haptics_frame_cb).
+	// Required because enable_dualsense=true makes the PS5 deliver rumble as haptic audio.
+	// Zero-init: ChiakiAudioSink also has a header_cb member; leaving it as stack
+	// garbage plants a wild function pointer in the session for any future code
+	// that dispatches headers to the haptics sink.
+	ChiakiAudioSink haptics_sink = { 0 };
+	haptics_sink.user = session;
+	haptics_sink.frame_cb = android_chiaki_haptics_frame_cb;
+	chiaki_session_set_haptics_sink(&session->session, &haptics_sink);
 
 beach:
 	if(!session && log)
@@ -787,6 +920,14 @@ JNIEXPORT void JNICALL JNI_FCN(sessionSetControllerState)(JNIEnv *env, jobject o
 	controller_state.orient_z = E->GetFloatField(env, controller_state_java, session->java_controller_state_orient_z);
 	controller_state.orient_w = E->GetFloatField(env, controller_state_java, session->java_controller_state_orient_w);
 	chiaki_session_set_controller_state(&session->session, &controller_state);
+}
+
+JNIEXPORT void JNICALL JNI_FCN(sessionSetPsChord)(JNIEnv *env, jobject obj, jlong ptr, jboolean enabled, jint hold_ms)
+{
+	AndroidChiakiSession *session = (AndroidChiakiSession *)ptr;
+	if(!session)
+		return;
+	chiaki_session_set_ps_chord(&session->session, enabled, hold_ms > 0 ? (uint32_t)hold_ms : 0);
 }
 
 JNIEXPORT void JNICALL JNI_FCN(sessionSetLoginPin)(JNIEnv *env, jobject obj, jlong ptr, jstring pin_java)

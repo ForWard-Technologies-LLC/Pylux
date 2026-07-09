@@ -33,6 +33,7 @@ typedef struct chiaki_audio_receiver_t
 	ChiakiLog *log;
 	ChiakiMutex mutex;
 	ChiakiSeqNum16 frame_index_prev;
+	bool frame_index_prev_valid; // false until the first frame seeds frame_index_prev
 	bool frame_index_startup; // whether frame_index_prev has definitely not wrapped yet
 	ChiakiPacketStats *packet_stats;
 	void *pscloud_audio_reassembler; // Opaque pointer to ChiakiPSCLOUDAudioReassembler (PSCLOUD only)

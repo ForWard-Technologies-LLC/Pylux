@@ -43,10 +43,25 @@
             app:summary="@string/preferences_rumble_enabled_summary"
             app:icon="@drawable/ic_rumble" />
 
-        <SwitchPreference
-            app:key="@string/preferences_motion_enabled_key"
-            app:title="@string/preferences_motion_enabled_title"
-            app:summary="@string/preferences_motion_enabled_summary"
+        <SeekBarPreference
+            app:key="@string/preferences_rumble_intensity_key"
+            app:title="@string/preferences_rumble_intensity_title"
+            app:summary="@string/preferences_rumble_intensity_summary"
+            app:dependency="@string/preferences_rumble_enabled_key"
+            app:min="0"
+            android:max="500"
+            app:seekBarIncrement="10"
+            app:defaultValue="100"
+            app:showSeekBarValue="true"
+            app:icon="@drawable/ic_rumble" />
+
+        <ListPreference
+            app:key="@string/preferences_motion_source_key"
+            app:title="@string/preferences_motion_source_title"
+            app:summary="@string/preferences_motion_source_summary"
+            app:entries="@array/motion_source_entries"
+            app:entryValues="@array/motion_source_values"
+            app:defaultValue="auto"
             app:icon="@drawable/ic_motion" />
 
         <SwitchPreference

@@ -25,6 +25,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_audio_receiver_init(ChiakiAudioReceiver *au
 	audio_receiver->packet_stats = packet_stats;
 
 	audio_receiver->frame_index_prev = 0;
+	audio_receiver->frame_index_prev_valid = false;
 	audio_receiver->frame_index_startup = true;
 	audio_receiver->pscloud_audio_reassembler = NULL;
 
@@ -178,8 +179,14 @@ static void chiaki_audio_receiver_frame(ChiakiAudioReceiver *audio_receiver, Chi
 {
 	chiaki_mutex_lock(&audio_receiver->mutex);
 
-	if(!chiaki_seq_num_16_gt(frame_index, audio_receiver->frame_index_prev))
+	// Seed the sequence tracker from the FIRST frame instead of assuming the
+	// stream starts near 0: the console's frame counter can begin anywhere in
+	// the 16-bit window (observed with PS5 haptics streams), and a start in the
+	// upper half made every frame test "older" than the initial 0 -- silently
+	// dropping the entire stream forever.
+	if(audio_receiver->frame_index_prev_valid && !chiaki_seq_num_16_gt(frame_index, audio_receiver->frame_index_prev))
 		goto beach;
+	audio_receiver->frame_index_prev_valid = true;
 	audio_receiver->frame_index_prev = frame_index;
 
 	if(is_haptics && audio_receiver->session->haptics_sink.frame_cb)

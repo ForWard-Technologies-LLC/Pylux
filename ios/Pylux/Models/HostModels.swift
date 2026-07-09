@@ -191,7 +191,7 @@ class HostStore: ObservableObject {
             psnHosts.map { ($0.name, $0.duid) },
             uniquingKeysWith: { _, last in last }
         )
-        os_log(.default, log: hostLog, "displayHosts: %d discovered, %d psn, %d manual, %d registered",
+        os_log(.info, log: hostLog, "displayHosts: %d discovered, %d psn, %d manual, %d registered",
                discoveredHosts.count, psnHosts.count, manualHosts.count, registeredHosts.count)
 
         let discovered: [DisplayHost] = discoveredHosts.map { dh in
@@ -210,7 +210,7 @@ class HostStore: ObservableObject {
             // Cross-reference: if this discovered host also exists in PSN hosts, carry its DUID
             // (matches Android MainViewModel line 83: psnDuid = matchedDuid)
             let matchedDuid = dh.hostName.flatMap { psnDuidByNickname[$0] }
-            os_log(.default, log: hostLog, "  discovered: name=%{public}s hostId=%{public}s registered=%d",
+            os_log(.info, log: hostLog, "  discovered: name=%{public}s hostId=%{public}s registered=%d",
                    dh.hostName ?? "nil", dh.hostId ?? "nil", registered != nil ? 1 : 0)
             return .discovered(DiscoveredDisplayHost(registeredHost: registered, discoveredHost: dh, psnDuid: matchedDuid))
         }
@@ -434,11 +434,19 @@ class HostStore: ObservableObject {
         guard let registered = host.registeredHost else { return }
         let address = host.hostAddress
         guard !address.isEmpty else { return }
-        // Wakeup credential = first 8 bytes of rpRegistKey as big-endian UInt64
-        // Matches Android: credential = BigInteger(1, rpRegistKey.take(8).toByteArray()).toLong()
-        let keyBytes = registered.rpRegistKey.prefix(8)
-        let credential = keyBytes.reduce(UInt64(0)) { ($0 << 8) | UInt64($1) }
-        os_log(.default, log: hostLog, "Wakeup: sending to %{public}s, credential=0x%016llx, ps5=%d",
+        // Wakeup credential: the regist key's CONTENT is an ASCII hex string --
+        // parse it as hex, like Android (registKeyString.toULong(16)) and Qt
+        // (strtoull(..., 16)). Packing the raw ASCII bytes into an integer (the
+        // previous code here) sent a credential matching no registered client,
+        // which the console silently ignored: wake worked on Android but not iOS.
+        let keyData = registered.rpRegistKey.prefix(while: { $0 != 0 })
+        guard let keyString = String(data: keyData, encoding: .utf8),
+              let credential = UInt64(keyString, radix: 16)
+        else {
+            os_log(.error, log: hostLog, "Wakeup: regist key is not a hex string, cannot wake")
+            return
+        }
+        os_log(.info, log: hostLog, "Wakeup: sending to %{public}s, credential=0x%016llx, ps5=%d",
                address, credential, registered.isPS5 ? 1 : 0)
         PyluxDiscoveryService.wakeupHost(address, credential: credential, ps5: registered.isPS5)
     }

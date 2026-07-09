@@ -25,6 +25,13 @@ DialogView {
     title: qsTr("Settings")
     header: qsTr("* Defaults in () to right of value or marked with (Default)")
     buttonVisible: false
+    // Override DialogView's activation seed: its generic tab-chain walk does not
+    // resolve to a settings control here, so it used to clobber the tab-aware
+    // seed right after the push transition finished -- leaving nothing focused
+    // until a control was clicked. Land on the current tab's first control.
+    function seedFocus() {
+        stackLayout.focusCurrentTab();
+    }
     Keys.onPressed: (event) => {
         if (event.modifiers)
             return;
@@ -48,11 +55,20 @@ DialogView {
             event.accepted = true;
             break;
         case Qt.Key_Up:
-            event.accepted = false;
+        case Qt.Key_Down: {
+            // If focus is not on one of the tab's controls (dialog root, or a
+            // stray target left by a failed or clobbered seed), seed it onto the
+            // current tab's first control instead of dropping the key. Every
+            // focusable settings control declares firstInFocusChain.
+            let afi = dialog.Window.activeFocusItem;
+            if (!afi || afi.firstInFocusChain === undefined) {
+                stackLayout.focusCurrentTab();
+                event.accepted = true;
+            } else {
+                event.accepted = false;
+            }
             break;
-        case Qt.Key_Down:
-            event.accepted = false;
-            break;
+        }
         }
     }
 
@@ -201,7 +217,45 @@ DialogView {
                 topMargin: 10
             }
             currentIndex: bar.currentIndex
-            onCurrentIndexChanged: nextItemInFocusChain().forceActiveFocus(Qt.TabFocusReason)
+            // Seed active focus onto the first control of the current tab so
+            // controller/keyboard Up/Down work as soon as the tab is shown. Every
+            // tab's first control is marked `firstInFocusChain: true`; find it by
+            // walking the current page's subtree. We do NOT use nextItemInFocusChain()
+            // here: called on the StackLayout it walks the Tab-focus order and lands on
+            // nothing, so no control ends up focused and Down does nothing until you
+            // click a control. Deferred with Qt.callLater so it runs after the newly
+            // current page has been laid out. Also fired once for the initial tab.
+            function findFirstInFocusChain(item, anyControl) {
+                if (!item || item.visible === false)
+                    return null;
+                var isMatch = anyControl ? (item.firstInFocusChain !== undefined)
+                                         : (item.firstInFocusChain === true);
+                if (isMatch && item.enabled)
+                    return item;
+                var kids = item.children;
+                for (var i = 0; kids && i < kids.length; ++i) {
+                    var found = findFirstInFocusChain(kids[i], anyControl);
+                    if (found)
+                        return found;
+                }
+                return null;
+            }
+            function focusCurrentTab() {
+                // Only seed while this dialog is (becoming) the StackView's current
+                // page -- seeding while hidden would steal focus from whatever
+                // screen is actually visible.
+                var status = dialog.StackView.status;
+                if (status !== StackView.Active && status !== StackView.Activating)
+                    return;
+                var page = stackLayout.children[stackLayout.currentIndex];
+                // Prefer the tab's explicitly-marked first control; fall back to the
+                // first custom control on the page so no tab is ever left unfocusable.
+                var target = findFirstInFocusChain(page) || findFirstInFocusChain(page, true);
+                if (target)
+                    target.forceActiveFocus(Qt.TabFocusReason);
+            }
+            onCurrentIndexChanged: Qt.callLater(focusCurrentTab)
+            Component.onCompleted: Qt.callLater(focusCurrentTab)
 
             Item {
                 // General
@@ -571,6 +625,7 @@ DialogView {
 
                     C.ComboBox {
                         Layout.preferredWidth: 400
+                        firstInFocusChain: true
                         model: Chiaki.settings.availableDecoders
                         currentIndex: Math.max(0, model.indexOf(Chiaki.settings.decoder))
                         onActivated: (index) => Chiaki.settings.decoder = index ? model[index] : ""
@@ -2741,7 +2796,7 @@ DialogView {
                         visible: selectedCloudService == SettingsDialog.CloudService.PSCloud
                         KeyNavigation.right: datacenterPSCloud
                         KeyNavigation.up: cloudServiceSelection
-                        KeyNavigation.down: datacenterPSCloud
+                        KeyNavigation.down: cloudLanguage
                         KeyNavigation.priority: {
                             if(!popup.visible)
                                 KeyNavigation.BeforeItem
@@ -2781,7 +2836,7 @@ DialogView {
                         visible: selectedCloudService == SettingsDialog.CloudService.PSNOW
                         KeyNavigation.right: datacenterPSNOW
                         KeyNavigation.up: cloudServiceSelection
-                        KeyNavigation.down: datacenterPSNOW
+                        KeyNavigation.down: cloudLanguage
                         KeyNavigation.priority: {
                             if(!popup.visible)
                                 KeyNavigation.BeforeItem
@@ -2843,6 +2898,19 @@ DialogView {
                         onActivated: index => {
                             // "" (Auto) clears the override; otherwise store the pick.
                             Chiaki.settings.cloudGameLanguage = languageValues[index] || "";
+                        }
+                        // Thread this control into the cloud-tab focus chain, between
+                        // Resolution and Datacenter for whichever service is visible (it
+                        // shows for both PSCLOUD and PSNOW). priority BeforeItem so these
+                        // win over the ComboBox's own nextItemInFocusChain() default,
+                        // exactly like the sibling combos -- without it this row was skipped.
+                        KeyNavigation.up: selectedCloudService == SettingsDialog.CloudService.PSCloud ? resolutionPSCloud : resolutionPSNOW
+                        KeyNavigation.down: selectedCloudService == SettingsDialog.CloudService.PSCloud ? datacenterPSCloud : datacenterPSNOW
+                        KeyNavigation.priority: {
+                            if(!popup.visible)
+                                KeyNavigation.BeforeItem
+                            else
+                                KeyNavigation.AfterItem
                         }
                     }
 
@@ -2915,7 +2983,7 @@ DialogView {
                         }
                         visible: selectedCloudService == SettingsDialog.CloudService.PSCloud
                         KeyNavigation.left: resolutionPSCloud
-                        KeyNavigation.up: resolutionPSCloud
+                        KeyNavigation.up: cloudLanguage
                         KeyNavigation.down: cloudBitratePSCloud
                         KeyNavigation.priority: {
                             if(!popup.visible)
@@ -2981,7 +3049,7 @@ DialogView {
                         }
                         visible: selectedCloudService == SettingsDialog.CloudService.PSNOW
                         KeyNavigation.left: resolutionPSNOW
-                        KeyNavigation.up: resolutionPSNOW
+                        KeyNavigation.up: cloudLanguage
                         KeyNavigation.down: cloudBitratePSNOW
                         KeyNavigation.priority: {
                             if(!popup.visible)

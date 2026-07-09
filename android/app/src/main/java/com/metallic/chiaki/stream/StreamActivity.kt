@@ -175,6 +175,16 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 		//viewModel.session.attachToTextureView(textureView)
 		viewModel.session.attachToSurfaceView(binding.surfaceView)
 		viewModel.session.state.observe(this, Observer { this.stateChanged(it) })
+		// OPTIONS+SHARE chord fired -> surface the in-stream menu (parity with Qt/iOS).
+		// Seed from the current token so LiveData's replay on every (re)subscription --
+		// including each rotation/config-change, since the session lives in the ViewModel
+		// and survives -- does NOT re-show the overlay for an old chord. Only a strictly
+		// newer token opens the menu.
+		var lastMenuRequest = viewModel.session.menuRequest.value ?: 0
+		viewModel.session.menuRequest.observe(this, Observer {
+			if (it > lastMenuRequest) showOverlay()
+			lastMenuRequest = it
+		})
 		adjustStreamViewAspect()
 
 		if (isTv()) {
@@ -184,9 +194,25 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 
 		if(Preferences(this).rumbleEnabled)
 		{
-			val vibrator = getSystemService(VIBRATOR_SERVICE) as Vibrator
+			val phoneVibrator = getSystemService(VIBRATOR_SERVICE) as Vibrator
+			// User-scalable strength (0..500%). Read once at stream start (restart to change);
+			// avoids reading SharedPreferences on every rumble event (~80/s).
+			val rumbleScale = Preferences(this).rumbleIntensity / 100f
+			var lastVibrator: Vibrator? = null
 			viewModel.session.rumbleState.observe(this, Observer {
-				val amplitude = min(255, (it.left.toInt() + it.right.toInt()) / 2)
+				// Prefer the connected controller's own motor over the phone's
+				// (resolved per event so controller hotplug just works; the device
+				// list is tiny and rumble events are sparse). L/R are averaged into
+				// one amplitude because both targets expose a single channel here.
+				val cv = controllerVibrator()
+				val vibrator = cv ?: phoneVibrator
+				val amplitude = (((it.left.toInt() + it.right.toInt()) / 2) * rumbleScale).toInt().coerceIn(0, 255)
+				// Cancel the PREVIOUS target too: when the target switches
+				// (controller connects/disconnects mid-rumble), cancelling only the
+				// new one would leave the old motor buzzing out its 1s one-shot.
+				if(lastVibrator !== vibrator)
+					lastVibrator?.cancel()
+				lastVibrator = vibrator
 				vibrator.cancel()
 				if(amplitude == 0)
 					return@Observer
@@ -219,6 +245,19 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 		}
 	}
 
+	// Pointer capture for a physical controller touchpad is normally established
+	// on window focus, but a controller (re)connecting MID-STREAM never changes
+	// window focus -- without this, a late-connected DualSense touchpad keeps
+	// acting as a system mouse. Re-evaluate capture whenever an input device
+	// connects or disconnects.
+	// "changed" matters too: a Bluetooth reconnect often announces the device
+	// before its touchpad source is fully populated.
+	private val touchpadCaptureDeviceListener = object: android.hardware.input.InputManager.InputDeviceListener {
+		override fun onInputDeviceAdded(deviceId: Int) { updatePhysicalTouchpadCapture() }
+		override fun onInputDeviceRemoved(deviceId: Int) { updatePhysicalTouchpadCapture() }
+		override fun onInputDeviceChanged(deviceId: Int) { updatePhysicalTouchpadCapture() }
+	}
+
 	override fun onResume()
 	{
 		super.onResume()
@@ -229,12 +268,21 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 		// it returns immediately when session != null
 		viewModel.session.resume()
 		updateStatsVisibility()
+		val inputManager = getSystemService(INPUT_SERVICE) as android.hardware.input.InputManager
+		inputManager.registerInputDeviceListener(touchpadCaptureDeviceListener, Handler(Looper.getMainLooper()))
 	}
 
 	override fun onPause()
 	{
 		super.onPause()
 		Log.i("StreamActivity", "onPause: pip=$isInPictureInPictureMode finishing=$isFinishing")
+		val inputManager = getSystemService(INPUT_SERVICE) as android.hardware.input.InputManager
+		inputManager.unregisterInputDeviceListener(touchpadCaptureDeviceListener)
+		if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+		{
+			binding.surfaceView.releasePointerCapture()
+			viewModel.input.releaseCapturedTouchpad()
+		}
 		// In PiP mode the stream should keep running, so skip pause.
 		// isInPictureInPictureMode is the built-in Activity property.
 		if (!isInPictureInPictureMode)
@@ -486,7 +534,81 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 	{
 		super.onWindowFocusChanged(hasFocus)
 		if(hasFocus)
+		{
 			hideSystemUI()
+			updatePhysicalTouchpadCapture()
+		}
+	}
+
+	// The system releases pointer capture on its own (e.g. pulling the notification
+	// shade) without pausing us; drop any held touchpad touches so a finger can't
+	// stay stuck on the virtual pad until the next pause.
+	override fun onPointerCaptureChanged(hasCapture: Boolean)
+	{
+		super.onPointerCaptureChanged(hasCapture)
+		if(!hasCapture)
+			viewModel.input.releaseCapturedTouchpad()
+	}
+
+	/**
+	 * The connected gamepad's own vibrator, if it has one. VibratorManager on
+	 * API 31+, the legacy InputDevice.vibrator below that. Null when no attached
+	 * gamepad can rumble (caller falls back to the phone vibrator).
+	 */
+	private fun controllerVibrator(): Vibrator?
+		= InputDevice.getDeviceIds().asSequence()
+			.mapNotNull { InputDevice.getDevice(it) }
+			.filter {
+				it.sources and InputDevice.SOURCE_GAMEPAD == InputDevice.SOURCE_GAMEPAD
+					|| it.sources and InputDevice.SOURCE_CLASS_JOYSTICK == InputDevice.SOURCE_CLASS_JOYSTICK
+			}
+			.mapNotNull { dev ->
+				if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+					dev.vibratorManager.defaultVibrator.takeIf { it.hasVibrator() }
+				else
+					@Suppress("DEPRECATION") dev.vibrator.takeIf { it.hasVibrator() }
+			}
+			.firstOrNull()
+
+	/**
+	 * Physical controller touchpad (DualSense/DS4) support: Android only delivers
+	 * a controller touchpad's absolute finger positions to an app while a view
+	 * holds pointer capture (API 26+). Capture is requested only when a gamepad
+	 * that actually has a touchpad source is attached, so mice/laptop touchpads
+	 * are never hijacked. Re-evaluated on window-focus changes; released in
+	 * onPause. Below API 26 the physical pad is unavailable (the on-screen
+	 * touchpad overlay remains the touchpad path there).
+	 */
+	private fun updatePhysicalTouchpadCapture()
+	{
+		if(Build.VERSION.SDK_INT < Build.VERSION_CODES.O)
+			return
+		val hasControllerTouchpad = InputDevice.getDeviceIds().any { id ->
+			InputDevice.getDevice(id)?.let { dev ->
+				dev.sources and InputDevice.SOURCE_TOUCHPAD == InputDevice.SOURCE_TOUCHPAD
+					&& (dev.sources and InputDevice.SOURCE_GAMEPAD == InputDevice.SOURCE_GAMEPAD
+						|| dev.sources and InputDevice.SOURCE_CLASS_JOYSTICK == InputDevice.SOURCE_CLASS_JOYSTICK)
+			} ?: false
+		}
+		if(hasControllerTouchpad)
+		{
+			// Captured pointer events are delivered to the FOCUSED view. A SurfaceView is
+			// not focusable by default, so without this the window holds capture (dumpsys
+			// shows ABSOLUTE) yet onCapturedPointerEvent never fires and the touchpad keeps
+			// acting as a system mouse (the stray cursor). Make it focusable + take focus.
+			binding.surfaceView.isFocusableInTouchMode = true
+			binding.surfaceView.isFocusable = true
+			binding.surfaceView.requestFocus()
+			binding.surfaceView.setOnCapturedPointerListener { _, event ->
+				viewModel.input.onCapturedPointerEvent(event)
+			}
+			binding.surfaceView.requestPointerCapture()
+		}
+		else
+		{
+			binding.surfaceView.releasePointerCapture()
+			viewModel.input.releaseCapturedTouchpad()
+		}
 	}
 
 	private fun hideSystemUI()

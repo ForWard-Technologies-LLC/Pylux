@@ -58,6 +58,9 @@ class Preferences(context: Context)
 		const val DPAD_TOUCH_INCREMENT_MIN = 1
 		const val DPAD_TOUCH_INCREMENT_MAX = 1079
 		const val DPAD_TOUCH_INCREMENT_DEFAULT = 30
+		const val RUMBLE_INTENSITY_MIN = 0
+		const val RUMBLE_INTENSITY_MAX = 500
+		const val RUMBLE_INTENSITY_DEFAULT = 100
 		const val DPAD_TOUCH_SHORTCUT1_DEFAULT = 9
 		const val DPAD_TOUCH_SHORTCUT2_DEFAULT = 10
 		const val DPAD_TOUCH_SHORTCUT3_DEFAULT = 7
@@ -104,10 +107,38 @@ class Preferences(context: Context)
 		get() = sharedPreferences.getBoolean(rumbleEnabledKey, true)
 		set(value) { sharedPreferences.edit().putBoolean(rumbleEnabledKey, value).apply() }
 
-	val motionEnabledKey get() = resources.getString(R.string.preferences_motion_enabled_key)
-	var motionEnabled
-		get() = sharedPreferences.getBoolean(motionEnabledKey, true)
-		set(value) { sharedPreferences.edit().putBoolean(motionEnabledKey, value).apply() }
+	val rumbleIntensityKey get() = resources.getString(R.string.preferences_rumble_intensity_key)
+	var rumbleIntensity // percent, 0..500 (100 = 1x). Applied at stream start.
+		get() = sharedPreferences.getInt(rumbleIntensityKey, RUMBLE_INTENSITY_DEFAULT)
+			.coerceIn(RUMBLE_INTENSITY_MIN, RUMBLE_INTENSITY_MAX)
+		set(value) { sharedPreferences.edit().putInt(rumbleIntensityKey, value.coerceIn(RUMBLE_INTENSITY_MIN, RUMBLE_INTENSITY_MAX)).apply() }
+
+	/** Where the motion data (gyro/accel/orientation) streamed to the console comes
+	 * from. Matches iOS' MotionSource setting. */
+	enum class MotionSource(val value: String)
+	{
+		AUTO("auto"),        // controller when it has sensors (Android 12+), else this device
+		CONTROLLER("controller"),
+		PHONE("phone"),
+		OFF("off");
+
+		companion object
+		{
+			fun fromValue(value: String?) = values().firstOrNull { it.value == value }
+		}
+	}
+
+	private val motionEnabledLegacyKey get() = resources.getString(R.string.preferences_motion_enabled_key)
+	val motionSourceKey get() = resources.getString(R.string.preferences_motion_source_key)
+	var motionSource: MotionSource
+		get()
+		{
+			MotionSource.fromValue(sharedPreferences.getString(motionSourceKey, null))?.let { return it }
+			// Migrate the legacy Motion bool (Off stays off; anything else = Auto).
+			val legacy = sharedPreferences.getBoolean(motionEnabledLegacyKey, true)
+			return if(legacy) MotionSource.AUTO else MotionSource.OFF
+		}
+		set(value) { sharedPreferences.edit().putString(motionSourceKey, value.value).apply() }
 
 	val buttonHapticEnabledKey get() = resources.getString(R.string.preferences_button_haptic_enabled_key)
 	var buttonHapticEnabled

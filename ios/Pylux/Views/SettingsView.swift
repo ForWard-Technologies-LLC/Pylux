@@ -52,6 +52,23 @@ let kCloudResolutionsPsnow: [(label: String, value: String, width: Int, height: 
     ("1080p (1920x1080)", "1080", 1920, 1080),
 ]
 
+/// Where the motion data (gyro/accel/orientation) streamed to the console comes from.
+enum MotionSource: String, Codable, CaseIterable, Identifiable {
+    case auto        // controller when it has sensors, else this device
+    case controller  // controller only
+    case phone       // this device only
+    case off         // no motion
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .auto: return "Auto (controller, fall back to phone)"
+        case .controller: return "Controller only"
+        case .phone: return "Phone only"
+        case .off: return "Off"
+        }
+    }
+}
+
 struct StreamPreferences: Codable {
     // Remote Play
     var resolutionIndex: Int = 2       // default 720p (index 2 in updated array, matches Android)
@@ -62,8 +79,11 @@ struct StreamPreferences: Codable {
     // General
     var swapCrossMoon: Bool = false
     var rumbleEnabled: Bool = true      // matches Android default true
-    var motionEnabled: Bool = true      // matches Android default true
+    /// Rumble strength percent, 0–500 (100 = 1x). Matches Android's rumbleIntensity.
+    var rumbleIntensity: Int = 100
+    var motionSource: MotionSource = .auto
     var touchHapticsEnabled: Bool = true // matches Android default true
+    var adaptiveTriggersEnabled: Bool = true // DualSense adaptive triggers (physical DualSense only)
     var logVerbose: Bool = false
 
     /// Stream overlay: full on-screen controls (matches Android `onScreenControlsEnabled`, default true)
@@ -93,7 +113,9 @@ struct StreamPreferences: Codable {
 
     private enum CodingKeys: String, CodingKey {
         case resolutionIndex, fps, bitrate, codec
-        case swapCrossMoon, rumbleEnabled, motionEnabled, touchHapticsEnabled, logVerbose
+        case swapCrossMoon, rumbleEnabled, rumbleIntensity, motionSource, touchHapticsEnabled, logVerbose
+        case motionEnabled // legacy bool, migrated into motionSource
+        case adaptiveTriggersEnabled
         case onScreenControlsEnabled, touchpadOnlyEnabled
         case cloudResolutionPscloud, cloudDatacenterPscloud, cloudBitratePscloud
         case cloudResolutionPsnow, cloudDatacenterPsnow, cloudBitratePsnow
@@ -108,7 +130,8 @@ struct StreamPreferences: Codable {
         codec: Int = 1,
         swapCrossMoon: Bool = false,
         rumbleEnabled: Bool = true,
-        motionEnabled: Bool = true,
+        rumbleIntensity: Int = 100,
+        motionSource: MotionSource = .auto,
         touchHapticsEnabled: Bool = true,
         logVerbose: Bool = false,
         onScreenControlsEnabled: Bool = true,
@@ -127,7 +150,8 @@ struct StreamPreferences: Codable {
         self.codec = codec
         self.swapCrossMoon = swapCrossMoon
         self.rumbleEnabled = rumbleEnabled
-        self.motionEnabled = motionEnabled
+        self.rumbleIntensity = Self.clampRumbleIntensity(rumbleIntensity)
+        self.motionSource = motionSource
         self.touchHapticsEnabled = touchHapticsEnabled
         self.logVerbose = logVerbose
         self.onScreenControlsEnabled = onScreenControlsEnabled
@@ -149,8 +173,18 @@ struct StreamPreferences: Codable {
         codec = try c.decodeIfPresent(Int.self, forKey: .codec) ?? 1
         swapCrossMoon = try c.decodeIfPresent(Bool.self, forKey: .swapCrossMoon) ?? false
         rumbleEnabled = try c.decodeIfPresent(Bool.self, forKey: .rumbleEnabled) ?? true
-        motionEnabled = try c.decodeIfPresent(Bool.self, forKey: .motionEnabled) ?? true
+        rumbleIntensity = Self.clampRumbleIntensity(
+            try c.decodeIfPresent(Int.self, forKey: .rumbleIntensity) ?? 100
+        )
+        if let source = try c.decodeIfPresent(MotionSource.self, forKey: .motionSource) {
+            motionSource = source
+        } else {
+            // Migrate the legacy motionEnabled bool (Off keeps motion off; anything else = Auto).
+            let legacy = try c.decodeIfPresent(Bool.self, forKey: .motionEnabled) ?? true
+            motionSource = legacy ? .auto : .off
+        }
         touchHapticsEnabled = try c.decodeIfPresent(Bool.self, forKey: .touchHapticsEnabled) ?? true
+        adaptiveTriggersEnabled = try c.decodeIfPresent(Bool.self, forKey: .adaptiveTriggersEnabled) ?? true
         logVerbose = try c.decodeIfPresent(Bool.self, forKey: .logVerbose) ?? false
         onScreenControlsEnabled = try c.decodeIfPresent(Bool.self, forKey: .onScreenControlsEnabled) ?? true
         touchpadOnlyEnabled = try c.decodeIfPresent(Bool.self, forKey: .touchpadOnlyEnabled) ?? false
@@ -176,8 +210,10 @@ struct StreamPreferences: Codable {
         try c.encode(codec, forKey: .codec)
         try c.encode(swapCrossMoon, forKey: .swapCrossMoon)
         try c.encode(rumbleEnabled, forKey: .rumbleEnabled)
-        try c.encode(motionEnabled, forKey: .motionEnabled)
+        try c.encode(rumbleIntensity, forKey: .rumbleIntensity)
+        try c.encode(motionSource, forKey: .motionSource)
         try c.encode(touchHapticsEnabled, forKey: .touchHapticsEnabled)
+        try c.encode(adaptiveTriggersEnabled, forKey: .adaptiveTriggersEnabled)
         try c.encode(logVerbose, forKey: .logVerbose)
         try c.encode(onScreenControlsEnabled, forKey: .onScreenControlsEnabled)
         try c.encode(touchpadOnlyEnabled, forKey: .touchpadOnlyEnabled)
@@ -188,6 +224,10 @@ struct StreamPreferences: Codable {
         try c.encode(cloudDatacenterPsnow, forKey: .cloudDatacenterPsnow)
         try c.encode(cloudBitratePsnow, forKey: .cloudBitratePsnow)
         try c.encode(cloudGameLanguage, forKey: .cloudGameLanguage)
+    }
+
+    static func clampRumbleIntensity(_ percent: Int) -> Int {
+        min(500, max(0, percent))
     }
 
     static func clampCloudBitrateKbps(_ kbps: Int) -> Int {
@@ -387,48 +427,94 @@ struct SettingsView: View {
             }
 
             // Swap Cross/Moon (wired)
-            VStack(alignment: .leading, spacing: 2) {
-                Toggle("Swap Cross/Moon and Box/Pyramid Buttons", isOn: $prefs.swapCrossMoon)
-                    .onChange(of: prefs.swapCrossMoon) { _ in prefs.save() }
-                Text("Swap face buttons if default mapping is incorrect (e.g. for 8BitDo controllers)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-
-            VStack(alignment: .leading, spacing: 2) {
-                Toggle("Rumble", isOn: $prefs.rumbleEnabled)
-                    .onChange(of: prefs.rumbleEnabled) { _ in prefs.save() }
-                Text("Play console rumble on this device (Core Haptics on supported iPhones; legacy vibrate otherwise)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-
-            if showWorkInProgressGeneralSettings {
+            Toggle(isOn: $prefs.swapCrossMoon) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Toggle("Motion", isOn: $prefs.motionEnabled)
-                        .onChange(of: prefs.motionEnabled) { _ in prefs.save() }
-                    Text("Use device's motion sensors for controller motion")
+                    Text("Swap Cross/Moon and Box/Pyramid Buttons")
+                    Text("Swap face buttons if default mapping is incorrect (e.g. for 8BitDo controllers)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .onChange(of: prefs.swapCrossMoon) { _ in prefs.save() }
+
+            Toggle(isOn: $prefs.rumbleEnabled) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Rumble")
+                    Text("Play console rumble on this device (Core Haptics on supported iPhones; legacy vibrate otherwise)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .onChange(of: prefs.rumbleEnabled) { _ in prefs.save() }
+
+            if prefs.rumbleEnabled {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack {
+                        Text("Rumble Intensity")
+                        Spacer()
+                        Text("\(prefs.rumbleIntensity)%")
+                            .foregroundColor(.secondary)
+                            .monospacedDigit()
+                    }
+                    Slider(
+                        value: Binding(
+                            get: { Double(prefs.rumbleIntensity) },
+                            set: { prefs.rumbleIntensity = StreamPreferences.clampRumbleIntensity(Int($0.rounded())) }
+                        ),
+                        in: 0...500,
+                        step: 10,
+                        onEditingChanged: { editing in if !editing { prefs.save() } }
+                    )
+                    Text("Scales vibration strength; 100% matches the console")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
             }
 
-            VStack(alignment: .leading, spacing: 2) {
-                Toggle("Touch Haptics", isOn: $prefs.touchHapticsEnabled)
-                    .onChange(of: prefs.touchHapticsEnabled) { _ in prefs.save() }
-                Text("Light haptic feedback when using on-screen controls")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-
-            if showWorkInProgressGeneralSettings {
+            Toggle(isOn: $prefs.adaptiveTriggersEnabled) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Toggle("Verbose Logging", isOn: $prefs.logVerbose)
-                        .onChange(of: prefs.logVerbose) { _ in prefs.save() }
-                    Text("Warning: This logs a LOT! Don't enable for regular use.")
+                    Text("Adaptive Triggers")
+                    Text("DualSense adaptive-trigger resistance (physical DualSense only)")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
+            }
+            .onChange(of: prefs.adaptiveTriggersEnabled) { _ in prefs.save() }
+
+            Picker(selection: $prefs.motionSource) {
+                ForEach(MotionSource.allCases) { source in
+                    Text(source.label).tag(source)
+                }
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Gyro / Motion")
+                    Text("Motion sensors sent to the console for gyro aiming")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .onChange(of: prefs.motionSource) { _ in prefs.save() }
+
+            Toggle(isOn: $prefs.touchHapticsEnabled) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Touch Haptics")
+                    Text("Light haptic feedback when using on-screen controls")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .onChange(of: prefs.touchHapticsEnabled) { _ in prefs.save() }
+
+            if showWorkInProgressGeneralSettings {
+                Toggle(isOn: $prefs.logVerbose) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Verbose Logging")
+                        Text("Warning: This logs a LOT! Don't enable for regular use.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .onChange(of: prefs.logVerbose) { _ in prefs.save() }
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Session Logs")
