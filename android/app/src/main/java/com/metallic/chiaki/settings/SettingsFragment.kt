@@ -40,7 +40,6 @@ class DataStore(val preferences: Preferences): PreferenceDataStore()
 		preferences.mapSelectToTouchpadKey -> preferences.mapSelectToTouchpad
 		preferences.dpadTouchEnabledKey -> preferences.dpadTouchEnabled
 		preferences.rumbleEnabledKey -> preferences.rumbleEnabled
-		preferences.motionEnabledKey -> preferences.motionEnabled
 		preferences.buttonHapticEnabledKey -> preferences.buttonHapticEnabled
 		else -> defValue
 	}
@@ -54,13 +53,13 @@ class DataStore(val preferences: Preferences): PreferenceDataStore()
 			preferences.mapSelectToTouchpadKey -> preferences.mapSelectToTouchpad = value
 			preferences.dpadTouchEnabledKey -> preferences.dpadTouchEnabled = value
 			preferences.rumbleEnabledKey -> preferences.rumbleEnabled = value
-			preferences.motionEnabledKey -> preferences.motionEnabled = value
 			preferences.buttonHapticEnabledKey -> preferences.buttonHapticEnabled = value
 		}
 	}
 
 	override fun getString(key: String, defValue: String?) = when(key)
 	{
+		preferences.motionSourceKey -> preferences.motionSource.value
 		preferences.resolutionKey -> preferences.resolution.value
 		preferences.fpsKey -> preferences.fps.value
 		preferences.bitrateKey -> preferences.bitrate?.toString() ?: ""
@@ -81,6 +80,11 @@ class DataStore(val preferences: Preferences): PreferenceDataStore()
 	{
 		when(key)
 		{
+			preferences.motionSourceKey ->
+			{
+				val source = Preferences.MotionSource.fromValue(value) ?: return
+				preferences.motionSource = source
+			}
 			preferences.resolutionKey ->
 			{
 				val resolution = Preferences.Resolution.values().firstOrNull { it.value == value } ?: return

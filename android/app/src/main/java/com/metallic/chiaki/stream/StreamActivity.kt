@@ -238,6 +238,19 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 		}
 	}
 
+	// Pointer capture for a physical controller touchpad is normally established
+	// on window focus, but a controller (re)connecting MID-STREAM never changes
+	// window focus -- without this, a late-connected DualSense touchpad keeps
+	// acting as a system mouse. Re-evaluate capture whenever an input device
+	// connects or disconnects.
+	// "changed" matters too: a Bluetooth reconnect often announces the device
+	// before its touchpad source is fully populated.
+	private val touchpadCaptureDeviceListener = object: android.hardware.input.InputManager.InputDeviceListener {
+		override fun onInputDeviceAdded(deviceId: Int) { updatePhysicalTouchpadCapture() }
+		override fun onInputDeviceRemoved(deviceId: Int) { updatePhysicalTouchpadCapture() }
+		override fun onInputDeviceChanged(deviceId: Int) { updatePhysicalTouchpadCapture() }
+	}
+
 	override fun onResume()
 	{
 		super.onResume()
@@ -248,12 +261,16 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 		// it returns immediately when session != null
 		viewModel.session.resume()
 		updateStatsVisibility()
+		val inputManager = getSystemService(INPUT_SERVICE) as android.hardware.input.InputManager
+		inputManager.registerInputDeviceListener(touchpadCaptureDeviceListener, Handler(Looper.getMainLooper()))
 	}
 
 	override fun onPause()
 	{
 		super.onPause()
 		Log.i("StreamActivity", "onPause: pip=$isInPictureInPictureMode finishing=$isFinishing")
+		val inputManager = getSystemService(INPUT_SERVICE) as android.hardware.input.InputManager
+		inputManager.unregisterInputDeviceListener(touchpadCaptureDeviceListener)
 		if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
 		{
 			binding.surfaceView.releasePointerCapture()

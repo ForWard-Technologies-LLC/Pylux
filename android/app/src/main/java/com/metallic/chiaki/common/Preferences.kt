@@ -113,10 +113,32 @@ class Preferences(context: Context)
 			.coerceIn(RUMBLE_INTENSITY_MIN, RUMBLE_INTENSITY_MAX)
 		set(value) { sharedPreferences.edit().putInt(rumbleIntensityKey, value.coerceIn(RUMBLE_INTENSITY_MIN, RUMBLE_INTENSITY_MAX)).apply() }
 
-	val motionEnabledKey get() = resources.getString(R.string.preferences_motion_enabled_key)
-	var motionEnabled
-		get() = sharedPreferences.getBoolean(motionEnabledKey, true)
-		set(value) { sharedPreferences.edit().putBoolean(motionEnabledKey, value).apply() }
+	/** Where the motion data (gyro/accel/orientation) streamed to the console comes
+	 * from. Matches iOS' MotionSource setting. */
+	enum class MotionSource(val value: String)
+	{
+		AUTO("auto"),        // controller when it has sensors (Android 12+), else this device
+		CONTROLLER("controller"),
+		PHONE("phone"),
+		OFF("off");
+
+		companion object
+		{
+			fun fromValue(value: String?) = values().firstOrNull { it.value == value }
+		}
+	}
+
+	private val motionEnabledLegacyKey get() = resources.getString(R.string.preferences_motion_enabled_key)
+	val motionSourceKey get() = resources.getString(R.string.preferences_motion_source_key)
+	var motionSource: MotionSource
+		get()
+		{
+			MotionSource.fromValue(sharedPreferences.getString(motionSourceKey, null))?.let { return it }
+			// Migrate the legacy Motion bool (Off stays off; anything else = Auto).
+			val legacy = sharedPreferences.getBoolean(motionEnabledLegacyKey, true)
+			return if(legacy) MotionSource.AUTO else MotionSource.OFF
+		}
+		set(value) { sharedPreferences.edit().putString(motionSourceKey, value.value).apply() }
 
 	val buttonHapticEnabledKey get() = resources.getString(R.string.preferences_button_haptic_enabled_key)
 	var buttonHapticEnabled

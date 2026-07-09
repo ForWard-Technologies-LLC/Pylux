@@ -55,10 +55,13 @@
             app:showSeekBarValue="true"
             app:icon="@drawable/ic_rumble" />
 
-        <SwitchPreference
-            app:key="@string/preferences_motion_enabled_key"
-            app:title="@string/preferences_motion_enabled_title"
-            app:summary="@string/preferences_motion_enabled_summary"
+        <ListPreference
+            app:key="@string/preferences_motion_source_key"
+            app:title="@string/preferences_motion_source_title"
+            app:summary="@string/preferences_motion_source_summary"
+            app:entries="@array/motion_source_entries"
+            app:entryValues="@array/motion_source_values"
+            app:defaultValue="auto"
             app:icon="@drawable/ic_motion" />
 
         <SwitchPreference

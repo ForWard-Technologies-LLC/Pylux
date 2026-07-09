@@ -14,6 +14,7 @@
 #include <chiaki/base64.h>
 #include <chiaki/cloudcatalog.h>
 #include <chiaki/cloudsession.h>
+#include <chiaki/orientation.h>
 
 #include <string.h>
 #include <stdlib.h>
@@ -186,6 +187,52 @@ JNIEXPORT jstring JNICALL JNI_FCN(quitReasonToString)(JNIEnv *env, jobject obj, 
 JNIEXPORT jboolean JNICALL JNI_FCN(quitReasonIsError)(JNIEnv *env, jobject obj, jint value)
 {
 	return chiaki_quit_reason_is_error(value);
+}
+
+// --- Orientation tracker (controller gyro -> orientation quaternion) ---
+// Thin wrappers around the shared Madgwick tracker (lib/src/orientation.c) so the
+// Kotlin controller-motion path computes orientation with the SAME algorithm as
+// Qt (SDL sensors) and iOS (GCMotion), instead of duplicating it in Kotlin.
+// Controller sensors on Android (InputDevice.getSensorManager, API 31+) provide
+// only gyro/accel -- no rotation vector -- hence the tracker.
+
+JNIEXPORT jlong JNICALL JNI_FCN(orientationTrackerCreate)(JNIEnv *env, jobject obj)
+{
+	ChiakiOrientationTracker *tracker = malloc(sizeof(ChiakiOrientationTracker));
+	if(!tracker)
+		return 0;
+	chiaki_orientation_tracker_init(tracker);
+	return (jlong)(uintptr_t)tracker;
+}
+
+JNIEXPORT void JNICALL JNI_FCN(orientationTrackerFree)(JNIEnv *env, jobject obj, jlong ptr)
+{
+	free((ChiakiOrientationTracker *)(uintptr_t)ptr);
+}
+
+/**
+ * Feed one gyro (rad/s) + accel (G) sample and return the tracked state:
+ * out[0..2] = gyro, out[3..5] = accel, out[6..9] = orientation quaternion x/y/z/w
+ * (as chiaki_orientation_tracker_apply_to_controller_state would write them).
+ */
+JNIEXPORT void JNICALL JNI_FCN(orientationTrackerUpdate)(JNIEnv *env, jobject obj, jlong ptr,
+	jfloat gx, jfloat gy, jfloat gz, jfloat ax, jfloat ay, jfloat az, jlong timestamp_us, jfloatArray out)
+{
+	ChiakiOrientationTracker *tracker = (ChiakiOrientationTracker *)(uintptr_t)ptr;
+	if(!tracker)
+		return;
+	ChiakiAccelNewZero accel_zero;
+	chiaki_accel_new_zero_set_inactive(&accel_zero, false);
+	chiaki_orientation_tracker_update(tracker, gx, gy, gz, ax, ay, az, &accel_zero, true, (uint32_t)timestamp_us);
+	ChiakiControllerState state;
+	chiaki_controller_state_set_idle(&state);
+	chiaki_orientation_tracker_apply_to_controller_state(tracker, &state);
+	jfloat vals[10] = {
+		state.gyro_x, state.gyro_y, state.gyro_z,
+		state.accel_x, state.accel_y, state.accel_z,
+		state.orient_x, state.orient_y, state.orient_z, state.orient_w,
+	};
+	(*env)->SetFloatArrayRegion(env, out, 0, 10, vals);
 }
 
 JNIEXPORT jobject JNICALL JNI_FCN(videoProfilePreset)(JNIEnv *env, jobject obj, jint resolution_preset, jint fps_preset, jobject codec)

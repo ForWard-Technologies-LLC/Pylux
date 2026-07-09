@@ -11,6 +11,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.OnLifecycleEvent
 import com.metallic.chiaki.common.Preferences
 import com.metallic.chiaki.lib.ControllerState
+import com.metallic.chiaki.lib.OrientationTracker
 
 class StreamInput(val context: Context, val preferences: Preferences)
 {
@@ -20,19 +21,25 @@ class StreamInput(val context: Context, val preferences: Preferences)
 	{
 		var controllerState = sensorControllerState or keyControllerState or motionControllerState
 
-		val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-		@Suppress("DEPRECATION")
-		when(windowManager.defaultDisplay.rotation)
+		// Screen-rotation correction applies only to PHONE motion (the sensor frame
+		// is fixed to the device's portrait orientation); a controller's sensors are
+		// in the controller's own frame, independent of the display.
+		if(!controllerMotionActive)
 		{
-			Surface.ROTATION_90 -> {
-				controllerState.accelX *= -1.0f
-				controllerState.accelZ *= -1.0f
-				controllerState.gyroX *= -1.0f
-				controllerState.gyroZ *= -1.0f
-				controllerState.orientX *= -1.0f
-				controllerState.orientZ *= -1.0f
+			val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+			@Suppress("DEPRECATION")
+			when(windowManager.defaultDisplay.rotation)
+			{
+				Surface.ROTATION_90 -> {
+					controllerState.accelX *= -1.0f
+					controllerState.accelZ *= -1.0f
+					controllerState.gyroX *= -1.0f
+					controllerState.gyroZ *= -1.0f
+					controllerState.orientX *= -1.0f
+					controllerState.orientZ *= -1.0f
+				}
+				else -> {}
 			}
-			else -> {}
 		}
 
 		// prioritize motion controller's l2 and r2 over key
@@ -246,32 +253,206 @@ class StreamInput(val context: Context, val preferences: Preferences)
 		override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) {}
 	}
 
+	// --- Controller motion (Android 12+: InputDevice.getSensorManager) ---
+	// DualSense/DS4 expose gyro+accel through the input device's own SensorManager.
+	// The sensors report in the controller's frame (x right, y up, z toward the
+	// player — the PS convention, same as SDL on desktop), so values map directly:
+	// no phone-style axis remap and no display-rotation correction. Orientation is
+	// computed by the shared C Madgwick tracker (input devices have no
+	// rotation-vector sensor).
+
+	/** True while motion comes from the controller — gates the display-rotation fix. */
+	private var controllerMotionActive = false
+	private var controllerSensorManager: SensorManager? = null
+	private var orientationTracker: OrientationTracker? = null
+	private val orientationTrackerOut = FloatArray(10)
+	private var controllerGyro = floatArrayOf(0f, 0f, 0f)
+	private var controllerAccel = floatArrayOf(0f, 1f, 0f)
+
+	private val controllerSensorEventListener = object: SensorEventListener {
+		override fun onSensorChanged(event: SensorEvent)
+		{
+			when(event.sensor.type)
+			{
+				Sensor.TYPE_ACCELEROMETER -> {
+					controllerAccel[0] = event.values[0] / SensorManager.GRAVITY_EARTH
+					controllerAccel[1] = event.values[1] / SensorManager.GRAVITY_EARTH
+					controllerAccel[2] = event.values[2] / SensorManager.GRAVITY_EARTH
+				}
+				Sensor.TYPE_GYROSCOPE -> {
+					controllerGyro[0] = event.values[0]
+					controllerGyro[1] = event.values[1]
+					controllerGyro[2] = event.values[2]
+				}
+				else -> return
+			}
+			val tracker = orientationTracker ?: return
+			tracker.update(
+				controllerGyro[0], controllerGyro[1], controllerGyro[2],
+				controllerAccel[0], controllerAccel[1], controllerAccel[2],
+				event.timestamp / 1000, orientationTrackerOut)
+			sensorControllerState.gyroX = orientationTrackerOut[0]
+			sensorControllerState.gyroY = orientationTrackerOut[1]
+			sensorControllerState.gyroZ = orientationTrackerOut[2]
+			sensorControllerState.accelX = orientationTrackerOut[3]
+			sensorControllerState.accelY = orientationTrackerOut[4]
+			sensorControllerState.accelZ = orientationTrackerOut[5]
+			sensorControllerState.orientX = orientationTrackerOut[6]
+			sensorControllerState.orientY = orientationTrackerOut[7]
+			sensorControllerState.orientZ = orientationTrackerOut[8]
+			sensorControllerState.orientW = orientationTrackerOut[9]
+			controllerStateUpdated()
+		}
+
+		override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) {}
+	}
+
+	/** Device id + SensorManager of the first attached gamepad that exposes a gyroscope, or null. */
+	private fun controllerMotionDeviceOrNull(): Pair<Int, SensorManager>?
+	{
+		if(android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S)
+			return null
+		val inputManager = context.getSystemService(Context.INPUT_SERVICE) as android.hardware.input.InputManager
+		for(deviceId in inputManager.inputDeviceIds)
+		{
+			val device = inputManager.getInputDevice(deviceId) ?: continue
+			if(device.isVirtual)
+				continue
+			val isGamepad = (device.sources and InputDevice.SOURCE_GAMEPAD == InputDevice.SOURCE_GAMEPAD)
+				|| (device.sources and InputDevice.SOURCE_JOYSTICK == InputDevice.SOURCE_JOYSTICK)
+			if(!isGamepad)
+				continue
+			val sensorManager = device.sensorManager
+			if(sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE) != null)
+				return Pair(deviceId, sensorManager)
+		}
+		return null
+	}
+
+	private fun resetMotionState()
+	{
+		sensorControllerState.gyroX = 0f
+		sensorControllerState.gyroY = 0f
+		sensorControllerState.gyroZ = 0f
+		sensorControllerState.accelX = 0f
+		sensorControllerState.accelY = 1f
+		sensorControllerState.accelZ = 0f
+		sensorControllerState.orientX = 0f
+		sensorControllerState.orientY = 0f
+		sensorControllerState.orientZ = 0f
+		sensorControllerState.orientW = 1f
+	}
+
+	/** (Re)register the motion source per the MotionSource preference and what is
+	 * attached. Called on resume and when a controller connects/disconnects. */
+	private var phoneMotionActive = false
+	private var controllerMotionDeviceId = -1
+
+	private fun registerMotionSensors()
+	{
+		val samplingPeriodUs = 4000
+		val source = preferences.motionSource
+		val controllerDevice = when(source)
+		{
+			Preferences.MotionSource.AUTO, Preferences.MotionSource.CONTROLLER -> controllerMotionDeviceOrNull()
+			else -> null
+		}
+		val wantPhone = source == Preferences.MotionSource.PHONE
+			|| (source == Preferences.MotionSource.AUTO && controllerDevice == null)
+
+		// Idempotent: connect/disconnect events arrive in bursts (a Bluetooth
+		// reconnect fires added + several changed); don't churn listeners when
+		// nothing resolved differently.
+		if(controllerDevice != null && controllerMotionActive && controllerMotionDeviceId == controllerDevice.first)
+			return
+		if(controllerDevice == null && wantPhone && phoneMotionActive)
+			return
+
+		unregisterMotionSensors()
+		if(controllerDevice != null)
+		{
+			val (deviceId, sensorManager) = controllerDevice
+			if(orientationTracker == null)
+				orientationTracker = OrientationTracker()
+			listOfNotNull(
+				sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER),
+				sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
+			).forEach {
+				sensorManager.registerListener(controllerSensorEventListener, it, samplingPeriodUs)
+			}
+			controllerSensorManager = sensorManager
+			controllerMotionDeviceId = deviceId
+			controllerMotionActive = true
+			return
+		}
+		if(!wantPhone)
+			return // OFF, or controller-only with no controller sensors
+		val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+		listOfNotNull(
+			sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER),
+			sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE),
+			sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+		).forEach {
+			sensorManager.registerListener(sensorEventListener, it, samplingPeriodUs)
+		}
+		phoneMotionActive = true
+	}
+
+	private fun unregisterMotionSensors()
+	{
+		val phoneSensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+		phoneSensorManager.unregisterListener(sensorEventListener)
+		controllerSensorManager?.unregisterListener(controllerSensorEventListener)
+		controllerSensorManager = null
+		controllerMotionActive = false
+		controllerMotionDeviceId = -1
+		phoneMotionActive = false
+		resetMotionState()
+	}
+
+	private val motionReevaluateRunnable = Runnable { registerMotionSensors() }
+
+	private val inputDeviceListener = object: android.hardware.input.InputManager.InputDeviceListener {
+		// A Bluetooth controller is often announced before its sensors are
+		// queryable; the sensors appear in a later "changed" event. React to all
+		// three, plus a delayed re-check as insurance, so AUTO reliably switches
+		// back to the controller after a reconnect.
+		override fun onInputDeviceAdded(deviceId: Int)
+		{
+			registerMotionSensors()
+			handler.removeCallbacks(motionReevaluateRunnable)
+			handler.postDelayed(motionReevaluateRunnable, 1000)
+		}
+		override fun onInputDeviceRemoved(deviceId: Int) { registerMotionSensors() }
+		override fun onInputDeviceChanged(deviceId: Int) { registerMotionSensors() }
+	}
+
 	private val motionLifecycleObserver = object: LifecycleObserver {
 		@OnLifecycleEvent(Lifecycle.Event.ON_RESUME)
 		fun onResume()
 		{
-			val samplingPeriodUs = 4000
-			val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
-			listOfNotNull(
-				sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER),
-				sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE),
-				sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
-			).forEach {
-				sensorManager.registerListener(sensorEventListener, it, samplingPeriodUs)
-			}
+			registerMotionSensors()
+			// Re-evaluate the source when a controller connects or disconnects
+			// (AUTO falls back to the phone and returns to the controller).
+			val inputManager = context.getSystemService(Context.INPUT_SERVICE) as android.hardware.input.InputManager
+			inputManager.registerInputDeviceListener(inputDeviceListener, Handler(Looper.getMainLooper()))
 		}
 
 		@OnLifecycleEvent(Lifecycle.Event.ON_PAUSE)
 		fun onPause()
 		{
-			val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
-			sensorManager.unregisterListener(sensorEventListener)
+			val inputManager = context.getSystemService(Context.INPUT_SERVICE) as android.hardware.input.InputManager
+			inputManager.unregisterInputDeviceListener(inputDeviceListener)
+			handler.removeCallbacks(motionReevaluateRunnable)
+			unregisterMotionSensors()
+			orientationTracker?.dispose()
+			orientationTracker = null
 		}
 	}
 
 	fun observe(lifecycleOwner: LifecycleOwner)
 	{
-		if(preferences.motionEnabled)
+		if(preferences.motionSource != Preferences.MotionSource.OFF)
 			lifecycleOwner.lifecycle.addObserver(motionLifecycleObserver)
 	}
 

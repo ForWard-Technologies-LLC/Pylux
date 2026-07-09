@@ -153,6 +153,14 @@ private class ChiakiNative
 		@JvmStatic external fun sessionSetControllerState(ptr: Long, controllerState: ControllerState)
 		@JvmStatic external fun sessionSetPsChord(ptr: Long, enabled: Boolean, holdMs: Int)
 		@JvmStatic external fun sessionSetLoginPin(ptr: Long, pin: String)
+		// Shared Madgwick orientation tracker (lib/src/orientation.c) for the
+		// controller-motion path: controller sensors provide only gyro/accel.
+		// update() fills out[10]: gyro xyz, accel xyz, orientation quat xyzw.
+		@JvmStatic external fun orientationTrackerCreate(): Long
+		@JvmStatic external fun orientationTrackerFree(ptr: Long)
+		@JvmStatic external fun orientationTrackerUpdate(ptr: Long,
+			gx: Float, gy: Float, gz: Float, ax: Float, ay: Float, az: Float,
+			timestampUs: Long, out: FloatArray)
 		@JvmStatic external fun discoveryServiceCreate(result: CreateResult, options: DiscoveryServiceOptions, javaService: DiscoveryService)
 		@JvmStatic external fun discoveryServiceFree(ptr: Long)
 		@JvmStatic external fun discoveryServiceWakeup(ptr: Long, host: String, userCredential: Long, ps5: Boolean)
@@ -398,6 +406,37 @@ class ErrorCode(val value: Int)
 {
 	override fun toString() = ChiakiNative.errorCodeToString(value)
 	var isSuccess = value == 0
+}
+
+/**
+ * Shared Madgwick orientation tracker (lib/src/orientation.c), used by the
+ * controller-motion path: controller sensors (InputDevice.getSensorManager)
+ * expose only gyro/accel — no rotation vector — so orientation is computed with
+ * the same algorithm Qt (SDL) and iOS (GCMotion) use.
+ */
+class OrientationTracker
+{
+	private var ptr = ChiakiNative.orientationTrackerCreate()
+
+	/**
+	 * Feed one gyro (rad/s) + accel (G) sample. Fills out[10] with the tracked
+	 * state: gyro xyz, accel xyz, orientation quaternion xyzw.
+	 */
+	fun update(gx: Float, gy: Float, gz: Float, ax: Float, ay: Float, az: Float, timestampUs: Long, out: FloatArray)
+	{
+		val p = ptr
+		if(p != 0L)
+			ChiakiNative.orientationTrackerUpdate(p, gx, gy, gz, ax, ay, az, timestampUs, out)
+	}
+
+	fun dispose()
+	{
+		if(ptr != 0L)
+		{
+			ChiakiNative.orientationTrackerFree(ptr)
+			ptr = 0L
+		}
+	}
 }
 
 class ChiakiLog(val levelMask: Int, val callback: (level: Int, text: String) -> Unit)
