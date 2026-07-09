@@ -73,8 +73,8 @@ tri_option(CHIAKI_USE_SYSTEM_CURL "Use system-provided curl instead of submodule
 # ios/Pylux.xcodeproj uses MARKETING_VERSION=0.0.0 and CURRENT_PROJECT_VERSION=0 only as local placeholders;
 # CI injects real values from the CHIAKI_VERSION_* lines below at archive time (.github/workflows/deploy-ios.yml).
 set(CHIAKI_VERSION_MAJOR 2)
-set(CHIAKI_VERSION_MINOR 10)
-set(CHIAKI_VERSION_PATCH 22)
+set(CHIAKI_VERSION_MINOR 11)
+set(CHIAKI_VERSION_PATCH 0)
 set(CHIAKI_VERSION ${CHIAKI_VERSION_MAJOR}.${CHIAKI_VERSION_MINOR}.${CHIAKI_VERSION_PATCH})
 
 configure_file(
