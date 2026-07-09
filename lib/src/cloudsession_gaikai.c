@@ -545,12 +545,33 @@ static ChiakiErrorCode gk_step9_authorize(GaikaiCtx *c, ChiakiCloudProvisionResu
 static ChiakiErrorCode gk_step10_lock(GaikaiCtx *c)
 {
 	gk_progress(c, "Locking Session - Step 7 of 10");
+	int net_errors = 0; // consecutive transient network failures, like the allocate poll
 	for(int attempt = 0; attempt <= MAX_LOCK_RETRIES; attempt++)
 	{
 		if(gk_cancelled(c)) return CHIAKI_ERR_CANCELED;
 		CCHttpResponse resp = { 0 };
 		ChiakiErrorCode e = gk_post_session(c, "/lock?forceLogout=true", NULL, &resp);
-		if(e != CHIAKI_ERR_SUCCESS) { cc_http_response_fini(&resp); return e; }
+		if(e != CHIAKI_ERR_SUCCESS)
+		{
+			// Transient network blip (DNS-resolve / connect / TLS) on the lock call:
+			// retry like the allocate poll does instead of failing the whole
+			// provisioning on one dropped connection (observed as a single
+			// "SSL connect error" surfacing to the user as "Allocation failed").
+			cc_http_response_fini(&resp);
+			if(gk_cancelled(c)) return CHIAKI_ERR_CANCELED;
+			if(++net_errors > GK_ALLOC_MAX_NET_ERRORS)
+			{
+				CHIAKI_LOGE(c->log, "[GAIKAI] lock failed after %d consecutive network errors", net_errors);
+				return e;
+			}
+			CHIAKI_LOGW(c->log, "[GAIKAI] lock network error (%d/%d), retrying in %ds",
+				net_errors, GK_ALLOC_MAX_NET_ERRORS, GK_ALLOC_NET_RETRY_S);
+			gk_progress(c, "Locking Session - reconnecting...");
+			if(!gk_sleep_cancellable(c, GK_ALLOC_NET_RETRY_S)) return CHIAKI_ERR_CANCELED;
+			attempt--; // network retries don't consume lock attempts
+			continue;
+		}
+		net_errors = 0;
 		if(resp.status_code != 200) { CHIAKI_LOGE(c->log, "[GAIKAI] step10 lock http %ld", resp.status_code); cc_http_response_fini(&resp); return CHIAKI_ERR_UNKNOWN; }
 		gk_update_session_key(c, &resp);
 		struct json_object *j = resp.data ? json_tokener_parse(resp.data) : NULL;
