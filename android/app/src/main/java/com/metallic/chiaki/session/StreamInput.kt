@@ -23,8 +23,10 @@ class StreamInput(val context: Context, val preferences: Preferences)
 
 		// Screen-rotation correction applies only to PHONE motion (the sensor frame
 		// is fixed to the device's portrait orientation); a controller's sensors are
-		// in the controller's own frame, independent of the display.
-		if(!controllerMotionActive)
+		// in the controller's own frame, independent of the display. Gate on the
+		// data's ORIGIN: right after a controller disconnect the held pose is still
+		// controller-frame data and must not be flipped.
+		if(!sensorStateFromController)
 		{
 			val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
 			@Suppress("DEPRECATION")
@@ -247,6 +249,7 @@ class StreamInput(val context: Context, val preferences: Preferences)
 				}
 				else -> return
 			}
+			sensorStateFromController = false
 			controllerStateUpdated()
 		}
 
@@ -263,26 +266,87 @@ class StreamInput(val context: Context, val preferences: Preferences)
 
 	/** True while motion comes from the controller — gates the display-rotation fix. */
 	private var controllerMotionActive = false
+	/** Which source last WROTE sensorControllerState. The display-rotation flip
+	 * must track the data's origin, not the currently-active listener: after a
+	 * controller disconnect the frozen pose is still controller-frame data, and
+	 * flipping it (as happens the moment controllerMotionActive goes false)
+	 * visibly mirrors the held orientation. */
+	private var sensorStateFromController = false
 	private var controllerSensorManager: SensorManager? = null
 	private var orientationTracker: OrientationTracker? = null
 	private val orientationTrackerOut = FloatArray(10)
 	private var controllerGyro = floatArrayOf(0f, 0f, 0f)
 	private var controllerAccel = floatArrayOf(0f, 1f, 0f)
 
+	/** False from (re)registration until the first accel sample of the NEW
+	 * connection arrives. The tracker must not warm up on the cached accel of a
+	 * dying connection -- warmup converges hard toward whatever gravity it sees
+	 * first, and recovering from a wrong warmup takes tens of seconds. */
+	private var controllerAccelFresh = false
+	/** Discard controller sensor events stamped before this (elapsedRealtimeNanos,
+	 * same base as SensorEvent.timestamp). Re-registering after a reconnect can
+	 * flush the sensor FIFO's queued pre-disconnect samples -- including the
+	 * unplug jostle -- and warming the tracker up on those skews it for tens of
+	 * seconds. The extra settle margin also skips the re-plug handling wobble. */
+	private var controllerMotionAcceptFromNs = 0L
+	/** The tracker's high-gain warmup only runs for its first 30 samples; any
+	 * attitude error it locks in heals at ~1 deg/s afterwards. So don't start
+	 * feeding until the pad is QUIET (verified empirically: warming up while the
+	 * hand is still seating the plug landed 20+ deg off and crawled back for
+	 * 15s). Capped so motion still comes up promptly if the pad never rests. */
+	private var controllerTrackerFeeding = false
+	private var controllerQuietSinceNs = 0L
+	/** Samples fed since the fresh tracker started. The tracker holds identity
+	 * through its 30-sample warmup; keep reporting the LAST pose until warmup
+	 * completes so a reconnect goes frozen-pose -> live truth with no neutral
+	 * flash in between. */
+	private var controllerTrackerFedSamples = 0
 	private val controllerSensorEventListener = object: SensorEventListener {
 		override fun onSensorChanged(event: SensorEvent)
 		{
+			if(event.timestamp < controllerMotionAcceptFromNs)
+				return // stale FIFO backlog or settle window -- not live attitude
 			when(event.sensor.type)
 			{
 				Sensor.TYPE_ACCELEROMETER -> {
+					// Cache only -- the tracker is updated once per GYRO event so its
+					// update cadence is well-defined (see trackerPeriodUs below).
+					// NOTE: the reported gravity vector is only consistent WITHIN a
+					// connection. The kernel driver loads the pad's IMU calibration at
+					// connect and quick reconnects can leave a connection uncalibrated
+					// (measured: same resting pose read 0.89g-1.13g with direction up
+					// to 16 deg apart across replugs). Absolute pose therefore steps a
+					// little on reconnect; that variance is device-side, don't chase
+					// it in this pipeline.
 					controllerAccel[0] = event.values[0] / SensorManager.GRAVITY_EARTH
 					controllerAccel[1] = event.values[1] / SensorManager.GRAVITY_EARTH
 					controllerAccel[2] = event.values[2] / SensorManager.GRAVITY_EARTH
+					controllerAccelFresh = true
+					return
 				}
 				Sensor.TYPE_GYROSCOPE -> {
 					controllerGyro[0] = event.values[0]
 					controllerGyro[1] = event.values[1]
 					controllerGyro[2] = event.values[2]
+					if(!controllerAccelFresh)
+						return // no live accel yet -- don't warm the tracker up on stale gravity
+					if(!controllerTrackerFeeding)
+					{
+						val rate = Math.sqrt((controllerGyro[0] * controllerGyro[0]
+							+ controllerGyro[1] * controllerGyro[1]
+							+ controllerGyro[2] * controllerGyro[2]).toDouble())
+						if(rate > 0.25)
+							controllerQuietSinceNs = 0L
+						else if(controllerQuietSinceNs == 0L)
+							controllerQuietSinceNs = event.timestamp
+						val quiet = controllerQuietSinceNs != 0L
+							&& event.timestamp - controllerQuietSinceNs >= 250_000_000L
+						val waitedLongEnough =
+							event.timestamp >= controllerMotionAcceptFromNs + 1_500_000_000L
+						if(!quiet && !waitedLongEnough)
+							return
+						controllerTrackerFeeding = true
+					}
 				}
 				else -> return
 			}
@@ -291,16 +355,21 @@ class StreamInput(val context: Context, val preferences: Preferences)
 				controllerGyro[0], controllerGyro[1], controllerGyro[2],
 				controllerAccel[0], controllerAccel[1], controllerAccel[2],
 				event.timestamp / 1000, orientationTrackerOut)
+			controllerTrackerFedSamples++
 			sensorControllerState.gyroX = orientationTrackerOut[0]
 			sensorControllerState.gyroY = orientationTrackerOut[1]
 			sensorControllerState.gyroZ = orientationTrackerOut[2]
 			sensorControllerState.accelX = orientationTrackerOut[3]
 			sensorControllerState.accelY = orientationTrackerOut[4]
 			sensorControllerState.accelZ = orientationTrackerOut[5]
-			sensorControllerState.orientX = orientationTrackerOut[6]
-			sensorControllerState.orientY = orientationTrackerOut[7]
-			sensorControllerState.orientZ = orientationTrackerOut[8]
-			sensorControllerState.orientW = orientationTrackerOut[9]
+			if(controllerTrackerFedSamples > 32) // tracker warmup (30 samples) + margin
+			{
+				sensorControllerState.orientX = orientationTrackerOut[6]
+				sensorControllerState.orientY = orientationTrackerOut[7]
+				sensorControllerState.orientZ = orientationTrackerOut[8]
+				sensorControllerState.orientW = orientationTrackerOut[9]
+			}
+			sensorStateFromController = true
 			controllerStateUpdated()
 		}
 
@@ -329,18 +398,16 @@ class StreamInput(val context: Context, val preferences: Preferences)
 		return null
 	}
 
-	private fun resetMotionState()
+	/** Zero only the ROTATION RATES. Orientation and accel deliberately keep
+	 * their last values: on disconnect the pad hasn't physically moved, so
+	 * resetting the pose to identity makes the console visibly snap away from
+	 * the true attitude. Stale rates are the harmful part -- the console keeps
+	 * rotating on them forever. */
+	private fun resetMotionRates()
 	{
 		sensorControllerState.gyroX = 0f
 		sensorControllerState.gyroY = 0f
 		sensorControllerState.gyroZ = 0f
-		sensorControllerState.accelX = 0f
-		sensorControllerState.accelY = 1f
-		sensorControllerState.accelZ = 0f
-		sensorControllerState.orientX = 0f
-		sensorControllerState.orientY = 0f
-		sensorControllerState.orientZ = 0f
-		sensorControllerState.orientW = 1f
 	}
 
 	/** (Re)register the motion source per the MotionSource preference and what is
@@ -372,13 +439,31 @@ class StreamInput(val context: Context, val preferences: Preferences)
 		if(controllerDevice != null)
 		{
 			val (deviceId, sensorManager) = controllerDevice
-			if(orientationTracker == null)
-				orientationTracker = OrientationTracker()
+			// Fresh tracker on every (re)registration: after a reconnect the old
+			// filter state is stale, the timestamp gap would integrate as one huge
+			// step, and the high-beta warmup only runs for a tracker's first 30
+			// samples -- post-warmup convergence is far too slow to recover from
+			// either. Costs a yaw re-zero to the current heading, same as a fresh
+			// stream (pitch/roll re-converge from gravity during warmup, ~0.5s).
+			orientationTracker?.dispose()
+			orientationTracker = OrientationTracker()
+			controllerAccelFresh = false
+			controllerMotionAcceptFromNs = android.os.SystemClock.elapsedRealtimeNanos() + 500_000_000L
+			controllerTrackerFeeding = false
+			controllerQuietSinceNs = 0L
+			controllerTrackerFedSamples = 0
+			// 60Hz, NOT samplingPeriodUs: the shared tracker's output deadband
+			// (ORIENT_FUZZ in lib/src/orientation.c) swallows per-update corrections
+			// of beta*dt when dt is small -- at 250Hz the filter freezes right after
+			// warmup and the orientation latches wherever the first ~100ms left it.
+			// 60Hz matches the cadence iOS feeds the same tracker at.
+			val trackerPeriodUs = 16666
 			listOfNotNull(
 				sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER),
 				sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
 			).forEach {
-				sensorManager.registerListener(controllerSensorEventListener, it, samplingPeriodUs)
+				// maxReportLatencyUs=0: real-time delivery, no FIFO batching.
+				sensorManager.registerListener(controllerSensorEventListener, it, trackerPeriodUs, 0)
 			}
 			controllerSensorManager = sensorManager
 			controllerMotionDeviceId = deviceId
@@ -410,9 +495,9 @@ class StreamInput(val context: Context, val preferences: Preferences)
 		phoneMotionActive = false
 		if(!wasActive)
 			return // nothing was feeding motion, so there's no stale state to clear
-		resetMotionState()
-		// Send the idle motion once -- without this the console keeps acting on the
-		// last gyro/orientation values until the next unrelated input event.
+		resetMotionRates()
+		// Send the stilled rates once -- without this the console keeps rotating on
+		// the last gyro values until the next unrelated input event.
 		controllerStateUpdated()
 	}
 
@@ -423,14 +508,22 @@ class StreamInput(val context: Context, val preferences: Preferences)
 		// queryable; the sensors appear in a later "changed" event. React to all
 		// three, plus a delayed re-check as insurance, so AUTO reliably switches
 		// back to the controller after a reconnect.
-		override fun onInputDeviceAdded(deviceId: Int)
+		//
+		// NEVER call registerMotionSensors() synchronously from these callbacks:
+		// InputDeviceSensorManager.registerListener and the framework's
+		// device-changed binder delivery take the same two locks in opposite
+		// order (observed AB-BA deadlock -> input-dispatch ANR). Deferring via
+		// the handler runs registration after the event storm drains, and also
+		// coalesces a reconnect's added+changed burst into one registration.
+		private fun scheduleReevaluate()
 		{
-			registerMotionSensors()
 			handler.removeCallbacks(motionReevaluateRunnable)
-			handler.postDelayed(motionReevaluateRunnable, 1000)
+			handler.postDelayed(motionReevaluateRunnable, 250)
+			handler.postDelayed(motionReevaluateRunnable, 1200) // sensors-appear-late insurance
 		}
-		override fun onInputDeviceRemoved(deviceId: Int) { registerMotionSensors() }
-		override fun onInputDeviceChanged(deviceId: Int) { registerMotionSensors() }
+		override fun onInputDeviceAdded(deviceId: Int) { scheduleReevaluate() }
+		override fun onInputDeviceRemoved(deviceId: Int) { scheduleReevaluate() }
+		override fun onInputDeviceChanged(deviceId: Int) { scheduleReevaluate() }
 	}
 
 	private val motionLifecycleObserver = object: LifecycleObserver {
