@@ -1405,7 +1405,7 @@ static void stream_connection_takion_av(ChiakiStreamConnection *stream_connectio
 	if(packet->is_video)
 		chiaki_video_receiver_av_packet(stream_connection->video_receiver, packet);
 	else if(packet->is_haptics)
-	    chiaki_audio_receiver_av_packet(stream_connection->haptics_receiver, packet);
+		chiaki_audio_receiver_av_packet(stream_connection->haptics_receiver, packet);
 	else
 		chiaki_audio_receiver_av_packet(stream_connection->audio_receiver, packet);
 }

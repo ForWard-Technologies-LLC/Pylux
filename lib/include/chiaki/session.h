@@ -319,6 +319,23 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_session_keyboard_reject(ChiakiSession *sess
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_keyboard_accept(ChiakiSession *session);
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_go_home(ChiakiSession *session);
 
+/*
+ * ============================== WARNING ====================================
+ * The `static inline` setters below dereference ChiakiSession fields, so they
+ * compile with the CALLER's view of the struct layout. ChiakiSession's layout
+ * depends on the library's build config (e.g. the embedded ChiakiECDH differs
+ * with CHIAKI_LIB_ENABLE_MBEDTLS). Translation units built OUTSIDE the lib's
+ * CMake build (the iOS ObjC bridge, Swift via the bridging header) see a
+ * DIFFERENT layout: the write lands at the wrong offset and silently no-ops.
+ * 2026-07-08: exactly this made the haptics sink NULL inside the lib and
+ * killed Remote Play rumble on iOS only — days of debugging.
+ *
+ * From ios/Pylux (or any non-CMake consumer): use the CHIAKI_EXPORT `_ex`
+ * wrappers in lib/src/ios_bridge_helpers.c instead. ios/build.sh enforces
+ * this with a lint that fails the build. When adding a setter here, add a
+ * matching `_ex` wrapper there.
+ * ===========================================================================
+ */
 static inline void chiaki_session_set_event_cb(ChiakiSession *session, ChiakiEventCallback cb, void *user)
 {
 	session->event_cb = cb;

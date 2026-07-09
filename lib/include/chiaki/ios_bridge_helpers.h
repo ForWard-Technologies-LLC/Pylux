@@ -24,6 +24,12 @@
 // ║  4. Smaller structs (ChiakiSenkusha, ChiakiEvent, ChiakiConnectInfo,   ║
 // ║     ChiakiDiscoveryHost, etc.) are lower risk but could diverge too.   ║
 // ║     If you hit unexplained data corruption, check struct layout first. ║
+// ║  5. Rule 1 includes the `static inline` setters in the chiaki headers  ║
+// ║     (chiaki_session_set_haptics_sink & co.) — they are field access    ║
+// ║     compiled on the caller's side. Violating this made the haptics     ║
+// ║     sink NULL and killed Remote Play rumble on iOS (2026-07-08).       ║
+// ║     ios/build.sh now FAILS the build on such calls                     ║
+// ║     (check_forbidden_inline_setters).                                  ║
 // ╚══════════════════════════════════════════════════════════════════════════╝
 
 #ifndef CHIAKI_IOS_BRIDGE_HELPERS_H
