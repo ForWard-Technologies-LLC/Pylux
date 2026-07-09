@@ -30,6 +30,7 @@ typedef struct {
     ChiakiSessionBridgeEventCallback event_cb;
     void *event_user;
     uint8_t last_haptic_amp; // throttles the haptics->rumble bridge (emit only on change)
+    uint16_t haptic_same_amp_frames; // consecutive frames suppressed by the throttle
     bool (*video_sample_cb)(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool frame_recovered, void *user);
     void *video_sample_cb_user;
 #if CHIAKI_LIB_ENABLE_OPUS
@@ -345,8 +346,15 @@ static void haptics_frame_cb_chiaki(uint8_t *buf, size_t buf_size, void *user)
     }
     uint32_t avg = (uint32_t)(sum / n); // 0..32767
     uint8_t amp = avg >= 32767 ? 255 : (uint8_t)((avg * 255) / 32767);
-    if (amp == s->last_haptic_amp)
-        return; // only emit on meaningful change (throttle main-thread churn)
+    // Only emit on change -- but the consumer plays a FINITE (1s) haptic pattern,
+    // so a constant non-zero amplitude sustained past that would go silent. Let
+    // equal amplitudes through periodically to re-arm the effect (~every 0.5s at
+    // the ~100 frames/s haptic rate).
+    if (amp == s->last_haptic_amp) {
+        if (amp == 0 || ++s->haptic_same_amp_frames < 50)
+            return;
+    }
+    s->haptic_same_amp_frames = 0;
     s->last_haptic_amp = amp;
     ChiakiSessionBridgeEvent ev = { 0 };
     ev.type = ChiakiSessionBridgeEventRumble;

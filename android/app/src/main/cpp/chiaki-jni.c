@@ -290,6 +290,7 @@ typedef struct android_chiaki_session_t
 	bool use_opus_decoder; // true for PSCloud, false for PSNow/Remote Play
 	void *audio_output;
 	uint8_t last_haptic_amp; // last haptic-audio-derived rumble amplitude emitted (throttle)
+	uint16_t haptic_same_amp_frames; // consecutive frames suppressed by the throttle
 } AndroidChiakiSession;
 
 static void android_chiaki_event_cb(ChiakiEvent *event, void *user)
@@ -412,8 +413,16 @@ static void android_chiaki_haptics_frame_cb(uint8_t *buf, size_t buf_size, void 
 	}
 	uint32_t avg = (uint32_t)(sum / n); // 0..32767
 	uint8_t amp = avg >= 32767 ? 255 : (uint8_t)((avg * 255) / 32767);
+	// Only emit on change -- but the consumer plays a FINITE (1s) effect, so a
+	// constant non-zero amplitude sustained past that would go silent. Let equal
+	// amplitudes through periodically to re-arm the effect (~every 0.5s at the
+	// ~100 frames/s haptic rate).
 	if(amp == session->last_haptic_amp)
-		return; // only emit on meaningful change
+	{
+		if(amp == 0 || ++session->haptic_same_amp_frames < 50)
+			return;
+	}
+	session->haptic_same_amp_frames = 0;
 	session->last_haptic_amp = amp;
 	ChiakiEvent event = { 0 };
 	event.type = CHIAKI_EVENT_RUMBLE;

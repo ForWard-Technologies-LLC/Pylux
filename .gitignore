@@ -93,4 +93,5 @@ lib/test_cloudcatalog/.npsso
 ios/logs/
 
 # Local scratch: build + logcat captures (may contain PSN session tokens) -- never track
-tmp/
+# (anchored to the repo root so legitimate nested tmp/ dirs aren't swallowed)
+/tmp/

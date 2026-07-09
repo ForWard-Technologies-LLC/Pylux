@@ -198,6 +198,7 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 			// User-scalable strength (0..500%). Read once at stream start (restart to change);
 			// avoids reading SharedPreferences on every rumble event (~80/s).
 			val rumbleScale = Preferences(this).rumbleIntensity / 100f
+			var lastVibrator: Vibrator? = null
 			viewModel.session.rumbleState.observe(this, Observer {
 				// Prefer the connected controller's own motor over the phone's
 				// (resolved per event so controller hotplug just works; the device
@@ -206,6 +207,12 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 				val cv = controllerVibrator()
 				val vibrator = cv ?: phoneVibrator
 				val amplitude = (((it.left.toInt() + it.right.toInt()) / 2) * rumbleScale).toInt().coerceIn(0, 255)
+				// Cancel the PREVIOUS target too: when the target switches
+				// (controller connects/disconnects mid-rumble), cancelling only the
+				// new one would leave the old motor buzzing out its 1s one-shot.
+				if(lastVibrator !== vibrator)
+					lastVibrator?.cancel()
+				lastVibrator = vibrator
 				vibrator.cancel()
 				if(amplitude == 0)
 					return@Observer

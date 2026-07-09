@@ -1024,12 +1024,23 @@ static ChiakiErrorCode gk_step13_allocate(GaikaiCtx *c, ChiakiCloudProvisionResu
 			if(gk_cancelled(c)) return CHIAKI_ERR_CANCELED;
 			if(++net_errors > GK_ALLOC_MAX_NET_ERRORS || elapsed >= max_wait)
 			{
-				CHIAKI_LOGE(c->log, "[GAIKAI] allocate failed after %d consecutive network errors", net_errors);
-				free(out->error_message);
 				// Friendly message: clients show error_message verbatim when it isn't one
-				// of the known sentinels (AUTHORIZATION_FAILED, PS_PLUS_...), so this
-				// replaces the generic "Allocation failed" with the real cause.
-				out->error_message = strdup("Couldn't reach the cloud server (network error). Please try again.");
+				// of the known sentinels (AUTHORIZATION_FAILED, PS_PLUS_...). Only blame
+				// the network on the consecutive-errors path -- a blip that happens to
+				// coincide with the allocation window expiring is a timeout, not an
+				// unreachable server.
+				if(net_errors > GK_ALLOC_MAX_NET_ERRORS)
+				{
+					CHIAKI_LOGE(c->log, "[GAIKAI] allocate failed after %d consecutive network errors", net_errors);
+					free(out->error_message);
+					out->error_message = strdup("Couldn't reach the cloud server (network error). Please try again.");
+				}
+				else
+				{
+					CHIAKI_LOGE(c->log, "[GAIKAI] allocate wait expired (%ds) during a network error", elapsed);
+					free(out->error_message);
+					out->error_message = strdup("Timed out waiting for a streaming slot. Please try again.");
+				}
 				return e;
 			}
 			CHIAKI_LOGW(c->log, "[GAIKAI] allocate network error (%d/%d), retrying in %ds",

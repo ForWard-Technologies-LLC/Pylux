@@ -354,7 +354,10 @@ final class StreamSession: ObservableObject {
     /// here — the switch used to be duplicated in each and the copies diverged
     /// (the PSN copy was missing the PS-chord case, so the in-stream menu never
     /// opened on PSN sessions). Do not fork this switch again.
-    private func handleSessionEvent(_ event: ChiakiSessionBridgeEvent) {
+    /// `quitReasonStr` arrives separately because `event.quit_reason_str` is a
+    /// borrowed C pointer only valid during the callback — the receiver block
+    /// copies it into a String before hopping to the main actor.
+    private func handleSessionEvent(_ event: ChiakiSessionBridgeEvent, quitReasonStr: String?) {
         switch event.type.rawValue {
         case 0: // ChiakiSessionBridgeEventConnected
             os_log(.default, log: sessionLog, "[StreamSession] Session connected — video starting")
@@ -395,10 +398,9 @@ final class StreamSession: ObservableObject {
             rumbleFeedback?.shutdown()
             rumbleFeedback = nil
             StreamTriggerFeedback.reset(controller: input.currentController)
-            let reasonStr = event.quit_reason_str.map { String(cString: $0) }
-            let quitMsg = reasonStr ?? String(format: "reason=0x%08x", event.quit_reason)
+            let quitMsg = quitReasonStr ?? String(format: "reason=0x%08x", event.quit_reason)
             os_log(.error, log: sessionLog, "[StreamSession] Session quit: %{public}s", quitMsg)
-            state = .quit(reason: event.quit_reason, reasonString: reasonStr)
+            state = .quit(reason: event.quit_reason, reasonString: quitReasonStr)
         case 1: // ChiakiSessionBridgeEventLoginPinRequest
             connectionPhase = ""
             state = .loginPinRequest(pinIncorrect: event.login_pin_incorrect)
@@ -430,8 +432,11 @@ final class StreamSession: ObservableObject {
         receiver.eventBlock = { [weak self] eventPtr in
             guard let self = self, let eventPtr = eventPtr else { return }
             let event = eventPtr.assumingMemoryBound(to: ChiakiSessionBridgeEvent.self).pointee
+            // quit_reason_str points into memory the lib frees right after this
+            // callback returns — copy it NOW, before the async hop.
+            let quitReasonStr = event.quit_reason_str.map { String(cString: $0) }
             Task { @MainActor in
-                self.handleSessionEvent(event)
+                self.handleSessionEvent(event, quitReasonStr: quitReasonStr)
             }
         }
         return receiver

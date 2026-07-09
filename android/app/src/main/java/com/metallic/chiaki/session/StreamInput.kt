@@ -400,6 +400,7 @@ class StreamInput(val context: Context, val preferences: Preferences)
 
 	private fun unregisterMotionSensors()
 	{
+		val wasActive = controllerMotionActive || phoneMotionActive
 		val phoneSensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
 		phoneSensorManager.unregisterListener(sensorEventListener)
 		controllerSensorManager?.unregisterListener(controllerSensorEventListener)
@@ -407,6 +408,8 @@ class StreamInput(val context: Context, val preferences: Preferences)
 		controllerMotionActive = false
 		controllerMotionDeviceId = -1
 		phoneMotionActive = false
+		if(!wasActive)
+			return // nothing was feeding motion, so there's no stale state to clear
 		resetMotionState()
 		// Send the idle motion once -- without this the console keeps acting on the
 		// last gyro/orientation values until the next unrelated input event.
