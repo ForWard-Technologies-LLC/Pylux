@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 // Merges physical `GameController` input with on-screen touch controls into `ChiakiControllerState` (Android `StreamInput`).
 
+import CoreMotion
 import Foundation
 import GameController
-
-// TODO: Device motion when `StreamPreferences.motionEnabled` (Android parity).
 
 /// Owns merged `ChiakiControllerState` and notifies `StreamSession` when it changes.
 /// Merges are **event-driven** like Android: touch overlay updates, `GCController` `valueChangedHandler`,
@@ -28,22 +27,30 @@ class StreamInput {
     private weak var attachedController: GCController?
     private var lastStateHash: Int = -1
     private let swapButtons: Bool
+    // Motion (gyro/accel/orientation) streamed to the console, per the user's
+    // MotionSource setting: the controller's sensors (GCMotion), this device's
+    // sensors (CoreMotion), or off. Raw gyro/accel are fed through the shared C
+    // orientation tracker exactly like Qt's SDL path.
+    private var motionSource: MotionSource
+    private var orientationTracker = ChiakiOrientationTracker()
+    private var accelZero = ChiakiAccelNewZero()
+    private let deviceMotion = CMMotionManager()
+    private var prefsObserver: NSObjectProtocol?
 
     /// The currently attached physical controller (if any). Used by `StreamRumbleFeedback` to route haptics.
     var currentController: GCController? { attachedController ?? GCController.controllers().first }
 
-    /// True when the attached controller is a physical DualSense. Gates
-    /// `enable_dualsense`: only advertise DualSense to the console when one is
-    /// actually connected, so non-DualSense users keep classic rumble.
-    var hasDualSense: Bool { (currentController?.extendedGamepad as? GCDualSenseGamepad) != nil }
-
     // MARK: - Lifecycle
 
     init() {
-        swapButtons = StreamPreferences.load().swapCrossMoon
+        let prefs = StreamPreferences.load()
+        swapButtons = prefs.swapCrossMoon
+        motionSource = prefs.motionSource
         chiaki_controller_state_set_idle(&controllerState)
         chiaki_controller_state_set_idle(&touchOverlayState)
         chiaki_controller_state_set_idle(&physicalTouchpadState)
+        chiaki_orientation_tracker_init(&orientationTracker)
+        chiaki_accel_new_zero_set_inactive(&accelZero, false)
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(controllerDidConnect),
@@ -56,13 +63,28 @@ class StreamInput {
             name: .GCControllerDidDisconnect,
             object: nil
         )
+        prefsObserver = NotificationCenter.default.addObserver(
+            forName: .streamPreferencesDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self = self else { return }
+            self.motionSource = StreamPreferences.load().motionSource
+            self.reconfigureMotionSources()
+        }
         if let controller = GCController.controllers().first {
             attachController(controller)
+        } else {
+            reconfigureMotionSources()
         }
     }
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+        if let obs = prefsObserver {
+            NotificationCenter.default.removeObserver(obs)
+        }
+        deviceMotion.stopDeviceMotionUpdates()
     }
 
     // MARK: - Touch overlay (from `StreamTouchControlsContainerView`)
@@ -95,11 +117,22 @@ class StreamInput {
         if notification.object as? GCController === attachedController {
             attachedController = nil
         }
+        reconfigureMotionSources()
         mergeGamepadWithTouchAndNotify()
     }
 
     private func attachController(_ controller: GCController) {
         attachedController = controller
+        // By default iOS binds the Create/Share button to the system capture
+        // gestures (press = screenshot, long-press = recording) and swallows the
+        // presses, so the OPTIONS+SHARE menu chord could never fire from a
+        // physical controller. Claim these buttons for the stream: SHARE/OPTIONS
+        // must reach the console, and Home is the PS button.
+        if let pad = controller.extendedGamepad {
+            for button in [pad.buttonOptions, pad.buttonMenu, pad.buttonHome].compactMap({ $0 }) {
+                button.preferredSystemGestureState = .disabled
+            }
+        }
         controller.extendedGamepad?.valueChangedHandler = { [weak self] _, _ in
             self?.mergeGamepadWithTouchAndNotify()
         }
@@ -114,7 +147,60 @@ class StreamInput {
             ds.touchpadPrimary.valueChangedHandler = { _, _, _ in onChange() }
             ds.touchpadSecondary.valueChangedHandler = { _, _, _ in onChange() }
         }
+        reconfigureMotionSources()
         mergeGamepadWithTouchAndNotify()
+    }
+
+    // MARK: - Motion sources
+
+    /// True when the current MotionSource resolves to the controller's sensors.
+    private var usesControllerMotion: Bool {
+        guard attachedController?.motion != nil else { return false }
+        return motionSource == .auto || motionSource == .controller
+    }
+
+    /// True when the current MotionSource resolves to this device's sensors.
+    private var usesPhoneMotion: Bool {
+        switch motionSource {
+        case .phone: return true
+        case .auto: return attachedController?.motion == nil
+        case .controller, .off: return false
+        }
+    }
+
+    /// Start/stop the controller's and the phone's motion sensors to match the
+    /// MotionSource setting and what is currently attached. Called at init, on
+    /// controller connect/disconnect, and on preference changes (live).
+    private func reconfigureMotionSources() {
+        // Controller sensors (DualSense/DS4 need manual activation on iOS). Each
+        // sample drives a merge so the feedback stream carries continuously-live
+        // motion.
+        if let motion = attachedController?.motion {
+            if usesControllerMotion {
+                if motion.sensorsRequireManualActivation && !motion.sensorsActive {
+                    motion.sensorsActive = true
+                }
+                motion.valueChangedHandler = { [weak self] _ in self?.mergeGamepadWithTouchAndNotify() }
+            } else {
+                motion.valueChangedHandler = nil
+                if motion.sensorsRequireManualActivation && motion.sensorsActive {
+                    motion.sensorsActive = false
+                }
+            }
+        }
+
+        // Phone sensors via CoreMotion, at the controller-sensor-comparable 60Hz.
+        if usesPhoneMotion {
+            if !deviceMotion.isDeviceMotionActive && deviceMotion.isDeviceMotionAvailable {
+                deviceMotion.deviceMotionUpdateInterval = 1.0 / 60.0
+                deviceMotion.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
+                    guard motion != nil else { return }
+                    self?.mergeGamepadWithTouchAndNotify()
+                }
+            }
+        } else if deviceMotion.isDeviceMotionActive {
+            deviceMotion.stopDeviceMotionUpdates()
+        }
     }
 
     // MARK: - Merge + notify
@@ -129,6 +215,7 @@ class StreamInput {
         } else {
             clearPhysicalTouchpad()
         }
+        applyMotion(to: &gamepad, controller: controller)
         var merged = ChiakiControllerState()
         chiaki_controller_state_set_idle(&merged)
         chiaki_controller_state_or(&merged, &gamepad, &touchOverlayState)
@@ -152,12 +239,16 @@ class StreamInput {
         if ds.touchpadButton.isPressed { physicalTouchpadState.buttons |= touchpadBit }
         else { physicalTouchpadState.buttons &= ~touchpadBit }
 
-        // Finger 1 presence comes from touchpadButton.isTouched (a finger resting on
-        // the surface, distinct from a physical click).
-        updatePadFinger(present: ds.touchpadButton.isTouched, dpad: ds.touchpadPrimary, id: &padFinger1Id)
-        // Finger 2 has no dedicated touch flag; treat non-zero secondary axes as
-        // present. Only false-negative is a second finger resting exactly at center
-        // — a public-API limitation, not worked around.
+        // Finger presence: on iOS, GameController does not reliably surface the
+        // DualSense capacitive touch through touchpadButton.isTouched — it tracks
+        // the CLICK, which forced click-and-drag before swipes registered (and made
+        // a plain click unusable). Treat non-zero axes as presence (like finger 2
+        // always did), keeping isTouched as a bonus signal where it works. Only
+        // false-negative is a finger resting exactly at dead center — a public-API
+        // limitation, not worked around.
+        let pri = ds.touchpadPrimary
+        updatePadFinger(present: ds.touchpadButton.isTouched || pri.xAxis.value != 0 || pri.yAxis.value != 0,
+                        dpad: pri, id: &padFinger1Id)
         let sec = ds.touchpadSecondary
         updatePadFinger(present: sec.xAxis.value != 0 || sec.yAxis.value != 0, dpad: sec, id: &padFinger2Id)
     }
@@ -225,6 +316,59 @@ class StreamInput {
         }
     }
 
+    /// Feed the active motion source (per MotionSource) through the shared C
+    /// orientation tracker and stamp gyro/accel/orientation into `state`.
+    private func applyMotion(to state: inout ChiakiControllerState, controller: GCController?) {
+        if usesControllerMotion, let motion = controller?.motion,
+           motion.sensorsActive || !motion.sensorsRequireManualActivation {
+            // GCMotion units match chiaki: rotationRate is rad/s, acceleration is in G.
+            // Frames differ though: Apple's controller frame is Z-up (observed: at rest
+            // -(gravity) ≈ (0,0,1)) while the PS/chiaki frame is Y-up with +Z toward the
+            // player. Right-handed remap: PS(x,y,z) = Apple(x, z, -y), applied to both
+            // gyro and accel; Apple's acceleration also points along gravity while PS
+            // reports the reaction force, hence the negation.
+            let rr = motion.rotationRate
+            let aX: Double, aY: Double, aZ: Double
+            if motion.hasGravityAndUserAcceleration {
+                aX = -(motion.gravity.x + motion.userAcceleration.x)
+                aY = -(motion.gravity.y + motion.userAcceleration.y)
+                aZ = -(motion.gravity.z + motion.userAcceleration.z)
+            } else {
+                aX = -motion.acceleration.x
+                aY = -motion.acceleration.y
+                aZ = -motion.acceleration.z
+            }
+            updateOrientationTracker(
+                gyro: (Float(rr.x), Float(rr.z), Float(-rr.y)),
+                accel: (Float(aX), Float(aZ), Float(-aY))
+            )
+            chiaki_orientation_tracker_apply_to_controller_state(&orientationTracker, &state)
+        } else if usesPhoneMotion, let motion = deviceMotion.deviceMotion {
+            // This device's sensors (CoreMotion), Android-parity mapping for a phone
+            // held landscape: PS(x,y,z) = device(y, z, x). CoreMotion's portrait device
+            // frame is X right / Y toward earpiece / Z out of the screen, and its
+            // acceleration points along gravity while PS reports the reaction force,
+            // hence the negation (same as the controller path).
+            let rr = motion.rotationRate
+            let aX = -(motion.gravity.x + motion.userAcceleration.x)
+            let aY = -(motion.gravity.y + motion.userAcceleration.y)
+            let aZ = -(motion.gravity.z + motion.userAcceleration.z)
+            updateOrientationTracker(
+                gyro: (Float(rr.y), Float(rr.z), Float(rr.x)),
+                accel: (Float(aY), Float(aZ), Float(aX))
+            )
+            chiaki_orientation_tracker_apply_to_controller_state(&orientationTracker, &state)
+        }
+    }
+
+    private func updateOrientationTracker(gyro: (Float, Float, Float), accel: (Float, Float, Float)) {
+        let timestampUs = UInt32(truncatingIfNeeded: Int64(ProcessInfo.processInfo.systemUptime * 1_000_000))
+        chiaki_orientation_tracker_update(&orientationTracker,
+                                          gyro.0, gyro.1, gyro.2,
+                                          accel.0, accel.1, accel.2,
+                                          &accelZero, true, timestampUs)
+    }
+
     private func notifyIfChanged() {
         let h = stateHash()
         guard h != lastStateHash else { return }
@@ -242,6 +386,9 @@ class StreamInput {
         h = h &* 31 &+ Int(controllerState.right_y)
         h = hashTouchSlot(controllerState.touches.0, h)
         h = hashTouchSlot(controllerState.touches.1, h)
+        // sample_index increments per tracker update, so hashing it defeats the
+        // change-gate for motion-only updates (gyro aiming needs every sample).
+        h = h &* 31 &+ Int(bitPattern: UInt(truncatingIfNeeded: orientationTracker.sample_index))
         return h
     }
 

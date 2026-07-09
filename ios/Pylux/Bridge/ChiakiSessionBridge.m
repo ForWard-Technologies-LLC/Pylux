@@ -83,10 +83,16 @@ static void event_cb_chiaki(ChiakiEvent *event, void *user)
             memcpy(bridge_event.trigger_left, event->trigger_effects.left, sizeof(bridge_event.trigger_left));
             memcpy(bridge_event.trigger_right, event->trigger_effects.right, sizeof(bridge_event.trigger_right));
             break;
+        case CHIAKI_EVENT_HAPTIC_INTENSITY:
+        case CHIAKI_EVENT_TRIGGER_INTENSITY:
+            // Console's per-session DualSense intensity settings; Swift scales
+            // rumble amplitude / trigger effects with these (matching Qt).
+            bridge_event.effect_intensity = (int)event->intensity;
+            break;
         default:
-            // Other DualSense feedback (HAPTIC_INTENSITY, TRIGGER_INTENSITY, LED,
-            // PLAYER_INDEX, MOTION_RESET) isn't surfaced yet; the bridge event type
-            // still maps 1:1 with ChiakiEventType so Swift can see them if needed.
+            // Other DualSense feedback (LED, PLAYER_INDEX, MOTION_RESET) isn't
+            // surfaced yet; the bridge event type still maps 1:1 with
+            // ChiakiEventType so Swift can see them if needed.
             break;
     }
     s->event_cb(&bridge_event, s->event_user);
@@ -356,7 +362,13 @@ void chiaki_session_bridge_enable_haptics_rumble(ChiakiSessionRef ref)
     ChiakiAudioSink sink = { 0 };
     sink.user = s;
     sink.frame_cb = haptics_frame_cb_chiaki;
-    chiaki_session_set_haptics_sink(s->session, &sink);
+    // MUST be the _ex variant: chiaki_session_set_haptics_sink is static inline,
+    // so calling it from this ObjC translation unit computes the haptics_sink
+    // offset from THIS file's view of ChiakiSession -- which differs from the
+    // library's (different config defines; same reason the session is allocated
+    // via chiaki_session_get_sizeof). The inline version wrote the sink pointer
+    // to the wrong offset, the lib read NULL, and RP rumble stayed silent.
+    chiaki_session_set_haptics_sink_ex(s->session, &sink);
 }
 
 void chiaki_session_bridge_set_ps_chord(ChiakiSessionRef ref, bool enabled, uint32_t hold_ms)

@@ -9,6 +9,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <chiaki/controller.h>
+#include <chiaki/orientation.h>
 
 /**
  * Opaque session reference. Create with chiaki_session_bridge_create, free with chiaki_session_bridge_free.
@@ -62,6 +63,10 @@ typedef struct ChiakiSessionBridgeEvent {
     uint8_t trigger_type_right;
     uint8_t trigger_left[10];
     uint8_t trigger_right[10];
+    // For HapticIntensity/TriggerIntensity events: the console's per-session
+    // DualSense intensity setting (ChiakiDualSenseEffectIntensity:
+    // 0=Off, 1=Strong, 2=Medium, 3=Weak).
+    int effect_intensity;
 } ChiakiSessionBridgeEvent;
 
 /**
@@ -153,9 +158,8 @@ void chiaki_session_bridge_set_ps_chord(ChiakiSessionRef ref, bool enabled, uint
 
 /**
  * Register a haptics sink that converts DualSense haptic-audio frames back into
- * rumble events. Call only when streaming with enable_dualsense = true (a
- * DualSense connected), so classic rumble isn't lost when the console switches to
- * haptic-audio delivery.
+ * rumble events. Required for Remote Play rumble (a PS5 delivers rumble ONLY as
+ * haptic audio when enable_dualsense = true); harmless for cloud sessions.
  */
 void chiaki_session_bridge_enable_haptics_rumble(ChiakiSessionRef ref);
 

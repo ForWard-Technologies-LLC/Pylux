@@ -367,14 +367,20 @@ struct StreamView: View {
                 )
             }
 
-            // Disconnect button (matches Android's disconnectButton)
-            Button("Disconnect") {
+            // Disconnect button (matches Android's disconnectButton). The bar is
+            // crowded (toggles + display modes + PiP), so keep the label on one
+            // line and let it scale down instead of wrapping ("Disconn/ect").
+            Button {
                 session.pause()
                 dismiss()
+            } label: {
+                Text("Disconnect")
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
             }
-            .font(.system(size: 14, weight: .medium))
+            .font(.system(size: 13, weight: .medium))
             .foregroundColor(.white)
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .overlay(
                 RoundedRectangle(cornerRadius: 8)

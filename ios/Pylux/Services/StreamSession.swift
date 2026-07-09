@@ -84,14 +84,33 @@ final class StreamSession: ObservableObject {
     private var rumbleFeedback: StreamRumbleFeedback?
     /// Cached from `StreamPreferences` (refreshed on `resume()` and `.streamPreferencesDidChange`) — avoids keychain read on every rumble packet.
     private var rumbleEffectsEnabled: Bool
+    /// Rumble strength percent (0–500, 100 = 1x), cached like `rumbleEffectsEnabled`.
+    private var rumbleIntensity: Int
+    /// Console-side DualSense intensity settings (HapticIntensity/TriggerIntensity
+    /// events), applied like Qt: rumble amplitude is scaled, trigger effects are
+    /// scaled and fully skipped when the console says Off.
+    private var consoleRumbleScale: Float = 1.0
+    private var consoleTriggerScale: Float = 1.0
+
+    /// Qt's multipliers for ChiakiDualSenseEffectIntensity (0=Off,1=Strong,2=Medium,3=Weak).
+    private static func intensityScale(_ raw: Int32) -> Float {
+        switch raw {
+        case 0: return 0
+        case 2: return 0.5
+        case 3: return 0.33
+        default: return 1.0
+        }
+    }
     private var adaptiveTriggersEnabled: Bool
     private var streamPrefsObserver: NSObjectProtocol?
 
     init(connectInfo: StreamConnectInfo, input: StreamInput) {
         self.connectInfo = connectInfo
         self.input = input
-        rumbleEffectsEnabled = StreamPreferences.load().rumbleEnabled
-        adaptiveTriggersEnabled = StreamPreferences.load().adaptiveTriggersEnabled
+        let prefs = StreamPreferences.load()
+        rumbleEffectsEnabled = prefs.rumbleEnabled
+        rumbleIntensity = prefs.rumbleIntensity
+        adaptiveTriggersEnabled = prefs.adaptiveTriggersEnabled
         input.controllerStateChangedCallback = { [weak self] statePtr in
             guard let self = self, let ref = self.sessionRef else { return }
             _ = chiaki_session_bridge_set_controller_state(ref, statePtr)
@@ -102,8 +121,10 @@ final class StreamSession: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.rumbleEffectsEnabled = StreamPreferences.load().rumbleEnabled
-                let triggers = StreamPreferences.load().adaptiveTriggersEnabled
+                let prefs = StreamPreferences.load()
+                self?.rumbleEffectsEnabled = prefs.rumbleEnabled
+                self?.rumbleIntensity = prefs.rumbleIntensity
+                let triggers = prefs.adaptiveTriggersEnabled
                 if self?.adaptiveTriggersEnabled == true && !triggers {
                     StreamTriggerFeedback.reset(controller: self?.input.currentController) // don't leave a resistance latched
                 }
@@ -120,7 +141,9 @@ final class StreamSession: ObservableObject {
 
     func resume() {
         guard state == .idle else { return }
-        rumbleEffectsEnabled = StreamPreferences.load().rumbleEnabled
+        let resumePrefs = StreamPreferences.load()
+        rumbleEffectsEnabled = resumePrefs.rumbleEnabled
+        rumbleIntensity = resumePrefs.rumbleIntensity
         state = .connecting
         if connectInfo.isPsnConnection {
             connectionPhase = "Preparing internet connection…"
@@ -327,7 +350,6 @@ final class StreamSession: ObservableObject {
     // MARK: - Create and start native session
 
     private nonisolated func createAndStartSession(connectInfo: StreamConnectInfo, holepunchPtr: UInt) async {
-        let hasDualSense = input.hasDualSense
         let receiver = SessionEventReceiver()
         receiver.eventBlock = { [weak self] eventPtr in
             guard let self = self, let eventPtr = eventPtr else { return }
@@ -350,15 +372,25 @@ final class StreamSession: ObservableObject {
                     self.rumbleFeedback?.applyRumble(
                         left: event.rumble_left,
                         right: event.rumble_right,
-                        rumbleEnabled: self.rumbleEffectsEnabled
+                        rumbleEnabled: self.rumbleEffectsEnabled,
+                        intensityPercent: Int(Float(self.rumbleIntensity) * self.consoleRumbleScale)
                     )
                 case 10: // ChiakiSessionBridgeEventTriggerEffects
-                    if self.adaptiveTriggersEnabled {
+                    // Mirror Qt: skip entirely when the console's trigger intensity is Off.
+                    if self.adaptiveTriggersEnabled && self.consoleTriggerScale > 0 {
                         let l = withUnsafeBytes(of: event.trigger_left) { Array($0) }
                         let r = withUnsafeBytes(of: event.trigger_right) { Array($0) }
                         StreamTriggerFeedback.apply(controller: self.input.currentController,
                                                     typeLeft: event.trigger_type_left, left: l,
-                                                    typeRight: event.trigger_type_right, right: r)
+                                                    typeRight: event.trigger_type_right, right: r,
+                                                    intensityScale: self.consoleTriggerScale)
+                    }
+                case 14: // ChiakiSessionBridgeEventHapticIntensity (console setting)
+                    self.consoleRumbleScale = Self.intensityScale(event.effect_intensity)
+                case 15: // ChiakiSessionBridgeEventTriggerIntensity (console setting)
+                    self.consoleTriggerScale = Self.intensityScale(event.effect_intensity)
+                    if self.consoleTriggerScale == 0 {
+                        StreamTriggerFeedback.reset(controller: self.input.currentController)
                     }
                 case 9: // ChiakiSessionBridgeEventQuit
                     self.rumbleFeedback?.shutdown()
@@ -436,7 +468,12 @@ final class StreamSession: ObservableObject {
                         cInfo.video_max_fps = connectInfo.videoMaxFps
                         cInfo.video_bitrate = connectInfo.videoBitrate
                         cInfo.video_codec = Int32(connectInfo.videoCodec)
-                        cInfo.enable_dualsense = hasDualSense // only advertise DualSense when one is attached (else the console switches to haptic-audio and classic rumble is lost)
+                        // Always true, matching Android: a Remote Play PS5 sends rumble ONLY as
+                        // DualSense haptic audio (a DualShock4-declared client gets no motor data
+                        // at all), so gating this on an attached DualSense left RP rumble silent
+                        // whenever the controller enumerated after session creation. The haptics
+                        // sink below converts the haptic audio back to normal rumble events.
+                        cInfo.enable_dualsense = true
                         cInfo.holepunch_session = holepunchPtr
                         cInfo.auto_regist = connectInfo.autoRegist
                         // Cloud streaming fields (matching Android JNI)
@@ -478,10 +515,10 @@ final class StreamSession: ObservableObject {
         }
 
         chiaki_session_bridge_set_ps_chord(ref, true, 0) // always on: safe, no user toggle
-        if hasDualSense {
-            // Console will deliver rumble as DualSense haptic-audio; convert it back to rumble.
-            chiaki_session_bridge_enable_haptics_rumble(ref)
-        }
+        // Unconditional (matching enable_dualsense above): the console delivers rumble
+        // as DualSense haptic-audio; convert it back to rumble events for whatever
+        // controller is (or later becomes) attached.
+        chiaki_session_bridge_enable_haptics_rumble(ref)
 
         await MainActor.run { [weak self] in
             self?.connectionPhase = connectInfo.isCloudConnection ? "Starting cloud stream…" : "Starting stream…"
@@ -548,7 +585,6 @@ final class StreamSession: ObservableObject {
     // MARK: - Synchronous session creation for PSN connections (runs on dedicated thread)
 
     private func createAndStartSessionSync(connectInfo: StreamConnectInfo, holepunchPtr: UInt, hpSession: PyluxHolepunchSession) {
-        let hasDualSense = input.hasDualSense
         let receiver = SessionEventReceiver()
         receiver.eventBlock = { [weak self] eventPtr in
             guard let self = self, let eventPtr = eventPtr else { return }
@@ -568,15 +604,25 @@ final class StreamSession: ObservableObject {
                     self.rumbleFeedback?.applyRumble(
                         left: event.rumble_left,
                         right: event.rumble_right,
-                        rumbleEnabled: self.rumbleEffectsEnabled
+                        rumbleEnabled: self.rumbleEffectsEnabled,
+                        intensityPercent: Int(Float(self.rumbleIntensity) * self.consoleRumbleScale)
                     )
                 case 10: // ChiakiSessionBridgeEventTriggerEffects
-                    if self.adaptiveTriggersEnabled {
+                    // Mirror Qt: skip entirely when the console's trigger intensity is Off.
+                    if self.adaptiveTriggersEnabled && self.consoleTriggerScale > 0 {
                         let l = withUnsafeBytes(of: event.trigger_left) { Array($0) }
                         let r = withUnsafeBytes(of: event.trigger_right) { Array($0) }
                         StreamTriggerFeedback.apply(controller: self.input.currentController,
                                                     typeLeft: event.trigger_type_left, left: l,
-                                                    typeRight: event.trigger_type_right, right: r)
+                                                    typeRight: event.trigger_type_right, right: r,
+                                                    intensityScale: self.consoleTriggerScale)
+                    }
+                case 14: // ChiakiSessionBridgeEventHapticIntensity (console setting)
+                    self.consoleRumbleScale = Self.intensityScale(event.effect_intensity)
+                case 15: // ChiakiSessionBridgeEventTriggerIntensity (console setting)
+                    self.consoleTriggerScale = Self.intensityScale(event.effect_intensity)
+                    if self.consoleTriggerScale == 0 {
+                        StreamTriggerFeedback.reset(controller: self.input.currentController)
                     }
                 case 9:
                     self.rumbleFeedback?.shutdown()
@@ -633,7 +679,12 @@ final class StreamSession: ObservableObject {
             cInfo.video_max_fps = connectInfo.videoMaxFps
             cInfo.video_bitrate = connectInfo.videoBitrate
             cInfo.video_codec = Int32(connectInfo.videoCodec)
-            cInfo.enable_dualsense = hasDualSense // only advertise DualSense when one is attached (else the console switches to haptic-audio and classic rumble is lost)
+            // Always true, matching Android: a Remote Play PS5 sends rumble ONLY as
+            // DualSense haptic audio (a DualShock4-declared client gets no motor data
+            // at all), so gating this on an attached DualSense left RP rumble silent
+            // whenever the controller enumerated after session creation. The haptics
+            // sink below converts the haptic audio back to normal rumble events.
+            cInfo.enable_dualsense = true
             cInfo.holepunch_session = holepunchPtr
             cInfo.auto_regist = connectInfo.autoRegist
             _ = withUnsafeMutableBytes(of: &cInfo.regist_key) { buf in
@@ -662,10 +713,10 @@ final class StreamSession: ObservableObject {
         }
 
         chiaki_session_bridge_set_ps_chord(ref, true, 0) // always on: safe, no user toggle
-        if hasDualSense {
-            // Console will deliver rumble as DualSense haptic-audio; convert it back to rumble.
-            chiaki_session_bridge_enable_haptics_rumble(ref)
-        }
+        // Unconditional (matching enable_dualsense above): the console delivers rumble
+        // as DualSense haptic-audio; convert it back to rumble events for whatever
+        // controller is (or later becomes) attached.
+        chiaki_session_bridge_enable_haptics_rumble(ref)
 
         // Native session owns holepunch pointer now
         DispatchQueue.main.async { [weak self] in
