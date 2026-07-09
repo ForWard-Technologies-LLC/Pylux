@@ -191,7 +191,7 @@ class HostStore: ObservableObject {
             psnHosts.map { ($0.name, $0.duid) },
             uniquingKeysWith: { _, last in last }
         )
-        os_log(.default, log: hostLog, "displayHosts: %d discovered, %d psn, %d manual, %d registered",
+        os_log(.info, log: hostLog, "displayHosts: %d discovered, %d psn, %d manual, %d registered",
                discoveredHosts.count, psnHosts.count, manualHosts.count, registeredHosts.count)
 
         let discovered: [DisplayHost] = discoveredHosts.map { dh in
@@ -210,7 +210,7 @@ class HostStore: ObservableObject {
             // Cross-reference: if this discovered host also exists in PSN hosts, carry its DUID
             // (matches Android MainViewModel line 83: psnDuid = matchedDuid)
             let matchedDuid = dh.hostName.flatMap { psnDuidByNickname[$0] }
-            os_log(.default, log: hostLog, "  discovered: name=%{public}s hostId=%{public}s registered=%d",
+            os_log(.info, log: hostLog, "  discovered: name=%{public}s hostId=%{public}s registered=%d",
                    dh.hostName ?? "nil", dh.hostId ?? "nil", registered != nil ? 1 : 0)
             return .discovered(DiscoveredDisplayHost(registeredHost: registered, discoveredHost: dh, psnDuid: matchedDuid))
         }
@@ -438,7 +438,7 @@ class HostStore: ObservableObject {
         // Matches Android: credential = BigInteger(1, rpRegistKey.take(8).toByteArray()).toLong()
         let keyBytes = registered.rpRegistKey.prefix(8)
         let credential = keyBytes.reduce(UInt64(0)) { ($0 << 8) | UInt64($1) }
-        os_log(.default, log: hostLog, "Wakeup: sending to %{public}s, credential=0x%016llx, ps5=%d",
+        os_log(.info, log: hostLog, "Wakeup: sending to %{public}s, credential=0x%016llx, ps5=%d",
                address, credential, registered.isPS5 ? 1 : 0)
         PyluxDiscoveryService.wakeupHost(address, credential: credential, ps5: registered.isPS5)
     }
