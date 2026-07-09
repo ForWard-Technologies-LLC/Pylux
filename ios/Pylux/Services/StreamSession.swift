@@ -468,15 +468,13 @@ final class StreamSession: ObservableObject {
                         cInfo.video_max_fps = connectInfo.videoMaxFps
                         cInfo.video_bitrate = connectInfo.videoBitrate
                         cInfo.video_codec = Int32(connectInfo.videoCodec)
-                        // True for Remote Play and PSCLOUD, matching Android: a Remote Play PS5
-                        // sends rumble ONLY as DualSense haptic audio (a DualShock4-declared
-                        // client gets no motor data at all), so gating this on an attached
-                        // DualSense left RP rumble silent whenever the controller enumerated
-                        // after session creation. The haptics sink below converts the haptic
-                        // audio back to normal rumble events. PSNOW (PS3 titles) is the
-                        // exception: PS3 predates every DualSense concept, so don't declare
-                        // one or request DualSense features there.
-                        cInfo.enable_dualsense = connectInfo.serviceType != 1
+                        // Always true, matching Qt and Android: a Remote Play PS5 sends rumble
+                        // ONLY as DualSense haptic audio (a DualShock4-declared client gets no
+                        // motor data at all), so gating this on an attached DualSense left RP
+                        // rumble silent whenever the controller enumerated after session
+                        // creation. The haptics sink below converts the haptic audio back to
+                        // normal rumble events. Harmless for cloud (PSNOW/PSCLOUD verified).
+                        cInfo.enable_dualsense = true
                         cInfo.holepunch_session = holepunchPtr
                         cInfo.auto_regist = connectInfo.autoRegist
                         // Cloud streaming fields (matching Android JNI)
@@ -682,9 +680,9 @@ final class StreamSession: ObservableObject {
             cInfo.video_max_fps = connectInfo.videoMaxFps
             cInfo.video_bitrate = connectInfo.videoBitrate
             cInfo.video_codec = Int32(connectInfo.videoCodec)
-            // True except for PSNOW (PS3 titles) -- see createAndStartSession; RP
-            // rumble requires it, and PS3 predates every DualSense concept.
-            cInfo.enable_dualsense = connectInfo.serviceType != 1
+            // Always true, matching Qt and Android -- see createAndStartSession
+            // (RP rumble requires it; harmless for cloud).
+            cInfo.enable_dualsense = true
             cInfo.holepunch_session = holepunchPtr
             cInfo.auto_regist = connectInfo.autoRegist
             _ = withUnsafeMutableBytes(of: &cInfo.regist_key) { buf in
