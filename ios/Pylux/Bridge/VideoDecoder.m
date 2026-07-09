@@ -114,35 +114,41 @@ static void outputCallback(void *decompressionOutputRefCon,
 }
 
 static BOOL findNextNAL(const uint8_t *data, size_t size, size_t *startOut, size_t *lenOut) {
+    // A NAL begins after a 3-byte (00 00 01) or 4-byte (00 00 00 01) start code
+    // and ends at the next start code OF EITHER STYLE (or the buffer end).
+    // Streams freely mix styles within one access unit — PSNOW PS3 frames carry
+    // slice 1 behind a 4-byte code and slice 2 behind a 3-byte code. Scanning
+    // only for the same style (as this function once did) merges the slices into
+    // one corrupt "NAL" with an embedded start code, which hardware VideoToolbox
+    // rejects (-12909) for every frame.
     size_t i = 0;
-    while (i + 4 <= size) {
+    size_t nalStart = 0;
+    BOOL found = NO;
+    while (i + 3 <= size) {
         if (data[i] == 0 && data[i+1] == 0 && data[i+2] == 1) {
-            size_t nalStart = (data[i+3] == 0) ? i + 4 : i + 3;
-            size_t j = nalStart;
-            while (j + 3 <= size) {
-                if (data[j] == 0 && data[j+1] == 0 && (data[j+2] == 1 || (data[j+2] == 0 && j+4 <= size && data[j+3] == 1)))
-                    break;
-                j++;
-            }
-            *startOut = nalStart;
-            *lenOut = (j + 3 <= size) ? (j - nalStart) : (size - nalStart);
-            return YES;
+            nalStart = i + 3;
+            found = YES;
+            break;
         }
-        if (data[i] == 0 && data[i+1] == 0 && data[i+2] == 0 && i+4 <= size && data[i+3] == 1) {
-            size_t nalStart = i + 4;
-            size_t j = nalStart;
-            while (j + 4 <= size) {
-                if (data[j] == 0 && data[j+1] == 0 && data[j+2] == 0 && data[j+3] == 1)
-                    break;
-                j++;
-            }
-            *startOut = nalStart;
-            *lenOut = (j + 4 <= size) ? (j - nalStart) : (size - nalStart);
-            return YES;
+        if (i + 4 <= size && data[i] == 0 && data[i+1] == 0 && data[i+2] == 0 && data[i+3] == 1) {
+            nalStart = i + 4;
+            found = YES;
+            break;
         }
         i++;
     }
-    return NO;
+    if (!found || nalStart >= size) return NO;
+    size_t j = nalStart;
+    while (j + 3 <= size) {
+        if (data[j] == 0 && data[j+1] == 0
+            && (data[j+2] == 1 || (j + 4 <= size && data[j+2] == 0 && data[j+3] == 1)))
+            break;
+        j++;
+    }
+    size_t nalEnd = (j + 3 <= size) ? j : size;
+    *startOut = nalStart;
+    *lenOut = nalEnd - nalStart;
+    return *lenOut > 0;
 }
 
 static uint8_t h264NALType(const uint8_t *nal, size_t len) {
