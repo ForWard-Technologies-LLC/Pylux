@@ -85,6 +85,14 @@ class StreamInput {
             NotificationCenter.default.removeObserver(obs)
         }
         deviceMotion.stopDeviceMotionUpdates()
+        // Power down the controller's sensors too (they were manually activated);
+        // leaving them on drains a Bluetooth DualSense after the stream ends.
+        if let motion = (attachedController ?? GCController.controllers().first)?.motion {
+            motion.valueChangedHandler = nil
+            if motion.sensorsRequireManualActivation && motion.sensorsActive {
+                motion.sensorsActive = false
+            }
+        }
     }
 
     // MARK: - Touch overlay (from `StreamTouchControlsContainerView`)
@@ -155,7 +163,10 @@ class StreamInput {
 
     /// True when the current MotionSource resolves to the controller's sensors.
     private var usesControllerMotion: Bool {
-        guard attachedController?.motion != nil else { return false }
+        // Resolve against the same controller the merge uses (currentController
+        // falls back to GCController.controllers().first before the connect
+        // notification lands), so buttons and motion always agree on the source.
+        guard currentController?.motion != nil else { return false }
         return motionSource == .auto || motionSource == .controller
     }
 
@@ -163,7 +174,7 @@ class StreamInput {
     private var usesPhoneMotion: Bool {
         switch motionSource {
         case .phone: return true
-        case .auto: return attachedController?.motion == nil
+        case .auto: return currentController?.motion == nil
         case .controller, .off: return false
         }
     }
@@ -175,7 +186,7 @@ class StreamInput {
         // Controller sensors (DualSense/DS4 need manual activation on iOS). Each
         // sample drives a merge so the feedback stream carries continuously-live
         // motion.
-        if let motion = attachedController?.motion {
+        if let motion = currentController?.motion {
             if usesControllerMotion {
                 if motion.sensorsRequireManualActivation && !motion.sensorsActive {
                     motion.sensorsActive = true

@@ -122,33 +122,37 @@ static BOOL findNextNAL(const uint8_t *data, size_t size, size_t *startOut, size
     // one corrupt "NAL" with an embedded start code, which hardware VideoToolbox
     // rejects (-12909) for every frame.
     size_t i = 0;
-    size_t nalStart = 0;
-    BOOL found = NO;
     while (i + 3 <= size) {
-        if (data[i] == 0 && data[i+1] == 0 && data[i+2] == 1) {
+        size_t nalStart;
+        if (data[i] == 0 && data[i+1] == 0 && data[i+2] == 1)
             nalStart = i + 3;
-            found = YES;
-            break;
-        }
-        if (i + 4 <= size && data[i] == 0 && data[i+1] == 0 && data[i+2] == 0 && data[i+3] == 1) {
+        else if (i + 4 <= size && data[i] == 0 && data[i+1] == 0 && data[i+2] == 0 && data[i+3] == 1)
             nalStart = i + 4;
-            found = YES;
-            break;
+        else {
+            i++;
+            continue;
         }
-        i++;
+        if (nalStart >= size) return NO;
+        size_t j = nalStart;
+        while (j + 3 <= size) {
+            if (data[j] == 0 && data[j+1] == 0
+                && (data[j+2] == 1 || (j + 4 <= size && data[j+2] == 0 && data[j+3] == 1)))
+                break;
+            j++;
+        }
+        size_t nalEnd = (j + 3 <= size) ? j : size;
+        if (nalEnd == nalStart) {
+            // Adjacent start codes (zero-length NAL, only in malformed streams):
+            // skip past it and keep scanning instead of dropping the rest of the
+            // buffer's NALs.
+            i = nalStart;
+            continue;
+        }
+        *startOut = nalStart;
+        *lenOut = nalEnd - nalStart;
+        return YES;
     }
-    if (!found || nalStart >= size) return NO;
-    size_t j = nalStart;
-    while (j + 3 <= size) {
-        if (data[j] == 0 && data[j+1] == 0
-            && (data[j+2] == 1 || (j + 4 <= size && data[j+2] == 0 && data[j+3] == 1)))
-            break;
-        j++;
-    }
-    size_t nalEnd = (j + 3 <= size) ? j : size;
-    *startOut = nalStart;
-    *lenOut = nalEnd - nalStart;
-    return *lenOut > 0;
+    return NO;
 }
 
 static uint8_t h264NALType(const uint8_t *nal, size_t len) {

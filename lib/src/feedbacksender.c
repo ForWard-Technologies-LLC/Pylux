@@ -390,8 +390,13 @@ static void *feedback_sender_thread_func(void *user)
 		// fired" signal a client uses to also surface its own in-stream menu.
 		if(chord_just_fired && feedback_sender->ps_chord_fired_cb)
 		{
+			// Copy the pair while still holding the lock so a concurrent
+			// set_ps_chord_fired_cb can't be observed torn (cb from one
+			// registration, user from another).
+			void (*fired_cb)(void *user) = feedback_sender->ps_chord_fired_cb;
+			void *fired_user = feedback_sender->ps_chord_fired_user;
 			chiaki_mutex_unlock(&feedback_sender->state_mutex);
-			feedback_sender->ps_chord_fired_cb(feedback_sender->ps_chord_fired_user);
+			fired_cb(fired_user);
 			err = chiaki_mutex_lock(&feedback_sender->state_mutex);
 			if(err != CHIAKI_ERR_SUCCESS)
 				return NULL;

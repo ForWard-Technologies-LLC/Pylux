@@ -761,7 +761,10 @@ JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject 
 
 	// DualSense haptic-audio -> motor rumble (see android_chiaki_haptics_frame_cb).
 	// Required because enable_dualsense=true makes the PS5 deliver rumble as haptic audio.
-	ChiakiAudioSink haptics_sink;
+	// Zero-init: ChiakiAudioSink also has a header_cb member; leaving it as stack
+	// garbage plants a wild function pointer in the session for any future code
+	// that dispatches headers to the haptics sink.
+	ChiakiAudioSink haptics_sink = { 0 };
 	haptics_sink.user = session;
 	haptics_sink.frame_cb = android_chiaki_haptics_frame_cb;
 	chiaki_session_set_haptics_sink(&session->session, &haptics_sink);

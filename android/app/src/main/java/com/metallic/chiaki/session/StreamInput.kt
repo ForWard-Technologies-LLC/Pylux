@@ -408,6 +408,9 @@ class StreamInput(val context: Context, val preferences: Preferences)
 		controllerMotionDeviceId = -1
 		phoneMotionActive = false
 		resetMotionState()
+		// Send the idle motion once -- without this the console keeps acting on the
+		// last gyro/orientation values until the next unrelated input event.
+		controllerStateUpdated()
 	}
 
 	private val motionReevaluateRunnable = Runnable { registerMotionSensors() }
