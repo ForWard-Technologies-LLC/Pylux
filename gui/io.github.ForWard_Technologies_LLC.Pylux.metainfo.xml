@@ -32,6 +32,11 @@
   <content_rating type="oars-1.1" />
   <!-- Flathub: add <release> entries here when shipping new versions (not generated from CMake). -->
   <releases>
+    <release date="2026-07-10" version="2.11.0">
+      <description>
+        <p>Improved controller support and various bug fixes.</p>
+      </description>
+    </release>
     <release date="2026-05-27" version="2.10.21">
       <description>
         <p>Major update: improved PS5 cloud game catalog, ownership, and locale handling on desktop.</p>
