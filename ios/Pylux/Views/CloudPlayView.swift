@@ -1,10 +1,37 @@
 // SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 // Cloud Play UI - mirrors Android CloudPlayFragment.kt + CloudPlayViewModel.kt
 
+import Foundation
 import SwiftUI
 import os.log
 
 private let cloudUILog = OSLog(subsystem: "com.pylux.stream", category: "CloudPlayUI")
+
+/// Thread-safe cancel flag for cloud allocation: set on the main actor by the
+/// Cancel button, polled from libchiaki's provisioning worker thread through the
+/// isCancelled callback (a @MainActor property can't be read from that thread).
+final class AllocationCancelFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+
+    func set() {
+        lock.lock()
+        value = true
+        lock.unlock()
+    }
+
+    func reset() {
+        lock.lock()
+        value = false
+        lock.unlock()
+    }
+
+    var isSet: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+}
 
 // MARK: - ViewModel (matches Android CloudPlayViewModel.kt)
 
@@ -49,6 +76,7 @@ final class CloudPlayViewModel: ObservableObject {
     @Published var allocationError: String?
     @Published var showPingTooHighDialog = false
     @Published var cloudSession: CloudStreamSession?
+    private let allocationCancelFlag = AllocationCancelFlag()
 
     private let catalogService = CloudCatalogService()
     private let streamingBackend = CloudStreamingBackend()
@@ -196,6 +224,7 @@ final class CloudPlayViewModel: ObservableObject {
         allocationError = nil
         showPingTooHighDialog = false
         cloudSession = nil
+        allocationCancelFlag.reset()
 
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let self = self else { return }
@@ -204,7 +233,10 @@ final class CloudPlayViewModel: ObservableObject {
             let gameIdentifier = game.streamIdentifier
             let gameName = game.name
             let serviceType = game.streamServiceType
-            var cancelled = false
+            // Cancel Button -> cancelAllocation() -> this flag -> libchiaki's isCancelled
+            // poll aborts provisioning. Also gates every completion below so a cancelled
+            // allocation never launches the stream or flashes an error alert.
+            let cancelFlag = self.allocationCancelFlag
 
             do {
                 let session = try self.streamingBackend.startCompleteCloudSession(
@@ -221,26 +253,30 @@ final class CloudPlayViewModel: ObservableObject {
                             self.allocationProgress = msg
                         }
                     },
-                    isCancelled: { cancelled }
+                    isCancelled: { cancelFlag.isSet }
                 )
 
                 await MainActor.run {
                     self.allocating = false
+                    guard !cancelFlag.isSet else { return } // cancelled: never launch
                     self.cloudSession = session
                 }
             } catch let error as PsPlusSubscriptionError {
                 await MainActor.run {
                     self.allocating = false
+                    guard !cancelFlag.isSet else { return }
                     self.allocationError = error.message
                 }
             } catch is PingTimeoutError {
                 await MainActor.run {
                     self.allocating = false
+                    guard !cancelFlag.isSet else { return }
                     self.showPingTooHighDialog = true
                 }
             } catch {
                 await MainActor.run {
                     self.allocating = false
+                    guard !cancelFlag.isSet else { return }
                     self.allocationError = error.localizedDescription
                 }
             }
@@ -248,6 +284,7 @@ final class CloudPlayViewModel: ObservableObject {
     }
 
     func cancelAllocation() {
+        allocationCancelFlag.set() // aborts the in-flight libchiaki provisioning
         allocating = false
     }
 }
