@@ -17,12 +17,18 @@
 #ifdef _WIN32
 #include <direct.h>
 #include <process.h>
+#include <windows.h>
 #define cc_mkdir(p) _mkdir(p)
 #define cc_getpid() _getpid()
+// Windows rename() refuses to overwrite an existing destination (POSIX replaces it),
+// so a plain rename would fail every cache REWRITE. MoveFileEx with REPLACE_EXISTING
+// is the atomic-replace equivalent.
+#define cc_rename_replace(from, to) (MoveFileExA((from), (to), MOVEFILE_REPLACE_EXISTING) ? 0 : -1)
 #else
 #include <unistd.h>
 #define cc_mkdir(p) mkdir((p), 0755)
 #define cc_getpid() getpid()
+#define cc_rename_replace(from, to) rename((from), (to))
 #endif
 
 static void sanitize_key(const char *key, char *out, size_t out_sz)
@@ -157,7 +163,7 @@ ChiakiErrorCode cc_cache_write(ChiakiLog *log, const char *cache_dir, const char
 		remove(tmp);
 		return CHIAKI_ERR_UNKNOWN;
 	}
-	if(rename(tmp, path) != 0)
+	if(cc_rename_replace(tmp, path) != 0)
 	{
 		remove(tmp);
 		CHIAKI_LOGW(log, "[CACHE ERROR] cannot rename %s -> %s", tmp, path);
