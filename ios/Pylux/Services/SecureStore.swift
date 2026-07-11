@@ -289,17 +289,21 @@ final class SecureStore {
     }
 
     /// PS Now region-group fallback store country. Empty = native mode; "US" or "GB" = fallback mode.
+    /// The pre-2.11 `cloud_fallback_region` key is deliberately NOT migrated: reading it back
+    /// whenever this key was absent resurrected a stale fallback country forever on native-mode
+    /// accounts (the old "" setter deleted the key, re-triggering "migration" on every read).
+    /// The value is refreshed by every catalog fetch anyway, so a cold start with "" is correct.
     var cloudResolvedStoreCountry: String {
         get {
-            if KC.readString(kCloudResolvedStoreCountry) != nil {
-                return KC.readString(kCloudResolvedStoreCountry) ?? ""
+            if let value = KC.readString(kCloudResolvedStoreCountry) {
+                return value
             }
-            let legacy = KC.readString(kLegacyCloudFallbackRegion) ?? ""
-            KC.writeString(kCloudResolvedStoreCountry, legacy)
-            return legacy
+            KC.delete(kLegacyCloudFallbackRegion) // retire the stale pre-2.11 key
+            return ""
         }
         set {
-            newValue.isEmpty ? KC.delete(kCloudResolvedStoreCountry) : KC.writeString(kCloudResolvedStoreCountry, newValue)
+            // Store "" as a real value (not a delete) so "native mode" is a persisted answer.
+            KC.writeString(kCloudResolvedStoreCountry, newValue)
         }
     }
 
