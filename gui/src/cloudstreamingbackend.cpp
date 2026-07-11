@@ -354,9 +354,15 @@ void CloudStreamingBackend::finishCloudSession(QString serviceType, QString serv
     } catch (const Exception &e) {
         qWarning() << "Failed to start cloud streaming session:" << e.what();
         setGameImageUrl(QString());
+        // Same dismissal contract as handleProvisionError: without sessionError the
+        // loading page has no error text, no Escape handler, and never exits.
+        if (QmlBackend *qmlBackend = qobject_cast<QmlBackend*>(parent()))
+            emit qmlBackend->sessionError(tr("Cloud Streaming Failed"),
+                QString("Failed to start session: %1").arg(e.what()));
         if (callback.isCallable()) {
             callback.call({false, QString("Failed to start session: %1").arg(e.what())});
         }
+        setAllocationProgress("");
     }
 }
 
