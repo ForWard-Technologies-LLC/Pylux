@@ -373,13 +373,13 @@ static void android_chiaki_event_cb(ChiakiEvent *event, void *user)
 		case CHIAKI_EVENT_LED_COLOR:
 		case CHIAKI_EVENT_PLAYER_INDEX:
 		case CHIAKI_EVENT_MOTION_RESET:
-			// Intentionally unhandled on Android: DualSense adaptive triggers and
-			// audio haptics have no public Android API (they are only reachable via
-			// raw USB/BT HID output reports, which we deliberately do not do), and
-			// the same goes for controller LED / player-index. enable_dualsense
-			// stays false in the Android connect info, so the console keeps sending
-			// classic CHIAKI_EVENT_RUMBLE (handled above) instead of DualSense-only
-			// feedback this platform cannot deliver.
+			// Intentionally unhandled on Android: DualSense adaptive triggers have no
+			// public Android API (only reachable via raw USB/BT HID output reports,
+			// which we deliberately do not do), and the same goes for controller LED /
+			// player-index. Rumble is NOT lost though: enable_dualsense is true in
+			// sessionCreate, so a PS5 delivers rumble as haptic audio through the
+			// haptics sink (see the chiaki_session_set_haptics_sink_ex setup below),
+			// converted to vibrator amplitudes in Kotlin.
 			break;
 		default:
 			break;

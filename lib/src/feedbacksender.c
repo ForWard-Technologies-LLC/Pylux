@@ -24,6 +24,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_feedback_sender_init(ChiakiFeedbackSender *
 	feedback_sender->ps_chord.chord_start_ms = 0;
 	feedback_sender->ps_chord.pulse_until_ms = 0;
 	feedback_sender->ps_chord.fired = false;
+	feedback_sender->ps_chord.releasing = false;
 	feedback_sender->ps_chord_fired_cb = NULL;
 	feedback_sender->ps_chord_fired_user = NULL;
 
@@ -103,6 +104,7 @@ CHIAKI_EXPORT void chiaki_feedback_sender_set_ps_chord(ChiakiFeedbackSender *fee
 	feedback_sender->ps_chord.chord_start_ms = 0;
 	feedback_sender->ps_chord.pulse_until_ms = 0;
 	feedback_sender->ps_chord.fired = false;
+	feedback_sender->ps_chord.releasing = false;
 	chiaki_mutex_unlock(&feedback_sender->state_mutex);
 	chiaki_cond_signal(&feedback_sender->state_cond);
 }
@@ -134,8 +136,16 @@ CHIAKI_EXPORT void chiaki_ps_chord_apply(ChiakiPsChord *chord, ChiakiControllerS
 		// latency to every OPTIONS/SHARE press for a cosmetic edge; pressing the
 		// two together (the natural chord motion) avoids it.
 		state->buttons &= ~both;
-		if(chord->chord_start_ms == 0)
+		if(chord->chord_start_ms == 0 || chord->releasing)
+		{
+			// Fresh chord, or a re-press while the previous chord's staggered release
+			// was still in flight: either way the hold timer starts NOW. Reusing the
+			// old chord_start_ms after an aborted hold would fire the PS pulse
+			// instantly instead of after a full fresh hold. `fired` stays latched
+			// until a complete release, so a fired chord can't double-fire here.
 			chord->chord_start_ms = now_ms;
+			chord->releasing = false;
+		}
 		else if(!chord->fired && now_ms - chord->chord_start_ms >= chord->hold_ms)
 		{
 			chord->fired = true; // latch: at most one PS pulse per hold
@@ -150,14 +160,17 @@ CHIAKI_EXPORT void chiaki_ps_chord_apply(ChiakiPsChord *chord, ChiakiControllerS
 		// the same frame, so without this the button let go of last lands as a
 		// real press: SHARE opening the capture gallery on top of the PS home
 		// overlay the chord just summoned, or a stray OPTIONS/SHARE if the user
-		// aborts the hold before it fires. chord_start_ms/fired are left intact so
-		// a fresh press of both is required before it can fire again.
+		// aborts the hold before it fires. fired stays latched so a fresh press of
+		// both is required before it can fire again; `releasing` makes a re-press
+		// during this tail restart the hold timer instead of reusing the stale one.
 		state->buttons &= ~both;
+		chord->releasing = true;
 	}
 	else
 	{
 		chord->chord_start_ms = 0;
 		chord->fired = false;
+		chord->releasing = false;
 	}
 	// The pulse outlives an early chord release so a started press always
 	// completes with a clean press/release edge pair on the history channel.

@@ -197,9 +197,17 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_cloudcatalog_fetch_unified(
 			snprintf(cc, sizeof(cc), "%s", acct_country);
 		else
 			account_country_from_locale(locale, cc, sizeof(cc));
-		apollo = cc_fetch_apollo_fallback(log, cc);
+		bool fallback_complete = true;
+		apollo = cc_fetch_apollo_fallback(log, cc, &fallback_complete);
 		snprintf(fallback_region, sizeof(fallback_region), "%s", cc_classics_store_country(cc));
 		CHIAKI_LOGI(log, "[UNIFIED] resolvedStoreCountry=%s (fallback cc_classics)", fallback_region);
+		// Only a definitive REGION_UNSUPPORTED (completed 4xx) may be cached: a FATAL
+		// (transport failure / 5xx anywhere in the native probe) means a native-capable
+		// account could be looking at the degraded fallback, so serve it for this
+		// session but leave the cache empty and re-probe on the next fetch. A fallback
+		// pagination abort likewise must not freeze a partial classics list for the TTL.
+		if(nr == CC_NATIVE_FATAL || !fallback_complete)
+			apollo_complete = false;
 	}
 	if(!apollo)
 		apollo = json_object_new_array();

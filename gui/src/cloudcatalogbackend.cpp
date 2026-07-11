@@ -545,7 +545,17 @@ QString CloudCatalogBackend::getGameLandscapeImageFromCache(const QString &servi
     QString productIdForCatalog; // For PSCloud: productId to use in catalog lookup
     
     if (serviceType.toLower() == "psnow") {
-        cacheKey = "unified_catalog_v3";
+        // The lib owns the unified catalog filename and bumps its version suffix, so
+        // resolve it by glob (newest unified_catalog_v*.json) like getOwnedPsnowEntitlement
+        // does, rather than hard-coding the current version.
+        QDir dir(cacheDirectory);
+        QFileInfoList matches = dir.entryInfoList({QStringLiteral("unified_catalog_v*.json")},
+                                                  QDir::Files, QDir::Time);
+        if (matches.isEmpty()) {
+            qInfo() << "getGameLandscapeImage: no unified catalog cache file present";
+            return QString();
+        }
+        cacheKey = matches.first().completeBaseName();
     } else if (serviceType.toLower() == "pscloud") {
         // For PSCloud, gameIdentifier is an entitlement ID; resolve productId from library.
         productIdForCatalog = findProductIdForEntitlement(gameIdentifier);

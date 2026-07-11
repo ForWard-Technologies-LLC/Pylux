@@ -171,11 +171,18 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_cloud_provision_session(
 
 	// Pre-flight: validate the NPSSO before any real work (silently, like the old
 	// per-platform checkAuthorization) so an expired token fails fast with no progress
-	// UI. Platforms map AUTHORIZATION_FAILED -> "token expired, please re-login".
-	if(cc_authorize_check(log, cfg, duid) != CHIAKI_ERR_SUCCESS)
+	// UI. Platforms map AUTHORIZATION_FAILED -> "token expired, please re-login" — so
+	// only emit it when the server actually answered (non-2xx). A transport failure
+	// (offline, DNS, TLS) says nothing about the token; sending the user to re-login
+	// for a network blip would be wrong, and platforms show unmatched messages verbatim
+	// in their generic error dialog.
+	ChiakiErrorCode auth_err = cc_authorize_check(log, cfg, duid);
+	if(auth_err != CHIAKI_ERR_SUCCESS)
 	{
-		out->error_message = strdup("AUTHORIZATION_FAILED");
-		out->err = CHIAKI_ERR_UNKNOWN;
+		out->error_message = strdup(auth_err == CHIAKI_ERR_NETWORK
+			? "Network error while contacting PlayStation. Check your connection and try again."
+			: "AUTHORIZATION_FAILED");
+		out->err = auth_err == CHIAKI_ERR_NETWORK ? CHIAKI_ERR_NETWORK : CHIAKI_ERR_UNKNOWN;
 		return out->err;
 	}
 

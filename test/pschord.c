@@ -182,6 +182,36 @@ static MunitResult test_staggered_release_before_fire_is_consumed(const MunitPar
 	return MUNIT_OK;
 }
 
+static MunitResult test_repress_during_staggered_release_restarts_hold(const MunitParameter params[], void *user)
+{
+	// Regression: engage the chord below the threshold, release ONE button (the
+	// staggered tail keeps consuming the other), then press the released button
+	// again. The hold timer must restart from the re-press -- reusing the stale
+	// chord_start_ms would fire the PS pulse instantly.
+	ChiakiPsChord chord = chord_default();
+
+	ChiakiControllerState state = state_with_buttons(CHORD_BITS);
+	chiaki_ps_chord_apply(&chord, &state, 1000);   // engaged, not fired
+	state = state_with_buttons(CHIAKI_CONTROLLER_BUTTON_OPTIONS);
+	chiaki_ps_chord_apply(&chord, &state, 1500);   // SHARE released -> staggered tail
+	munit_assert_uint32(state.buttons, ==, 0);
+
+	// SHARE pressed again at t=3200: 2200ms after the original start (past the
+	// 2000ms threshold measured from there) but a fresh hold from here.
+	state = state_with_buttons(CHORD_BITS);
+	chiaki_ps_chord_apply(&chord, &state, 3200);
+	munit_assert_uint32(state.buttons & CHIAKI_CONTROLLER_BUTTON_PS, ==, 0); // no instant fire
+
+	state = state_with_buttons(CHORD_BITS);
+	chiaki_ps_chord_apply(&chord, &state, 5100);   // still short of 3200+2000
+	munit_assert_uint32(state.buttons & CHIAKI_CONTROLLER_BUTTON_PS, ==, 0);
+
+	state = state_with_buttons(CHORD_BITS);
+	chiaki_ps_chord_apply(&chord, &state, 5300);   // full fresh hold elapsed -> fires
+	munit_assert_uint32(state.buttons & CHIAKI_CONTROLLER_BUTTON_PS, !=, 0);
+	return MUNIT_OK;
+}
+
 static MunitResult test_disabled_passthrough_and_other_buttons(const MunitParameter params[], void *user)
 {
 	ChiakiPsChord chord = chord_default();
@@ -214,6 +244,7 @@ MunitTest tests_ps_chord[] = {
 	{ "/early_release_completes_pulse", test_early_release_completes_pulse, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/staggered_release_after_fire", test_staggered_release_after_fire_is_consumed, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/staggered_release_before_fire", test_staggered_release_before_fire_is_consumed, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
+	{ "/repress_during_staggered_release", test_repress_during_staggered_release_restarts_hold, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/disabled_passthrough", test_disabled_passthrough_and_other_buttons, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ NULL, NULL, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL }
 };

@@ -252,7 +252,10 @@ bool cc_parse_container_store_locale(const char *base_url,
 	return true;
 }
 
-// GET /user/stores -> base_url. Returns CC_NATIVE_OK or CC_NATIVE_REGION_UNSUPPORTED.
+// GET /user/stores -> base_url. Returns CC_NATIVE_OK, CC_NATIVE_REGION_UNSUPPORTED on a
+// definitive server answer (4xx / no store for this account), or CC_NATIVE_FATAL on a
+// transport failure / 5xx -- only a completed 4xx proves the region is unsupported;
+// anything else must not demote a native-capable account to the cached public fallback.
 static CCNativeResult psnow_stores(ChiakiLog *log, const char *jsession,
                                    char *out_base_url, size_t url_sz,
                                    char *out_store_country, size_t cc_sz,
@@ -273,9 +276,10 @@ static CCNativeResult psnow_stores(ChiakiLog *log, const char *jsession,
 	ChiakiErrorCode e = cc_http_perform(log, &req, &resp);
 	free(cookie);
 	if(e != CHIAKI_ERR_SUCCESS)
-		return CC_NATIVE_REGION_UNSUPPORTED;
+		return CC_NATIVE_FATAL;
 
-	CCNativeResult result = CC_NATIVE_REGION_UNSUPPORTED;
+	CCNativeResult result = (resp.status_code >= 400 && resp.status_code < 500)
+		? CC_NATIVE_REGION_UNSUPPORTED : CC_NATIVE_FATAL;
 	if(resp.status_code == 200)
 	{
 		struct json_object *obj = parse_body(&resp);
@@ -445,8 +449,11 @@ CCNativeResult cc_fetch_psnow_native(ChiakiLog *log, const char *npsso, struct j
 
 	char cat_urls[16][1024];
 	int cat_count = 0;
+	// /user/stores already proved the region IS supported; a failure listing the root
+	// categories is transient, so report FATAL (fallback served but never cached), not
+	// REGION_UNSUPPORTED (which would cache the degraded fallback for the full TTL).
 	if(!psnow_root_categories(log, base_url, jsession, cat_urls, &cat_count, 16))
-		return CC_NATIVE_REGION_UNSUPPORTED;
+		return CC_NATIVE_FATAL;
 
 	struct json_object *all = json_object_new_array();
 	bool complete = true;
@@ -492,8 +499,10 @@ CCNativeResult cc_fetch_psnow_native(ChiakiLog *log, const char *npsso, struct j
 // Public APOLLOROOT fallback pagination
 // ===========================================================================
 
-struct json_object *cc_fetch_apollo_fallback(ChiakiLog *log, const char *account_country)
+struct json_object *cc_fetch_apollo_fallback(ChiakiLog *log, const char *account_country, bool *out_complete)
 {
+	if(out_complete)
+		*out_complete = true;
 	const char *store_country = cc_classics_store_country(account_country);
 	const char *container = cc_apollo_root_container_id(account_country);
 	char container_url[512];
@@ -517,12 +526,22 @@ struct json_object *cc_fetch_apollo_fallback(ChiakiLog *log, const char *account
 		if(cc_http_perform(log, &req, &resp) != CHIAKI_ERR_SUCCESS || resp.status_code != 200)
 		{
 			cc_http_response_fini(&resp);
+			// Mid-pagination failure: serve what we have this session, but report
+			// incomplete so the caller never caches a partial classics list.
+			if(out_complete)
+				*out_complete = false;
+			CHIAKI_LOGW(log, "[UNIFIED] APOLLOROOT fallback page at start=%d failed; list incomplete", start);
 			break;
 		}
 		struct json_object *obj = parse_body(&resp);
 		cc_http_response_fini(&resp);
 		if(!obj)
+		{
+			if(out_complete)
+				*out_complete = false;
+			CHIAKI_LOGW(log, "[UNIFIED] APOLLOROOT fallback page at start=%d unparseable; list incomplete", start);
 			break;
+		}
 		if(total < 0)
 			total = cc_json_int(obj, "total_results");
 		int product_count = 0;
@@ -795,7 +814,10 @@ CCOwnedResult cc_fetch_owned(ChiakiLog *log, const char *npsso,
 	struct json_object *accumulated = json_object_new_array();
 	int start = 0;
 	CCOwnedResult result = CC_OWNED_OK;
-	for(;;)
+	// Termination normally relies on the server returning a short page; the page cap
+	// (200 pages = 60k entitlements, far above any real library) keeps a broken
+	// endpoint that always returns full pages from hanging the catalog worker forever.
+	for(int pages = 0; pages < 200; pages++)
 	{
 		char url[512];
 		snprintf(url, sizeof(url),
