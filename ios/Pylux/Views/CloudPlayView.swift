@@ -20,12 +20,6 @@ final class AllocationCancelFlag: @unchecked Sendable {
         lock.unlock()
     }
 
-    func reset() {
-        lock.lock()
-        value = false
-        lock.unlock()
-    }
-
     var isSet: Bool {
         lock.lock()
         defer { lock.unlock() }
@@ -76,7 +70,11 @@ final class CloudPlayViewModel: ObservableObject {
     @Published var allocationError: String?
     @Published var showPingTooHighDialog = false
     @Published var cloudSession: CloudStreamSession?
-    private let allocationCancelFlag = AllocationCancelFlag()
+    // One instance PER allocation (fresh on each start), not one shared flag: a
+    // shared flag's reset-on-start would resurrect a just-cancelled allocation
+    // that hasn't hit its next isCancelled poll yet. Each allocation captures its
+    // own instance; cancel sets the current one.
+    private var allocationCancelFlag = AllocationCancelFlag()
 
     private let catalogService = CloudCatalogService()
     private let streamingBackend = CloudStreamingBackend()
@@ -224,7 +222,8 @@ final class CloudPlayViewModel: ObservableObject {
         allocationError = nil
         showPingTooHighDialog = false
         cloudSession = nil
-        allocationCancelFlag.reset()
+        let cancelFlag = AllocationCancelFlag()
+        allocationCancelFlag = cancelFlag
 
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let self = self else { return }
@@ -233,10 +232,10 @@ final class CloudPlayViewModel: ObservableObject {
             let gameIdentifier = game.streamIdentifier
             let gameName = game.name
             let serviceType = game.streamServiceType
-            // Cancel Button -> cancelAllocation() -> this flag -> libchiaki's isCancelled
-            // poll aborts provisioning. Also gates every completion below so a cancelled
-            // allocation never launches the stream or flashes an error alert.
-            let cancelFlag = self.allocationCancelFlag
+            // cancelFlag (this allocation's own instance, captured above): Cancel Button
+            // -> cancelAllocation() -> flag -> libchiaki's isCancelled poll aborts
+            // provisioning. Also gates every completion below so a cancelled allocation
+            // never launches the stream or flashes an error alert.
 
             do {
                 let session = try self.streamingBackend.startCompleteCloudSession(
