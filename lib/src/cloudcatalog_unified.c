@@ -330,6 +330,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_cloudcatalog_fetch_unified(
 	}
 
 	// 4. owned entitlements (skip on missing/expired session).
+	bool owned_complete = true;
 	struct json_object *owned = NULL, *components = NULL;
 	if(*npsso && !auth_error)
 	{
@@ -353,6 +354,15 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_cloudcatalog_fetch_unified(
 			{
 				auth_error = true;
 				warning = WARNING_EXPIRED;
+			}
+			else
+			{
+				// Transient commerce-API failure: serve this session without
+				// ownership, but don't cache the degraded catalog (same rule as
+				// apollo_complete / browse_complete) — otherwise one 5xx hides
+				// the user's whole owned library for the full cache TTL.
+				owned_complete = false;
+				CHIAKI_LOGW(log, "[CLOUDCATALOG] owned entitlements fetch failed; catalog will not be cached");
 			}
 		}
 	}
@@ -380,10 +390,10 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_cloudcatalog_fetch_unified(
 	in.warning = warning;
 	struct json_object *env = cc_assemble_unified_catalog(log, &in);
 
-	// 7. cache write guard (non-empty + not auth error + both sources complete).
+	// 7. cache write guard (non-empty + not auth error + all three sources complete).
 	struct json_object *games = cc_json_arr(env, "games");
 	int total = games ? (int)json_object_array_length(games) : 0;
-	if(total > 0 && !auth_error && apollo_complete && browse_complete)
+	if(total > 0 && !auth_error && apollo_complete && browse_complete && owned_complete)
 		cc_cache_write(log, cache_dir, "unified_catalog_v3", env);
 
 	ChiakiErrorCode e = finish_ok(out, env);
