@@ -642,7 +642,11 @@ static int gk_cmp_rtt(const void *a, const void *b)
 // sequential pinging made "Pinging Datacenters" take far too long.
 typedef struct
 {
-	ChiakiLog *log;
+	// By-value copy of the caller's ChiakiLog, NOT a pointer to it: an abandoned
+	// (detached) thread outlives chiaki_cloud_provision_session, and the Qt/iOS
+	// callers pass a stack-local log that is gone by then. The copy lives as long
+	// as the job (freed via the handoff exchange), so late logging stays valid.
+	ChiakiLog log;
 	char *name, *ip, *session_key, *service_type; // strdup'd — owned by the job
 	int port, bw;
 	int64_t rtt_us; uint32_t mtu_in, mtu_out; bool ok;
@@ -661,7 +665,7 @@ static void *gk_ping_thread(void *arg)
 {
 	GkPingJob *j = (GkPingJob *)arg;
 	j->rtt_us = -1; j->mtu_in = 0; j->mtu_out = 0;
-	cc_ping_datacenter(j->log, j->ip, j->port, j->session_key, j->service_type,
+	cc_ping_datacenter(&j->log, j->ip, j->port, j->session_key, j->service_type,
 		&j->rtt_us, &j->mtu_in, &j->mtu_out);
 	j->ok = (j->rtt_us > 0);
 	atomic_store(&j->done, 1);
@@ -795,7 +799,8 @@ static ChiakiErrorCode gk_step11_datacenters(GaikaiCtx *c)
 					cc_json_int(dc, "maxBandwidth"), false));
 				continue;
 			}
-			j->log = c->log;
+			if(c->log)
+				j->log = *c->log; // copy, see GkPingJob.log (calloc'd zero = silent if no log)
 			j->name = strdup(cc_json_str(dc, "dataCenter"));
 			j->ip   = strdup(cc_json_str(dc, "publicIp"));
 			j->port = cc_json_int(dc, "port");
