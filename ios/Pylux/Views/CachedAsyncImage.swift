@@ -91,7 +91,12 @@ struct CachedAsyncImage<Content: View>: View {
                     return
                 }
                 if case .success = phase { phase = .empty }
-                if let img = await CloudImageLoader.shared.image(for: url) {
+                let img = await CloudImageLoader.shared.image(for: url)
+                // The shared download deliberately outlives .task(id:) cancellation (see
+                // above), so this continuation can resume for a URL the view no longer
+                // shows — don't let the stale result overwrite the newer task's phase.
+                guard !Task.isCancelled else { return }
+                if let img {
                     phase = .success(Image(uiImage: img))
                 } else {
                     phase = .failure(URLError(.cannotDecodeContentData))
