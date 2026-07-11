@@ -229,12 +229,17 @@ void CloudCatalogBackend::fetchUnifiedCatalog(const QJSValue &callback)
     pending_callbacks.insert(reqId, cb);
     QPointer<CloudCatalogBackend> self(this);
 
+    // Snapshot the invalidation generation with the npsso/locale inputs: if
+    // invalidateCache() runs while the worker is in flight, the completion handler
+    // discards this fetch's result and restarts with the then-current inputs.
+    const quint64 gen = catalogGeneration;
+
     const QByteArray npsso = getNpSsoToken().toUtf8();
     const QByteArray locale =
         (settings ? settings->GetCloudStoreLocale() : QStringLiteral("en-US")).toUtf8();
     const QByteArray cacheDir = cacheDirectory.toUtf8();
 
-    std::thread([self, reqId, npsso, locale, cacheDir]() mutable {
+    std::thread([self, reqId, gen, npsso, locale, cacheDir]() mutable {
         ChiakiLog log;
         chiaki_log_init(&log, CHIAKI_LOG_INFO | CHIAKI_LOG_WARNING | CHIAKI_LOG_ERROR,
                         chiaki_log_cb_print, nullptr);
@@ -258,13 +263,32 @@ void CloudCatalogBackend::fetchUnifiedCatalog(const QJSValue &callback)
         // QJSValue must be invoked on the engine (main) thread. Route through qApp so
         // the callback is fetched and invoked on the GUI thread even if `self` is
         // destroyed before the worker finishes.
-        QMetaObject::invokeMethod(qApp, [self, reqId, success, message, json]() mutable {
+        QMetaObject::invokeMethod(qApp, [self, reqId, gen, success, message, json]() mutable {
             if (!self)
                 return; // backend destroyed while the worker ran
             const QJSValue cb = self->pending_callbacks.take(reqId);
             std::vector<QJSValue> parked;
             parked.swap(self->pendingUnifiedCallbacks);
             self->unifiedFetchInFlight.store(false);
+
+            // Stale fetch: invalidateCache() ran while the worker was in flight
+            // (account/profile/locale switch). The result was computed with the OLD
+            // npsso/locale, and worse, the lib re-wrote the cache files AFTER the
+            // wipe. Never surface or persist it: wipe the cache again and restart
+            // the fetch for every waiting callback — the first restart spawns a
+            // fresh worker with current inputs, the rest coalesce onto it.
+            if (self->catalogGeneration != gen) {
+                const QByteArray staleCacheDir = self->cacheDirectory.toUtf8();
+                chiaki_cloudcatalog_invalidate_cache(staleCacheDir.constData());
+                qInfo() << "[CACHE] Discarding stale unified fetch (generation"
+                        << gen << "!=" << self->catalogGeneration << "); refetching";
+                if (cb.isCallable())
+                    self->fetchUnifiedCatalog(cb);
+                for (QJSValue &pcb : parked)
+                    if (pcb.isCallable())
+                        self->fetchUnifiedCatalog(pcb);
+                return;
+            }
 
             // Persist the locale the lib actually settled on (region detection now lives
             // entirely in libchiaki: it re-bases the locale on the account's Kamaji-session
@@ -697,6 +721,10 @@ QString CloudCatalogBackend::getGameLandscapeImageFromCache(const QString &servi
 
 void CloudCatalogBackend::invalidateCache()
 {
+    // Mark any in-flight unified fetch stale FIRST: its completion handler compares
+    // its snapshot against this counter and discards + restarts instead of serving
+    // (and re-persisting) a result computed with the pre-invalidation account/locale.
+    catalogGeneration++;
     // libchiaki owns every cache file and its versioned key (current + legacy), so
     // delegate to it. This is the single source of truth for cache naming and keeps
     // the client from drifting out of sync when the cache schema/version bumps.
