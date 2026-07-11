@@ -105,19 +105,11 @@ if(APPLE)
 		src/macMicPermission.m
 		include/macWakeSleep.h
 		src/macWakeSleep.cpp
-		include/cloudstreaming/nsurlsession_oauth.h
-		src/cloudstreaming/nsurlsession_oauth.mm
 	)
 elseif(WIN32)
 	list(APPEND SOURCE_FILES
 		include/windowsWakeSleep.h
 		src/windowsWakeSleep.cpp
-	)
-endif()
-
-if(NOT APPLE)
-	list(APPEND SOURCE_FILES
-		src/cloudstreaming/nsurlsession_oauth_fallback.cpp
 	)
 endif()
 
