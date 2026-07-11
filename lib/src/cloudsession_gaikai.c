@@ -616,7 +616,7 @@ static struct json_object *gk_ping_obj(const char *dc, int rtt_ms, uint32_t mtu_
 	int port, const char *ip, int max_bw, bool measured)
 {
 	struct json_object *o = json_object_new_object();
-	json_object_object_add(o, "dataCenter", json_object_new_string(dc));
+	json_object_object_add(o, "dataCenter", json_object_new_string(dc ? dc : "")); // dc is a strdup that may have failed (OOM), like ip below
 	json_object_object_add(o, "rtt", json_object_new_int(rtt_ms));
 	struct json_object *rtts = json_object_new_array();
 	json_object_array_add(rtts, json_object_new_int(rtt_ms));
