@@ -245,6 +245,12 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_cloudcatalog_fetch_unified(
 
 	// 3. imagic (cache, then network with locale fallback).
 	struct json_object *browse = NULL, *supplement = NULL, *aliases = NULL;
+	// True only when the PS5 browse universe is known-complete (v6 cache hit — its
+	// write was already gated on all-ps5-list — or a fresh fetch where all-ps5-list
+	// succeeded). Gates the unified cache write below: a browse missing its main
+	// list would otherwise cache a catalog whose streamability gate silently drops
+	// owned PS5 games for the whole TTL.
+	bool browse_complete = false;
 	char settled[16];
 	snprintf(settled, sizeof(settled), "%s", effective_locale);
 
@@ -274,6 +280,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_cloudcatalog_fetch_unified(
 		if(*cl)
 			snprintf(settled, sizeof(settled), "%s", cl);
 		json_object_put(v6);
+		browse_complete = true;
 	}
 	else
 	{
@@ -284,6 +291,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_cloudcatalog_fetch_unified(
 			supplement = ir.supplement; ir.supplement = NULL;
 			aliases = ir.aliases; ir.aliases = NULL;
 			snprintf(settled, sizeof(settled), "%s", ir.settled_locale);
+			browse_complete = ir.all_ps5_list_succeeded;
 			if(ir.all_ps5_list_succeeded)
 				write_v6_cache(log, cache_dir, settled, browse, supplement, aliases);
 			cc_imagic_result_fini(&ir);
@@ -364,10 +372,10 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_cloudcatalog_fetch_unified(
 	in.warning = warning;
 	struct json_object *env = cc_assemble_unified_catalog(log, &in);
 
-	// 7. cache write guard (non-empty + not auth error).
+	// 7. cache write guard (non-empty + not auth error + both sources complete).
 	struct json_object *games = cc_json_arr(env, "games");
 	int total = games ? (int)json_object_array_length(games) : 0;
-	if(total > 0 && !auth_error && apollo_complete)
+	if(total > 0 && !auth_error && apollo_complete && browse_complete)
 		cc_cache_write(log, cache_dir, "unified_catalog_v3", env);
 
 	ChiakiErrorCode e = finish_ok(out, env);
