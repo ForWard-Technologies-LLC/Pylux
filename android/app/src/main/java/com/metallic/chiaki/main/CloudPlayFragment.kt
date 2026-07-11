@@ -991,7 +991,9 @@ class CloudPlayFragment : Fragment()
 	private var allocationProgressDialog: androidx.appcompat.app.AlertDialog? = null
 	private var allocationProgressTextView: android.widget.TextView? = null
 	private var allocationGameImageView: android.widget.ImageView? = null
-	private var allocationCancelled = false
+	// Written on the main thread (Cancel button), polled from the Dispatchers.IO
+	// provisioning coroutine via the JNI isCancelled() upcall -> must be @Volatile.
+	@Volatile private var allocationCancelled = false
 	private var savedOrientation: Int = -1  // Save original orientation
 	
 	private fun startCloudStreaming(game: CloudGame)
@@ -1108,6 +1110,14 @@ class CloudPlayFragment : Fragment()
 				)
 				
 				result.onSuccess { session ->
+					// The C flow polls isCancelled only between steps: a Cancel tapped during
+					// the final (multi-second) Gaikai allocate still returns success. Never
+					// launch after the user cancelled (mirrors the iOS cancelFlag guard).
+					if (allocationCancelled)
+					{
+						Log.i(TAG, "Cloud session allocated after cancel; discarding")
+						return@onSuccess
+					}
 					launchCloudStream(session)
 				}
 				
