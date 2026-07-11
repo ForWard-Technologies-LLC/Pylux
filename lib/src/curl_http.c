@@ -4,9 +4,11 @@
 
 #include <curl/curl.h>
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h> // strncasecmp
 
 #define CHIAKI_HTTP_DEFAULT_TIMEOUT_MS 30000L
 #define CHIAKI_HTTP_USER_AGENT "pylux-cloudcatalog/1.0"
@@ -36,6 +38,58 @@ static size_t grow_buffer_write(void *ptr, size_t size, size_t nmemb, void *user
 	return realsize;
 }
 
+// Mask the value following each credential key in buf (in place). Handles the forms
+// "npsso=XYZ", "Authorization: Bearer XYZ", and JSON "access_token":"XYZ". Verbose HTTP
+// logs are meant to be shared for debugging (e.g. ios/logs/pylux.log streams at
+// CHIAKI_LOG_ALL in Debug builds), so credentials must never appear in them verbatim.
+static void redact_credentials(char *buf, size_t len)
+{
+	static const char *const keys[] = {
+		"npsso", "jsessionid", "bearer", "access_token", "refresh_token", "id_token", "code",
+	};
+	for(size_t k = 0; k < sizeof(keys) / sizeof(keys[0]); k++)
+	{
+		size_t key_len = strlen(keys[k]);
+		for(size_t i = 0; i + key_len < len; i++)
+		{
+			if(strncasecmp(buf + i, keys[k], key_len) != 0)
+				continue;
+			// Require a token boundary before the key so "code" doesn't hit "status_code".
+			if(i > 0 && (isalnum((unsigned char)buf[i - 1]) || buf[i - 1] == '_'))
+				continue;
+			size_t j = i + key_len;
+			// Skip the key/value separator ("=", ": ", "\":\"", "Bearer ").
+			size_t sep = j;
+			while(sep < len && (buf[sep] == '"' || buf[sep] == ':' || buf[sep] == '=' || buf[sep] == ' '))
+				sep++;
+			if(sep == j)
+				continue; // key not followed by a separator -> not a credential assignment
+			for(; sep < len; sep++)
+			{
+				char c = buf[sep];
+				if(c == '&' || c == '"' || c == '\'' || c == ';' || c == ',' ||
+				   c == ' ' || c == '\r' || c == '\n')
+					break;
+				buf[sep] = '*';
+			}
+			i = sep;
+		}
+	}
+}
+
+static void log_verbose_redacted(ChiakiLog *log, const char *label, const char *data, size_t size)
+{
+	char *copy = malloc(size + 1);
+	if(!copy)
+		return;
+	memcpy(copy, data, size);
+	copy[size] = 0;
+	redact_credentials(copy, size);
+	CHIAKI_LOGV(log, "%s", label);
+	CHIAKI_LOGV(log, "%s", copy);
+	free(copy);
+}
+
 static int cc_http_debug_cb(CURL *handle, curl_infotype type, char *data, size_t size, void *userptr)
 {
 	(void)handle;
@@ -45,20 +99,16 @@ static int cc_http_debug_cb(CURL *handle, curl_infotype type, char *data, size_t
 	switch(type)
 	{
 		case CURLINFO_HEADER_OUT:
-			CHIAKI_LOGV(log, ">>> HTTP Request Headers:");
-			CHIAKI_LOGV(log, "%.*s", (int)size, data);
+			log_verbose_redacted(log, ">>> HTTP Request Headers:", data, size);
 			break;
 		case CURLINFO_DATA_OUT:
-			CHIAKI_LOGV(log, ">>> HTTP Request Body:");
-			CHIAKI_LOGV(log, "%.*s", (int)size, data);
+			log_verbose_redacted(log, ">>> HTTP Request Body:", data, size);
 			break;
 		case CURLINFO_HEADER_IN:
-			CHIAKI_LOGV(log, "<<< HTTP Response Headers:");
-			CHIAKI_LOGV(log, "%.*s", (int)size, data);
+			log_verbose_redacted(log, "<<< HTTP Response Headers:", data, size);
 			break;
 		case CURLINFO_DATA_IN:
-			CHIAKI_LOGV(log, "<<< HTTP Response Body:");
-			CHIAKI_LOGV(log, "%.*s", (int)size, data);
+			log_verbose_redacted(log, "<<< HTTP Response Body:", data, size);
 			break;
 		default:
 			break;
@@ -71,6 +121,11 @@ static CURL *easy_init_logged(ChiakiLog *log)
 	CURL *curl = curl_easy_init();
 	if(!curl)
 		return NULL;
+
+	// These requests run on worker threads alongside session/holepunch threads; without
+	// NOSIGNAL, a DNS timeout on a libcurl built without the threaded resolver raises
+	// SIGALRM/longjmp in a multithreaded process.
+	curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
 
 	// mbedTLS (Android and other non-system-trust backends) needs the CA bundle
 	// path explicitly. Harmless when the env var is unset or on Secure Transport.
