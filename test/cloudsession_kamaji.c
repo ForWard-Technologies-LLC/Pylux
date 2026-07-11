@@ -82,9 +82,35 @@ static MunitResult test_gd_fallback_none(const MunitParameter p[], void *data)
 	return MUNIT_OK;
 }
 
+static bool always_cancelled(void *user)
+{
+	(void)user;
+	return true;
+}
+
+// A cancel that lands before provisioning starts must return CHIAKI_ERR_CANCELED
+// without any network activity (the entry poll runs before the DUID/auth pre-flight,
+// so this test is fully offline).
+static MunitResult test_cancelled_before_start(const MunitParameter p[], void *data)
+{
+	(void)p; (void)data;
+	ChiakiCloudProvisionConfig cfg;
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.npsso = "test-npsso";
+	cfg.service_type = "psnow";
+	cfg.game_identifier = "UP9000-CUSA12345_00-FULLGAME00000001";
+	cfg.is_cancelled = always_cancelled;
+	ChiakiCloudProvisionResult out;
+	munit_assert_int(chiaki_cloud_provision_session(&cfg, &out, NULL), ==, CHIAKI_ERR_CANCELED);
+	munit_assert_int(out.err, ==, CHIAKI_ERR_CANCELED);
+	chiaki_cloud_provision_result_fini(&out);
+	return MUNIT_OK;
+}
+
 MunitTest tests_cloudsession_kamaji[] = {
 	{ "/gd_fallback_picks_gd", test_gd_fallback_picks_gd, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/gd_fallback_title_match", test_gd_fallback_title_match, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/gd_fallback_none", test_gd_fallback_none, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
+	{ "/cancelled_before_start", test_cancelled_before_start, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ NULL, NULL, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL }
 };

@@ -106,6 +106,11 @@ static ChiakiErrorCode cc_authorize_check(ChiakiLog *log,
 	return CHIAKI_ERR_UNKNOWN;
 }
 
+static bool cp_cancelled(const ChiakiCloudProvisionConfig *cfg)
+{
+	return cfg->is_cancelled && cfg->is_cancelled(cfg->user);
+}
+
 // One provisioning attempt: PSNOW resolves via Kamaji then allocates via Gaikai;
 // PSCLOUD allocates directly (game_identifier is already the PS5 entitlementId).
 static ChiakiErrorCode provision_once(ChiakiLog *log,
@@ -160,6 +165,14 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_cloud_provision_session(
 	#undef CC_NZ
 	cfg = &c;
 
+	// Cancelled before any work (e.g. the user backed out while the platform was
+	// still spinning up the worker): return without touching the network.
+	if(cp_cancelled(cfg))
+	{
+		out->err = CHIAKI_ERR_CANCELED;
+		return out->err;
+	}
+
 	// One shared client device uid for the Kamaji + Gaikai OAuth exchanges.
 	char duid[64];
 	size_t duid_size = sizeof(duid);
@@ -186,13 +199,21 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_cloud_provision_session(
 		return out->err;
 	}
 
+	// Poll between the pre-flight and the real flow (header contract: "polled
+	// between steps") so a cancel during the auth check stops before Kamaji runs.
+	if(cp_cancelled(cfg))
+	{
+		out->err = CHIAKI_ERR_CANCELED;
+		return out->err;
+	}
+
 	ChiakiErrorCode e = provision_once(log, cfg, duid, out);
 
 	// One-shot fallback: an owned fast-path entitlement that Gaikai rejects
 	// (noGameForEntitlementId) -> re-run the full Kamaji resolve/acquire once.
 	bool used_fast_path = cfg->owned_entitlement_id && *cfg->owned_entitlement_id;
 	if(e != CHIAKI_ERR_SUCCESS && used_fast_path && out->error_message &&
-	   strstr(out->error_message, "noGameForEntitlement"))
+	   strstr(out->error_message, "noGameForEntitlement") && !cp_cancelled(cfg))
 	{
 		CHIAKI_LOGW(log, "[CLOUDSESSION] owned entitlement rejected by Gaikai; retrying full resolve flow");
 		chiaki_cloud_provision_result_fini(out);

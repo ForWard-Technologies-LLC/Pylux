@@ -1149,13 +1149,21 @@ ChiakiErrorCode cc_gaikai_allocate(ChiakiLog *log,
 
 	c.spec = gk_build_spec(&c, entitlement_id ? entitlement_id : "");
 
+	// Poll cancellation between the early steps too (header contract); steps 10,
+	// 11, and 13 poll internally around their retry/wait loops.
 	bool psplus_err = false;
-	ChiakiErrorCode e = gk_step0_client_ids(&c);
+	ChiakiErrorCode e = gk_cancelled(&c) ? CHIAKI_ERR_CANCELED : gk_step0_client_ids(&c);
+	if(e == CHIAKI_ERR_SUCCESS && gk_cancelled(&c)) e = CHIAKI_ERR_CANCELED;
 	if(e == CHIAKI_ERR_SUCCESS) e = gk_step7_config(&c);
+	if(e == CHIAKI_ERR_SUCCESS && gk_cancelled(&c)) e = CHIAKI_ERR_CANCELED;
 	if(e == CHIAKI_ERR_SUCCESS) e = gk_step8_start(&c, out);
+	if(e == CHIAKI_ERR_SUCCESS && gk_cancelled(&c)) e = CHIAKI_ERR_CANCELED;
 	if(e == CHIAKI_ERR_SUCCESS) e = gk_step8a_gk_authcode(&c);
+	if(e == CHIAKI_ERR_SUCCESS && gk_cancelled(&c)) e = CHIAKI_ERR_CANCELED;
 	if(e == CHIAKI_ERR_SUCCESS) e = gk_step8b_server_authcode(&c);
+	if(e == CHIAKI_ERR_SUCCESS && gk_cancelled(&c)) e = CHIAKI_ERR_CANCELED;
 	if(e == CHIAKI_ERR_SUCCESS) e = gk_step9_authorize(&c, out, &psplus_err);
+	if(e == CHIAKI_ERR_SUCCESS && gk_cancelled(&c)) e = CHIAKI_ERR_CANCELED;
 	if(e == CHIAKI_ERR_SUCCESS) e = gk_step10_lock(&c);
 	if(e == CHIAKI_ERR_SUCCESS) e = gk_step11_datacenters(&c);
 	if(e == CHIAKI_ERR_SUCCESS) e = gk_step12_select(&c);

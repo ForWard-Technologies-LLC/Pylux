@@ -47,6 +47,11 @@ typedef struct
 	char *commerce_token;
 } KamajiCtx;
 
+static bool km_cancelled(const KamajiCtx *c)
+{
+	return c->cfg->is_cancelled && c->cfg->is_cancelled(c->cfg->user);
+}
+
 static char *km_hdr(const char *key, const char *value)
 {
 	size_t n = strlen(key) + 2 + (value ? strlen(value) : 0) + 1;
@@ -455,6 +460,9 @@ static ChiakiErrorCode km_check_account_attributes(KamajiCtx *c, char **out_erro
 
 static ChiakiErrorCode km_checkout_acquire(KamajiCtx *c, char **out_error)
 {
+	// Last poll before the flow starts mutating the account: past this point a
+	// cancel can no longer prevent the $0 acquisition landing on the user's library.
+	if(km_cancelled(c)) return CHIAKI_ERR_CANCELED;
 	if(c->cfg->progress) c->cfg->progress("Acquiring License - Step 3 of 5", c->cfg->user);
 	char *h_auth = NULL; cc_http_make_bearer_header(&h_auth, c->commerce_token);
 	char *h_ua = km_hdr("User-Agent", KM_USER_AGENT);
@@ -521,6 +529,9 @@ static ChiakiErrorCode km_checkout_acquire(KamajiCtx *c, char **out_error)
 	cc_http_response_fini(&presp);
 
 	// --- buynow: complete the $0 acquire ---
+	// The preview above is read-only, so a cancel that landed during it can still
+	// stop cleanly here; buynow is the first request with a lasting side effect.
+	if(km_cancelled(c)) { free(h_auth); free(h_ua); free(h_cookie); return CHIAKI_ERR_CANCELED; }
 	char buy_body[256];
 	snprintf(buy_body, sizeof(buy_body), "sku=%s&skipEmail=true", c->streaming_sku);
 	const char *buy_hdrs[] = {
@@ -642,18 +653,26 @@ ChiakiErrorCode cc_kamaji_resolve(ChiakiLog *log,
 	}
 	else
 	{
+		// Poll cancellation between steps (header contract) so a user backing out
+		// mid-flow stops before the next network round-trip — most importantly
+		// before 0.5e, which can mutate the account (the $0 checkout).
 		char *anon_code = NULL;
 		e = km_step0_5b_anon_authcode(&c, &anon_code);
+		if(e == CHIAKI_ERR_SUCCESS && km_cancelled(&c)) e = CHIAKI_ERR_CANCELED;
 		if(e == CHIAKI_ERR_SUCCESS) e = km_step0_5c_anon_session(&c, anon_code);
 		free(anon_code);
+		if(e == CHIAKI_ERR_SUCCESS && km_cancelled(&c)) e = CHIAKI_ERR_CANCELED;
 		if(e == CHIAKI_ERR_SUCCESS) e = km_step0_5d_resolve(&c, out_error);
+		if(e == CHIAKI_ERR_SUCCESS && km_cancelled(&c)) e = CHIAKI_ERR_CANCELED;
 		if(e == CHIAKI_ERR_SUCCESS) e = km_step0_5e_check_acquire(&c, out_error);
 	}
 
+	if(e == CHIAKI_ERR_SUCCESS && km_cancelled(&c)) e = CHIAKI_ERR_CANCELED;
 	if(e == CHIAKI_ERR_SUCCESS)
 	{
 		char *auth_code = NULL;
 		e = km_step5_authcode(&c, &auth_code);
+		if(e == CHIAKI_ERR_SUCCESS && km_cancelled(&c)) e = CHIAKI_ERR_CANCELED;
 		if(e == CHIAKI_ERR_SUCCESS) e = km_step6_auth_session(&c, auth_code);
 		free(auth_code);
 	}
