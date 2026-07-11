@@ -54,6 +54,8 @@ static char *url_encode(const char *s)
 }
 
 // Extract value of "key=" from a URL/query/fragment up to '&'. Returns true if found.
+// The key must start a parameter (begin-of-string or after ?/&/#) so e.g. "code="
+// doesn't match inside "error_code=" on OAuth error redirects.
 static bool extract_param(const char *url, const char *key, char *out, size_t out_sz)
 {
 	out[0] = 0;
@@ -62,6 +64,8 @@ static bool extract_param(const char *url, const char *key, char *out, size_t ou
 	char pat[64];
 	snprintf(pat, sizeof(pat), "%s=", key);
 	const char *p = strstr(url, pat);
+	while(p && !(p == url || p[-1] == '?' || p[-1] == '&' || p[-1] == '#'))
+		p = strstr(p + 1, pat);
 	if(!p)
 		return false;
 	p += strlen(pat);
@@ -151,6 +155,8 @@ static CCNativeResult psnow_oauth(ChiakiLog *log, const char *npsso, const char 
 		if(extract_param(resp.redirect_url, "code", out_code, code_sz))
 			result = CC_NATIVE_OK;
 	}
+	else if(resp.status_code >= 500)
+		result = CC_NATIVE_FATAL; // server blip says nothing about the token (parity with psnow_stores)
 	cc_http_response_fini(&resp);
 	return result;
 }
@@ -209,6 +215,8 @@ static CCNativeResult psnow_session(ChiakiLog *log, const char *code, const char
 		if(obj)
 			json_object_put(obj);
 	}
+	else if(resp.status_code >= 500)
+		result = CC_NATIVE_FATAL; // server blip says nothing about the token (parity with psnow_stores)
 	cc_http_response_fini(&resp);
 	return result;
 }
@@ -542,7 +550,7 @@ struct json_object *cc_fetch_apollo_fallback(ChiakiLog *log, const char *account
 			CHIAKI_LOGW(log, "[UNIFIED] APOLLOROOT fallback page at start=%d unparseable; list incomplete", start);
 			break;
 		}
-		if(total < 0)
+		if(total < 0 && cc_json_has(obj, "total_results"))
 			total = cc_json_int(obj, "total_results");
 		int product_count = 0;
 		struct json_object *links = cc_json_arr(obj, "links");
@@ -565,8 +573,27 @@ struct json_object *cc_fetch_apollo_fallback(ChiakiLog *log, const char *account
 		}
 		json_object_put(obj);
 		start += 100;
-		if(product_count <= 0 || (total >= 0 && start >= total))
+		if(total >= 0 && start >= total)
+			break; // server-confirmed end of list
+		if(product_count <= 0)
+		{
+			// Ran dry before the declared total, or the server never sent
+			// total_results at all (schema drift): either way we can't confirm
+			// completeness, so serve what we have but don't let it cache.
+			if(out_complete)
+				*out_complete = false;
+			CHIAKI_LOGW(log, "[UNIFIED] APOLLOROOT fallback ended at start=%d without a confirmed total; list incomplete", start - 100);
 			break;
+		}
+		if(start >= 10000)
+		{
+			// Hard cap so a server that keeps returning products (with no usable
+			// total) can't spin this loop forever.
+			if(out_complete)
+				*out_complete = false;
+			CHIAKI_LOGW(log, "[UNIFIED] APOLLOROOT fallback page cap hit at start=%d; list incomplete", start);
+			break;
+		}
 	}
 	CHIAKI_LOGI(log, "[UNIFIED] APOLLOROOT fallback: %d titles", (int)json_object_array_length(games));
 	return games;
@@ -791,6 +818,8 @@ static CCOwnedResult owned_oauth(ChiakiLog *log, const char *npsso, char *out_to
 		else if(extract_param(resp.redirect_url, "access_token", out_token, tok_sz))
 			result = CC_OWNED_OK;
 	}
+	else if(resp.status_code >= 500)
+		result = CC_OWNED_ERROR; // server blip says nothing about the token; don't flag the session expired
 	cc_http_response_fini(&resp);
 	return result;
 }
