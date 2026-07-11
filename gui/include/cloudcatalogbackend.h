@@ -101,6 +101,13 @@ private:
     std::atomic<bool> unifiedFetchInFlight{false};
     std::vector<QJSValue> pendingUnifiedCallbacks;
 
+    // Bumped by invalidateCache() (GUI thread only). A unified fetch snapshots it
+    // at start; a completion whose snapshot is stale means the cache (and account/
+    // locale inputs) changed mid-flight — the result must be discarded and the
+    // fetch restarted, or a coalesced reload after an account switch would serve
+    // (and re-persist) the previous account's catalog.
+    quint64 catalogGeneration = 0;
+
     QHash<quint64, QJSValue> pending_callbacks; // GUI thread only
     quint64 next_request_id = 0;
 
