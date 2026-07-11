@@ -153,11 +153,14 @@ static bool is_cloud_streaming_game(struct json_object *g)
 	return is_cloud_device_game(g);
 }
 
-// concept|platform edition key. Writes into out (>=64). Returns out (empty if no concept).
+// concept|platform edition key. Writes into out (>=96). Returns out (empty if no concept).
 static const char *edition_key(struct json_object *g, char *out, size_t out_sz)
 {
 	out[0] = 0;
-	char concept[24];
+	// Big enough for a full product id (36+ chars), not just a numeric conceptId:
+	// truncating the productId fallback would collide distinct SKUs sharing a prefix
+	// and silently drop/mis-alias one of them.
+	char concept[80];
 	concept_id_string(g, "conceptId", concept, sizeof(concept));
 	if(!*concept)
 	{
@@ -758,7 +761,7 @@ void cc_merge_imagic_list(const char *category_list, struct json_object *list_do
 			if(!is_cloud_streaming_game(g))
 				continue;
 
-			char key[64];
+			char key[96];
 			edition_key(g, key, sizeof(key));
 			const char *pid = cc_json_str(g, "productId");
 			if(!*key || !*pid)
