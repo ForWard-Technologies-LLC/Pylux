@@ -78,6 +78,11 @@ final class StreamSession: ObservableObject {
     /// Stored view so we can attach when decoder becomes available (matches Android's stored surface).
     private weak var pendingVideoView: StreamVideoUIView?
     private var eventReceiver: SessionEventReceiver?
+    /// Set by shutdown(), cleared by resume(). Session creation runs detached (and
+    /// chiaki_session_init can block in DNS for seconds); without this flag a shutdown
+    /// landing in that window would let the freshly created session start and stream
+    /// with no owner left to stop it.
+    private var isShutDown = false
     /// Holepunch session for PSN connections (kept alive for session lifetime)
     private var holepunchSession: PyluxHolepunchSession?
     /// Chiaki `CHIAKI_EVENT_RUMBLE` → Core Haptics (when `rumbleEnabled`).
@@ -141,6 +146,7 @@ final class StreamSession: ObservableObject {
 
     func resume() {
         guard state == .idle else { return }
+        isShutDown = false
         let resumePrefs = StreamPreferences.load()
         rumbleEffectsEnabled = resumePrefs.rumbleEnabled
         rumbleIntensity = resumePrefs.rumbleIntensity
@@ -183,6 +189,7 @@ final class StreamSession: ObservableObject {
 
     func shutdown() {
         os_log(.default, log: sessionLog, "%{public}s", "[StreamSession] shutdown: session=\(sessionRef != nil)")
+        isShutDown = true
         pipManager.tearDown()
         rumbleFeedback?.shutdown()
         rumbleFeedback = nil
@@ -530,6 +537,7 @@ final class StreamSession: ObservableObject {
 
         guard let ref = ref else {
             let capturedErr = err
+            receiver.invalidate() // the create call already took the self-retain
             await MainActor.run { [weak self] in
                 self?.connectionPhase = ""
                 self?.state = .createError(errorCode: capturedErr != 0 ? capturedErr : 1, message: nil)
@@ -543,23 +551,34 @@ final class StreamSession: ObservableObject {
         // controller is (or later becomes) attached.
         chiaki_session_bridge_enable_haptics_rumble(ref)
 
-        await MainActor.run { [weak self] in
-            self?.connectionPhase = connectInfo.isCloudConnection ? "Starting cloud stream…" : "Starting stream…"
+        // Publish, unless shutdown() ran while the session was being created (the create
+        // call above can block for seconds in DNS): then the session was never started
+        // and nobody owns it, so free it here instead of letting it stream unowned.
+        let published = await MainActor.run { [weak self] () -> Bool in
+            guard let self, !self.isShutDown else { return false }
+            self.connectionPhase = connectInfo.isCloudConnection ? "Starting cloud stream…" : "Starting stream…"
             if holepunchPtr != 0 {
-                self?.holepunchSession?.markConsumed()
-                self?.holepunchSession = nil
+                self.holepunchSession?.markConsumed()
+                self.holepunchSession = nil
             }
-            self?.sessionRef = ref
-            self?.videoDecoder = decoder
-            self?.eventReceiver = receiver
+            self.sessionRef = ref
+            self.videoDecoder = decoder
+            self.eventReceiver = receiver
             // Attach stored view immediately (matches Android: setSurface when session created)
-            if let view = self?.pendingVideoView, let layer = view.videoDisplayLayer {
+            if let view = self.pendingVideoView, let layer = view.videoDisplayLayer {
                 let b = layer.bounds
                 os_log(.default, log: sessionLog, "[StreamSession] attaching stored view to new decoder layer.bounds=%.0fx%.0f", b.width, b.height)
                 decoder.setDisplayLayer(layer)
             } else {
-                os_log(.default, log: sessionLog, "[StreamSession] no stored view to attach (pendingVideoView=%{public}@)", self?.pendingVideoView != nil ? "set" : "nil")
+                os_log(.default, log: sessionLog, "[StreamSession] no stored view to attach (pendingVideoView=%{public}@)", self.pendingVideoView != nil ? "set" : "nil")
             }
+            return true
+        }
+        if !published {
+            os_log(.default, log: sessionLog, "%{public}s", "[StreamSession] shut down during session creation; discarding unstarted session")
+            chiaki_session_bridge_free(ref) // never started -> free directly, no join needed
+            receiver.invalidate()
+            return
         }
 
         // Now safe to set callbacks - decoder/receiver are retained by self
@@ -568,6 +587,7 @@ final class StreamSession: ObservableObject {
         let startErr = chiaki_session_bridge_start(ref)
         if startErr != 0 {
             chiaki_session_bridge_free(ref)
+            receiver.invalidate() // matches the sync path; without it each failed start leaks a receiver
             await MainActor.run { [weak self] in
                 self?.connectionPhase = ""
                 self?.sessionRef = nil
@@ -584,6 +604,9 @@ final class StreamSession: ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             _ = chiaki_session_bridge_join(joinRef)
             chiaki_session_bridge_free(joinRef)
+            // Release THIS session's receiver directly (idempotent): after join+free no
+            // callback can fire, and self.eventReceiver may already point elsewhere.
+            receiver.invalidate()
             Task { @MainActor [weak self] in
                 self?.rumbleFeedback?.shutdown()
                 self?.rumbleFeedback = nil
@@ -658,6 +681,7 @@ final class StreamSession: ObservableObject {
 
         guard let ref = ref else {
             os_log(.default, log: sessionLog, "%{public}s", "[StreamSession] Failed to create session: \(err)")
+            receiver.invalidate() // the create call already took the self-retain
             hpSession.fini()
             DispatchQueue.main.async { [weak self] in
                 self?.connectionPhase = ""
@@ -711,6 +735,9 @@ final class StreamSession: ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             _ = chiaki_session_bridge_join(joinRef)
             chiaki_session_bridge_free(joinRef)
+            // Release THIS session's receiver directly (idempotent): after join+free no
+            // callback can fire, and self.eventReceiver may already point elsewhere.
+            receiver.invalidate()
             Task { @MainActor [weak self] in
                 self?.rumbleFeedback?.shutdown()
                 self?.rumbleFeedback = nil
