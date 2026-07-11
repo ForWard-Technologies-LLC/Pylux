@@ -191,8 +191,8 @@ typedef enum cc_native_result_t
 {
 	CC_NATIVE_OK,                /**< authenticated APOLLOROOT walk succeeded */
 	CC_NATIVE_AUTH_ERROR,        /**< OAuth/session failed (expired token) */
-	CC_NATIVE_REGION_UNSUPPORTED,/**< auth OK but /user/stores 404 -> public fallback */
-	CC_NATIVE_FATAL              /**< setup/transport failure */
+	CC_NATIVE_REGION_UNSUPPORTED,/**< definitive server answer: /user/stores 4xx -> public fallback (cacheable) */
+	CC_NATIVE_FATAL              /**< setup/transport/5xx failure -> public fallback served but NOT cached */
 } CCNativeResult;
 
 /**
@@ -217,8 +217,12 @@ CCNativeResult cc_fetch_psnow_native(ChiakiLog *log, const char *npsso, struct j
 	char *out_store_country, size_t store_cc_sz, char *out_store_lang, size_t store_lang_sz,
 	bool *out_complete);
 
-/** Public APOLLOROOT fallback pagination for @p account_country. New array or NULL. */
-struct json_object *cc_fetch_apollo_fallback(ChiakiLog *log, const char *account_country);
+/**
+ * Public APOLLOROOT fallback pagination for @p account_country. New array or NULL.
+ * *out_complete (may be NULL) is set false when pagination aborted early on an
+ * HTTP/parse error, so callers must not cache the partial list.
+ */
+struct json_object *cc_fetch_apollo_fallback(ChiakiLog *log, const char *account_country, bool *out_complete);
 
 typedef struct cc_imagic_result_t
 {
