@@ -203,7 +203,10 @@ void CloudStreamingBackend::continueCloudSessionAfterAuth(QString serviceType, Q
         const QString dcPings = res.datacenter_pings ? QString::fromUtf8(res.datacenter_pings) : QString();
         chiaki_cloud_provision_result_fini(&res);
 
-        QMetaObject::invokeMethod(qApp, [self, reqId, success, attrPassed, serviceTypeStr, serverIp, serverPort,
+        QCoreApplication *app = QCoreApplication::instance();
+        if (!app)
+            return; // user quit mid-provision: the app object is gone, nothing to deliver to
+        QMetaObject::invokeMethod(app, [self, reqId, success, attrPassed, serviceTypeStr, serverIp, serverPort,
                                          handshakeKey, launchSpec, sessionId, wrap, mtuIn, mtuOut, rttUs, errMsg, dcPings]() mutable {
             if (!self)
                 return; // backend destroyed while the worker ran
@@ -441,7 +444,10 @@ void CloudStreamingBackend::provisionProgressThunk(const char *stage, void *user
     // backend with a shorter lifetime.
     QPointer<CloudStreamingBackend> self = *holder;
     const QString s = QString::fromUtf8(stage);
-    QMetaObject::invokeMethod(qApp, [self, s]() {
+    QCoreApplication *app = QCoreApplication::instance();
+    if (!app)
+        return; // user quit mid-provision: the app object is gone, nothing to deliver to
+    QMetaObject::invokeMethod(app, [self, s]() {
         if (self)
             self->setAllocationProgress(s);
     }, Qt::QueuedConnection);
