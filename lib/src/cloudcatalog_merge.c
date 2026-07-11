@@ -213,8 +213,22 @@ const char *cc_stable_key(const char *product_id, char *out, size_t out_sz)
 	int ntok = 0;
 	char buf[256];
 	snprintf(buf, sizeof(buf), "%s", product_id);
-	for(char *tok = strtok(buf, "-_"); tok && ntok < 16; tok = strtok(NULL, "-_"))
-		snprintf(tokens[ntok++], 64, "%s", tok);
+	// Manual scan, NOT strtok: strtok's process-wide save-pointer is also used by
+	// holepunch.c on session threads, and a catalog fetch can run concurrently with
+	// a remote-play connect — the two parses would cross-corrupt.
+	for(char *p = buf; *p && ntok < 16;)
+	{
+		while(*p == '-' || *p == '_')
+			p++;
+		if(!*p)
+			break;
+		char *start = p;
+		while(*p && *p != '-' && *p != '_')
+			p++;
+		if(*p)
+			*p++ = 0;
+		snprintf(tokens[ntok++], 64, "%s", start);
+	}
 	if(ntok < 2)
 		return out;
 	ntok--; // drop last token
