@@ -27,6 +27,7 @@ typedef struct chiaki_ps_chord_t
 	uint64_t chord_start_ms;  // 0 = chord not currently held
 	uint64_t pulse_until_ms;  // synthesized PS press active until this time
 	bool fired;               // latched: fire at most once per hold
+	bool releasing;           // in the staggered-release tail (one button still down)
 } ChiakiPsChord;
 
 typedef struct chiaki_feedback_sender_t
