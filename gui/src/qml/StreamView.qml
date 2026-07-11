@@ -376,9 +376,10 @@ Item {
                 id: statsPacketLossLabel
                 text: qsTr("packet loss")
                 font.pixelSize: 15
+                visible: Chiaki.session
                 Label {
                     anchors { right: parent.left; baseline: parent.baseline; rightMargin: 5 }
-                    text: parent.visible ? "%1<font size=\"1\">%</font>".arg((Chiaki.session?.averagePacketLoss * 100).toFixed(1)) : ""
+                    text: parent.visible ? "%1<font size=\"1\">%</font>".arg((Chiaki.session.averagePacketLoss * 100).toFixed(1)) : ""
                     font.bold: true
                     color: "#ef9a9a" // Material.Red
                     font.pixelSize: 18
