@@ -79,7 +79,7 @@ typedef struct chiaki_cloud_provision_result_t
 	uint8_t  psn_wrapper_type;    /**< from the allocated privateIp last octet -> ConnectInfo */
 	uint32_t mtu_in, mtu_out;
 	uint64_t rtt_us;
-	char    *datacenter_pings;  /**< JSON: [{"dataCenter":...,"rtt_ms":...}, ...] for Settings */
+	char    *datacenter_pings;  /**< JSON: [{"dataCenter":...,"rtt":...}, ...] for Settings */
 	char    *error_message;     /**< human-readable detail on failure; may be NULL */
 } ChiakiCloudProvisionResult;
 
