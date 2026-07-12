@@ -867,7 +867,9 @@ void QmlGamesBackend::createGameSteamShortcut(const QString &titleId, const QStr
     // Load fixed assets
     qCInfo(chiakiGuiGames) << "Loading fixed assets...";
     QPixmap icon(":/icons/game_shortcut_icon.png");
-    QPixmap logo(":/icons/game_shortcut_logo.png");
+    // Same Pylux logo the app-level startup shortcut uses (the old game_shortcut_logo.png
+    // still carried PS Stream branding)
+    QPixmap logo(":/icons/steam_logo.png");
     
     qCInfo(chiakiGuiGames) << "Icon loaded:" << !icon.isNull() << "size:" << icon.size();
     qCInfo(chiakiGuiGames) << "Logo loaded:" << !logo.isNull() << "size:" << logo.size();
@@ -876,11 +878,9 @@ void QmlGamesBackend::createGameSteamShortcut(const QString &titleId, const QStr
         qCWarning(chiakiGuiGames) << "Failed to load game shortcut icon, using fallback";
         icon = QPixmap(":/icons/steam_icon.png");
     }
-    if (logo.isNull()) {
-        qCWarning(chiakiGuiGames) << "Failed to load game shortcut logo, using fallback";
-        logo = QPixmap(":/icons/steam_logo.png");
-    }
-    
+    if (logo.isNull())
+        qCWarning(chiakiGuiGames) << "Failed to load game shortcut logo";
+
     // Create artwork map
     QMap<QString, const QPixmap*> artwork;
     
@@ -956,9 +956,13 @@ void QmlGamesBackend::createGameSteamShortcut(const QString &titleId, const QStr
     qCInfo(chiakiGuiGames) << "Application executable path:" << executable;
     
     #ifdef Q_OS_LINUX
-        // Check if running as AppImage
         QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-        if (env.contains("APPIMAGE")) {
+        // In a Flatpak sandbox applicationFilePath() is /app/bin/... which doesn't
+        // exist on the host; Steam must invoke the host's flatpak command instead
+        // (same as QmlBackend::getExecutable())
+        if (!env.value("FLATPAK_ID").isEmpty()) {
+            executable = QStringLiteral("flatpak");
+        } else if (env.contains("APPIMAGE")) {
             executable = env.value("APPIMAGE");
             qCInfo(chiakiGuiGames) << "Running as AppImage, using:" << executable;
         }

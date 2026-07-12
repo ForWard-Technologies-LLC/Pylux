@@ -973,17 +973,17 @@ void CloudCatalogBackend::createCloudSteamShortcut(const QString &gameIdentifier
     // Load fixed assets
     qInfo() << "Loading fixed assets...";
     QPixmap icon(":/icons/game_shortcut_icon.png");
-    QPixmap logo(":/icons/game_shortcut_logo.png");
+    // Same Pylux logo the app-level startup shortcut uses (the old game_shortcut_logo.png
+    // still carried PS Stream branding)
+    QPixmap logo(":/icons/steam_logo.png");
     
     if (icon.isNull()) {
         qWarning() << "Failed to load game shortcut icon, using fallback";
         icon = QPixmap(":/icons/steam_icon.png");
     }
-    if (logo.isNull()) {
-        qWarning() << "Failed to load game shortcut logo, using fallback";
-        logo = QPixmap(":/icons/steam_logo.png");
-    }
-    
+    if (logo.isNull())
+        qWarning() << "Failed to load game shortcut logo";
+
     // Create artwork map
     QMap<QString, const QPixmap*> artwork;
     
@@ -1055,9 +1055,13 @@ void CloudCatalogBackend::createCloudSteamShortcut(const QString &gameIdentifier
     qInfo() << "Application executable path:" << executable;
     
     #ifdef Q_OS_LINUX
-        // Check if running as AppImage
         QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-        if (env.contains("APPIMAGE")) {
+        // In a Flatpak sandbox applicationFilePath() is /app/bin/... which doesn't
+        // exist on the host; Steam must invoke the host's flatpak command instead
+        // (same as QmlBackend::getExecutable())
+        if (!env.value("FLATPAK_ID").isEmpty()) {
+            executable = QStringLiteral("flatpak");
+        } else if (env.contains("APPIMAGE")) {
             executable = env.value("APPIMAGE");
             qInfo() << "Running as AppImage, using:" << executable;
         }
