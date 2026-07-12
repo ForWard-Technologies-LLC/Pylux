@@ -9,7 +9,6 @@
     app:cardElevation="2dp"
     android:clickable="true"
     android:focusable="true"
-    android:focusableInTouchMode="true"
     android:foreground="?android:attr/selectableItemBackground">
 
     <FrameLayout
@@ -65,7 +64,7 @@
             android:background="@drawable/gradient_overlay"
             android:paddingStart="8dp"
             android:paddingEnd="8dp"
-            android:paddingTop="8dp"
+            android:paddingTop="28dp"
             android:paddingBottom="8dp">
 
             <com.google.android.material.textview.MaterialTextView
@@ -94,7 +93,7 @@
                 android:paddingTop="3dp"
                 android:paddingBottom="3dp"
                 android:text="5"
-                android:textSize="11sp"
+                android:textSize="12sp"
                 android:textStyle="bold"
                 android:textColor="#FFFFFF"
                 android:background="@drawable/platform_badge_background" />

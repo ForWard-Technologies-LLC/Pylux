@@ -21,6 +21,7 @@
     <string name="action_quit_session">Quit</string>
     <string name="action_login_pin_connect">Connect</string>
     <string name="stream_disconnect_button">Disconnect</string>
+    <string name="stream_stats_toggle">Stats</string>
     <string name="action_settings">Settings</string>
     <string name="action_discover">Discover Consoles Automatically</string>
     <string name="display_host_host">Address: %s</string>
@@ -127,9 +128,11 @@
     <string name="preferences_dpad_touch_shortcut3_title">Touch Combo Button 3</string>
     <string name="preferences_dpad_touch_shortcut4_title">Touch Combo Button 4</string>
     <string name="preferences_rumble_enabled_title">Rumble</string>
-    <string name="preferences_rumble_enabled_summary">Use phone vibration motor for rumble</string>
-    <string name="preferences_motion_enabled_title">Motion</string>
-    <string name="preferences_motion_enabled_summary">Use device\'s motion sensors for controller motion</string>
+    <string name="preferences_rumble_enabled_summary">Rumble on the controller\'s motor when it has one, otherwise the phone</string>
+    <string name="preferences_rumble_intensity_title">Rumble Intensity</string>
+    <string name="preferences_rumble_intensity_summary">Rumble strength (100 = normal, 0 = off, up to 500)</string>
+    <string name="preferences_motion_source_title">Gyro / Motion</string>
+    <string name="preferences_motion_source_summary">Motion sensors sent to the console for gyro aiming</string>
     <string name="preferences_button_haptic_enabled_title">Touch Haptics</string>
     <string name="preferences_button_haptic_enabled_summary">Use phone vibration motor for short haptic feedback on button touches</string>
     <string name="alert_message_delete_registered_host">Are you sure you want to delete the registered console %s with ID %s?</string>
@@ -150,19 +153,20 @@
     <string name="preferences_psn_logout_confirm">Logout</string>
     <string name="preferences_psn_logout_success">Logged out successfully</string>
     
-    <!-- Game Library (PSCloud) Settings - supports up to 4K -->
-    <string name="preferences_category_title_game_library">Game Library</string>
+    <!-- Owned Games (PS5 / PSCloud) Settings - supports up to 4K -->
+    <string name="preferences_category_title_cloud_settings">Cloud Settings</string>
+    <string name="preferences_category_title_game_library">Owned Games (PS5)</string>
     <string name="preferences_cloud_resolution_pscloud_title">Resolution</string>
-    <string name="preferences_cloud_resolution_pscloud_summary">Streaming resolution for Game Library (up to 4K)</string>
+    <string name="preferences_cloud_resolution_pscloud_summary">Streaming resolution for Owned Games (up to 4K)</string>
     <string name="preferences_cloud_datacenter_pscloud_title">Datacenter</string>
     <string name="preferences_cloud_datacenter_pscloud_summary">Select a specific datacenter or use Auto for best ping</string>
     <string name="preferences_cloud_bitrate_pscloud_title">Bitrate</string>
     <string name="preferences_cloud_bitrate_pscloud_summary">%1$d Mbps (default 20 Mbps)</string>
     
-    <!-- Game Catalog (PSNOW) Settings - up to 1080p -->
-    <string name="preferences_category_title_game_catalog">Game Catalog</string>
+    <!-- Streamable Games (PS3/PS4 / PSNOW) Settings - up to 1080p -->
+    <string name="preferences_category_title_game_catalog">Streamable Games (PS3/PS4)</string>
     <string name="preferences_cloud_resolution_psnow_title">Resolution</string>
-    <string name="preferences_cloud_resolution_psnow_summary">Streaming resolution for Game Catalog</string>
+    <string name="preferences_cloud_resolution_psnow_summary">Streaming resolution for Streamable Games (up to 1080p)</string>
     <string name="preferences_cloud_datacenter_psnow_title">Datacenter</string>
     <string name="preferences_cloud_datacenter_psnow_summary">Select a specific datacenter or use Auto for best ping</string>
     <string name="preferences_cloud_bitrate_psnow_title">Bitrate</string>
@@ -230,6 +234,20 @@
         <item>16</item>
     </string-array>
 
+    <!-- Gyro / Motion source (matches iOS MotionSource) -->
+    <string-array name="motion_source_entries">
+        <item>Auto (controller, fall back to phone)</item>
+        <item>Controller only</item>
+        <item>Phone only</item>
+        <item>Off</item>
+    </string-array>
+    <string-array name="motion_source_values">
+        <item>auto</item>
+        <item>controller</item>
+        <item>phone</item>
+        <item>off</item>
+    </string-array>
+
     <!-- Datacenter options -->
     <string-array name="cloud_datacenter_entries">
         <item>Auto (Best Ping)</item>
@@ -267,7 +285,9 @@
     <string name="preferences_on_screen_controls_enabled_key">on_screen_controls_enabled</string>
     <string name="preferences_touchpad_only_enabled_key">touchpad_only_enabled</string>
     <string name="preferences_rumble_enabled_key">rumble_enabled</string>
-    <string name="preferences_motion_enabled_key">motion_enabled</string>
+    <string name="preferences_rumble_intensity_key">rumble_intensity</string>
+    <string name="preferences_motion_enabled_key">motion_enabled</string> <!-- legacy bool, migrated into motion_source -->
+    <string name="preferences_motion_source_key">motion_source</string>
     <string name="preferences_button_haptic_enabled_key">button_haptic_enabled</string>
     <string name="preferences_log_verbose_key">log_verbose</string>
     <string name="preferences_import_settings_key">import_settings</string>
@@ -292,6 +312,11 @@
     <string name="preferences_cloud_resolution_pscloud_key">cloud_resolution_pscloud</string>
     <string name="preferences_cloud_bitrate_psnow_key">cloud_bitrate_psnow</string>
     <string name="preferences_cloud_bitrate_pscloud_key">cloud_bitrate_pscloud</string>
+    <string name="preferences_cloud_language_key">cloud_language_pscloud</string>
+    <string name="preferences_cloud_language_title">Game Language</string>
+    <string name="preferences_cloud_language_auto">Auto (%1$s)</string>
+    <string name="preferences_cloud_language_dialog_message">Not all regions support every language. A language only works on datacenters that offer it — if your chosen language isn\'t applied, pick a datacenter in a matching region.</string>
+    <string name="preferences_cloud_language_note">Language availability depends on your datacenter\'s region.</string>
     <string name="preferences_pip_enabled_key">pip_enabled</string>
 
     <string name="donation_dialog_title">Support Pylux</string>

@@ -52,6 +52,23 @@ let kCloudResolutionsPsnow: [(label: String, value: String, width: Int, height: 
     ("1080p (1920x1080)", "1080", 1920, 1080),
 ]
 
+/// Where the motion data (gyro/accel/orientation) streamed to the console comes from.
+enum MotionSource: String, Codable, CaseIterable, Identifiable {
+    case auto        // controller when it has sensors, else this device
+    case controller  // controller only
+    case phone       // this device only
+    case off         // no motion
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .auto: return "Auto (controller, fall back to phone)"
+        case .controller: return "Controller only"
+        case .phone: return "Phone only"
+        case .off: return "Off"
+        }
+    }
+}
+
 struct StreamPreferences: Codable {
     // Remote Play
     var resolutionIndex: Int = 2       // default 720p (index 2 in updated array, matches Android)
@@ -62,14 +79,19 @@ struct StreamPreferences: Codable {
     // General
     var swapCrossMoon: Bool = false
     var rumbleEnabled: Bool = true      // matches Android default true
-    var motionEnabled: Bool = true      // matches Android default true
+    /// Rumble strength percent, 0–500 (100 = 1x). Matches Android's rumbleIntensity.
+    var rumbleIntensity: Int = 100
+    var motionSource: MotionSource = .auto
     var touchHapticsEnabled: Bool = true // matches Android default true
+    var adaptiveTriggersEnabled: Bool = true // DualSense adaptive triggers (physical DualSense only)
     var logVerbose: Bool = false
 
     /// Stream overlay: full on-screen controls (matches Android `onScreenControlsEnabled`, default true)
     var onScreenControlsEnabled: Bool = true
     /// Stream overlay: touchpad-only strip (matches Android `touchpadOnlyEnabled`, default false)
     var touchpadOnlyEnabled: Bool = false
+    /// In-stream performance stats overlay toggle (matches Android `streamStatsOverlayEnabled`, default false)
+    var streamStatsOverlayEnabled: Bool = false
 
     // Cloud Game Library (PSCloud)
     var cloudResolutionPscloud: String = "720"      // matches Android default
@@ -81,16 +103,24 @@ struct StreamPreferences: Codable {
     var cloudDatacenterPsnow: String = "Auto"       // matches Android default
     var cloudBitratePsnow: Int = 20000              // kbps, matches Qt/Android default 20 Mbps
 
+    /// Cloud streaming game language (BCP-47, e.g. "de-DE"). Empty = follow the
+    /// detected catalog locale.
+    var cloudGameLanguage: String = ""
+
     static let cloudBitrateMinKbps = 2000
     static let cloudBitrateMaxKbps = 200_000
     static let cloudBitrateDefaultKbps = 20000
 
     private enum CodingKeys: String, CodingKey {
         case resolutionIndex, fps, bitrate, codec
-        case swapCrossMoon, rumbleEnabled, motionEnabled, touchHapticsEnabled, logVerbose
+        case swapCrossMoon, rumbleEnabled, rumbleIntensity, motionSource, touchHapticsEnabled, logVerbose
+        case motionEnabled // legacy bool, migrated into motionSource
+        case adaptiveTriggersEnabled
         case onScreenControlsEnabled, touchpadOnlyEnabled
         case cloudResolutionPscloud, cloudDatacenterPscloud, cloudBitratePscloud
         case cloudResolutionPsnow, cloudDatacenterPsnow, cloudBitratePsnow
+        case cloudGameLanguage
+        case cloudLanguage // legacy key
     }
 
     init(
@@ -100,7 +130,8 @@ struct StreamPreferences: Codable {
         codec: Int = 1,
         swapCrossMoon: Bool = false,
         rumbleEnabled: Bool = true,
-        motionEnabled: Bool = true,
+        rumbleIntensity: Int = 100,
+        motionSource: MotionSource = .auto,
         touchHapticsEnabled: Bool = true,
         logVerbose: Bool = false,
         onScreenControlsEnabled: Bool = true,
@@ -110,7 +141,8 @@ struct StreamPreferences: Codable {
         cloudBitratePscloud: Int = StreamPreferences.cloudBitrateDefaultKbps,
         cloudResolutionPsnow: String = "720",
         cloudDatacenterPsnow: String = "Auto",
-        cloudBitratePsnow: Int = StreamPreferences.cloudBitrateDefaultKbps
+        cloudBitratePsnow: Int = StreamPreferences.cloudBitrateDefaultKbps,
+        cloudGameLanguage: String = ""
     ) {
         self.resolutionIndex = resolutionIndex
         self.fps = fps
@@ -118,7 +150,8 @@ struct StreamPreferences: Codable {
         self.codec = codec
         self.swapCrossMoon = swapCrossMoon
         self.rumbleEnabled = rumbleEnabled
-        self.motionEnabled = motionEnabled
+        self.rumbleIntensity = Self.clampRumbleIntensity(rumbleIntensity)
+        self.motionSource = motionSource
         self.touchHapticsEnabled = touchHapticsEnabled
         self.logVerbose = logVerbose
         self.onScreenControlsEnabled = onScreenControlsEnabled
@@ -129,6 +162,7 @@ struct StreamPreferences: Codable {
         self.cloudResolutionPsnow = cloudResolutionPsnow
         self.cloudDatacenterPsnow = cloudDatacenterPsnow
         self.cloudBitratePsnow = Self.clampCloudBitrateKbps(cloudBitratePsnow)
+        self.cloudGameLanguage = cloudGameLanguage
     }
 
     init(from decoder: Decoder) throws {
@@ -139,8 +173,18 @@ struct StreamPreferences: Codable {
         codec = try c.decodeIfPresent(Int.self, forKey: .codec) ?? 1
         swapCrossMoon = try c.decodeIfPresent(Bool.self, forKey: .swapCrossMoon) ?? false
         rumbleEnabled = try c.decodeIfPresent(Bool.self, forKey: .rumbleEnabled) ?? true
-        motionEnabled = try c.decodeIfPresent(Bool.self, forKey: .motionEnabled) ?? true
+        rumbleIntensity = Self.clampRumbleIntensity(
+            try c.decodeIfPresent(Int.self, forKey: .rumbleIntensity) ?? 100
+        )
+        if let source = try c.decodeIfPresent(MotionSource.self, forKey: .motionSource) {
+            motionSource = source
+        } else {
+            // Migrate the legacy motionEnabled bool (Off keeps motion off; anything else = Auto).
+            let legacy = try c.decodeIfPresent(Bool.self, forKey: .motionEnabled) ?? true
+            motionSource = legacy ? .auto : .off
+        }
         touchHapticsEnabled = try c.decodeIfPresent(Bool.self, forKey: .touchHapticsEnabled) ?? true
+        adaptiveTriggersEnabled = try c.decodeIfPresent(Bool.self, forKey: .adaptiveTriggersEnabled) ?? true
         logVerbose = try c.decodeIfPresent(Bool.self, forKey: .logVerbose) ?? false
         onScreenControlsEnabled = try c.decodeIfPresent(Bool.self, forKey: .onScreenControlsEnabled) ?? true
         touchpadOnlyEnabled = try c.decodeIfPresent(Bool.self, forKey: .touchpadOnlyEnabled) ?? false
@@ -154,6 +198,8 @@ struct StreamPreferences: Codable {
         cloudBitratePsnow = Self.clampCloudBitrateKbps(
             try c.decodeIfPresent(Int.self, forKey: .cloudBitratePsnow) ?? Self.cloudBitrateDefaultKbps
         )
+        cloudGameLanguage = try c.decodeIfPresent(String.self, forKey: .cloudGameLanguage)
+            ?? c.decodeIfPresent(String.self, forKey: .cloudLanguage) ?? ""
     }
 
     func encode(to encoder: Encoder) throws {
@@ -164,8 +210,10 @@ struct StreamPreferences: Codable {
         try c.encode(codec, forKey: .codec)
         try c.encode(swapCrossMoon, forKey: .swapCrossMoon)
         try c.encode(rumbleEnabled, forKey: .rumbleEnabled)
-        try c.encode(motionEnabled, forKey: .motionEnabled)
+        try c.encode(rumbleIntensity, forKey: .rumbleIntensity)
+        try c.encode(motionSource, forKey: .motionSource)
         try c.encode(touchHapticsEnabled, forKey: .touchHapticsEnabled)
+        try c.encode(adaptiveTriggersEnabled, forKey: .adaptiveTriggersEnabled)
         try c.encode(logVerbose, forKey: .logVerbose)
         try c.encode(onScreenControlsEnabled, forKey: .onScreenControlsEnabled)
         try c.encode(touchpadOnlyEnabled, forKey: .touchpadOnlyEnabled)
@@ -175,6 +223,11 @@ struct StreamPreferences: Codable {
         try c.encode(cloudResolutionPsnow, forKey: .cloudResolutionPsnow)
         try c.encode(cloudDatacenterPsnow, forKey: .cloudDatacenterPsnow)
         try c.encode(cloudBitratePsnow, forKey: .cloudBitratePsnow)
+        try c.encode(cloudGameLanguage, forKey: .cloudGameLanguage)
+    }
+
+    static func clampRumbleIntensity(_ percent: Int) -> Int {
+        min(500, max(0, percent))
     }
 
     static func clampCloudBitrateKbps(_ kbps: Int) -> Int {
@@ -240,7 +293,18 @@ struct StreamPreferences: Codable {
 // MARK: - Datacenter list storage (matches Android cloud_datacenters_json_*)
 
 enum CloudDatacenterStore {
-    /// Save datacenter list after allocation (called from PSGaikaiStreaming)
+    /// Whether a non-empty datacenter list is already persisted. Used to avoid
+    /// clobbering previously-measured ping RTTs with a no-RTT/dummy list.
+    static func hasStoredDatacenters(for serviceType: String) -> Bool {
+        let data = serviceType == "pscloud"
+            ? SecureStore.shared.pscloudDatacentersData
+            : SecureStore.shared.psnowDatacentersData
+        guard let data,
+              let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return false }
+        return !arr.isEmpty
+    }
+
+    /// Save datacenter list after allocation (called from the cloud streaming backend)
     static func saveDatacenters(_ datacenters: [[String: Any]], for serviceType: String) {
         guard let data = try? JSONSerialization.data(withJSONObject: datacenters) else { return }
         if serviceType == "pscloud" {
@@ -286,6 +350,7 @@ struct SettingsView: View {
     @State private var prefs = StreamPreferences.load()
     @State private var bitrateText = ""
     @State private var showResetAlert = false
+    @State private var showLanguageInfo = false
     @State private var psnLoggedIn = PsnTokenStore.shared.hasTokens
     /// Bumped when cloud ping results are saved so datacenter pickers reload from `SecureStore`.
     @State private var datacenterStoreRevision = 0
@@ -304,7 +369,10 @@ struct SettingsView: View {
             // 3. Remote Play Settings
             remotePlaySection
 
-            // 3. Cloud Game Library (PSCloud)
+            // 4. Cloud Settings (shared across cloud library + catalog)
+            cloudSettingsSection
+
+            // 5. Cloud Game Library (PSCloud)
             cloudLibrarySection
 
             // 4. Cloud Game Catalog (PSNow)
@@ -359,48 +427,94 @@ struct SettingsView: View {
             }
 
             // Swap Cross/Moon (wired)
-            VStack(alignment: .leading, spacing: 2) {
-                Toggle("Swap Cross/Moon and Box/Pyramid Buttons", isOn: $prefs.swapCrossMoon)
-                    .onChange(of: prefs.swapCrossMoon) { _ in prefs.save() }
-                Text("Swap face buttons if default mapping is incorrect (e.g. for 8BitDo controllers)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-
-            VStack(alignment: .leading, spacing: 2) {
-                Toggle("Rumble", isOn: $prefs.rumbleEnabled)
-                    .onChange(of: prefs.rumbleEnabled) { _ in prefs.save() }
-                Text("Play console rumble on this device (Core Haptics on supported iPhones; legacy vibrate otherwise)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-
-            if showWorkInProgressGeneralSettings {
+            Toggle(isOn: $prefs.swapCrossMoon) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Toggle("Motion", isOn: $prefs.motionEnabled)
-                        .onChange(of: prefs.motionEnabled) { _ in prefs.save() }
-                    Text("Use device's motion sensors for controller motion")
+                    Text("Swap Cross/Moon and Box/Pyramid Buttons")
+                    Text("Swap face buttons if default mapping is incorrect (e.g. for 8BitDo controllers)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .onChange(of: prefs.swapCrossMoon) { _ in prefs.save() }
+
+            Toggle(isOn: $prefs.rumbleEnabled) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Rumble")
+                    Text("Play console rumble on this device (Core Haptics on supported iPhones; legacy vibrate otherwise)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .onChange(of: prefs.rumbleEnabled) { _ in prefs.save() }
+
+            if prefs.rumbleEnabled {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack {
+                        Text("Rumble Intensity")
+                        Spacer()
+                        Text("\(prefs.rumbleIntensity)%")
+                            .foregroundColor(.secondary)
+                            .monospacedDigit()
+                    }
+                    Slider(
+                        value: Binding(
+                            get: { Double(prefs.rumbleIntensity) },
+                            set: { prefs.rumbleIntensity = StreamPreferences.clampRumbleIntensity(Int($0.rounded())) }
+                        ),
+                        in: 0...500,
+                        step: 10,
+                        onEditingChanged: { editing in if !editing { prefs.save() } }
+                    )
+                    Text("Scales vibration strength; 100% matches the console")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
             }
 
-            VStack(alignment: .leading, spacing: 2) {
-                Toggle("Touch Haptics", isOn: $prefs.touchHapticsEnabled)
-                    .onChange(of: prefs.touchHapticsEnabled) { _ in prefs.save() }
-                Text("Light haptic feedback when using on-screen controls")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-
-            if showWorkInProgressGeneralSettings {
+            Toggle(isOn: $prefs.adaptiveTriggersEnabled) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Toggle("Verbose Logging", isOn: $prefs.logVerbose)
-                        .onChange(of: prefs.logVerbose) { _ in prefs.save() }
-                    Text("Warning: This logs a LOT! Don't enable for regular use.")
+                    Text("Adaptive Triggers")
+                    Text("DualSense adaptive-trigger resistance (physical DualSense only)")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
+            }
+            .onChange(of: prefs.adaptiveTriggersEnabled) { _ in prefs.save() }
+
+            Picker(selection: $prefs.motionSource) {
+                ForEach(MotionSource.allCases) { source in
+                    Text(source.label).tag(source)
+                }
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Gyro / Motion")
+                    Text("Motion sensors sent to the console for gyro aiming")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .onChange(of: prefs.motionSource) { _ in prefs.save() }
+
+            Toggle(isOn: $prefs.touchHapticsEnabled) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Touch Haptics")
+                    Text("Light haptic feedback when using on-screen controls")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .onChange(of: prefs.touchHapticsEnabled) { _ in prefs.save() }
+
+            if showWorkInProgressGeneralSettings {
+                Toggle(isOn: $prefs.logVerbose) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Verbose Logging")
+                        Text("Warning: This logs a LOT! Don't enable for regular use.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .onChange(of: prefs.logVerbose) { _ in prefs.save() }
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Session Logs")
@@ -520,7 +634,29 @@ struct SettingsView: View {
                 label: "Bitrate"
             )
         } header: {
-            Text("Game Library")
+            Text("Owned Games (PS5)")
+        }
+    }
+
+    // MARK: - Cloud Settings (shared)
+
+    private var cloudSettingsSection: some View {
+        Section {
+            // Game language (manual override, stored separately from the
+            // auto-detected catalog locale). Shared across cloud library +
+            // catalog, so it lives in its own section above both.
+            languagePicker()
+        } header: {
+            Text("Cloud Settings")
+        } footer: {
+            Text("Language availability depends on your datacenter's region.")
+        }
+        // Full caveat shown as a popup only when a specific language is chosen,
+        // keeping the inline section short.
+        .alert("Game Language", isPresented: $showLanguageInfo) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("Not all regions support every language. A language only works on datacenters that offer it — if your chosen language isn't applied, pick a datacenter in a matching region.")
         }
     }
 
@@ -547,7 +683,7 @@ struct SettingsView: View {
                 label: "Bitrate"
             )
         } header: {
-            Text("Game Catalog")
+            Text("Streamable Games (PS3/PS4)")
         }
     }
 
@@ -568,6 +704,55 @@ struct SettingsView: View {
         }
         .id("\(serviceType)-\(datacenterStoreRevision)")
         .onChange(of: selection.wrappedValue) { _ in prefs.save() }
+    }
+
+    // MARK: - Game Language Picker Helper
+
+    /// Human-readable name for a cloud-language locale. Display names are the
+    /// platform's responsibility; the locale list itself comes from libchiaki.
+    private static func cloudLanguageName(_ locale: String) -> String {
+        switch locale {
+        case "en-US": return "English"
+        case "en-GB": return "English (UK)"
+        case "de-DE": return "Deutsch"
+        case "fr-FR": return "Français"
+        case "fi-FI": return "Suomi"
+        case "it-IT": return "Italiano"
+        case "es-ES": return "Español"
+        case "nl-NL": return "Nederlands"
+        case "pt-BR": return "Português (BR)"
+        case "ja-JP": return "日本語"
+        case "ko-KR": return "한국어"
+        default: return locale
+        }
+    }
+
+    private func languagePicker() -> some View {
+        // Show every supported language (datacenter language support can't be
+        // reliably enumerated). The manual pick is stored separately from the
+        // auto-detected catalog locale and never auto-changes the datacenter;
+        // the user picks a matching datacenter themselves.
+        let supported = PyluxCloudCatalog.supportedCloudLanguages()
+        let catalogLocale = CloudLocaleSettings.stored.isEmpty ? "en-US" : CloudLocaleSettings.stored
+        let current = prefs.cloudGameLanguage
+        let selection = Binding<String>(
+            // Empty override selects "Auto"; an unknown value also falls back to Auto.
+            get: { (current.isEmpty || supported.contains(current)) ? current : "" },
+            set: { newValue in
+                prefs.cloudGameLanguage = newValue
+                prefs.save()
+                // Surface the datacenter caveat only when overriding to a
+                // specific language (Auto needs no warning).
+                if !newValue.isEmpty { showLanguageInfo = true }
+            }
+        )
+        return Picker("Game Language", selection: selection) {
+            Text("Auto (\(catalogLocale))").tag("")
+            ForEach(supported, id: \.self) { loc in
+                Text("\(Self.cloudLanguageName(loc)) (\(loc))").tag(loc)
+            }
+        }
+        .id("lang-\(datacenterStoreRevision)")
     }
 
     // MARK: - 5. Reset

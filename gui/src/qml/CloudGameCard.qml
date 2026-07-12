@@ -12,15 +12,21 @@ Rectangle {
     property bool isHovered: false
     property bool isCurrentItem: GridView.isCurrentItem || false
     property bool hasFocus: isCurrentItem && GridView.view.activeFocus
-    property bool isPsnow: true // true for PSNOW, false for PS5 Cloud
+    property bool isPsnow: isPsnowGame()
     property string cachedImageUrl: ""
-    property string libraryFilter: "owned" // "owned" or "all" or "favorites" - filter mode for Game Library
     property var qrCodeDialog: null // Reference to QR code dialog
+    // In the modern PS Plus catalog (imagic; isPsnow=false) a game you don't own can't be streamed
+    // until it's added to your library: Gaikai rejects an unowned PS5 entitlement, and the legacy
+    // Kamaji $0-acquire only works for the old PS Now free-SKU titles, not modern Extra/Premium ones
+    // (e.g. Far Cry 5's streaming SKU is paid, so the acquire 500s). So ANY non-owned catalog game
+    // shows "Add Game" (QR to the store / Add-to-Library); owned games stream directly. Legacy
+    // PS Now browse cards (isPsnow) keep one-click Stream — free streaming is the PS Now model.
+    readonly property bool needsAddToLibrary: gameData && gameData.category === "purchaseable"
     property bool isFavorite: false // Whether this game is favorited
     
     // Steam library shortcut: only when Steamworks build + Steam client (same gate as createCloudSteamShortcut usefulness)
     readonly property bool showCloudSteamShortcut: Chiaki.cloudSteamShortcutEnabled
-        && !(!isPsnow && libraryFilter === "all" && gameData && !gameData.isOwned)
+        && !needsAddToLibrary
     
     signal streamGame(string productId, string platform, string serviceType)
     signal createShortcut(string productId, string entitlementId, string platform, string serviceType, string gameName)
@@ -38,6 +44,12 @@ Rectangle {
         return `image://svg/button-${type}#${buttonName}`;
     }
     
+    // The unified catalog (libchiaki) precomputes serviceType for every row; this is a
+    // read-only convenience, NOT a re-derivation.
+    function isPsnowGame() {
+        return !!(gameData && gameData.serviceType === "psnow");
+    }
+
     // Extract game information
     function getGameName() {
         if (!gameData) return qsTr("Unknown Game");
@@ -56,76 +68,35 @@ Rectangle {
         return "";
     }
     
-    // Get product ID specifically for API calls (fetchGameDetails)
-    // For PSCloud: returns product_id (not entitlement id)
-    // For PSNOW: returns id (which is the product ID)
+    // productId for the per-game details API (fetchGameDetails). The unified contract
+    // exposes the canonical catalog productId; no platform guessing needed.
     function getProductIdForApi() {
         if (!gameData) return "";
-        if (isPsnow) {
-            // PSNOW: use id as productId
-            return gameData.id || "";
-        } else {
-            // PSCloud: use product_id for API calls (not the entitlement id)
-            if (gameData.product_id) {
-                return gameData.product_id;
-            } else if (gameData.productId) {
-                return gameData.productId;
-            }
-            return "";
-        }
+        return gameData.productId || gameData.product_id || gameData.id || "";
     }
-    
-    // Get the identifier to use for streaming (entitlement ID for PSCloud, product ID for PSNOW)
+
+    // Exact id handed to the streaming session. Precomputed by libchiaki
+    // (chiaki/cloudcatalog.h "streamIdentifier"); read it verbatim.
     function getStreamingIdentifier() {
         if (!gameData) return "";
-        if (isPsnow) {
-            // PSNOW: use product ID (will be converted to entitlement ID by Kamaji)
-            return getProductId();
-        } else {
-            // PSCloud: use entitlement ID (the 'id' field), fallback to product_id if id doesn't exist
-            if (gameData.id) return gameData.id; // Entitlement ID for PSCloud library games
-            if (gameData.product_id) return gameData.product_id; // Fallback
-            if (gameData.productId) return gameData.productId; // Fallback for catalog games
-            return "";
-        }
+        return gameData.streamIdentifier || getProductId();
     }
-    
+
+    // Platform badge, precomputed (ps3/ps4/ps5).
     function getPlatform() {
-        if (!gameData) return "ps4";
-        if (isPsnow) {
-            // PSNOW games - check playable_platform
-            // Note: When passed from C++ to QML, JSON arrays become QVariantList objects,
-            // not true JavaScript arrays, so we need to handle both cases
-            let playablePlatform = gameData.playable_platform || gameData["playable_platform"];
-            
-            if (playablePlatform) {
-                // Convert to array if it's not already (handles QVariantList from C++)
-                let platformArray = [];
-                if (Array.isArray(playablePlatform)) {
-                    platformArray = playablePlatform;
-                } else if (typeof playablePlatform === "object" && playablePlatform.length !== undefined) {
-                    for (let i = 0; i < playablePlatform.length; i++) {
-                        platformArray.push(playablePlatform[i]);
-                    }
-                } else if (typeof playablePlatform === "string") {
-                    platformArray = [playablePlatform];
-                }
-                
-                // Check each platform in the array
-                for (let i = 0; i < platformArray.length; i++) {
-                    let platform = String(platformArray[i]);
-                    if (platform.indexOf("PS3") !== -1) return "ps3";
-                    if (platform.indexOf("PS4") !== -1) return "ps4";
-                }
-            }
-            return "ps4";
-        } else {
-            return "ps5";
-        }
+        return (gameData && gameData.platform) ? gameData.platform : "ps4";
     }
-    
+
+    // serviceType selects the catalog/shortcut routing (psnow vs pscloud); precomputed.
     function getServiceType() {
-        return isPsnow ? "psnow" : "pscloud";
+        return (gameData && gameData.serviceType) ? gameData.serviceType : "pscloud";
+    }
+
+    // The endpoint the stream action targets (may differ from catalog serviceType for
+    // some owned cross-buy rows). Precomputed by libchiaki.
+    function getStreamServiceType() {
+        if (gameData && gameData.streamServiceType) return gameData.streamServiceType;
+        return getServiceType();
     }
     
     function getImageUrl() {
@@ -175,14 +146,6 @@ Rectangle {
                 }
             }
         }
-        return "";
-    }
-    
-    function getPlatformBadge() {
-        let platform = getPlatform();
-        if (platform === "ps5") return "PS5";
-        if (platform === "ps4") return "PS4";
-        if (platform === "ps3") return "PS3";
         return "";
     }
     
@@ -298,22 +261,32 @@ Rectangle {
                 }
             }
             
-            // Owned/Not Owned badge - Top Right
+            // Category badge - Top Right (owned / streamable / purchaseable)
             Rectangle {
                 anchors.top: parent.top
                 anchors.right: parent.right
                 anchors.topMargin: 8
                 anchors.rightMargin: 8
-                width: ownedLabel.implicitWidth + 12
+                width: categoryLabel.implicitWidth + 12
                 height: 22
                 radius: 4
-                color: gameData && gameData.isOwned ? "#4CAF50" : "#FF9800"
-                visible: !isPsnow && libraryFilter === "all"
-                
+                visible: gameData && gameData.category
+                color: {
+                    if (!gameData) return "#FF9800";
+                    if (gameData.category === "owned") return "#4CAF50";
+                    if (gameData.category === "streamable") return "#2196F3";
+                    return "#FF9800";
+                }
+
                 Label {
-                    id: ownedLabel
+                    id: categoryLabel
                     anchors.centerIn: parent
-                    text: gameData && gameData.isOwned ? qsTr("OWNED") : qsTr("NOT OWNED")
+                    text: {
+                        if (!gameData || !gameData.category) return "";
+                        if (gameData.category === "owned") return qsTr("OWNED");
+                        if (gameData.category === "streamable") return qsTr("STREAMABLE");
+                        return qsTr("ADD GAME");
+                    }
                     font.pixelSize: 10
                     font.weight: Font.Bold
                     color: "white"
@@ -412,11 +385,11 @@ Rectangle {
                     cursorShape: Qt.PointingHandCursor
                     
                     onClicked: {
-                        console.log("[CloudGameCard] Button clicked - isPsnow:", isPsnow, "libraryFilter:", libraryFilter, "gameData:", gameData, "isOwned:", gameData ? gameData.isOwned : "N/A");
+                        console.log("[CloudGameCard] Button clicked - isPsnow:", isPsnow, "gameData:", gameData, "isOwned:", gameData ? gameData.isOwned : "N/A");
                         console.log("[CloudGameCard] qrCodeDialog:", qrCodeDialog);
                         
                         // Check if this is a non-owned game in "All" filter mode
-                        if (!isPsnow && libraryFilter === "all" && gameData && !gameData.isOwned) {
+                        if (needsAddToLibrary) {
                             console.log("[CloudGameCard] Condition met for QR code - showing dialog");
                             // Show QR code dialog with conceptUrl
                             let conceptUrl = gameData.conceptUrl || gameData.concept_url;
@@ -442,7 +415,7 @@ Rectangle {
                             let platform = getPlatform();
                             let serviceType = getServiceType();
                             if (streamingId !== "") {
-                                streamGame(streamingId, platform, serviceType);
+                                streamGame(streamingId, platform, getStreamServiceType());
                             }
                         }
                     }
@@ -451,7 +424,7 @@ Rectangle {
                 Label {
                     anchors.centerIn: parent
                     text: {
-                        if (!isPsnow && libraryFilter === "all" && gameData && !gameData.isOwned) {
+                        if (needsAddToLibrary) {
                             return qsTr("Add Game")
                         }
                         return qsTr("Stream Game")
@@ -531,7 +504,7 @@ Rectangle {
         // Cross/A button (Enter/Space) - Stream game or show QR code
         if (event.key === Qt.Key_Return || event.key === Qt.Key_Space || event.key === Qt.Key_Enter) {
             // Check if this is a non-owned game in "All" filter mode
-            if (!isPsnow && libraryFilter === "all" && gameData && !gameData.isOwned) {
+            if (needsAddToLibrary) {
                 // Show QR code dialog with conceptUrl
                 let conceptUrl = gameData.conceptUrl || gameData.concept_url;
                 if (conceptUrl && qrCodeDialog) {
@@ -544,7 +517,7 @@ Rectangle {
                 let platform = getPlatform();
                 let serviceType = getServiceType();
                 if (streamingId !== "") {
-                    streamGame(streamingId, platform, serviceType);
+                    streamGame(streamingId, platform, getStreamServiceType());
                     event.accepted = true;
                 }
             }

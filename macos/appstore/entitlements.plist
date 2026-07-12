@@ -10,6 +10,15 @@
 	<true/>
 	<key>com.apple.security.device.audio-input</key>
 	<true/>
+	<!-- Controller rumble/haptics: SDL opens the DualSense/DualShock raw HID device
+	     directly (hidapi). Under the App Sandbox that requires the USB (wired) and
+	     Bluetooth (wireless) device entitlements; without them input still works via
+	     the system game-controller service but rumble is silently dead (worked in
+	     the non-sandboxed local build, broken only in the Mac App Store build). -->
+	<key>com.apple.security.device.usb</key>
+	<true/>
+	<key>com.apple.security.device.bluetooth</key>
+	<true/>
 	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
 </dict>

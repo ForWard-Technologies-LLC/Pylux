@@ -200,6 +200,19 @@ CHIAKI_EXPORT void chiaki_orientation_tracker_apply_to_controller_state(ChiakiOr
 	state->accel_x = tracker->accel_x;
 	state->accel_y = tracker->accel_y;
 	state->accel_z = tracker->accel_z;
+	// During warmup the filter is still slewing from its init pose toward the
+	// accel-measured attitude at BETA_WARMUP -- the intermediate quaternions are
+	// meaningless thrash that renders as the controller whipping around. Hold
+	// identity until warmup completes; gyro/accel above are raw passthrough and
+	// stay live throughout.
+	if(tracker->sample_index < WARMUP_SAMPLES_COUNT)
+	{
+		state->orient_x = 0.0f;
+		state->orient_y = 0.0f;
+		state->orient_z = 0.0f;
+		state->orient_w = 1.0f;
+		return;
+	}
 	// -90 deg rotation around x from Madgwick
 	state->orient_w = COS_NEG_1_4_PI * tracker->orient.w - SIN_NEG_1_4_PI * tracker->orient.x;
 	state->orient_x = COS_NEG_1_4_PI * tracker->orient.x + SIN_NEG_1_4_PI * tracker->orient.w;

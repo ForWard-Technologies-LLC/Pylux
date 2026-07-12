@@ -24,6 +24,12 @@
 // ║  4. Smaller structs (ChiakiSenkusha, ChiakiEvent, ChiakiConnectInfo,   ║
 // ║     ChiakiDiscoveryHost, etc.) are lower risk but could diverge too.   ║
 // ║     If you hit unexplained data corruption, check struct layout first. ║
+// ║  5. Rule 1 includes the `static inline` setters in the chiaki headers  ║
+// ║     (chiaki_session_set_haptics_sink & co.) — they are field access    ║
+// ║     compiled on the caller's side. Violating this made the haptics     ║
+// ║     sink NULL and killed Remote Play rumble on iOS (2026-07-08).       ║
+// ║     ios/build.sh now FAILS the build on such calls                     ║
+// ║     (check_forbidden_inline_setters).                                  ║
 // ╚══════════════════════════════════════════════════════════════════════════╝
 
 #ifndef CHIAKI_IOS_BRIDGE_HELPERS_H
@@ -52,6 +58,14 @@ CHIAKI_EXPORT void chiaki_session_set_target_ex(ChiakiSession *session, ChiakiTa
 CHIAKI_EXPORT void chiaki_session_set_cloud_port_ex(ChiakiSession *session, uint16_t port);
 CHIAKI_EXPORT void chiaki_session_set_cloud_psn_wrapper_type_ex(ChiakiSession *session, uint8_t type);
 CHIAKI_EXPORT void chiaki_session_set_service_type_ex(ChiakiSession *session, ChiakiServiceType st);
+
+// Live stream metrics for the on-screen stats overlay. All values are owned/computed
+// by libchiaki (shared with Qt/Android) so Swift just renders them. Out-params are
+// primitives (ABI-safe across the CMake/Xcode boundary); pass NULL for any you don't
+// need. Cheap best-effort read with no locking (same as the other clients' polling).
+CHIAKI_EXPORT void chiaki_session_get_stream_metrics_ex(ChiakiSession *session,
+		double *bitrate_mbps, double *packet_loss, uint64_t *dropped_frames,
+		double *fps, double *rtt_ms, int *width, int *height);
 
 #ifdef __cplusplus
 }

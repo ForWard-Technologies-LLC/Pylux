@@ -40,7 +40,6 @@ class DataStore(val preferences: Preferences): PreferenceDataStore()
 		preferences.mapSelectToTouchpadKey -> preferences.mapSelectToTouchpad
 		preferences.dpadTouchEnabledKey -> preferences.dpadTouchEnabled
 		preferences.rumbleEnabledKey -> preferences.rumbleEnabled
-		preferences.motionEnabledKey -> preferences.motionEnabled
 		preferences.buttonHapticEnabledKey -> preferences.buttonHapticEnabled
 		else -> defValue
 	}
@@ -54,19 +53,20 @@ class DataStore(val preferences: Preferences): PreferenceDataStore()
 			preferences.mapSelectToTouchpadKey -> preferences.mapSelectToTouchpad = value
 			preferences.dpadTouchEnabledKey -> preferences.dpadTouchEnabled = value
 			preferences.rumbleEnabledKey -> preferences.rumbleEnabled = value
-			preferences.motionEnabledKey -> preferences.motionEnabled = value
 			preferences.buttonHapticEnabledKey -> preferences.buttonHapticEnabled = value
 		}
 	}
 
 	override fun getString(key: String, defValue: String?) = when(key)
 	{
+		preferences.motionSourceKey -> preferences.motionSource.value
 		preferences.resolutionKey -> preferences.resolution.value
 		preferences.fpsKey -> preferences.fps.value
 		preferences.bitrateKey -> preferences.bitrate?.toString() ?: ""
 		preferences.codecKey -> preferences.codec.value
 		preferences.cloudDatacenterPsnowKey -> preferences.getCloudDatacenterPsnow()
 		preferences.cloudDatacenterPscloudKey -> preferences.getCloudDatacenterPscloud()
+		preferences.cloudLanguageKey -> preferences.getCloudGameLanguage()
 		preferences.cloudResolutionPscloudKey -> preferences.getCloudResolutionPscloud().toString()
 		preferences.cloudResolutionPsnowKey -> preferences.getCloudResolutionPsnow().toString()
 		preferences.dpadTouchShortcut1Key -> preferences.dpadTouchShortcut1.toString()
@@ -80,6 +80,11 @@ class DataStore(val preferences: Preferences): PreferenceDataStore()
 	{
 		when(key)
 		{
+			preferences.motionSourceKey ->
+			{
+				val source = Preferences.MotionSource.fromValue(value) ?: return
+				preferences.motionSource = source
+			}
 			preferences.resolutionKey ->
 			{
 				val resolution = Preferences.Resolution.values().firstOrNull { it.value == value } ?: return
@@ -98,6 +103,10 @@ class DataStore(val preferences: Preferences): PreferenceDataStore()
 			}
 			preferences.cloudDatacenterPsnowKey -> preferences.setCloudDatacenterPsnow(value ?: "Auto")
 			preferences.cloudDatacenterPscloudKey -> preferences.setCloudDatacenterPscloud(value ?: "Auto")
+			// Manual streaming-language override. Stored separately from the
+			// catalog locale and does not touch the datacenter; the user picks a
+			// matching datacenter themselves.
+			preferences.cloudLanguageKey -> preferences.setCloudGameLanguage(value ?: "")
 			preferences.cloudResolutionPscloudKey -> preferences.setCloudResolutionPscloud(value?.toIntOrNull() ?: 720)
 			preferences.cloudResolutionPsnowKey -> preferences.setCloudResolutionPsnow(value?.toIntOrNull() ?: 720)
 			preferences.dpadTouchShortcut1Key -> preferences.dpadTouchShortcut1 = value?.toIntOrNull() ?: Preferences.DPAD_TOUCH_SHORTCUT1_DEFAULT
@@ -112,6 +121,7 @@ class DataStore(val preferences: Preferences): PreferenceDataStore()
 		preferences.cloudBitratePscloudKey -> preferences.getCloudBitratePscloud() / 1000
 		preferences.cloudBitratePsnowKey -> preferences.getCloudBitratePsnow() / 1000
 		preferences.dpadTouchIncrementKey -> preferences.dpadTouchIncrement
+		preferences.rumbleIntensityKey -> preferences.rumbleIntensity
 		else -> defValue
 	}
 
@@ -122,8 +132,10 @@ class DataStore(val preferences: Preferences): PreferenceDataStore()
 			preferences.cloudBitratePscloudKey -> preferences.setCloudBitratePscloud(value * 1000)
 			preferences.cloudBitratePsnowKey -> preferences.setCloudBitratePsnow(value * 1000)
 			preferences.dpadTouchIncrementKey -> preferences.dpadTouchIncrement = value
+			preferences.rumbleIntensityKey -> preferences.rumbleIntensity = value
 		}
 	}
+
 }
 
 class SettingsFragment: PreferenceFragmentCompat(), TitleFragment
@@ -207,6 +219,12 @@ class SettingsFragment: PreferenceFragmentCompat(), TitleFragment
 		populateCloudDatacenterPreference(
 			preferenceScreen.findPreference(getString(R.string.preferences_cloud_datacenter_pscloud_key)),
 			preferences.getCloudDatacentersJsonPscloud()
+		)
+
+		// Game language list (Auto + all supported languages).
+		populateCloudLanguagePreference(
+			preferenceScreen.findPreference(getString(R.string.preferences_cloud_language_key)),
+			preferences.getCloudStoreLocale()
 		)
 
 		bindCloudBitratePreference(
@@ -486,6 +504,58 @@ class SettingsFragment: PreferenceFragmentCompat(), TitleFragment
 			// If JSON parsing fails, fall back to Auto only
 			preference.entries = arrayOf("Auto (Best Ping)")
 			preference.entryValues = arrayOf("Auto")
+		}
+	}
+
+	// Display names for cloud-language locales. The locale list itself comes from
+	// libchiaki (chiaki/cloudcatalog.h); only the human-readable names live here.
+	private val cloudLanguageDisplayNames = mapOf(
+		"en-US" to "English",
+		"en-GB" to "English (UK)",
+		"de-DE" to "Deutsch",
+		"fr-FR" to "Français",
+		"fi-FI" to "Suomi",
+		"it-IT" to "Italiano",
+		"es-ES" to "Español",
+		"nl-NL" to "Nederlands",
+		"pt-BR" to "Português (BR)",
+		"ja-JP" to "日本語",
+		"ko-KR" to "한국어"
+	)
+
+	/**
+	 * Populate the game-language dropdown with "Auto" + every supported language.
+	 * Datacenter language support can't be reliably enumerated, so we don't filter
+	 * the list. "Auto" (empty value) clears the override so the auto-detected
+	 * catalog/region locale [catalogLocale] is used instead. Locale list comes from
+	 * libchiaki; the manual pick is stored separately and never auto-overwritten.
+	 */
+	private fun populateCloudLanguagePreference(preference: ListPreference?, catalogLocale: String)
+	{
+		if (preference == null) return
+		val entries = mutableListOf(getString(R.string.preferences_cloud_language_auto, catalogLocale))
+		val values = mutableListOf("")
+		for (loc in com.metallic.chiaki.lib.cloudSupportedLanguages())
+		{
+			entries.add("${cloudLanguageDisplayNames[loc] ?: loc} ($loc)")
+			values.add(loc)
+		}
+		preference.entries = entries.toTypedArray()
+		preference.entryValues = values.toTypedArray()
+
+		// Keep the inline note short; show the full caveat as a popup only when a
+		// specific language is chosen (matches iOS Cloud Settings behavior).
+		preference.setOnPreferenceChangeListener { _, newValue ->
+			val selected = newValue as? String ?: ""
+			if (selected.isNotEmpty())
+			{
+				context?.alertDialogBuilder()
+					?.setTitle(R.string.preferences_cloud_language_title)
+					?.setMessage(R.string.preferences_cloud_language_dialog_message)
+					?.setPositiveButton(android.R.string.ok, null)
+					?.show()
+			}
+			true
 		}
 	}
 }

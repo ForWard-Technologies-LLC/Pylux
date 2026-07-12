@@ -40,6 +40,8 @@ set(HEADER_FILES
 		include/chiaki/opusencoder.h
 		include/chiaki/orientation.h
 		include/chiaki/bitstream.h
+		include/chiaki/cloudcatalog.h
+		include/chiaki/cloudsession.h
 		include/chiaki/remote/holepunch.h
 		include/chiaki/remote/rudp.h
 		include/chiaki/remote/rudpsendbuffer.h)
@@ -86,6 +88,19 @@ set(SOURCE_FILES
 		src/opusencoder.c
 		src/orientation.c
 		src/bitstream.c
+		src/curl_http.h
+		src/curl_http.c
+		src/cloudcatalog_internal.h
+		src/cloudcatalog_util.c
+		src/cloudcatalog_consts.c
+		src/cloudcatalog_cache.c
+		src/cloudcatalog_merge.c
+		src/cloudcatalog_fetch.c
+		src/cloudcatalog_unified.c
+		src/cloudsession.c
+		src/cloudsession_ping.c
+		src/cloudsession_gaikai.c
+		src/cloudsession_kamaji.c
 		src/remote/holepunch.c
 		src/remote/rudp.c
 		src/remote/rudpsendbuffer.c)
@@ -220,4 +235,13 @@ endif()
 if(CHIAKI_ENABLE_TESTS)
 	add_executable(holepunch-test include/chiaki/remote/holepunch.h src/remote/holepunch-test.c)
 	target_link_libraries(holepunch-test chiaki-lib)
+
+	if(NOT ANDROID AND NOT IOS)
+		add_executable(cloudcatalog-test test_cloudcatalog/cloudcatalog-test.c)
+		target_link_libraries(cloudcatalog-test chiaki-lib)
+
+		add_executable(cloudsession-probe test_cloudsession/cloudsession-probe.c)
+		target_link_libraries(cloudsession-probe chiaki-lib)
+		target_include_directories(cloudsession-probe PRIVATE src)
+	endif()
 endif()

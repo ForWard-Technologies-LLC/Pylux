@@ -454,6 +454,7 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 	err = chiaki_session_init(&session, &chiaki_connect_info, GetChiakiLog());
 	if(err != CHIAKI_ERR_SUCCESS)
 		throw ChiakiException("Chiaki Session Init failed: " + QString::fromLocal8Bit(chiaki_error_string(err)));
+	chiaki_session_set_ps_chord(&session, true, 0); // always on: safe, no user toggle
 	ChiakiCtrlDisplaySink display_sink;
 	display_sink.user = this;
 	display_sink.cantdisplay_cb = CantDisplayCb;
@@ -579,6 +580,27 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 		{
 			average_packet_loss = packet_loss;
 			emit AveragePacketLossChanged();
+		}
+
+		// FPS and live RTT are computed in libchiaki from the periodic
+		// CONNECTIONQUALITY message; just surface the latest values for the overlay.
+		double fps = session.stream_connection.measured_fps;
+		if(fps != measured_fps)
+		{
+			measured_fps = fps;
+			emit MeasuredFpsChanged();
+		}
+		double rtt = session.stream_connection.measured_rtt_ms;
+		if(rtt != measured_rtt)
+		{
+			measured_rtt = rtt;
+			emit MeasuredRttChanged();
+		}
+		QString res = GetResolution();
+		if(res != resolution_str)
+		{
+			resolution_str = res;
+			emit ResolutionChanged();
 		}
 	});
 
@@ -1928,6 +1950,13 @@ void StreamSession::Event(ChiakiEvent *event)
 			connect_timer.invalidate();
 			connected = true;
 			emit ConnectedChanged();
+			break;
+		case CHIAKI_EVENT_PS_CHORD:
+			// OPTIONS+SHARE chord fired. The synthesized PS pulse already went to
+			// the console via the feedback sender; also surface our in-stream menu
+			// so a controller-only player can reach disconnect/stats.
+			CHIAKI_LOGI(GetChiakiLog(), "PS chord fired -> requesting in-stream menu");
+			emit PsChordFired();
 			break;
 		case CHIAKI_EVENT_QUIT:
 			// Do not auto-retry when the console reports RP crashed or session in use — rapid

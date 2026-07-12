@@ -48,6 +48,18 @@ struct StreamConnectInfo: Identifiable {
     }
 }
 
+/// Snapshot of the live stream stats for the on-screen overlay. Every value is
+/// computed in libchiaki (shared with Qt/Android) — the client only renders them.
+struct StreamMetrics {
+    let bitrateMbps: Double
+    let packetLoss: Double // 0..1
+    let droppedFrames: UInt64
+    let fps: Double
+    let rttMs: Double
+    let width: Int
+    let height: Int
+}
+
 @MainActor
 final class StreamSession: ObservableObject {
     @Published private(set) var state: StreamState = .idle
@@ -55,6 +67,8 @@ final class StreamSession: ObservableObject {
     @Published private(set) var connectionPhase: String = ""
     /// Published when auto-registration succeeds (caller should save to HostStore)
     @Published private(set) var autoRegisteredHost: RegisteredHost?
+    /// Bumped each time the OPTIONS+SHARE chord fires, so the view surfaces the in-stream menu.
+    @Published private(set) var menuRequestToken: Int = 0
 
     let connectInfo: StreamConnectInfo
     let input: StreamInput
@@ -64,18 +78,51 @@ final class StreamSession: ObservableObject {
     /// Stored view so we can attach when decoder becomes available (matches Android's stored surface).
     private weak var pendingVideoView: StreamVideoUIView?
     private var eventReceiver: SessionEventReceiver?
+    /// Set by shutdown(), cleared by resume(). Session creation runs detached (and
+    /// chiaki_session_init can block in DNS for seconds); without this flag a shutdown
+    /// landing in that window would let the freshly created session start and stream
+    /// with no owner left to stop it.
+    private var isShutDown = false
+    // Number of PSN threads currently inside chiaki_session_bridge_create (which can
+    // block for seconds holding the holepunch pointer). While nonzero, shutdown() must
+    // NOT fini the holepunch session — the create thread owns it and finis it via
+    // its own failure path or the unpublished-session free. A counter, not a Bool, so
+    // a cancel-and-reconnect overlap can't let the old create's exit unguard the new
+    // create's window. Main-actor only.
+    private var psnCreatesInFlight = 0
     /// Holepunch session for PSN connections (kept alive for session lifetime)
     private var holepunchSession: PyluxHolepunchSession?
     /// Chiaki `CHIAKI_EVENT_RUMBLE` → Core Haptics (when `rumbleEnabled`).
     private var rumbleFeedback: StreamRumbleFeedback?
     /// Cached from `StreamPreferences` (refreshed on `resume()` and `.streamPreferencesDidChange`) — avoids keychain read on every rumble packet.
     private var rumbleEffectsEnabled: Bool
+    /// Rumble strength percent (0–500, 100 = 1x), cached like `rumbleEffectsEnabled`.
+    private var rumbleIntensity: Int
+    /// Console-side DualSense intensity settings (HapticIntensity/TriggerIntensity
+    /// events), applied like Qt: rumble amplitude is scaled, trigger effects are
+    /// scaled and fully skipped when the console says Off.
+    private var consoleRumbleScale: Float = 1.0
+    private var consoleTriggerScale: Float = 1.0
+
+    /// Qt's multipliers for ChiakiDualSenseEffectIntensity (0=Off,1=Strong,2=Medium,3=Weak).
+    private static func intensityScale(_ raw: Int32) -> Float {
+        switch raw {
+        case 0: return 0
+        case 2: return 0.5
+        case 3: return 0.33
+        default: return 1.0
+        }
+    }
+    private var adaptiveTriggersEnabled: Bool
     private var streamPrefsObserver: NSObjectProtocol?
 
     init(connectInfo: StreamConnectInfo, input: StreamInput) {
         self.connectInfo = connectInfo
         self.input = input
-        rumbleEffectsEnabled = StreamPreferences.load().rumbleEnabled
+        let prefs = StreamPreferences.load()
+        rumbleEffectsEnabled = prefs.rumbleEnabled
+        rumbleIntensity = prefs.rumbleIntensity
+        adaptiveTriggersEnabled = prefs.adaptiveTriggersEnabled
         input.controllerStateChangedCallback = { [weak self] statePtr in
             guard let self = self, let ref = self.sessionRef else { return }
             _ = chiaki_session_bridge_set_controller_state(ref, statePtr)
@@ -86,7 +133,14 @@ final class StreamSession: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.rumbleEffectsEnabled = StreamPreferences.load().rumbleEnabled
+                let prefs = StreamPreferences.load()
+                self?.rumbleEffectsEnabled = prefs.rumbleEnabled
+                self?.rumbleIntensity = prefs.rumbleIntensity
+                let triggers = prefs.adaptiveTriggersEnabled
+                if self?.adaptiveTriggersEnabled == true && !triggers {
+                    StreamTriggerFeedback.reset(controller: self?.input.currentController) // don't leave a resistance latched
+                }
+                self?.adaptiveTriggersEnabled = triggers
             }
         }
     }
@@ -99,7 +153,10 @@ final class StreamSession: ObservableObject {
 
     func resume() {
         guard state == .idle else { return }
-        rumbleEffectsEnabled = StreamPreferences.load().rumbleEnabled
+        isShutDown = false
+        let resumePrefs = StreamPreferences.load()
+        rumbleEffectsEnabled = resumePrefs.rumbleEnabled
+        rumbleIntensity = resumePrefs.rumbleIntensity
         state = .connecting
         if connectInfo.isPsnConnection {
             connectionPhase = "Preparing internet connection…"
@@ -139,6 +196,7 @@ final class StreamSession: ObservableObject {
 
     func shutdown() {
         os_log(.default, log: sessionLog, "%{public}s", "[StreamSession] shutdown: session=\(sessionRef != nil)")
+        isShutDown = true
         pipManager.tearDown()
         rumbleFeedback?.shutdown()
         rumbleFeedback = nil
@@ -152,9 +210,15 @@ final class StreamSession: ObservableObject {
         } else {
             let hpSession = holepunchSession
             holepunchSession = nil
-            DispatchQueue.global(qos: .userInitiated).async { [hpSession] in
-                hpSession?.fini()
+            if psnCreatesInFlight == 0 {
+                DispatchQueue.global(qos: .userInitiated).async { [hpSession] in
+                    hpSession?.fini()
+                }
             }
+            // else: the PSN create thread is inside chiaki_session_bridge_create with
+            // this pointer right now — fini-ing it here would free it out from under
+            // the create (and double-free via chiaki_session_fini later). That thread
+            // sees isShutDown at its publish gate and finis via the unpublished free.
             eventReceiver?.invalidate()
         }
         eventReceiver = nil
@@ -168,6 +232,22 @@ final class StreamSession: ObservableObject {
         guard let ref = sessionRef else { return }
         let pinBytes = Array(pin.utf8)
         _ = chiaki_session_bridge_set_login_pin(ref, pinBytes, pinBytes.count)
+    }
+
+    /// Latest live stream metrics for the stats overlay, or nil if no session is active.
+    func metrics() -> StreamMetrics? {
+        guard let ref = sessionRef else { return nil }
+        var m = ChiakiSessionBridgeMetrics()
+        chiaki_session_bridge_get_metrics(ref, &m)
+        return StreamMetrics(
+            bitrateMbps: m.bitrate_mbps,
+            packetLoss: m.packet_loss,
+            droppedFrames: m.dropped_frames,
+            fps: m.fps,
+            rttMs: m.rtt_ms,
+            width: Int(m.width),
+            height: Int(m.height)
+        )
     }
 
     /// Attach display layer for video output. Call when view is ready and again when session connects.
@@ -287,61 +367,105 @@ final class StreamSession: ObservableObject {
         createAndStartSessionSync(connectInfo: connectInfo, holepunchPtr: hpPtr, hpSession: hpSession)
     }
 
-    // MARK: - Create and start native session
+    // MARK: - Session event handling
 
-    private nonisolated func createAndStartSession(connectInfo: StreamConnectInfo, holepunchPtr: UInt) async {
+    /// Single handler for every bridge session event. BOTH session-creation paths
+    /// (the async direct/cloud path and the dedicated-thread PSN path) dispatch
+    /// here — the switch used to be duplicated in each and the copies diverged
+    /// (the PSN copy was missing the PS-chord case, so the in-stream menu never
+    /// opened on PSN sessions). Do not fork this switch again.
+    /// `quitReasonStr` arrives separately because `event.quit_reason_str` is a
+    /// borrowed C pointer only valid during the callback — the receiver block
+    /// copies it into a String before hopping to the main actor.
+    private func handleSessionEvent(_ event: ChiakiSessionBridgeEvent, quitReasonStr: String?) {
+        switch event.type.rawValue {
+        case 0: // ChiakiSessionBridgeEventConnected
+            os_log(.default, log: sessionLog, "[StreamSession] Session connected — video starting")
+            connectionPhase = ""
+            state = .connected
+            input.resendMergedControllerStateIfNeeded()
+            rumbleFeedback?.shutdown()
+            rumbleFeedback = StreamRumbleFeedback(input: input)
+            rumbleFeedback?.prepare()
+        case 16: // ChiakiSessionBridgeEventPsChord -> surface the in-stream menu
+            os_log(.default, log: sessionLog, "[StreamSession] PS chord fired -> requesting in-stream menu")
+            menuRequestToken &+= 1
+        case 8: // ChiakiSessionBridgeEventRumble
+            rumbleFeedback?.applyRumble(
+                left: event.rumble_left,
+                right: event.rumble_right,
+                rumbleEnabled: rumbleEffectsEnabled,
+                intensityPercent: Int(Float(rumbleIntensity) * consoleRumbleScale)
+            )
+        case 10: // ChiakiSessionBridgeEventTriggerEffects
+            // Mirror Qt: skip entirely when the console's trigger intensity is Off.
+            if adaptiveTriggersEnabled && consoleTriggerScale > 0 {
+                let l = withUnsafeBytes(of: event.trigger_left) { Array($0) }
+                let r = withUnsafeBytes(of: event.trigger_right) { Array($0) }
+                StreamTriggerFeedback.apply(controller: input.currentController,
+                                            typeLeft: event.trigger_type_left, left: l,
+                                            typeRight: event.trigger_type_right, right: r,
+                                            intensityScale: consoleTriggerScale)
+            }
+        case 14: // ChiakiSessionBridgeEventHapticIntensity (console setting)
+            consoleRumbleScale = Self.intensityScale(event.effect_intensity)
+        case 15: // ChiakiSessionBridgeEventTriggerIntensity (console setting)
+            consoleTriggerScale = Self.intensityScale(event.effect_intensity)
+            if consoleTriggerScale == 0 {
+                StreamTriggerFeedback.reset(controller: input.currentController)
+            }
+        case 9: // ChiakiSessionBridgeEventQuit
+            rumbleFeedback?.shutdown()
+            rumbleFeedback = nil
+            StreamTriggerFeedback.reset(controller: input.currentController)
+            let quitMsg = quitReasonStr ?? String(format: "reason=0x%08x", event.quit_reason)
+            os_log(.error, log: sessionLog, "[StreamSession] Session quit: %{public}s", quitMsg)
+            state = .quit(reason: event.quit_reason, reasonString: quitReasonStr)
+        case 1: // ChiakiSessionBridgeEventLoginPinRequest
+            connectionPhase = ""
+            state = .loginPinRequest(pinIncorrect: event.login_pin_incorrect)
+        case 3: // ChiakiSessionBridgeEventRegist (auto-registration succeeded)
+            let mac = withUnsafeBytes(of: event.regist_server_mac) { Data($0) }
+            let nickname = withUnsafeBytes(of: event.regist_server_nickname) {
+                String(cString: $0.baseAddress!.assumingMemoryBound(to: CChar.self))
+            }
+            let registKey = withUnsafeBytes(of: event.regist_rp_regist_key) { Data($0) }
+            let rpKey = withUnsafeBytes(of: event.regist_rp_key) { Data($0) }
+            os_log(.default, log: sessionLog, "%{public}s", "[StreamSession] Auto-registration succeeded: \(nickname)")
+            autoRegisteredHost = RegisteredHost(
+                target: Int(event.regist_target),
+                serverMac: mac,
+                serverNickname: nickname,
+                rpRegistKey: registKey,
+                rpKeyType: Int(event.regist_rp_key_type),
+                rpKey: rpKey
+            )
+        default:
+            break
+        }
+    }
+
+    /// Shared receiver setup: copy the C event struct and hand it to
+    /// handleSessionEvent on the main actor.
+    private nonisolated func makeSessionEventReceiver() -> SessionEventReceiver {
         let receiver = SessionEventReceiver()
         receiver.eventBlock = { [weak self] eventPtr in
             guard let self = self, let eventPtr = eventPtr else { return }
             let event = eventPtr.assumingMemoryBound(to: ChiakiSessionBridgeEvent.self).pointee
-            let typeRaw = event.type.rawValue
+            // quit_reason_str points into memory the lib frees right after this
+            // callback returns — copy it NOW, before the async hop.
+            let quitReasonStr = event.quit_reason_str.map { String(cString: $0) }
             Task { @MainActor in
-                switch typeRaw {
-                case 0: // ChiakiSessionBridgeEventConnected
-                    os_log(.default, log: sessionLog, "[StreamSession] Session connected — video starting")
-                    self.connectionPhase = ""
-                    self.state = .connected
-                    self.input.resendMergedControllerStateIfNeeded()
-                    self.rumbleFeedback?.shutdown()
-                    self.rumbleFeedback = StreamRumbleFeedback(input: self.input)
-                    self.rumbleFeedback?.prepare()
-                case 8: // ChiakiSessionBridgeEventRumble
-                    self.rumbleFeedback?.applyRumble(
-                        left: event.rumble_left,
-                        right: event.rumble_right,
-                        rumbleEnabled: self.rumbleEffectsEnabled
-                    )
-                case 9: // ChiakiSessionBridgeEventQuit
-                    self.rumbleFeedback?.shutdown()
-                    self.rumbleFeedback = nil
-                    let reasonStr = event.quit_reason_str.map { String(cString: $0) }
-                    let quitMsg = reasonStr ?? String(format: "reason=0x%08x", event.quit_reason)
-                    os_log(.error, log: sessionLog, "[StreamSession] Session quit: %{public}s", quitMsg)
-                    self.state = .quit(reason: event.quit_reason, reasonString: reasonStr)
-                case 1: // ChiakiSessionBridgeEventLoginPinRequest
-                    self.connectionPhase = ""
-                    self.state = .loginPinRequest(pinIncorrect: event.login_pin_incorrect)
-                case 3: // ChiakiSessionBridgeEventRegist (auto-registration succeeded)
-                    let mac = withUnsafeBytes(of: event.regist_server_mac) { Data($0) }
-                    let nickname = withUnsafeBytes(of: event.regist_server_nickname) {
-                        String(cString: $0.baseAddress!.assumingMemoryBound(to: CChar.self))
-                    }
-                    let registKey = withUnsafeBytes(of: event.regist_rp_regist_key) { Data($0) }
-                    let rpKey = withUnsafeBytes(of: event.regist_rp_key) { Data($0) }
-                    os_log(.default, log: sessionLog, "%{public}s", "[StreamSession] Auto-registration succeeded: \(nickname)")
-                    self.autoRegisteredHost = RegisteredHost(
-                        target: Int(event.regist_target),
-                        serverMac: mac,
-                        serverNickname: nickname,
-                        rpRegistKey: registKey,
-                        rpKeyType: Int(event.regist_rp_key_type),
-                        rpKey: rpKey
-                    )
-                default:
-                    break
-                }
+                self.handleSessionEvent(event, quitReasonStr: quitReasonStr)
             }
         }
+        return receiver
+    }
+
+    // MARK: - Create and start native session
+
+    private nonisolated func createAndStartSession(connectInfo: StreamConnectInfo, holepunchPtr: UInt) async {
+        let receiver = makeSessionEventReceiver()
 
         await MainActor.run { [weak self] in
             if connectInfo.isCloudConnection {
@@ -386,6 +510,13 @@ final class StreamSession: ObservableObject {
                         cInfo.video_max_fps = connectInfo.videoMaxFps
                         cInfo.video_bitrate = connectInfo.videoBitrate
                         cInfo.video_codec = Int32(connectInfo.videoCodec)
+                        // Always true, matching Qt and Android: a Remote Play PS5 sends rumble
+                        // ONLY as DualSense haptic audio (a DualShock4-declared client gets no
+                        // motor data at all), so gating this on an attached DualSense left RP
+                        // rumble silent whenever the controller enumerated after session
+                        // creation. The haptics sink below converts the haptic audio back to
+                        // normal rumble events. Harmless for cloud (PSNOW/PSCLOUD verified).
+                        cInfo.enable_dualsense = true
                         cInfo.holepunch_session = holepunchPtr
                         cInfo.auto_regist = connectInfo.autoRegist
                         // Cloud streaming fields (matching Android JNI)
@@ -419,6 +550,7 @@ final class StreamSession: ObservableObject {
 
         guard let ref = ref else {
             let capturedErr = err
+            receiver.invalidate() // the create call already took the self-retain
             await MainActor.run { [weak self] in
                 self?.connectionPhase = ""
                 self?.state = .createError(errorCode: capturedErr != 0 ? capturedErr : 1, message: nil)
@@ -426,23 +558,40 @@ final class StreamSession: ObservableObject {
             return
         }
 
-        await MainActor.run { [weak self] in
-            self?.connectionPhase = connectInfo.isCloudConnection ? "Starting cloud stream…" : "Starting stream…"
+        chiaki_session_bridge_set_ps_chord(ref, true, 0) // always on: safe, no user toggle
+        // Unconditional (matching enable_dualsense above): the console delivers rumble
+        // as DualSense haptic-audio; convert it back to rumble events for whatever
+        // controller is (or later becomes) attached.
+        chiaki_session_bridge_enable_haptics_rumble(ref)
+
+        // Publish, unless shutdown() ran while the session was being created (the create
+        // call above can block for seconds in DNS): then the session was never started
+        // and nobody owns it, so free it here instead of letting it stream unowned.
+        let published = await MainActor.run { [weak self] () -> Bool in
+            guard let self, !self.isShutDown else { return false }
+            self.connectionPhase = connectInfo.isCloudConnection ? "Starting cloud stream…" : "Starting stream…"
             if holepunchPtr != 0 {
-                self?.holepunchSession?.markConsumed()
-                self?.holepunchSession = nil
+                self.holepunchSession?.markConsumed()
+                self.holepunchSession = nil
             }
-            self?.sessionRef = ref
-            self?.videoDecoder = decoder
-            self?.eventReceiver = receiver
+            self.sessionRef = ref
+            self.videoDecoder = decoder
+            self.eventReceiver = receiver
             // Attach stored view immediately (matches Android: setSurface when session created)
-            if let view = self?.pendingVideoView, let layer = view.videoDisplayLayer {
+            if let view = self.pendingVideoView, let layer = view.videoDisplayLayer {
                 let b = layer.bounds
                 os_log(.default, log: sessionLog, "[StreamSession] attaching stored view to new decoder layer.bounds=%.0fx%.0f", b.width, b.height)
                 decoder.setDisplayLayer(layer)
             } else {
-                os_log(.default, log: sessionLog, "[StreamSession] no stored view to attach (pendingVideoView=%{public}@)", self?.pendingVideoView != nil ? "set" : "nil")
+                os_log(.default, log: sessionLog, "[StreamSession] no stored view to attach (pendingVideoView=%{public}@)", self.pendingVideoView != nil ? "set" : "nil")
             }
+            return true
+        }
+        if !published {
+            os_log(.default, log: sessionLog, "%{public}s", "[StreamSession] shut down during session creation; discarding unstarted session")
+            chiaki_session_bridge_free(ref) // never started -> free directly, no join needed
+            receiver.invalidate()
+            return
         }
 
         // Now safe to set callbacks - decoder/receiver are retained by self
@@ -450,7 +599,9 @@ final class StreamSession: ObservableObject {
 
         let startErr = chiaki_session_bridge_start(ref)
         if startErr != 0 {
-            chiaki_session_bridge_free(ref)
+            // Retire the published refs BEFORE freeing: metrics() and the controller
+            // callback read sessionRef on the main actor, so clearing there first
+            // (main is serial) means nothing can reach the session once free runs.
             await MainActor.run { [weak self] in
                 self?.connectionPhase = ""
                 self?.sessionRef = nil
@@ -458,6 +609,8 @@ final class StreamSession: ObservableObject {
                 self?.eventReceiver = nil
                 self?.state = .createError(errorCode: startErr, message: nil)
             }
+            chiaki_session_bridge_free(ref)
+            receiver.invalidate() // matches the sync path; without it each failed start leaks a receiver
             return
         }
 
@@ -466,8 +619,12 @@ final class StreamSession: ObservableObject {
         let joinRef = ref
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             _ = chiaki_session_bridge_join(joinRef)
-            chiaki_session_bridge_free(joinRef)
-            Task { @MainActor [weak self] in
+            // Retire the published refs BEFORE freeing (previously free ran first,
+            // leaving a window where the 1 Hz metrics poll or a controller-state
+            // callback on main could reach the freed session on a console-initiated
+            // quit). Main is serial: once this sync block returns, any reader that
+            // grabbed the ref has already finished its call.
+            DispatchQueue.main.sync { [weak self] in
                 self?.rumbleFeedback?.shutdown()
                 self?.rumbleFeedback = nil
                 if self?.sessionRef == nil {
@@ -485,60 +642,34 @@ final class StreamSession: ObservableObject {
                     }
                 }
             }
+            chiaki_session_bridge_free(joinRef)
+            // Release THIS session's receiver directly (idempotent): after join+free no
+            // callback can fire, and self.eventReceiver may already point elsewhere.
+            receiver.invalidate()
         }
     }
 
     // MARK: - Synchronous session creation for PSN connections (runs on dedicated thread)
 
     private func createAndStartSessionSync(connectInfo: StreamConnectInfo, holepunchPtr: UInt, hpSession: PyluxHolepunchSession) {
-        let receiver = SessionEventReceiver()
-        receiver.eventBlock = { [weak self] eventPtr in
-            guard let self = self, let eventPtr = eventPtr else { return }
-            let event = eventPtr.assumingMemoryBound(to: ChiakiSessionBridgeEvent.self).pointee
-            let typeRaw = event.type.rawValue
-            DispatchQueue.main.async {
-                switch typeRaw {
-                case 0:
-                    os_log(.default, log: sessionLog, "[StreamSession] Session connected (cloud) — video starting")
-                    self.connectionPhase = ""
-                    self.state = .connected
-                    self.input.resendMergedControllerStateIfNeeded()
-                    self.rumbleFeedback?.shutdown()
-                    self.rumbleFeedback = StreamRumbleFeedback(input: self.input)
-                    self.rumbleFeedback?.prepare()
-                case 8:
-                    self.rumbleFeedback?.applyRumble(
-                        left: event.rumble_left,
-                        right: event.rumble_right,
-                        rumbleEnabled: self.rumbleEffectsEnabled
-                    )
-                case 9:
-                    self.rumbleFeedback?.shutdown()
-                    self.rumbleFeedback = nil
-                    let reasonStr = event.quit_reason_str.map { String(cString: $0) }
-                    let quitMsg = reasonStr ?? String(format: "reason=0x%08x", event.quit_reason)
-                    os_log(.error, log: sessionLog, "[StreamSession] Session quit: %{public}s", quitMsg)
-                    self.state = .quit(reason: event.quit_reason, reasonString: reasonStr)
-                case 1:
-                    self.connectionPhase = ""
-                    self.state = .loginPinRequest(pinIncorrect: event.login_pin_incorrect)
-                case 3:
-                    let mac = withUnsafeBytes(of: event.regist_server_mac) { Data($0) }
-                    let nickname = withUnsafeBytes(of: event.regist_server_nickname) {
-                        String(cString: $0.baseAddress!.assumingMemoryBound(to: CChar.self))
-                    }
-                    let registKey = withUnsafeBytes(of: event.regist_rp_regist_key) { Data($0) }
-                    let rpKey = withUnsafeBytes(of: event.regist_rp_key) { Data($0) }
-                    os_log(.default, log: sessionLog, "%{public}s", "[StreamSession] Auto-registration succeeded: \(nickname)")
-                    self.autoRegisteredHost = RegisteredHost(
-                        target: Int(event.regist_target), serverMac: mac,
-                        serverNickname: nickname, rpRegistKey: registKey,
-                        rpKeyType: Int(event.regist_rp_key_type), rpKey: rpKey
-                    )
-                default: break
-                }
-            }
+        // Claim the create window on main BEFORE the blocking create: while
+        // psnCreatesInFlight is nonzero, shutdown() leaves the holepunch pointer's
+        // ownership with this thread instead of fini-ing it out from under the
+        // create call (which would be a use-after-free plus a later double-fini).
+        let mayCreate = DispatchQueue.main.sync { [weak self] () -> Bool in
+            guard let self, !self.isShutDown else { return false }
+            self.psnCreatesInFlight += 1
+            return true
         }
+        if !mayCreate {
+            // shutdown() already ran; the flag was never set, so its else-branch
+            // fini'd (or queued the fini of) the wrapper. fini here is an
+            // idempotent no-op either way (@synchronized), keeping the fini single.
+            hpSession.fini()
+            return
+        }
+
+        let receiver = makeSessionEventReceiver()
 
         let decoder = PyluxVideoDecoder(
             width: Int32(connectInfo.videoWidth),
@@ -566,6 +697,9 @@ final class StreamSession: ObservableObject {
             cInfo.video_max_fps = connectInfo.videoMaxFps
             cInfo.video_bitrate = connectInfo.videoBitrate
             cInfo.video_codec = Int32(connectInfo.videoCodec)
+            // Always true, matching Qt and Android -- see createAndStartSession
+            // (RP rumble requires it; harmless for cloud).
+            cInfo.enable_dualsense = true
             cInfo.holepunch_session = holepunchPtr
             cInfo.auto_regist = connectInfo.autoRegist
             _ = withUnsafeMutableBytes(of: &cInfo.regist_key) { buf in
@@ -585,42 +719,70 @@ final class StreamSession: ObservableObject {
 
         guard let ref = ref else {
             os_log(.default, log: sessionLog, "%{public}s", "[StreamSession] Failed to create session: \(err)")
-            hpSession.fini()
+            receiver.invalidate() // the create call already took the self-retain
+            hpSession.fini() // create failed -> the session never took ownership; single fini here
             DispatchQueue.main.async { [weak self] in
+                self?.psnCreatesInFlight -= 1
                 self?.connectionPhase = ""
                 self?.state = .createError(errorCode: err != 0 ? err : 1, message: nil)
             }
             return
         }
 
-        // Native session owns holepunch pointer now
-        DispatchQueue.main.async { [weak self] in
-            self?.holepunchSession?.markConsumed()
-            self?.holepunchSession = nil
-            self?.sessionRef = ref
-            self?.videoDecoder = decoder
-            self?.eventReceiver = receiver
+        chiaki_session_bridge_set_ps_chord(ref, true, 0) // always on: safe, no user toggle
+        // Unconditional (matching enable_dualsense above): the console delivers rumble
+        // as DualSense haptic-audio; convert it back to rumble events for whatever
+        // controller is (or later becomes) attached.
+        chiaki_session_bridge_enable_haptics_rumble(ref)
+
+        // The native session owns the holepunch pointer from the moment create
+        // succeeded: consume the wrapper's claim NOW, on this thread, so a shutdown()
+        // landing before the publish below can't fini a pointer the session owns.
+        hpSession.markConsumed()
+
+        // Publish, unless shutdown() ran while the session was being created (the
+        // create call above can block for seconds): then the session was never
+        // started and nobody owns it, so free it here instead of letting it stream
+        // unowned (same guard as createAndStartSession's async path).
+        let published = DispatchQueue.main.sync { [weak self] () -> Bool in
+            guard let self else { return false }
+            self.psnCreatesInFlight -= 1 // create returned; ownership decided below
+            guard !self.isShutDown else { return false }
+            self.holepunchSession = nil // claim already consumed above
+            self.sessionRef = ref
+            self.videoDecoder = decoder
+            self.eventReceiver = receiver
             // Attach stored view immediately (matches Android: setSurface when session created)
-            if let view = self?.pendingVideoView, let layer = view.videoDisplayLayer {
+            if let view = self.pendingVideoView, let layer = view.videoDisplayLayer {
                 let b = layer.bounds
                 os_log(.default, log: sessionLog, "[StreamSession] PSN: attaching stored view layer.bounds=%.0fx%.0f", b.width, b.height)
                 decoder.setDisplayLayer(layer)
             } else {
-                os_log(.default, log: sessionLog, "[StreamSession] PSN: no stored view (pending=%d)", self?.pendingVideoView != nil ? 1 : 0)
+                os_log(.default, log: sessionLog, "[StreamSession] PSN: no stored view (pending=%d)", self.pendingVideoView != nil ? 1 : 0)
             }
+            return true
+        }
+        if !published {
+            os_log(.default, log: sessionLog, "%{public}s", "[StreamSession] PSN: shut down during session creation; discarding unstarted session")
+            chiaki_session_bridge_free(ref) // never started -> free directly, no join needed (also finis the consumed holepunch session)
+            receiver.invalidate()
+            return
         }
 
         chiaki_session_bridge_set_video_sample_cb(ref, PyluxVideoDecoderVideoSampleCallback, Unmanaged.passUnretained(decoder).toOpaque())
 
         let startErr = chiaki_session_bridge_start(ref)
         if startErr != 0 {
-            chiaki_session_bridge_free(ref)
-            receiver.invalidate()
-            DispatchQueue.main.async { [weak self] in
+            // Retire the published refs BEFORE freeing: metrics() and the controller
+            // callback read sessionRef on the main thread, so clearing there first
+            // (main is serial) means nothing can reach the session once free runs.
+            DispatchQueue.main.sync { [weak self] in
                 self?.connectionPhase = ""
                 self?.sessionRef = nil; self?.videoDecoder = nil; self?.eventReceiver = nil
                 self?.state = .createError(errorCode: startErr, message: nil)
             }
+            chiaki_session_bridge_free(ref)
+            receiver.invalidate()
             return
         }
 
@@ -631,8 +793,12 @@ final class StreamSession: ObservableObject {
         let joinRef = ref
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             _ = chiaki_session_bridge_join(joinRef)
-            chiaki_session_bridge_free(joinRef)
-            Task { @MainActor [weak self] in
+            // Retire the published refs BEFORE freeing, same as the async path's join
+            // task: on a console-initiated quit sessionRef is still set here, and the
+            // 1 Hz metrics poll / controller callbacks on main could otherwise reach
+            // the freed session. Main is serial: once this sync block returns, any
+            // reader that grabbed the ref has already finished its call.
+            DispatchQueue.main.sync { [weak self] in
                 self?.rumbleFeedback?.shutdown()
                 self?.rumbleFeedback = nil
                 if self?.sessionRef == nil {
@@ -649,6 +815,10 @@ final class StreamSession: ObservableObject {
                     }
                 }
             }
+            chiaki_session_bridge_free(joinRef)
+            // Release THIS session's receiver directly (idempotent): after join+free no
+            // callback can fire, and self.eventReceiver may already point elsewhere.
+            receiver.invalidate()
         }
     }
 

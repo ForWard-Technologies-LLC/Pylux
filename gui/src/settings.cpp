@@ -438,14 +438,36 @@ void Settings::SetCloudResolutionPSCloud(int resolution)
 	settings.setValue("settings/cloud_resolution_pscloud", resolution);
 }
 
-QString Settings::GetCloudLanguagePSCloud() const
+QString Settings::GetCloudStoreLocale() const
 {
-	return settings.value("settings/cloud_language_pscloud", "en-US").toString();
+	const QString key = QStringLiteral("settings/cloud_store_locale");
+	QString value = settings.value(key).toString();
+	if (value.isEmpty()) {
+		value = settings.value(QStringLiteral("settings/cloud_language_pscloud"), QStringLiteral("en-US")).toString();
+		const_cast<Settings *>(this)->settings.setValue(key, value);
+	}
+	return value.isEmpty() ? QStringLiteral("en-US") : value;
 }
 
-void Settings::SetCloudLanguagePSCloud(const QString &language)
+void Settings::SetCloudStoreLocale(const QString &locale)
 {
-	settings.setValue("settings/cloud_language_pscloud", language);
+	settings.setValue(QStringLiteral("settings/cloud_store_locale"), locale);
+}
+
+QString Settings::GetCloudGameLanguage() const
+{
+	const QString key = QStringLiteral("settings/cloud_game_language");
+	if (!settings.contains(key)) {
+		const QString migrated = settings.value(QStringLiteral("settings/cloud_stream_language"), QString()).toString();
+		const_cast<Settings *>(this)->settings.setValue(key, migrated);
+		return migrated;
+	}
+	return settings.value(key, QString()).toString();
+}
+
+void Settings::SetCloudGameLanguage(const QString &language)
+{
+	settings.setValue(QStringLiteral("settings/cloud_game_language"), language);
 }
 
 QString Settings::GetCloudDatacenterPSCloud() const
@@ -545,17 +567,6 @@ ChiakiConnectVideoProfile Settings::GetCloudVideoProfile(const QString &serviceT
 	profile.codec = pscloud ? CHIAKI_CODEC_H265 : CHIAKI_CODEC_H264;
 
 	return profile;
-}
-
-QString Settings::GetCloudLanguagePSNOW() const
-{
-	// Fallback to legacy cloud_language if not set (for migration)
-	return settings.value("settings/cloud_language_psnow", settings.value("settings/cloud_language", "en-US").toString()).toString();
-}
-
-void Settings::SetCloudLanguagePSNOW(const QString &language)
-{
-	settings.setValue("settings/cloud_language_psnow", language);
 }
 
 QString Settings::GetCloudDatacenterPSNOW() const
@@ -971,7 +982,16 @@ QString Settings::GetNpssoToken() const
 
 void Settings::SetNpssoToken(QString npsso_token)
 {
+	// No-op when the token is unchanged so we don't needlessly drop the cloud catalog
+	// cache. Re-auth paths can re-write the same npsso (e.g. token re-exchange after an
+	// expired access token), and that is not an account change.
+	if(settings.value("settings/psn_npsso_token").toString() == npsso_token)
+		return;
 	settings.setValue("settings/psn_npsso_token", npsso_token);
+	// Fires on login, logout, and token re-entry (not on periodic auth/refresh-token
+	// renewals, which don't touch the npsso). Listeners use this to drop the cached
+	// cloud catalog so one account never sees another's owned games.
+	emit NpssoTokenChanged();
 }
 
 bool Settings::GetAccountAttributesCheckPassed() const
@@ -1022,6 +1042,73 @@ QString Settings::GetCloudCatalogFilter() const
 void Settings::SetCloudCatalogFilter(QString filter)
 {
 	settings.setValue("settings/cloud_catalog_filter", filter);
+}
+
+QString Settings::GetCloudResolvedStoreCountry() const
+{
+	const QString key = QStringLiteral("settings/cloud_resolved_store_country");
+	if (!settings.contains(key)) {
+		const QString migrated = settings.value(QStringLiteral("settings/cloud_fallback_region"), QString()).toString();
+		const_cast<Settings *>(this)->settings.setValue(key, migrated);
+		return migrated;
+	}
+	return settings.value(key, QString()).toString();
+}
+
+void Settings::SetCloudResolvedStoreCountry(const QString &country)
+{
+	settings.setValue(QStringLiteral("settings/cloud_resolved_store_country"), country);
+}
+
+QString Settings::GetCloudResolvedStoreLang() const
+{
+	return settings.value(QStringLiteral("settings/cloud_resolved_store_lang"), QString()).toString();
+}
+
+void Settings::SetCloudResolvedStoreLang(const QString &lang)
+{
+	settings.setValue(QStringLiteral("settings/cloud_resolved_store_lang"), lang);
+}
+
+bool Settings::GetCloudCatalogNativeMode() const
+{
+	const QString key = QStringLiteral("settings/cloud_catalog_native_mode");
+	if (!settings.contains(key)) {
+		const bool native = GetCloudResolvedStoreCountry().isEmpty();
+		const_cast<Settings *>(this)->settings.setValue(key, native);
+		return native;
+	}
+	return settings.value(key, true).toBool();
+}
+
+void Settings::SetCloudCatalogNativeMode(bool native_mode)
+{
+	settings.setValue(QStringLiteral("settings/cloud_catalog_native_mode"), native_mode);
+}
+
+bool Settings::IsCloudCatalogIsForeign() const
+{
+	return !GetCloudCatalogNativeMode();
+}
+
+QString Settings::GetCloudTagFilters() const
+{
+	return settings.value("settings/cloud_tag_filters", "[]").toString();
+}
+
+void Settings::SetCloudTagFilters(const QString &filtersJson)
+{
+	settings.setValue("settings/cloud_tag_filters", filtersJson);
+}
+
+int Settings::GetCloudSortState() const
+{
+	return settings.value("settings/cloud_sort_state", 0).toInt();
+}
+
+void Settings::SetCloudSortState(int sortState)
+{
+	settings.setValue("settings/cloud_sort_state", sortState);
 }
 
 QString Settings::GetCloudFavorites() const

@@ -6,6 +6,8 @@
 
 #include <galois.h>
 
+#include <curl/curl.h>
+
 #include <errno.h>
 #include <stdlib.h>
 #include <time.h>
@@ -102,6 +104,13 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_lib_init()
 			return CHIAKI_ERR_NETWORK;
 	}
 #endif
+
+	// libcurl's lazy global init on the first curl_easy_init is not thread-safe
+	// (documented for libcurl < 7.84): do it once here, before any catalog or
+	// provisioning worker can race it. Refcounted, so a platform that also calls
+	// curl_global_init itself stays correct.
+	if(curl_global_init(CURL_GLOBAL_DEFAULT) != 0)
+		return CHIAKI_ERR_UNKNOWN;
 
 	return CHIAKI_ERR_SUCCESS;
 }

@@ -17,24 +17,26 @@ Pane {
     property var showConfirmDialogFunc: null
     
     // Expose child components for navigation
-    readonly property Item catalogButtonItem: catalogButton
+    readonly property Item catalogButtonItem: searchContainer
     readonly property Item searchContainerItem: searchContainer
     readonly property Item refreshButtonItem: refreshButton
     
-    property int currentPage: 0
-    property int gamesPerPage: 25
     property var allGames: []
     property var filteredGames: []
     property var currentPageGames: []
-    property string currentSection: "catalog" // "catalog" or "library"
     property bool isLoading: false
     property string searchQuery: ""
-    property string authErrorMessage: "" // Persistent auth error message
-    property string libraryFilter: "all" // "all", "owned", or "favorites" - filter for Game Library
-    property string catalogFilter: "all" // "all" or "favorites" - filter for Game Catalog
-    property var ownedProductIds: [] // Set of product IDs that are owned (for filtering)
-    property var favoriteProductIds: [] // Set of product IDs that are favorited
-    property var qrCodeDialogRef: null // Reference to QR code dialog for child components
+    property string authErrorMessage: ""
+    property string fallbackRegion: ""
+    property bool catalogNativeMode: true
+    property var activeTagFilters: [] // empty = show all; values: owned, streamable, purchaseable
+    property bool showFavoritesOnly: false
+    property int sortState: 0 // 0=Playable First, 1=A-Z, 2=Z-A
+    property var favoriteProductIds: []
+    property var qrCodeDialogRef: null
+
+    readonly property var tagFilterCategories: ["owned", "streamable", "purchaseable"]
+    readonly property var tagFilterLabels: [qsTr("Owned"), qsTr("Streamable"), qsTr("Store")]
     
     // Clean blue background
     CleanBlueBackground {
@@ -54,21 +56,19 @@ Pane {
     }
     
     Component.onCompleted: {
-        // Load saved cloud section on startup
-        let savedSection = Chiaki.settings.lastSelectedCloudSection;
-        if (savedSection === "library" || savedSection === "catalog") {
-            currentSection = savedSection;
+        fallbackRegion = Chiaki.settings.cloudResolvedStoreCountry || "";
+        catalogNativeMode = Chiaki.settings.cloudCatalogNativeMode;
+        sortState = Chiaki.settings.cloudSortState || 0;
+        let savedTagFilters = Chiaki.settings.cloudTagFilters;
+        if (savedTagFilters) {
+            try {
+                let parsed = JSON.parse(savedTagFilters);
+                if (Array.isArray(parsed))
+                    activeTagFilters = parsed;
+            } catch (e) {
+                console.warn("Failed to parse cloud tag filters:", e);
+            }
         }
-        // Load saved filters
-        let savedLibraryFilter = Chiaki.settings.cloudLibraryFilter;
-        if (savedLibraryFilter === "owned" || savedLibraryFilter === "all" || savedLibraryFilter === "favorites") {
-            libraryFilter = savedLibraryFilter;
-        }
-        let savedCatalogFilter = Chiaki.settings.cloudCatalogFilter;
-        if (savedCatalogFilter === "all" || savedCatalogFilter === "favorites") {
-            catalogFilter = savedCatalogFilter;
-        }
-        // Load saved favorites
         let savedFavorites = Chiaki.settings.cloudFavorites;
         if (savedFavorites) {
             try {
@@ -78,37 +78,48 @@ Pane {
                 favoriteProductIds = [];
             }
         }
-        // Load games when component is first created
-        Qt.callLater(() => {
-            if (currentSection === "catalog") {
-                loadPsnowCatalog();
-            } else {
-                loadPs5CloudLibrary();
-            }
-        });
+        Qt.callLater(() => loadUnifiedCatalog());
+        initialFocusTimer.restart();
     }
     
-    // Watch for visibility changes to reload if needed
     onVisibleChanged: {
-        if (visible && allGames.length === 0) {
-            // Only load if we don't have games yet
-            if (currentSection === "catalog") {
-                loadPsnowCatalog();
-            } else {
-                loadPs5CloudLibrary();
-            }
+        if (visible) {
+            if (allGames.length === 0)
+                loadUnifiedCatalog();
+            initialFocusTimer.restart();
         }
     }
     
     StackView.onActivated: {
-        // Also load when StackView activates this view
-        Qt.callLater(() => {
-            if (currentSection === "catalog") {
-                loadPsnowCatalog();
+        Qt.callLater(() => loadUnifiedCatalog());
+        initialFocusTimer.restart();
+    }
+
+    // Account/profile switch, NPSSO change, or cloud-language change wipes the catalog cache in the
+    // backend; reload here so the visible grid never keeps showing the previous account's games.
+    Connections {
+        target: Chiaki.cloudCatalog
+        function onCacheInvalidated() {
+            loadUnifiedCatalog();
+        }
+    }
+
+    // Pins default focus to the first game card (or the filter toggle if games
+    // haven't loaded yet) after startup focus churn settles, so the search field
+    // never holds focus by default. Runs late enough to override the window's
+    // initial active-focus assignment.
+    Timer {
+        id: initialFocusTimer
+        interval: 150
+        repeat: false
+        onTriggered: {
+            if (gamesGrid.count > 0) {
+                gamesGrid.currentIndex = 0;
+                gamesGrid.forceActiveFocus();
             } else {
-                loadPs5CloudLibrary();
+                filterToggle.forceActiveFocus();
             }
-        });
+        }
     }
     
     // Handle Escape/B button for quit confirmation dialog
@@ -132,395 +143,165 @@ Pane {
             return;
         }
         
-        switch (event.key) {
-        case Qt.Key_PageUp:
-            // L1 button - switch to Game Catalog
-            if (currentSection !== "catalog") {
-                switchSection("catalog");
-                event.accepted = true;
-            }
-            break;
-        case Qt.Key_PageDown:
-            // R1 button - switch to Game Library
-            if (currentSection !== "library") {
-                switchSection("library");
-                event.accepted = true;
-            }
-            break;
-        }
     }
-    
-    function loadPsnowCatalog() {
-        // Check NPSSO token - show warning if missing (but still load games)
+
+    function tagFilterSummary() {
+        if (!activeTagFilters || activeTagFilters.length === 0)
+            return qsTr("All games");
+        let labels = [];
+        for (let i = 0; i < tagFilterCategories.length; i++) {
+            if (activeTagFilters.indexOf(tagFilterCategories[i]) !== -1)
+                labels.push(tagFilterLabels[i]);
+        }
+        return labels.length > 0 ? labels.join(" · ") : qsTr("All games");
+    }
+
+    function isTagFilterActive(tag) {
+        return !activeTagFilters || activeTagFilters.length === 0
+               || activeTagFilters.indexOf(tag) !== -1;
+    }
+
+    function setTagFilters(tags) {
+        activeTagFilters = tags;
+        Chiaki.settings.cloudTagFilters = JSON.stringify(tags);
+        applySearchFilter();
+    }
+
+    function toggleTagFilter(tag) {
+        // Empty active set means "all selected", so start from every category and remove from there.
+        let current = (!activeTagFilters || activeTagFilters.length === 0)
+                      ? tagFilterCategories.slice()
+                      : activeTagFilters.slice();
+        let idx = current.indexOf(tag);
+        if (idx !== -1)
+            current.splice(idx, 1);
+        else
+            current.push(tag);
+        if (current.length === 0 || current.length === tagFilterCategories.length)
+            setTagFilters([]);
+        else
+            setTagFilters(current);
+    }
+
+    function isPlayableNow(game) {
+        return game && game.category !== "purchaseable";
+    }
+
+    function sortGames(games) {
+        let sorted = games.slice();
+        if (sortState === 1) {
+            sorted.sort((a, b) => gameName(a).localeCompare(gameName(b)));
+        } else if (sortState === 2) {
+            sorted.sort((a, b) => gameName(b).localeCompare(gameName(a)));
+        } else {
+            sorted.sort((a, b) => {
+                let pa = isPlayableNow(a) ? 1 : 0;
+                let pb = isPlayableNow(b) ? 1 : 0;
+                if (pa !== pb) return pb - pa;
+                return gameName(a).localeCompare(gameName(b));
+            });
+        }
+        return sorted;
+    }
+
+    function gameName(game) {
+        if (!game) return "";
+        if (game.name) return game.name;
+        if (game.game_meta && game.game_meta.name) return game.game_meta.name;
+        return "";
+    }
+
+    function loadUnifiedCatalog() {
         let npssoToken = Chiaki.settings.psnNpssoToken;
         if (!npssoToken || npssoToken.trim().length === 0) {
-            authErrorMessage = "NPSSO token is required for Game Catalog and Game Library. Please login and enter a valid NPSSO token. You also need a valid PS Plus subscription.";
+            authErrorMessage = qsTr("NPSSO token is required for cloud games. Please login and enter a valid NPSSO token. You also need a valid PS Plus subscription.");
         } else {
-            authErrorMessage = ""; // Clear auth error if token exists
+            authErrorMessage = "";
         }
-        
-        // Clear old cards immediately when starting to load
+
+        // The grid is about to be emptied. If it currently holds focus, its cards
+        // vanish and the (now empty) grid swallows arrow keys, leaving focus
+        // black-holed. Park focus on the filter toggle so the header stays
+        // navigable while loading; the post-load callback restores it to the
+        // first card once games are back.
+        if (gamesGrid.activeFocus)
+            filterToggle.forceActiveFocus();
+
         allGames = [];
         filteredGames = [];
         currentPageGames = [];
         isLoading = true;
-        Chiaki.cloudCatalog.fetchPsnowCatalog(function(success, message, jsonData) {
+
+        Chiaki.cloudCatalog.fetchUnifiedCatalog(function(success, message, jsonData) {
             isLoading = false;
-            if (success && jsonData) {
-                try {
-                    let data = JSON.parse(jsonData);
-                    if (data.games && Array.isArray(data.games)) {
-                        allGames = data.games;
-                        // Don't clear auth error on success - keep it if token is still missing
-                        if (npssoToken && npssoToken.trim().length > 0) {
-                            authErrorMessage = "";
-                        }
-                        applySearchFilter();
-                        // Set focus after games are loaded
-                        Qt.callLater(() => {
-                            if (gamesGrid.count > 0) {
-                                gamesGrid.currentIndex = 0;
-                                gamesGrid.forceActiveFocus();
-                            }
-                        });
-                    } else {
-                        allGames = [];
-                        filteredGames = [];
-                        currentPageGames = [];
-                        showErrorToast(qsTr("Error"), qsTr("No games found in catalog"));
-                    }
-                } catch (e) {
-                    console.error("Failed to parse PSNOW catalog:", e);
-                    allGames = [];
-                    filteredGames = [];
-                    currentPageGames = [];
-                    showErrorToast(qsTr("Parse Error"), qsTr("Failed to parse catalog data: %1").arg(e.toString()));
-                }
-            } else {
-                console.error("Failed to fetch PSNOW catalog:", message);
+            if (!success || !jsonData) {
                 allGames = [];
                 filteredGames = [];
                 currentPageGames = [];
                 showErrorToast(qsTr("API Error"), message || qsTr("Failed to fetch game catalog"));
+                return;
             }
-        });
-    }
-    
-    function ps5CloudProductId(game) {
-        if (!game)
-            return "";
-        return game.productId || game.product_id || "";
-    }
-
-    function ps5CloudConceptId(game) {
-        if (!game)
-            return "";
-        let conceptId = game.conceptId;
-        if (conceptId === undefined || conceptId === null || conceptId === "")
-            return "";
-        return String(conceptId);
-    }
-
-    function ps5CloudStreamingId(game) {
-        if (!game)
-            return "";
-        return game.id || "";
-    }
-
-    function buildPs5CloudCatalogIndex(games) {
-        let byProductId = {};
-        let byConceptId = {};
-        for (let i = 0; i < games.length; i++) {
-            let game = games[i];
-            let productId = ps5CloudProductId(game);
-            if (productId)
-                byProductId[productId] = i;
-            let conceptId = ps5CloudConceptId(game);
-            if (conceptId)
-                byConceptId[conceptId] = i;
-            let streamId = ps5CloudStreamingId(game);
-            if (streamId && streamId !== productId)
-                byProductId[streamId] = i;
-        }
-        return { byProductId: byProductId, byConceptId: byConceptId };
-    }
-
-    function registerPs5CloudGameInCatalogIndex(game, index, catalogIndex) {
-        let productId = ps5CloudProductId(game);
-        if (productId)
-            catalogIndex.byProductId[productId] = index;
-        let conceptId = ps5CloudConceptId(game);
-        if (conceptId)
-            catalogIndex.byConceptId[conceptId] = index;
-        let streamId = ps5CloudStreamingId(game);
-        if (streamId && streamId !== productId)
-            catalogIndex.byProductId[streamId] = index;
-    }
-
-    function findPs5CloudCatalogIndexForOwned(ownedGame, catalogIndex) {
-        let productId = ps5CloudProductId(ownedGame);
-        if (productId && catalogIndex.byProductId.hasOwnProperty(productId))
-            return catalogIndex.byProductId[productId];
-        let streamId = ps5CloudStreamingId(ownedGame);
-        if (streamId && catalogIndex.byProductId.hasOwnProperty(streamId))
-            return catalogIndex.byProductId[streamId];
-        let conceptId = ps5CloudConceptId(ownedGame);
-        if (conceptId && catalogIndex.byConceptId.hasOwnProperty(conceptId))
-            return catalogIndex.byConceptId[conceptId];
-        return -1;
-    }
-
-    function sortPs5CloudLibraryGames(games) {
-        games.sort(function(a, b) {
-            if (a.isOwned && !b.isOwned)
-                return -1;
-            if (!a.isOwned && b.isOwned)
-                return 1;
-            let nameA = (a.name || (a.game_meta && a.game_meta.name) || "").toLowerCase();
-            let nameB = (b.name || (b.game_meta && b.game_meta.name) || "").toLowerCase();
-            return nameA.localeCompare(nameB);
-        });
-    }
-
-    function mergeOwnedPs5CloudIntoBrowseCatalog(browseGames, ownedGames) {
-        let games = browseGames.slice();
-        let catalogIndex = buildPs5CloudCatalogIndex(games);
-        let ownedIds = new Set();
-
-        for (let i = 0; i < ownedGames.length; i++) {
-            let ownedGame = ownedGames[i];
-            let productId = ps5CloudProductId(ownedGame);
-            if (productId)
-                ownedIds.add(productId);
-            let streamId = ps5CloudStreamingId(ownedGame);
-            if (streamId)
-                ownedIds.add(streamId);
-
-            let catalogMatch = findPs5CloudCatalogIndexForOwned(ownedGame, catalogIndex);
-            if (catalogMatch >= 0) {
-                let existing = games[catalogMatch];
-                existing.isOwned = true;
-                let streamId = ps5CloudStreamingId(ownedGame);
-                if (streamId)
-                    existing.id = streamId;
-                let ownedProductId = ps5CloudProductId(ownedGame);
-                if (ownedProductId) {
-                    if (!existing.product_id)
-                        existing.product_id = ownedProductId;
-                    if (!existing.productId)
-                        existing.productId = ownedProductId;
-                }
-                games[catalogMatch] = existing;
-                continue;
-            }
-
-            let entry = Object.assign({}, ownedGame);
-            entry.isOwned = true;
-            if (!entry.productId && entry.product_id)
-                entry.productId = entry.product_id;
-
-            registerPs5CloudGameInCatalogIndex(entry, games.length, catalogIndex);
-            games.push(entry);
-        }
-
-        sortPs5CloudLibraryGames(games);
-        return { games: games, ownedIds: ownedIds };
-    }
-
-    function loadPs5CloudLibrary() {
-        // Clear old cards immediately when starting to load
-        allGames = [];
-        filteredGames = [];
-        currentPageGames = [];
-        isLoading = true;
-        
-        if (libraryFilter === "all") {
-            // Fetch all streamable games from game catalog
-            Chiaki.cloudCatalog.fetchPs5CloudCatalog(function(success, message, jsonData) {
-                if (success && jsonData) {
-                    try {
-                        let data = JSON.parse(jsonData);
-                        if (data.games && Array.isArray(data.games)) {
-                            if (message && message !== "Success" && message !== "Cached")
-                                showErrorToast(qsTr("Partial Catalog"), message);
-                            // Also fetch owned games to mark which ones are owned
-                            Chiaki.cloudCatalog.getOwnedPs5CloudGames(function(ownedSuccess, ownedMessage, ownedJsonData) {
-                                let ownershipCheckFailed = false;
-                                let ownershipErrorMsg = "";
-                                let ownedGames = [];
-                                
-                                if (ownedSuccess && ownedJsonData) {
-                                    try {
-                                        let ownedData = JSON.parse(ownedJsonData);
-                                        if (ownedData.games && Array.isArray(ownedData.games))
-                                            ownedGames = ownedData.games;
-                                    } catch (e) {
-                                        console.warn("Failed to parse owned games for filtering:", e);
-                                        ownershipCheckFailed = true;
-                                        ownershipErrorMsg = qsTr("Failed to parse ownership data. Some games may show incorrect ownership status.");
-                                    }
-                                } else {
-                                    console.warn("Failed to fetch owned games:", ownedMessage);
-                                    ownershipCheckFailed = true;
-                                    ownershipErrorMsg = ownedMessage || qsTr("Failed to verify game ownership");
-                                }
-
-                                let merged = mergeOwnedPs5CloudIntoBrowseCatalog(data.games, ownedGames);
-                                ownedProductIds = Array.from(merged.ownedIds);
-                                allGames = merged.games;
-                                isLoading = false;
-                                
-                                // Handle ownership check failure with user-visible feedback
-                                if (ownershipCheckFailed) {
-                                    // Check if it's an auth error - show persistent banner
-                                    if (ownershipErrorMsg.includes("NPSSO") || ownershipErrorMsg.includes("login") || 
-                                        ownershipErrorMsg.includes("Authentication") || ownershipErrorMsg.includes("PS Plus") ||
-                                        ownershipErrorMsg.includes("token") || ownershipErrorMsg.includes("expired")) {
-                                        authErrorMessage = ownershipErrorMsg + " " + qsTr("Owned games cannot be identified.");
-                                    } else {
-                                        // Show toast for non-auth errors
-                                        authErrorMessage = ""; // Clear any previous auth error
-                                        showErrorToast(qsTr("Ownership Check Failed"), 
-                                            ownershipErrorMsg + " " + qsTr("Some games may show 'Add Game' instead of 'Stream Game'."));
-                                    }
-                                } else {
-                                    authErrorMessage = ""; // Clear auth error on full success
-                                }
-                                
-                                applySearchFilter();
-                                // Set focus after games are loaded
-                                Qt.callLater(() => {
-                                    if (gamesGrid.count > 0) {
-                                        gamesGrid.currentIndex = 0;
-                                        gamesGrid.forceActiveFocus();
-                                    }
-                                });
-                            });
-                        } else {
-                            allGames = [];
-                            filteredGames = [];
-                            currentPageGames = [];
-                            authErrorMessage = ""; // Clear auth error on success
-                            isLoading = false;
-                            showErrorToast(qsTr("Error"), qsTr("No cloud streamable games found"));
-                        }
-                    } catch (e) {
-                        console.error("Failed to parse game catalog:", e);
-                        allGames = [];
-                        filteredGames = [];
-                        currentPageGames = [];
-                        isLoading = false;
-                        showErrorToast(qsTr("Parse Error"), qsTr("Failed to parse catalog data: %1").arg(e.toString()));
-                    }
-                } else {
-                    console.error("Failed to fetch game catalog:", message);
-                    allGames = [];
-                    filteredGames = [];
-                    currentPageGames = [];
-                    isLoading = false;
-                    let errorMsg = message || qsTr("Failed to fetch game catalog");
-                    showErrorToast(qsTr("API Error"), errorMsg);
-                }
-            });
-        } else {
-            // Fetch only owned games (cross-referenced)
-            Chiaki.cloudCatalog.getOwnedPs5CloudGames(function(success, message, jsonData) {
-                isLoading = false;
-                if (success && jsonData) {
-                    try {
-                        let data = JSON.parse(jsonData);
-                        if (data.games && Array.isArray(data.games)) {
-                            for (let i = 0; i < data.games.length; i++)
-                                data.games[i].isOwned = true;
-
-                            sortPs5CloudLibraryGames(data.games);
-
-                            let ownedIds = new Set();
-                            for (let i = 0; i < data.games.length; i++) {
-                                let productId = ps5CloudProductId(data.games[i]);
-                                if (productId)
-                                    ownedIds.add(productId);
-                                let streamId = ps5CloudStreamingId(data.games[i]);
-                                if (streamId)
-                                    ownedIds.add(streamId);
-                            }
-                            ownedProductIds = Array.from(ownedIds);
-                            
-                            allGames = data.games;
-                            authErrorMessage = ""; // Clear auth error on success
-                            applySearchFilter();
-                            // Set focus after games are loaded
-                            Qt.callLater(() => {
-                                if (gamesGrid.count > 0) {
-                                    gamesGrid.currentIndex = 0;
-                                    gamesGrid.forceActiveFocus();
-                                }
-                            });
-                        } else {
-                            allGames = [];
-                            filteredGames = [];
-                            currentPageGames = [];
-                            authErrorMessage = ""; // Clear auth error on success
-                            showErrorToast(qsTr("Error"), qsTr("No cloud streamable games found in library"));
-                        }
-                    } catch (e) {
-                        console.error("Failed to parse PS5 cloud library:", e);
-                        allGames = [];
-                        filteredGames = [];
-                        currentPageGames = [];
-                        showErrorToast(qsTr("Parse Error"), qsTr("Failed to parse library data: %1").arg(e.toString()));
-                    }
-                } else {
-                    console.error("Failed to fetch PS5 cloud library:", message);
-                    allGames = [];
-                    filteredGames = [];
-                    currentPageGames = [];
-                    // Check if it's an authentication error
-                    let errorMsg = message || qsTr("Failed to fetch PS5 cloud library");
-                    if (errorMsg.includes("NPSSO") || errorMsg.includes("login") || errorMsg.includes("Authentication") || errorMsg.includes("PS Plus")) {
-                        authErrorMessage = errorMsg;
-                    } else {
+            try {
+                let data = JSON.parse(jsonData);
+                if (data.games && Array.isArray(data.games)) {
+                    allGames = data.games;
+                    fallbackRegion = data.fallbackRegion || "";
+                    catalogNativeMode = data.nativeMode !== false;
+                    Chiaki.settings.cloudResolvedStoreCountry = fallbackRegion;
+                    Chiaki.settings.cloudCatalogNativeMode = catalogNativeMode;
+                    if (data.warning)
+                        authErrorMessage = data.warning;
+                    else if (npssoToken && npssoToken.trim().length > 0)
                         authErrorMessage = "";
-                        showErrorToast(qsTr("API Error"), errorMsg);
-                    }
+                    if (message && message !== "Success" && message !== "Cached")
+                        showErrorToast(qsTr("Partial Catalog"), message);
+                    applySearchFilter();
+                    Qt.callLater(() => {
+                        if (gamesGrid.count > 0
+                                && !searchField.activeFocus
+                                && !tagFilterPopup.opened) {
+                            gamesGrid.currentIndex = 0;
+                            gamesGrid.forceActiveFocus();
+                        }
+                    });
+                } else {
+                    showErrorToast(qsTr("Error"), qsTr("No games found in catalog"));
                 }
-            });
-        }
+            } catch (e) {
+                console.error("Failed to parse unified catalog:", e);
+                showErrorToast(qsTr("Parse Error"), qsTr("Failed to parse catalog data: %1").arg(e.toString()));
+            }
+        });
     }
-    
+
     function applySearchFilter() {
         let hadFocus = searchField && searchField.activeFocus;
         
         let gamesToFilter = allGames.slice();
-        
-        // Apply filter based on current section and filter mode
-        if (currentSection === "catalog" && catalogFilter === "favorites") {
-            // Filter catalog to only show favorites
+
+        if (activeTagFilters && activeTagFilters.length > 0) {
+            gamesToFilter = gamesToFilter.filter(function(game) {
+                return game.category && activeTagFilters.indexOf(game.category) !== -1;
+            });
+        }
+
+        if (showFavoritesOnly) {
             gamesToFilter = gamesToFilter.filter(function(game) {
                 let productId = game.productId || game.product_id || game.id;
                 return favoriteProductIds.indexOf(productId) !== -1;
             });
-        } else if (currentSection === "library" && libraryFilter === "favorites") {
-            // Filter library to only show favorites
-            gamesToFilter = gamesToFilter.filter(function(game) {
-                let productId = game.product_id || game.productId || game.id;
-                return favoriteProductIds.indexOf(productId) !== -1;
-            });
         }
-        
-        if (!searchQuery || searchQuery.trim() === "") {
-            filteredGames = gamesToFilter;
-        } else {
+
+        if (searchQuery && searchQuery.trim() !== "") {
             let query = searchQuery.toLowerCase().trim();
-            filteredGames = gamesToFilter.filter(function(game) {
-                let name = "";
-                if (game.name) name = game.name.toLowerCase();
-                else if (game.game_meta && game.game_meta.name) name = game.game_meta.name.toLowerCase();
-                return name.includes(query);
+            gamesToFilter = gamesToFilter.filter(function(game) {
+                let name = gameName(game).toLowerCase();
+                let pid = (game.productId || game.product_id || "").toLowerCase();
+                return name.includes(query) || pid.includes(query);
             });
         }
-        
-        // Show all games on one page (no pagination for both catalog and library)
+
+        filteredGames = sortGames(gamesToFilter);
         currentPageGames = filteredGames.slice();
         
         // If user was typing, restore focus immediately after model update
@@ -557,50 +338,6 @@ Pane {
         applySearchFilter();
     }
     
-    function updateCurrentPage() {
-        let startIdx = currentPage * gamesPerPage;
-        let endIdx = Math.min(startIdx + gamesPerPage, filteredGames.length);
-        currentPageGames = filteredGames.slice(startIdx, endIdx);
-    }
-    
-    function nextPage() {
-        if ((currentPage + 1) * gamesPerPage < filteredGames.length) {
-            currentPage++;
-            updateCurrentPage();
-        }
-    }
-    
-    function previousPage() {
-        if (currentPage > 0) {
-            currentPage--;
-            updateCurrentPage();
-        }
-    }
-    
-    function switchSection(section) {
-        // Clear old cards immediately when switching sections
-        allGames = [];
-        filteredGames = [];
-        currentPageGames = [];
-        currentSection = section;
-        searchQuery = "";
-        // Save the selected section
-        Chiaki.settings.lastSelectedCloudSection = section;
-        // Don't clear auth error here - let the load functions handle it
-        // Clear search field text using Qt.callLater to ensure it works
-        Qt.callLater(() => {
-            if (searchField) {
-                searchField.text = "";
-            }
-        });
-        if (section === "catalog") {
-            loadPsnowCatalog();
-        } else {
-            authErrorMessage = ""; // Clear auth error when switching to library (it will be set if needed)
-            loadPs5CloudLibrary();
-        }
-    }
-    
     function showShortcutToast(title, message) {
         shortcutToastTitle.text = title;
         shortcutToastMessage.text = message;
@@ -628,7 +365,7 @@ Pane {
             left: parent.left
             right: parent.right
         }
-        height: 75
+        height: 52
         
         color: Qt.rgba(10/255, 20/255, 38/255, 0.95)
         
@@ -648,21 +385,93 @@ Pane {
                 fill: parent
                 leftMargin: 25
                 rightMargin: 25
-                topMargin: 8
-                bottomMargin: 8
+                topMargin: 6
+                bottomMargin: 6
             }
-            spacing: 16
-            
-            // Search bar - icon that expands when focused (far left)
+            spacing: 8
+
+            // Acquisition-tag filter summary (Owned / Streamable / Store) — far left
+            Item {
+                id: filterToggle
+                Layout.preferredWidth: Math.max(filterToggleRow.implicitWidth + 20, 110)
+                Layout.preferredHeight: 36
+
+                Rectangle {
+                    anchors.fill: parent
+                    color: filterToggle.activeFocus ? Qt.rgba(0, 212/255, 255/255, 0.15) : "transparent"
+                    border.color: filterToggle.activeFocus ? "#00d4ff" : "transparent"
+                    border.width: filterToggle.activeFocus ? 1 : 0
+                    radius: 4
+                }
+
+                Row {
+                    id: filterToggleRow
+                    anchors.centerIn: parent
+                    spacing: 6
+                    property bool filtersActive: activeTagFilters && activeTagFilters.length > 0
+                    property color tint: filtersActive ? "#00d4ff" : Qt.rgba(255, 255, 255, 0.6)
+
+                    // Funnel / "decrease" filter glyph (matches iOS line.3.horizontal.decrease)
+                    Canvas {
+                        id: filterGlyph
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 16; height: 16
+                        property color stroke: filterToggleRow.tint
+                        onStrokeChanged: requestPaint()
+                        onPaint: {
+                            var ctx = getContext("2d");
+                            ctx.reset();
+                            ctx.strokeStyle = stroke;
+                            ctx.lineWidth = 1.8; ctx.lineCap = "round";
+                            ctx.beginPath();
+                            ctx.moveTo(2, 4); ctx.lineTo(14, 4);
+                            ctx.moveTo(4, 8); ctx.lineTo(12, 8);
+                            ctx.moveTo(6, 12); ctx.lineTo(10, 12);
+                            ctx.stroke();
+                        }
+                    }
+
+                    Text {
+                        id: filterToggleText
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: tagFilterSummary()
+                        font.pixelSize: 13
+                        font.weight: Font.Medium
+                        color: filterToggleRow.tint
+                    }
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: tagFilterPopup.open()
+                }
+
+                focusPolicy: Qt.StrongFocus
+                KeyNavigation.left: sortToggle
+                KeyNavigation.right: searchContainer
+                KeyNavigation.down: gamesGrid.count > 0 ? gamesGrid : null
+                KeyNavigation.up: mainTabBar ? mainTabBar.itemAt(1) : null
+                Keys.onReturnPressed: { tagFilterPopup.open(); event.accepted = true; }
+            }
+
+            // Flexible gap pushes search + the right-side controls to the right edge.
+            // It sits to the LEFT of search so the field expands leftward into this gap.
+            Item { Layout.fillWidth: true }
+
+            // Search bar - icon that expands leftward when focused (right side, left of favorites)
             Rectangle {
                 id: searchContainer
-                Layout.preferredHeight: 44
-                Layout.preferredWidth: searchContainer.activeFocus || searchField.activeFocus || searchField.text.length > 0 ? 400 : 44
-                radius: 22
+                Layout.preferredHeight: 36
+                Layout.preferredWidth: searchContainer.activeFocus || searchField.activeFocus || searchField.text.length > 0 ? 360 : 36
+                radius: 18
                 color: searchContainer.activeFocus || searchField.activeFocus ? Qt.rgba(255, 255, 255, 0.15) : Qt.rgba(255, 255, 255, 0.1)
                 border.color: searchContainer.activeFocus || searchField.activeFocus ? "#00d4ff" : Qt.rgba(255, 255, 255, 0.2)
                 border.width: searchContainer.activeFocus || searchField.activeFocus ? 2 : 1
                 focusPolicy: Qt.StrongFocus
+                // Keep search OUT of the automatic focus chain so it never grabs default
+                // focus on launch. It's still reachable by click and arrow/controller nav.
+                activeFocusOnTab: false
                 
                 Behavior on Layout.preferredWidth {
                     NumberAnimation { duration: 250; easing.type: Easing.OutCubic }
@@ -690,14 +499,13 @@ Pane {
                 }
                 
                 Keys.onLeftPressed: {
-                    // Wrap to refresh button if at start
-                    refreshButton.forceActiveFocus();
+                    // Filter toggle sits to the left of search now
+                    filterToggle.forceActiveFocus();
                     event.accepted = true;
                 }
                 
                 Keys.onRightPressed: {
-                    // Move to catalog button
-                    catalogButton.forceActiveFocus();
+                    favoritesToggle.forceActiveFocus();
                     event.accepted = true;
                 }
                 
@@ -758,6 +566,8 @@ Pane {
                         color: "white"
                         selectByMouse: true
                         focusPolicy: Qt.StrongFocus
+                        // Not auto-focusable on launch; only via click / explicit navigation.
+                        activeFocusOnTab: false
                         verticalAlignment: TextInput.AlignVCenter
                         topPadding: 0
                         bottomPadding: 0
@@ -769,14 +579,14 @@ Pane {
                             NumberAnimation { duration: 200 }
                         }
                         
-                        KeyNavigation.right: catalogButton
-                        KeyNavigation.left: refreshButton
+                        KeyNavigation.right: favoritesToggle
+                        KeyNavigation.left: filterToggle
                         KeyNavigation.down: gamesGrid.count > 0 ? gamesGrid : null
                         
                         KeyNavigation.up: mainTabBar ? mainTabBar.itemAt(1) : null
                         
                         Keys.onLeftPressed: (event) => {
-                            refreshButton.forceActiveFocus();
+                            filterToggle.forceActiveFocus();
                             event.accepted = true;
                         }
                         
@@ -828,365 +638,294 @@ Pane {
                 }
             }
             
-            // Section switcher - immediately to the right of search
-            RowLayout {
-                spacing: 10
-                
-                // Game Catalog button
-                Button {
-                    id: catalogButton
-                    Layout.preferredHeight: 44
-                    Layout.preferredWidth: 150
-                    focusPolicy: Qt.StrongFocus
-                    checked: currentSection === "catalog"
-                    onClicked: switchSection("catalog")
-                    
-                    KeyNavigation.left: searchContainer
-                    KeyNavigation.right: libraryButton
-                    KeyNavigation.down: gamesGrid.count > 0 ? gamesGrid : null
-                    
-                    Keys.onLeftPressed: (event) => {
-                        searchContainer.forceActiveFocus();
-                        event.accepted = true;
-                    }
-                    
-                    KeyNavigation.up: mainTabBar ? mainTabBar.itemAt(1) : null
-                    
-                    Keys.onReturnPressed: {
-                        if (currentSection !== "catalog") {
-                            switchSection("catalog");
-                        }
-                        event.accepted = true;
-                    }
-                    
-                    background: Rectangle {
-                        radius: 22
-                        // Checked (active section) - solid bright blue background
-                        // Focused (keyboard navigation) - subtle blue background with animated glow
-                        // Neither - subtle gray
-                        color: parent.checked ? Qt.rgba(0, 212/255, 255/255, 0.35) : (parent.activeFocus ? Qt.rgba(0, 212/255, 255/255, 0.18) : Qt.rgba(255, 255, 255, 0.08))
-                        border.color: parent.checked ? "#00d4ff" : (parent.activeFocus ? "#00d4ff" : Qt.rgba(255, 255, 255, 0.15))
-                        // When focused, use thicker border (3px) even if also checked
-                        // When checked but not focused, use 2px
-                        // When neither, use 1px
-                        border.width: parent.activeFocus ? 3 : (parent.checked ? 2 : 1)
-                        
-                        // Focus glow effect (only when focused but not checked) - make it very visible
-                        Rectangle {
-                            anchors.fill: parent
-                            radius: parent.radius
-                            color: "transparent"
-                            border.color: "#00d4ff"
-                            border.width: 2
-                            opacity: parent.parent.activeFocus && !parent.parent.checked ? 0.7 : 0
-                            visible: opacity > 0
-                            
-                            layer.enabled: parent.parent.activeFocus && !parent.parent.checked
-                            layer.effect: MultiEffect {
-                                blurEnabled: true
-                                blurMax: 10
-                                blur: 0.7
-                            }
-                            
-                            Behavior on opacity { NumberAnimation { duration: 150 } }
-                        }
-                        
-                        // Additional outer glow when focused (even if checked) - thicker border effect
-                        Rectangle {
-                            anchors {
-                                fill: parent
-                                margins: -1
-                            }
-                            radius: parent.radius + 1
-                            color: "transparent"
-                            border.color: "#00d4ff"
-                            border.width: 1
-                            opacity: parent.parent.activeFocus ? 0.5 : 0
-                            visible: opacity > 0
-                            
-                            layer.enabled: parent.parent.activeFocus
-                            layer.effect: MultiEffect {
-                                blurEnabled: true
-                                blurMax: 6
-                                blur: 0.4
-                            }
-                            
-                            Behavior on opacity { NumberAnimation { duration: 150 } }
-                        }
-                        
-                        // Additional inner glow for checked state
-                        Rectangle {
-                            anchors {
-                                fill: parent
-                                margins: 2
-                            }
-                            radius: parent.radius - 2
-                            color: parent.parent.checked ? Qt.rgba(0, 212/255, 255/255, 0.2) : "transparent"
-                            visible: parent.parent.checked
-                            
-                            Behavior on color { ColorAnimation { duration: 150 } }
-                        }
-                        
-                        Behavior on color { ColorAnimation { duration: 150 } }
-                        Behavior on border.color { ColorAnimation { duration: 150 } }
-                        Behavior on border.width { NumberAnimation { duration: 150 } }
-                    }
-                    
-                    contentItem: Text {
-                        text: qsTr("Game Catalog")
-                        font.pixelSize: 14
-                        font.weight: parent.parent.checked ? Font.Medium : (parent.parent.activeFocus ? Font.Medium : Font.Normal)
-                        // Checked = bright cyan, Focused = bright cyan (but different background), Neither = gray
-                        color: parent.parent.checked ? "#00d4ff" : (parent.parent.activeFocus ? "#00d4ff" : Qt.rgba(255, 255, 255, 0.7))
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        elide: Text.ElideNone
-                        
-                        Behavior on color { ColorAnimation { duration: 150 } }
-                    }
-                }
-                
-                // Game Library button
-                Button {
-                    id: libraryButton
-                    Layout.preferredHeight: 44
-                    Layout.preferredWidth: 160
-                    focusPolicy: Qt.StrongFocus
-                    checked: currentSection === "library"
-                    onClicked: switchSection("library")
-                    
-                    KeyNavigation.left: catalogButton
-                    KeyNavigation.right: currentSection === "library" ? filterToggle : refreshButton
-                    KeyNavigation.down: gamesGrid.count > 0 ? gamesGrid : null
-                    
-                    Keys.onReturnPressed: {
-                        if (currentSection !== "library") {
-                            switchSection("library");
-                        }
-                        event.accepted = true;
-                    }
-                    
-                    KeyNavigation.up: mainTabBar ? mainTabBar.itemAt(1) : null
-                    
-                    background: Rectangle {
-                        radius: 22
-                        // Checked (active section) - brighter blue background
-                        // Focused (keyboard navigation) - subtle blue glow
-                        // Neither - subtle gray
-                        color: parent.checked ? Qt.rgba(0, 212/255, 255/255, 0.3) : (parent.activeFocus ? Qt.rgba(0, 212/255, 255/255, 0.12) : Qt.rgba(255, 255, 255, 0.08))
-                        border.color: parent.checked ? "#00d4ff" : (parent.activeFocus ? Qt.rgba(0, 212/255, 255/255, 0.6) : Qt.rgba(255, 255, 255, 0.15))
-                        // When focused, use thicker border (3px) even if also checked
-                        // When checked but not focused, use 2px
-                        // When neither, use 1px
-                        border.width: parent.activeFocus ? 3 : (parent.checked ? 2 : 1)
-                        
-                        // Focus glow effect (only when focused but not checked)
-                        Rectangle {
-                            anchors.fill: parent
-                            radius: parent.radius
-                            color: "transparent"
-                            border.color: "#00d4ff"
-                            border.width: 2
-                            opacity: parent.parent.activeFocus && !parent.parent.checked ? 0.4 : 0
-                            visible: opacity > 0
-                            
-                            Behavior on opacity { NumberAnimation { duration: 150 } }
-                        }
-                        
-                        // Additional outer glow when focused (even if checked) - thicker border effect
-                        Rectangle {
-                            anchors {
-                                fill: parent
-                                margins: -1
-                            }
-                            radius: parent.radius + 1
-                            color: "transparent"
-                            border.color: "#00d4ff"
-                            border.width: 1
-                            opacity: parent.parent.activeFocus ? 0.5 : 0
-                            visible: opacity > 0
-                            
-                            layer.enabled: parent.parent.activeFocus
-                            layer.effect: MultiEffect {
-                                blurEnabled: true
-                                blurMax: 6
-                                blur: 0.4
-                            }
-                            
-                            Behavior on opacity { NumberAnimation { duration: 150 } }
-                        }
-                        
-                        Behavior on color { ColorAnimation { duration: 150 } }
-                        Behavior on border.color { ColorAnimation { duration: 150 } }
-                        Behavior on border.width { NumberAnimation { duration: 150 } }
-                    }
-                    
-                    contentItem: Text {
-                        text: qsTr("Game Library")
-                        font.pixelSize: 14
-                        font.weight: parent.parent.checked ? Font.Medium : Font.Normal
-                        // Checked = bright cyan, Focused = cyan, Neither = gray
-                        color: parent.parent.checked ? "#00d4ff" : (parent.parent.activeFocus ? Qt.rgba(0, 212/255, 255/255, 0.9) : Qt.rgba(255, 255, 255, 0.7))
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        elide: Text.ElideNone
-                        
-                        Behavior on color { ColorAnimation { duration: 150 } }
-                    }
-                }
-            }
-            
-            Item { Layout.fillWidth: true }
-            
             // Right side controls
             RowLayout {
                 spacing: 0
                 
-                // Filter toggle (visible for both catalog and library)
-                // Cycles through filter options
+                // Filter dialog: mirrors the proven ConfirmDialog pattern (overlay-parented,
+                // root-centered, content-sized) so it centers correctly and captures input.
+                Dialog {
+                    id: tagFilterPopup
+                    parent: Overlay.overlay
+                    x: Math.round((root.width - width) / 2)
+                    y: Math.round((root.height - height) / 2)
+                    width: 320
+                    modal: true
+                    focus: true
+                    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+                    title: qsTr("Filter games")
+                    Material.roundedScale: Material.MediumScale
+
+                    Component.onCompleted: {
+                        header.horizontalAlignment = Text.AlignHCenter;
+                        // Qt 6.6: workaround dialog header background flashing transparent on close.
+                        header.background = null;
+                    }
+
+                    background: Rectangle {
+                        color: Qt.rgba(10/255, 20/255, 38/255, 0.98)
+                        radius: 12
+                        border.color: "#00d4ff"
+                        border.width: 2
+                    }
+
+                    // Sync checkbox visuals to current state on open, then capture focus so the
+                    // grid behind never receives our Enter / confirm key.
+                    onOpened: {
+                        ownedCheck.checked = isTagFilterActive(tagFilterCategories[0]);
+                        streamableCheck.checked = isTagFilterActive(tagFilterCategories[1]);
+                        storeCheck.checked = isTagFilterActive(tagFilterCategories[2]);
+                        ownedCheck.forceActiveFocus(Qt.TabFocusReason);
+                    }
+                    onClosed: filterToggle.forceActiveFocus()
+
+                    ColumnLayout {
+                        spacing: 10
+
+                        CheckBox {
+                            id: ownedCheck
+                            text: tagFilterLabels[0]
+                            Layout.fillWidth: true
+                            focusPolicy: Qt.StrongFocus
+                            onClicked: toggleTagFilter(tagFilterCategories[0])
+                            KeyNavigation.down: streamableCheck
+                            Keys.onReturnPressed: { toggle(); toggleTagFilter(tagFilterCategories[0]); event.accepted = true; }
+                        }
+                        CheckBox {
+                            id: streamableCheck
+                            text: tagFilterLabels[1]
+                            Layout.fillWidth: true
+                            focusPolicy: Qt.StrongFocus
+                            onClicked: toggleTagFilter(tagFilterCategories[1])
+                            KeyNavigation.up: ownedCheck
+                            KeyNavigation.down: storeCheck
+                            Keys.onReturnPressed: { toggle(); toggleTagFilter(tagFilterCategories[1]); event.accepted = true; }
+                        }
+                        CheckBox {
+                            id: storeCheck
+                            text: tagFilterLabels[2]
+                            Layout.fillWidth: true
+                            focusPolicy: Qt.StrongFocus
+                            onClicked: toggleTagFilter(tagFilterCategories[2])
+                            KeyNavigation.up: streamableCheck
+                            KeyNavigation.down: showAllButton
+                            Keys.onReturnPressed: { toggle(); toggleTagFilter(tagFilterCategories[2]); event.accepted = true; }
+                        }
+                        RowLayout {
+                            Layout.alignment: Qt.AlignCenter
+                            Layout.topMargin: 6
+                            spacing: 12
+                            Button {
+                                id: showAllButton
+                                text: qsTr("Show all")
+                                focusPolicy: Qt.StrongFocus
+                                Material.roundedScale: Material.SmallScale
+                                onClicked: {
+                                    setTagFilters([]);
+                                    ownedCheck.checked = true;
+                                    streamableCheck.checked = true;
+                                    storeCheck.checked = true;
+                                    tagFilterPopup.close();
+                                }
+                                KeyNavigation.up: storeCheck
+                                KeyNavigation.right: closeButton
+                                Keys.onReturnPressed: { clicked(); event.accepted = true; }
+                            }
+                            Button {
+                                id: closeButton
+                                text: qsTr("Close")
+                                focusPolicy: Qt.StrongFocus
+                                Material.roundedScale: Material.SmallScale
+                                onClicked: tagFilterPopup.close()
+                                KeyNavigation.up: storeCheck
+                                KeyNavigation.left: showAllButton
+                                Keys.onReturnPressed: { clicked(); event.accepted = true; }
+                            }
+                        }
+                    }
+                }
+
+                // Favorites filter toggle
                 Item {
-                    id: filterToggle
-                    visible: true
-                    Layout.preferredWidth: filterToggleText.implicitWidth + 16
+                    id: favoritesToggle
+                    Layout.preferredWidth: 36
                     Layout.preferredHeight: 36
-                    Layout.rightMargin: 16
-                    
+                    Layout.rightMargin: 8
+
                     Rectangle {
                         anchors.fill: parent
-                        color: filterToggle.activeFocus ? Qt.rgba(0, 212/255, 255/255, 0.15) : "transparent"
-                        border.color: filterToggle.activeFocus ? "#00d4ff" : "transparent"
-                        border.width: filterToggle.activeFocus ? 1 : 0
+                        color: favoritesToggle.activeFocus ? Qt.rgba(0, 212/255, 255/255, 0.15) : "transparent"
+                        border.color: favoritesToggle.activeFocus ? "#00d4ff" : "transparent"
+                        border.width: favoritesToggle.activeFocus ? 1 : 0
                         radius: 4
-                        
-                        // Underline always visible
-                        Rectangle {
-                            anchors {
-                                left: parent.left
-                                right: parent.right
-                                bottom: parent.bottom
-                            }
-                            height: 3
-                            color: "#00d4ff"
-                            radius: 1.5
-                        }
                     }
-                    
-                    Text {
-                        id: filterToggleText
+
+                    // Star glyph: filled gold when favorites-only is active, outline otherwise
+                    Canvas {
+                        id: favoritesStar
                         anchors.centerIn: parent
-                        text: {
-                            if (currentSection === "library") {
-                                if (libraryFilter === "owned") return qsTr("Owned");
-                                if (libraryFilter === "all") return qsTr("All");
-                                return qsTr("Favorites");
+                        width: 20; height: 20
+                        property bool active: showFavoritesOnly
+                        onActiveChanged: requestPaint()
+                        onPaint: {
+                            var ctx = getContext("2d");
+                            ctx.reset();
+                            var cx = 10, cy = 10.5, spikes = 5, outer = 8.5, inner = 3.6;
+                            var rot = -Math.PI / 2;
+                            var step = Math.PI / spikes;
+                            ctx.beginPath();
+                            ctx.moveTo(cx + Math.cos(rot) * outer, cy + Math.sin(rot) * outer);
+                            for (var i = 0; i < spikes; i++) {
+                                rot += step;
+                                ctx.lineTo(cx + Math.cos(rot) * inner, cy + Math.sin(rot) * inner);
+                                rot += step;
+                                ctx.lineTo(cx + Math.cos(rot) * outer, cy + Math.sin(rot) * outer);
+                            }
+                            ctx.closePath();
+                            if (active) {
+                                ctx.fillStyle = "#FFD700";
+                                ctx.fill();
                             } else {
-                                return catalogFilter === "all" ? qsTr("All") : qsTr("Favorites");
+                                ctx.strokeStyle = Qt.rgba(255, 255, 255, 0.7);
+                                ctx.lineWidth = 1.6;
+                                ctx.lineJoin = "round";
+                                ctx.stroke();
                             }
                         }
-                        font.pixelSize: 14
-                        font.weight: Font.Medium
-                        color: filterToggle.activeFocus ? "#00d4ff" : "#00d4ff"
                     }
-                    
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: { showFavoritesOnly = !showFavoritesOnly; applySearchFilter(); }
+                    }
+
+                    focusPolicy: Qt.StrongFocus
+                    KeyNavigation.left: searchContainer
+                    KeyNavigation.right: refreshButton
+                    KeyNavigation.down: gamesGrid.count > 0 ? gamesGrid : null
+                    KeyNavigation.up: mainTabBar ? mainTabBar.itemAt(1) : null
+                    Keys.onReturnPressed: { showFavoritesOnly = !showFavoritesOnly; applySearchFilter(); event.accepted = true; }
+                }
+
+                // Refresh button (icon-only, matches Android/iOS) — plain Item so the
+                // bundled Material SVG renders at full size, uniform with the star/sort glyphs.
+                Item {
+                    id: refreshButton
+                    Layout.preferredWidth: 36
+                    Layout.preferredHeight: 36
+                    Layout.rightMargin: 8
+                    enabled: !isLoading
+
+                    function activate() {
+                        if (!enabled)
+                            return;
+                        // invalidateCache() emits cacheInvalidated, which triggers the reload above.
+                        Chiaki.cloudCatalog.invalidateCache();
+                    }
+
+                    Rectangle {
+                        anchors.fill: parent
+                        color: refreshButton.activeFocus ? Qt.rgba(0, 212/255, 255/255, 0.15) : "transparent"
+                        border.color: refreshButton.activeFocus ? "#00d4ff" : "transparent"
+                        border.width: refreshButton.activeFocus ? 1 : 0
+                        radius: 4
+                    }
+
+                    Image {
+                        anchors.centerIn: parent
+                        source: "qrc:/icons/refresh-24px.svg"
+                        sourceSize: Qt.size(48, 48)
+                        width: 24
+                        height: 24
+                        smooth: true
+                        opacity: refreshButton.enabled ? 1.0 : 0.4
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: refreshButton.activate()
+                    }
+
+                    focusPolicy: Qt.StrongFocus
+                    KeyNavigation.left: favoritesToggle
+                    KeyNavigation.right: sortToggle
+                    KeyNavigation.down: gamesGrid.count > 0 ? gamesGrid : null
+                    KeyNavigation.up: mainTabBar ? mainTabBar.itemAt(1) : null
+                    Keys.onReturnPressed: { activate(); event.accepted = true; }
+                }
+
+                // Sort toggle (far right, just before the game count)
+                Item {
+                    id: sortToggle
+                    Layout.preferredWidth: sortToggleRow.implicitWidth + 16
+                    Layout.preferredHeight: 36
+                    Layout.rightMargin: 8
+
+                    Rectangle {
+                        anchors.fill: parent
+                        color: sortToggle.activeFocus ? Qt.rgba(0, 212/255, 255/255, 0.15) : "transparent"
+                        border.color: sortToggle.activeFocus ? "#00d4ff" : "transparent"
+                        border.width: sortToggle.activeFocus ? 1 : 0
+                        radius: 4
+                    }
+
+                    Row {
+                        id: sortToggleRow
+                        anchors.centerIn: parent
+                        spacing: 5
+
+                        // Up/down arrows glyph (matches iOS arrow.up.arrow.down)
+                        Canvas {
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 18; height: 18
+                            onPaint: {
+                                var ctx = getContext("2d");
+                                ctx.reset();
+                                ctx.strokeStyle = "#00d4ff";
+                                ctx.lineWidth = 1.8; ctx.lineCap = "round"; ctx.lineJoin = "round";
+                                ctx.beginPath();
+                                ctx.moveTo(5, 15); ctx.lineTo(5, 3);
+                                ctx.moveTo(2, 6); ctx.lineTo(5, 3); ctx.lineTo(8, 6);
+                                ctx.stroke();
+                                ctx.beginPath();
+                                ctx.moveTo(13, 3); ctx.lineTo(13, 15);
+                                ctx.moveTo(10, 12); ctx.lineTo(13, 15); ctx.lineTo(16, 12);
+                                ctx.stroke();
+                            }
+                        }
+
+                        Text {
+                            id: sortToggleText
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: sortState === 1 ? qsTr("A → Z") : (sortState === 2 ? qsTr("Z → A") : qsTr("Playable"))
+                            font.pixelSize: 13
+                            font.weight: Font.Medium
+                            color: "#00d4ff"
+                        }
+                    }
+
                     MouseArea {
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
                         onClicked: {
-                            if (currentSection === "library") {
-                                // Cycle through all -> owned -> favorites
-                                if (libraryFilter === "all") {
-                                    libraryFilter = "owned";
-                                } else if (libraryFilter === "owned") {
-                                    libraryFilter = "favorites";
-                                } else {
-                                    libraryFilter = "all";
-                                }
-                                Chiaki.settings.cloudLibraryFilter = libraryFilter;
-                                loadPs5CloudLibrary();
-                            } else {
-                                // Toggle between all and favorites for catalog
-                                catalogFilter = catalogFilter === "all" ? "favorites" : "all";
-                                Chiaki.settings.cloudCatalogFilter = catalogFilter;
-                                applySearchFilter();
-                            }
-                        }
-                    }
-                    
-                    focusPolicy: Qt.StrongFocus
-                    KeyNavigation.left: currentSection === "catalog" ? catalogButton : libraryButton
-                    KeyNavigation.right: refreshButton
-                    KeyNavigation.down: gamesGrid.count > 0 ? gamesGrid : null
-                    KeyNavigation.up: mainTabBar ? mainTabBar.itemAt(1) : null
-                    
-                    Keys.onReturnPressed: {
-                        if (currentSection === "library") {
-                            // Cycle through all -> owned -> favorites
-                            if (libraryFilter === "all") {
-                                libraryFilter = "owned";
-                            } else if (libraryFilter === "owned") {
-                                libraryFilter = "favorites";
-                            } else {
-                                libraryFilter = "all";
-                            }
-                            Chiaki.settings.cloudLibraryFilter = libraryFilter;
-                            loadPs5CloudLibrary();
-                        } else {
-                            // Toggle between all and favorites for catalog
-                            catalogFilter = catalogFilter === "all" ? "favorites" : "all";
-                            Chiaki.settings.cloudCatalogFilter = catalogFilter;
+                            sortState = (sortState + 1) % 3;
+                            Chiaki.settings.cloudSortState = sortState;
                             applySearchFilter();
                         }
                     }
-                }
-                
-                // Refresh button
-                Button {
-                    id: refreshButton
-                    text: qsTr("Refresh")
-                    font.pixelSize: 14
-                    font.weight: Font.Medium
-                    Layout.preferredHeight: 44
-                    Layout.preferredWidth: 110
-                    Layout.rightMargin: 4
-                    enabled: !isLoading
+
                     focusPolicy: Qt.StrongFocus
-                    onClicked: {
-                        // Invalidate cache and reload
-                        Chiaki.cloudCatalog.invalidateCache();
-                        if (currentSection === "catalog") {
-                            loadPsnowCatalog();
-                        } else {
-                            loadPs5CloudLibrary();
-                        }
-                    }
-                    
-                    KeyNavigation.left: currentSection === "library" ? filterToggle : libraryButton
+                    KeyNavigation.left: refreshButton
+                    KeyNavigation.right: filterToggle
                     KeyNavigation.down: gamesGrid.count > 0 ? gamesGrid : null
-                    
+                    KeyNavigation.up: mainTabBar ? mainTabBar.itemAt(1) : null
                     Keys.onReturnPressed: {
-                        clicked();
+                        sortState = (sortState + 1) % 3;
+                        Chiaki.settings.cloudSortState = sortState;
+                        applySearchFilter();
                         event.accepted = true;
-                    }
-                    
-                    KeyNavigation.up: settingsButton
-                    
-                    background: Rectangle {
-                        radius: 22
-                        color: parent.activeFocus ? Qt.rgba(0, 212/255, 255/255, 0.3) : Qt.rgba(255, 255, 255, 0.1)
-                        border.width: parent.activeFocus ? 2 : 1
-                        border.color: parent.activeFocus ? "#00d4ff" : Qt.rgba(255, 255, 255, 0.25)
-                        
-                        Behavior on color { ColorAnimation { duration: 150 } }
-                        Behavior on border.color { ColorAnimation { duration: 150 } }
-                    }
-                    
-                    contentItem: Text {
-                        text: parent.text
-                        font: parent.font
-                        color: parent.enabled ? (parent.activeFocus ? "#ffffff" : Qt.rgba(255, 255, 255, 0.9)) : Qt.rgba(255, 255, 255, 0.4)
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        elide: Text.ElideNone
                     }
                 }
                 
@@ -1218,6 +957,44 @@ Pane {
         anchors.topMargin: 15
         spacing: 0
         
+        // Region-group fallback banner (yellow).
+        // Only a genuine "region has no native cloud" signal: suppressed when an auth error is
+        // present, because nativeMode=false is then just a side-effect of the failed login (we
+        // never determined the region) -- the red expired banner below is the real reason.
+        Rectangle {
+            id: fallbackBanner
+            Layout.fillWidth: true
+            Layout.preferredHeight: (!catalogNativeMode && authErrorMessage.length === 0 && !isLoading) ? 56 : 0
+            // Gate on !isLoading: catalogNativeMode holds a stale persisted value mid-fetch, so the
+            // banner must only reflect a COMPLETED fetch (otherwise it flashes while games load).
+            visible: !catalogNativeMode && authErrorMessage.length === 0 && !isLoading
+            color: Qt.rgba(255/255, 193/255, 7/255, 0.2)
+            border.color: "#FFC107"
+            border.width: 2
+            clip: true
+
+            Behavior on Layout.preferredHeight {
+                NumberAnimation { duration: 300; easing.type: Easing.OutCubic }
+            }
+
+            Label {
+                anchors {
+                    fill: parent
+                    leftMargin: 20
+                    rightMargin: 20
+                    topMargin: 8
+                    bottomMargin: 8
+                }
+                text: qsTr("PlayStation cloud isn't offered natively in your region — showing the %1 catalog. Some titles may not stream.").arg(fallbackRegion)
+                wrapMode: Text.Wrap
+                color: "#FFFFFF"
+                font.pixelSize: 13
+                font.bold: true
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+        }
+
         // Persistent authentication error banner
         Rectangle {
             id: authErrorBanner
@@ -1347,7 +1124,7 @@ Pane {
                     flickableDirection: Flickable.VerticalFlick
                     boundsBehavior: Flickable.StopAtBounds
                     
-                    KeyNavigation.up: searchField
+                    KeyNavigation.up: filterToggle
                     
                     model: currentPageGames
                     highlightFollowsCurrentItem: true
@@ -1370,8 +1147,6 @@ Pane {
                         gameData: modelData
                         focus: false  // GridView handles focus, not individual cards
                         activeFocusOnTab: false
-                        isPsnow: currentSection === "catalog"
-                        libraryFilter: root.libraryFilter
                         qrCodeDialog: root.qrCodeDialogRef
                         
                         // Bind isFavorite to favoriteProductIds array changes
@@ -1495,12 +1270,7 @@ Pane {
                                 event.accepted = true;
                                 return;
                             }
-                            // If at top row, move focus to the unselected section switcher button
-                            if (currentSection === "catalog") {
-                                libraryButton.forceActiveFocus();
-                            } else {
-                                catalogButton.forceActiveFocus();
-                            }
+                            filterToggle.forceActiveFocus();
                             event.accepted = true;
                             return;
                         }
@@ -1577,9 +1347,11 @@ Pane {
                             if (currentIndex < 0) {
                                 currentIndex = 0;
                             }
-                            // Ensure focus when model changes
+                            // Ensure focus when model changes, but never steal it from the
+                            // search field or an open modal (e.g. the filter dialog), otherwise
+                            // a live re-filter yanks focus back to the grid mid-interaction.
                             Qt.callLater(() => {
-                                if (count > 0) {
+                                if (count > 0 && !searchField.activeFocus && !tagFilterPopup.opened) {
                                     currentIndex = 0;
                                     forceActiveFocus();
                                 }
@@ -1596,10 +1368,10 @@ Pane {
                             if (currentIndex < 0) {
                                 currentIndex = 0;
                             }
-                            // Only auto-focus if search field doesn't have focus
-                            // This prevents stealing focus while user is typing in search
+                            // Only auto-focus if neither the search field nor the filter dialog
+                            // is active; a live re-filter must not pull focus off an open modal.
                             Qt.callLater(() => {
-                                if (count > 0 && !searchField.activeFocus) {
+                                if (count > 0 && !searchField.activeFocus && !tagFilterPopup.opened) {
                                     currentIndex = 0;
                                     forceActiveFocus();
                                 }

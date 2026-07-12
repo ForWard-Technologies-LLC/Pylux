@@ -7,12 +7,16 @@ import android.content.SharedPreferences
 import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.metallic.chiaki.cloudplay.repository.CloudGameRepository
 
 /**
  * Secure storage for PSN tokens using EncryptedSharedPreferences
  */
 class SecureTokenManager(context: Context)
 {
+	// Held only to drop the lib-owned cloud catalog cache when the account changes.
+	private val appContext = context.applicationContext
+
 	companion object
 	{
 		private const val TAG = "SecureTokenManager"
@@ -56,10 +60,20 @@ class SecureTokenManager(context: Context)
 	{
 		try
 		{
+			// Only drop the cached catalog when the token actually changes. Re-auth paths
+			// can re-save the same npsso (e.g. token re-exchange after an expired access
+			// token), which is not an account change and must not wipe the 24h cache.
+			val changed = (encryptedPrefs.getString(KEY_NPSSO_TOKEN, "") ?: "") != token
 			encryptedPrefs.edit()
 				.putString(KEY_NPSSO_TOKEN, token)
 				.apply()
 			Log.i(TAG, "NPSSO token saved securely")
+			if (changed)
+			{
+				// Account changed (login / token re-entry): drop the cached catalog so the next
+				// fetch re-resolves owned games for this account instead of serving the old one's.
+				CloudGameRepository.invalidateCatalogCache(appContext, "account login")
+			}
 		}
 		catch (e: Exception)
 		{
@@ -102,6 +116,9 @@ class SecureTokenManager(context: Context)
 				.remove(KEY_NPSSO_TOKEN)
 				.apply()
 			Log.i(TAG, "NPSSO token cleared")
+			// Logout: drop the cached catalog so a later login can't briefly show the
+			// previous account's owned games from a stale cache hit.
+			CloudGameRepository.invalidateCatalogCache(appContext, "account logout")
 		}
 		catch (e: Exception)
 		{

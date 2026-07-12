@@ -16,72 +16,97 @@ import com.metallic.chiaki.common.Preferences
 import kotlinx.coroutines.launch
 
 /**
- * ViewModel for Cloud Play tab
- * Manages PSNow catalog data and UI state
+ * ViewModel for the unified Cloud Play page.
+ *
+ * One catalog source (repository.fetchUnifiedCatalog) feeds a single tagged list. The UI filters
+ * that list by acquisition tag (owned / streamable / purchaseable) plus the search query; an empty
+ * tag set means "show all". The region-group fallback flag is surfaced for the banner.
  */
 class CloudPlayViewModel(
 	private val context: Context,
-	val preferences: Preferences // Made public for access from CloudPlayFragment
+	val preferences: Preferences
 ) : ViewModel()
 {
 	companion object
 	{
 		private const val TAG = "CloudPlayViewModel"
 	}
-	
+
 	private val repository = CloudGameRepository(context, preferences)
-	
+
 	private val _games = MutableLiveData<List<CloudGame>>()
 	val games: LiveData<List<CloudGame>> get() = _games
-	
+
 	private val _loading = MutableLiveData<Boolean>()
 	val loading: LiveData<Boolean> get() = _loading
-	
+
 	private val _error = MutableLiveData<String?>()
 	val error: LiveData<String?> get() = _error
 
 	private val _warning = MutableLiveData<String?>()
 	val warning: LiveData<String?> get() = _warning
-	
+
+	private val _fallbackRegion = MutableLiveData<String>()
+	val fallbackRegion: LiveData<String> get() = _fallbackRegion
+
+	private val _catalogIsForeign = MutableLiveData<Boolean>()
+	val catalogIsForeign: LiveData<Boolean> get() = _catalogIsForeign
+
 	private val _searchQuery = MutableLiveData<String>()
 	val searchQuery: LiveData<String> get() = _searchQuery
-	
+
 	private var allGames: List<CloudGame> = emptyList()
-	private var currentSection: String = "psnow" // "psnow" or "pscloud"
-	
+
+	// The lib's catalog fetch is blocking and single-threaded; never run two at once (a double-tap
+	// on refresh, or a refresh during the initial load, would hit the same cache dir concurrently).
+	private var fetchInProgress = false
+
+	// Active acquisition-tag filters; empty = show all. Restored from prefs, persisted on change.
+	var activeTagFilters: Set<String> = preferences.getCloudTagFilters()
+		private set
+
 	init
 	{
 		_loading.value = false
 		_error.value = null
 		_searchQuery.value = ""
-		
-		// Load last selected section from preferences
-		currentSection = preferences.getLastCloudSection()
+		_fallbackRegion.value = preferences.getCloudResolvedStoreCountry()
+		_catalogIsForeign.value = preferences.isCloudCatalogIsForeign()
 	}
-	
+
 	/**
-	 * Fetch PSNow catalog from network/cache
+	 * Fetch the unified cloud catalog (PS Now PS3/PS4 + PS5), tagged by acquisition category.
 	 */
-	fun fetchPsnowCatalog(forceRefresh: Boolean = false)
+	fun fetchCatalog(forceRefresh: Boolean = false)
 	{
+		if (fetchInProgress)
+		{
+			Log.i(TAG, "Catalog fetch already in progress; ignoring request")
+			return
+		}
+		fetchInProgress = true
 		viewModelScope.launch {
 			try
 			{
 				_loading.value = true
 				_error.value = null
 				_warning.value = null
-				
-				Log.i(TAG, "Fetching PSNow catalog (forceRefresh=$forceRefresh)")
-				
+
 				val npssoToken = preferences.getNpssoToken()
-				
-				when (val result = repository.fetchPsnowCatalog(npssoToken, forceRefresh))
+				Log.i(TAG, "Fetching unified cloud catalog (forceRefresh=$forceRefresh)")
+
+				when (val result = repository.fetchUnifiedCatalog(npssoToken, forceRefresh))
 				{
 					is PsnResult.Success ->
 					{
 						allGames = result.data
-						Log.i(TAG, "Successfully loaded ${allGames.size} games")
-						applySearchFilter()
+						Log.i(TAG, "Loaded ${allGames.size} unified games")
+						repository.lastCatalogFetchWarning?.let { _warning.value = it }
+						// Match iOS: an empty list with no warning means the fetch effectively
+						// failed (e.g. network) — tell the user instead of a blank screen.
+						if (allGames.isEmpty() && _warning.value.isNullOrEmpty())
+							_error.value = "No cloud games found. Check your connection."
+						applyFilters()
 					}
 					is PsnResult.Error ->
 					{
@@ -97,180 +122,89 @@ class CloudPlayViewModel(
 			}
 			finally
 			{
-				_loading.value = false
-			}
-		}
-	}
-	
-	/**
-	 * Fetch PS5 Cloud catalog from network/cache
-	 * @param showOnlyOwned If true, fetches only user's owned games; if false, fetches all PS5 games
-	 */
-	fun fetchPs5CloudCatalog(showOnlyOwned: Boolean = false, forceRefresh: Boolean = false)
-	{
-		viewModelScope.launch {
-			try
-			{
-				_loading.value = true
-				_error.value = null
-				_warning.value = null
-				
-				val npssoToken = preferences.getNpssoToken()
-				
-				if (showOnlyOwned)
-				{
-					Log.i(TAG, "Fetching owned PS5 games (forceRefresh=$forceRefresh)")
-					
-					when (val result = repository.fetchOwnedPs5Games(npssoToken, forceRefresh))
-					{
-						is PsnResult.Success ->
-						{
-							allGames = result.data
-							Log.i(TAG, "Successfully loaded ${allGames.size} owned PS5 games")
-							repository.lastCatalogFetchWarning?.let { _warning.value = it }
-							applySearchFilter()
-						}
-						is PsnResult.Error ->
-						{
-							Log.e(TAG, "Failed to fetch owned PS5 games: ${result.message}", result.exception)
-							_error.value = result.message
-						}
-					}
-				}
-				else
-				{
-					Log.i(TAG, "Fetching all PS5 Cloud catalog (forceRefresh=$forceRefresh)")
-					
-					when (val result = repository.fetchPs5CloudCatalog(npssoToken, forceRefresh))
-					{
-						is PsnResult.Success ->
-						{
-							allGames = result.data
-							Log.i(TAG, "Successfully loaded ${allGames.size} PS5 games")
-							repository.lastCatalogFetchWarning?.let { _warning.value = it }
-							applySearchFilter()
-						}
-						is PsnResult.Error ->
-						{
-							Log.e(TAG, "Failed to fetch PS5 catalog: ${result.message}", result.exception)
-							_error.value = result.message
-						}
-					}
-				}
-			}
-			catch (e: Exception)
-			{
-				Log.e(TAG, "Unexpected error fetching PS5 catalog", e)
-				_error.value = "Unexpected error: ${e.message}"
-			}
-			finally
-			{
+				_fallbackRegion.value = preferences.getCloudResolvedStoreCountry()
+		_catalogIsForeign.value = preferences.isCloudCatalogIsForeign()
 				updateLocaleWarningIfNeeded()
 				_loading.value = false
+				fetchInProgress = false
 			}
 		}
 	}
-	
-	/**
-	 * Get current section
-	 */
-	fun getCurrentSection(): String
+
+	fun toggleTagFilter(tag: String)
 	{
-		return currentSection
+		activeTagFilters = if (tag in activeTagFilters) activeTagFilters - tag else activeTagFilters + tag
+		preferences.setCloudTagFilters(activeTagFilters)
+		applyFilters()
 	}
-	
-	/**
-	 * Set current section and save to preferences
-	 */
-	fun setCurrentSection(section: String)
+
+	fun setTagFilters(tags: Set<String>)
 	{
-		currentSection = section
-		preferences.setLastCloudSection(section)
-		Log.i(TAG, "Current section set to: $section")
+		activeTagFilters = tags
+		preferences.setCloudTagFilters(activeTagFilters)
+		applyFilters()
 	}
-	
-	/**
-	 * Update search query and filter results
-	 */
+
+	fun isTagFilterActive(tag: String): Boolean = tag in activeTagFilters
+
 	fun setSearchQuery(query: String)
 	{
 		_searchQuery.value = query
-		applySearchFilter()
+		applyFilters()
 	}
-	
-	/**
-	 * Apply current search filter to games
-	 */
-	private fun applySearchFilter()
+
+	private fun applyFilters()
 	{
 		val query = _searchQuery.value ?: ""
-		if (query.isEmpty())
-		{
-			_games.value = allGames
-		}
-		else
-		{
-			val filtered = allGames.filter { game ->
+		var filtered = allGames
+
+		if (activeTagFilters.isNotEmpty())
+			filtered = filtered.filter { it.category in activeTagFilters }
+
+		if (query.isNotEmpty())
+			filtered = filtered.filter { game ->
 				game.name.contains(query, ignoreCase = true) ||
 					game.productId.contains(query, ignoreCase = true)
 			}
-			_games.value = filtered
-		}
+
+		_games.value = filtered
 	}
-	
-	/**
-	 * Clear current error message
-	 */
+
 	fun clearError()
 	{
 		_error.value = null
 	}
-	
-	/**
-	 * Clear cached catalog data
-	 */
+
 	fun clearCache()
 	{
+		// repository.clearCache() runs its file I/O off-main and serializes against an in-flight fetch.
 		viewModelScope.launch {
 			repository.clearCache()
 			Log.i(TAG, "Cache cleared")
 		}
 	}
-	
-	/**
-	 * Clear current games list (used when logging out or when token is invalid)
-	 */
+
 	fun clearGames()
 	{
 		allGames = emptyList()
 		_games.value = emptyList()
 		Log.i(TAG, "Games list cleared")
 	}
-	
-	/**
-	 * Update games with a sorted list
-	 */
+
+	/** Apply an externally sorted ordering (search/tag filters re-applied on top is not needed). */
 	fun setSortedGames(sortedGames: List<CloudGame>)
 	{
 		allGames = sortedGames
-		applySearchFilter()
-		Log.i(TAG, "Games list updated with sorted data")
+		applyFilters()
 	}
-	
-	/**
-	 * Get all cached games (for filtering favorites)
-	 */
-	fun getAllCachedGames(): List<CloudGame>
-	{
-		return allGames
-	}
+
+	fun getAllCachedGames(): List<CloudGame> = allGames
 
 	private fun updateLocaleWarningIfNeeded()
 	{
 		if (!_warning.value.isNullOrEmpty())
 			return
-		if (!preferences.isCloudLanguageConfigured())
+		if (!preferences.isCloudStoreLocaleConfigured())
 			_warning.value = CloudLocale.unconfiguredWarning()
 	}
 }
-

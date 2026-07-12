@@ -19,6 +19,19 @@
 #   --skip-dmg-notarize    - After signing .app, skip DMG creation and notarization (e.g. Mac App Store)
 #   --iterate              - Fast rebuild: skip cmake configure, incremental ninja, copy binary into
 #                            existing .app bundle, re-sign, skip DMG. Requires a prior full build.
+#                            Cold-launches the app with logs captured (see LOGS below).
+#   --launch               - Skip build: cold-launch the existing .app with logs captured, print LOGS.
+#   logs                   - Print the last 200 lines of the captured log and exit (one-shot; never hangs).
+#
+# LOGS (IMPORTANT - read this instead of guessing every time):
+#   macOS `open` sends a GUI app's stderr to /dev/null, and Qt logs ONLY to stderr (no message
+#   handler; the unified log does NOT capture Qt stderr). So this script cold-launches the app with
+#   `open --stdout/--stderr` redirected to a single fixed file. View it with a BOUNDED dump:
+#     Log file:     <repo>/tmp/pylux-macos.log
+#     View recent:  tail -n 200 tmp/pylux-macos.log     (one-shot; safe; never hangs)
+#     Cache events: grep 'CACHE INVALIDATED' tmp/pylux-macos.log
+#     Follow live:  tail -f  tmp/pylux-macos.log        (BLOCKS until Ctrl-C; do not use in automation)
+#     Re-dump:      ./scripts/build-macos.sh logs
 #
 # Optional environment:
 #   PYLUX_ENTITLEMENTS     - Path to entitlements plist (default: gui/entitlements.xml)
@@ -55,6 +68,41 @@ STEAMWORKS="OFF"
 SKIP_DMG_NOTARIZE="false"
 MAC_APPSTORE="OFF"
 ITERATE="false"
+LAUNCH_ONLY="false"
+LOGS_ONLY="false"
+
+# Single fixed log file for the captured app output (see LOGS in the header).
+PYLUX_MACOS_LOG="$REPO_ROOT/tmp/pylux-macos.log"
+
+# Print the one place/way to read logs. Always shown after a launch so it's never ambiguous.
+print_logs_help() {
+    echo ""
+    echo "=== LOGS ==="
+    echo "  Log file:     $PYLUX_MACOS_LOG"
+    echo "  View recent:  tail -n 200 \"$PYLUX_MACOS_LOG\"   (one-shot; never hangs)"
+    echo "  Cache events: grep 'CACHE INVALIDATED' \"$PYLUX_MACOS_LOG\""
+    echo "  Follow live:  tail -f \"$PYLUX_MACOS_LOG\"        (BLOCKS until Ctrl-C)"
+    echo "  Re-dump:      $0 logs"
+    echo ""
+}
+
+# Cold-launch the .app with stdout+stderr redirected to PYLUX_MACOS_LOG. `open` silently ignores
+# the redirect if the app is already running, so any existing instance must be fully terminated first.
+launch_app_with_logs() {
+    local app_path="$1"
+    mkdir -p "$(dirname "$PYLUX_MACOS_LOG")"
+    pkill -9 -f "$app_path" 2>/dev/null || true
+    # Wait until no instance remains (open won't redirect into a running app).
+    local _i
+    for _i in $(seq 1 12); do
+        pgrep -f "$app_path/Contents/MacOS/" >/dev/null 2>&1 || break
+        sleep 0.3
+    done
+    : > "$PYLUX_MACOS_LOG"
+    open --stdout "$PYLUX_MACOS_LOG" --stderr "$PYLUX_MACOS_LOG" "$app_path"
+    echo "Launched $app_path (logs -> $PYLUX_MACOS_LOG)"
+    print_logs_help
+}
 
 # Parse arguments first so flags work regardless of order (e.g. --no-notarize universal)
 for arg in "$@"; do
@@ -71,6 +119,8 @@ for arg in "$@"; do
         --appstore) MAC_APPSTORE="ON" ;;
         --skip-dmg-notarize) SKIP_DMG_NOTARIZE="true" ;;
         --iterate) ITERATE="true" ;;
+        --launch) LAUNCH_ONLY="true" ;;
+        logs) LOGS_ONLY="true" ;;
         *)
             if [[ "$arg" == -* ]]; then
                 echo "Unknown option: $arg"
@@ -85,6 +135,26 @@ for arg in "$@"; do
 done
 
 ARCH="${ARCH:-$(uname -m)}"
+
+# One-shot log dump (never streams/hangs). Handle before any build/credentials work.
+if [ "$LOGS_ONLY" = "true" ]; then
+    if [ -f "$PYLUX_MACOS_LOG" ]; then
+        tail -n 200 "$PYLUX_MACOS_LOG"
+    else
+        echo "No log file yet at $PYLUX_MACOS_LOG — run a build (--iterate) or --launch first."
+    fi
+    exit 0
+fi
+
+# Launch the already-built bundle with logs captured, then exit (no build).
+if [ "$LAUNCH_ONLY" = "true" ]; then
+    if [ ! -d "$BUILD_OUTPUT_DIR/Pylux.app" ]; then
+        echo "ERROR: $BUILD_OUTPUT_DIR/Pylux.app not found — do a full build first."
+        exit 1
+    fi
+    launch_app_with_logs "$BUILD_OUTPUT_DIR/Pylux.app"
+    exit 0
+fi
 
 # Optional secrets/macos/credentials.env — loads MACOS_SIGN_ID, Apple IDs, etc.
 if [ "$NO_CREDENTIALS_FILE" = "false" ] && [ -f "$SECRETS_FILE" ]; then
@@ -341,6 +411,30 @@ sign_app_bundle() {
         exit 1
     fi
     echo "  Using entitlements: $ENTITLEMENTS_PLIST"
+
+    # Bundle SDL3 for sdl2-compat. Homebrew's `sdl2` is now sdl2-compat -- an SDL2 API shim that
+    # dlopen's SDL3 at runtime. macdeployqt does NOT copy SDL3 (it is loaded via dlopen, not a link
+    # dependency), so without this the app aborts on launch with "Failed loading SDL3 library"
+    # before any of our own code runs. Copy it next to libSDL2 with an @rpath id; the bundle's
+    # rpath already includes @executable_path/../Frameworks, so sdl2-compat finds it. The
+    # standalone-dylib signing step below then signs it. Harmless if SDL3 is absent or the bundled
+    # SDL2 is ever a real (non-compat) build -- the extra dylib just goes unused.
+    local sdl3_src="$(brew --prefix)/opt/sdl3/lib/libSDL3.0.dylib"
+    if [ -f "$sdl3_src" ]; then
+        echo "  Bundling SDL3 (required by sdl2-compat)..."
+        # CRITICAL: sdl2-compat dlopens SDL3 by the leaf name "libSDL3.dylib" via @loader_path
+        # (next to libSDL2 in Frameworks). It must be bundled under EXACTLY that name. If it is
+        # named libSDL3.0.dylib instead, only sdl2-compat's bare-name fallback finds it -- which on
+        # a dev machine silently resolves to /opt/homebrew/lib (masking the bug), but on any other
+        # machine / a Finder launch there is no SDL3 in the search path and the app aborts with
+        # "Failed loading SDL3 library". Bundle it as libSDL3.dylib so @loader_path always resolves.
+        local sdl3_dst="$app_path/Contents/Frameworks/libSDL3.dylib"
+        rm -f "$app_path/Contents/Frameworks/libSDL3.0.dylib"  # remove any wrongly-named prior copy
+        cp -f "$sdl3_src" "$sdl3_dst"
+        chmod u+w "$sdl3_dst"
+        install_name_tool -id "@rpath/libSDL3.dylib" "$sdl3_dst" 2>/dev/null || true
+    fi
+
     echo "  Signing MoltenVK dylibs..."
     for dylib in "$app_path/Contents/Resources/vulkan/icd.d"/*.dylib; do
         [ -f "$dylib" ] && codesign --force "${CODE_SIGN_EXTRA[@]}" --sign "$SIGN_ID" "$dylib"
@@ -451,7 +545,7 @@ if [ "$ITERATE" = "true" ]; then
 
     echo ""
     echo "=== Iterate: launching app ==="
-    open "$output_path"
+    launch_app_with_logs "$output_path"
 
 elif [ "$BUILD_MODE" = "universal" ]; then
     echo "=== Building Universal Binary ==="
@@ -523,7 +617,12 @@ else
 	echo "DMG file:   $BUILD_OUTPUT_DIR/Pylux.dmg"
 fi
 echo ""
-echo "To run:"
+echo "To run with logs captured (recommended):"
+echo "  $0 --launch     # cold-launch this bundle, capture stderr -> $PYLUX_MACOS_LOG"
+echo "Then read logs (one-shot, never hangs):"
+echo "  $0 logs         # or: tail -n 200 \"$PYLUX_MACOS_LOG\""
+echo ""
+echo "To run without log capture:"
 echo "  open $BUILD_OUTPUT_DIR/Pylux.app"
 echo ""
 echo "Distribution (credentials.env + default notarize):"

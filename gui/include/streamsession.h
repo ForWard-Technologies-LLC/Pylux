@@ -160,6 +160,9 @@ class StreamSession : public QObject
 	Q_PROPERTY(bool connected READ GetConnected NOTIFY ConnectedChanged)
 	Q_PROPERTY(double measuredBitrate READ GetMeasuredBitrate NOTIFY MeasuredBitrateChanged)
 	Q_PROPERTY(double averagePacketLoss READ GetAveragePacketLoss NOTIFY AveragePacketLossChanged)
+	Q_PROPERTY(double measuredFps READ GetMeasuredFps NOTIFY MeasuredFpsChanged)
+	Q_PROPERTY(double measuredRtt READ GetMeasuredRtt NOTIFY MeasuredRttChanged)
+	Q_PROPERTY(QString resolution READ GetResolution NOTIFY ResolutionChanged)
 	Q_PROPERTY(bool muted READ GetMuted WRITE SetMuted NOTIFY MutedChanged)
 	Q_PROPERTY(bool cantDisplay READ GetCantDisplay NOTIFY CantDisplayChanged)
 	Q_PROPERTY(QString loadingMessage READ GetLoadingMessage WRITE SetLoadingMessage NOTIFY LoadingMessageChanged)
@@ -190,6 +193,9 @@ class StreamSession : public QObject
 		int audio_volume;
 		double measured_bitrate = 0;
 		double average_packet_loss = 0;
+		double measured_fps = 0;
+		double measured_rtt = 0;
+		QString resolution_str;
 		QList<double> packet_loss_history;
 		bool cant_display = false;
 		QString loading_message;
@@ -336,6 +342,28 @@ class StreamSession : public QObject
 		bool GetConnected() { return connected; }
 		double GetMeasuredBitrate()	{ return measured_bitrate; }
 		double GetAveragePacketLoss()	{ return average_packet_loss; }
+		double GetMeasuredFps()	{ return measured_fps; }
+		double GetMeasuredRtt()	{ return measured_rtt; }
+		QString GetResolution() {
+			// Use the resolution the video receiver is actually decoding (the
+			// negotiated/adaptive profile from the server's stream-info), not the
+			// requested connect_info profile — the cloud server may encode lower
+			// than requested. Fall back to the requested profile before the first
+			// frame selects an adaptive profile.
+			int w = 0, h = 0;
+			unsigned int uw = 0, uh = 0;
+			if(chiaki_stream_connection_video_resolution(&session.stream_connection, &uw, &uh))
+			{
+				w = (int)uw;
+				h = (int)uh;
+			}
+			else
+			{
+				w = session.connect_info.video_profile.width;
+				h = session.connect_info.video_profile.height;
+			}
+			return (w > 0 && h > 0) ? QStringLiteral("%1x%2").arg(w).arg(h) : QString();
+		}
 		bool GetMuted()	{ return muted; }
 		void SetMuted(bool enable)	{ if (enable != muted) ToggleMute(); }
 		Q_INVOKABLE int GetAudioVolume() { return audio_volume; }
@@ -387,10 +415,14 @@ class StreamSession : public QObject
 		void ConnectedChanged();
 		void MeasuredBitrateChanged();
 		void AveragePacketLossChanged();
+		void MeasuredFpsChanged();
+		void MeasuredRttChanged();
+		void ResolutionChanged();
 		void MutedChanged();
 		void CantDisplayChanged(bool cant_display);
 		void LoadingMessageChanged();
 		void GameLaunchCompleted();
+		void PsChordFired(); // OPTIONS+SHARE chord fired -> open the in-stream menu
 
 	private slots:
 		void UpdateGamepads();

@@ -49,14 +49,6 @@ set(SOURCE_FILES
 	src/cloudstreamingbackend.cpp
 	include/cloudcatalogbackend.h
 	src/cloudcatalogbackend.cpp
-	include/cloudstreaming/pscloudauth.h
-	src/cloudstreaming/pscloudauth.cpp
-	include/cloudstreaming/pskamajisession.h
-	src/cloudstreaming/pskamajisession.cpp
-	include/cloudstreaming/psgaikaistreaming.h
-	src/cloudstreaming/psgaikaistreaming.cpp
-	include/cloudstreaming/datacenterping.h
-	src/cloudstreaming/datacenterping.cpp
 	include/jsonrequester.h
 	src/jsonrequester.cpp
 	src/qml/qml.qrc
@@ -113,19 +105,11 @@ if(APPLE)
 		src/macMicPermission.m
 		include/macWakeSleep.h
 		src/macWakeSleep.cpp
-		include/cloudstreaming/nsurlsession_oauth.h
-		src/cloudstreaming/nsurlsession_oauth.mm
 	)
 elseif(WIN32)
 	list(APPEND SOURCE_FILES
 		include/windowsWakeSleep.h
 		src/windowsWakeSleep.cpp
-	)
-endif()
-
-if(NOT APPLE)
-	list(APPEND SOURCE_FILES
-		src/cloudstreaming/nsurlsession_oauth_fallback.cpp
 	)
 endif()
 

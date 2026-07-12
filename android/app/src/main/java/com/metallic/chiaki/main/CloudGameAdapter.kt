@@ -101,6 +101,38 @@ class CloudGameAdapter(
 			binding.gameImageView.dispose()
 		}
 
+		// Neon platform tag matching iOS: translucent dark fill, a glowing platform-colored
+		// outline, and a heavy white digit with a strong colored halo, so the badge reads as
+		// part of the app's electric theme (ps5 blue / ps4 indigo / ps3 purple). Android has
+		// no view-level outer glow like iOS's neon shadow, so we compensate with a heavier
+		// font (Roboto Black), a larger text glow radius, and a slightly darker fill +
+		// brighter/thicker outline to keep the digit just as legible over busy cover art.
+		private fun stylePlatformBadge(platform: String)
+		{
+			val tv = binding.gamePlatformTextView
+			val color = platformBadgeColor(platform)
+			val density = tv.resources.displayMetrics.density
+			val bg = android.graphics.drawable.GradientDrawable().apply {
+				shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+				cornerRadius = 6f * density
+				setColor(0x80000000.toInt()) // black @ ~50% (vs iOS 40%) — Android lacks the outer glow, so a darker chip keeps contrast
+				setStroke((1.6f * density + 0.5f).toInt(), color)
+			}
+			tv.background = bg
+			tv.setTextColor(0xFFFFFFFF.toInt())
+			// Roboto Black ≈ iOS .black weight (900). create(...) is cached by the framework.
+			tv.typeface = android.graphics.Typeface.create("sans-serif-black", android.graphics.Typeface.BOLD)
+			// Colored halo around the digit ≈ iOS neon glow (larger radius compensates for no rect glow).
+			tv.setShadowLayer(6f * density, 0f, 0f, color)
+		}
+
+		private fun platformBadgeColor(platform: String): Int = when (platform.lowercase()) {
+			"ps5" -> 0xFF4D8CFF.toInt() // iOS (0.30, 0.55, 1.0)
+			"ps4" -> 0xFF6673F2.toInt() // iOS (0.40, 0.45, 0.95)
+			"ps3" -> 0xFFA666E6.toInt() // iOS (0.65, 0.40, 0.90)
+			else  -> 0xFF9E9E9E.toInt() // gray
+		}
+
 		fun reloadImage(game: CloudGame)
 		{
 			if (game.imageUrl.isNotEmpty()) {
@@ -122,21 +154,34 @@ class CloudGameAdapter(
 				card.strokeColor = android.graphics.Color.TRANSPARENT
 				card.strokeWidth = 0
 			}
+			// Platform badge: the lib derives the authoritative platform from the catalog's device[]
+			// array (NOT the CUSA/PPSA productId token), so just render it.
 			binding.gamePlatformTextView.text = when (game.platform.lowercase()) {
 				"ps3" -> "3"
 				"ps4" -> "4"
 				"ps5" -> "5"
 				else -> game.platform.takeLast(1)
 			}
+			stylePlatformBadge(game.platform)
 
-			if (showOwnershipBadge && game.serviceType == "pscloud") {
+			// Acquisition-tag badge (unified page): Owned (green) / Streamable (blue) /
+			// Purchaseable (orange). The lib precomputes the category; render it verbatim.
+			val category = game.category
+			if (showOwnershipBadge) {
 				binding.ownershipBadge.visibility = android.view.View.VISIBLE
-				if (game.isOwned) {
-					binding.ownershipBadge.text = "Owned"
-					binding.ownershipBadge.setBackgroundColor(0xCC4CAF50.toInt())
-				} else {
-					binding.ownershipBadge.text = "Not Owned"
-					binding.ownershipBadge.setBackgroundColor(0xCCFF9800.toInt())
+				when (category) {
+					"owned" -> {
+						binding.ownershipBadge.text = "Owned"
+						binding.ownershipBadge.setBackgroundColor(0xCC4CAF50.toInt())
+					}
+					"streamable" -> {
+						binding.ownershipBadge.text = "Streamable"
+						binding.ownershipBadge.setBackgroundColor(0xCC2196F3.toInt())
+					}
+					else -> {
+						binding.ownershipBadge.text = "Add Game"
+						binding.ownershipBadge.setBackgroundColor(0xCCFF9800.toInt())
+					}
 				}
 			} else {
 				binding.ownershipBadge.visibility = android.view.View.GONE

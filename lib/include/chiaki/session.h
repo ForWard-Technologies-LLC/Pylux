@@ -174,6 +174,7 @@ typedef enum {
 	CHIAKI_EVENT_PLAYER_INDEX,
 	CHIAKI_EVENT_HAPTIC_INTENSITY,
 	CHIAKI_EVENT_TRIGGER_INTENSITY,
+	CHIAKI_EVENT_PS_CHORD, // OPTIONS+SHARE chord fired: PS pulse still goes to the console; clients may also surface their own in-stream menu
 } ChiakiEventType;
 
 typedef struct chiaki_event_t
@@ -289,6 +290,12 @@ typedef struct chiaki_session_t
 	ChiakiStreamConnection stream_connection;
 
 	ChiakiControllerState controller_state;
+
+	// Unified PS-button chord (OPTIONS+SHARE hold -> BUTTON_PS pulse), applied in
+	// the feedback sender. Stored here so platforms can configure it before the
+	// stream (feedback sender) exists; seeded on feedback-sender start.
+	bool ps_chord_enabled;
+	uint32_t ps_chord_hold_ms;
 } ChiakiSession;
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_init(ChiakiSession *session, ChiakiConnectInfo *connect_info, ChiakiLog *log);
@@ -297,6 +304,11 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_session_start(ChiakiSession *session);
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_stop(ChiakiSession *session);
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_join(ChiakiSession *session);
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_set_controller_state(ChiakiSession *session, ChiakiControllerState *state);
+/**
+ * Configure the OPTIONS+SHARE -> PS chord (see ChiakiPsChord). Safe to call
+ * before or during a stream. hold_ms == 0 keeps the current hold duration.
+ */
+CHIAKI_EXPORT ChiakiErrorCode chiaki_session_set_ps_chord(ChiakiSession *session, bool enabled, uint32_t hold_ms);
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_set_login_pin(ChiakiSession *session, const uint8_t *pin, size_t pin_size);
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_set_stream_connection_switch_received(ChiakiSession *session);
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_goto_bed(ChiakiSession *session);
@@ -307,6 +319,23 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_session_keyboard_reject(ChiakiSession *sess
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_keyboard_accept(ChiakiSession *session);
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_go_home(ChiakiSession *session);
 
+/*
+ * ============================== WARNING ====================================
+ * The `static inline` setters below dereference ChiakiSession fields, so they
+ * compile with the CALLER's view of the struct layout. ChiakiSession's layout
+ * depends on the library's build config (e.g. the embedded ChiakiECDH differs
+ * with CHIAKI_LIB_ENABLE_MBEDTLS). Translation units built OUTSIDE the lib's
+ * CMake build (the iOS ObjC bridge, Swift via the bridging header) see a
+ * DIFFERENT layout: the write lands at the wrong offset and silently no-ops.
+ * 2026-07-08: exactly this made the haptics sink NULL inside the lib and
+ * killed Remote Play rumble on iOS only — days of debugging.
+ *
+ * From ios/Pylux (or any non-CMake consumer): use the CHIAKI_EXPORT `_ex`
+ * wrappers in lib/src/ios_bridge_helpers.c instead. ios/build.sh enforces
+ * this with a lint that fails the build. When adding a setter here, add a
+ * matching `_ex` wrapper there.
+ * ===========================================================================
+ */
 static inline void chiaki_session_set_event_cb(ChiakiSession *session, ChiakiEventCallback cb, void *user)
 {
 	session->event_cb = cb;

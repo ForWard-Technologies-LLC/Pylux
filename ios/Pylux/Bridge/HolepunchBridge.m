@@ -169,17 +169,26 @@ static void ensure_log_init(void) {
 
 - (void)markConsumed {
     // The native chiaki session now owns the holepunch session pointer.
-    // Clear our reference so dealloc/fini won't double-free.
-    _session = NULL;
-    _valid = NO;
+    // Clear our reference so dealloc/fini won't double-free. @synchronized because
+    // the consuming thread (session create worker) races shutdown()'s deferred fini.
+    @synchronized (self) {
+        _session = NULL;
+        _valid = NO;
+    }
     os_log(s_hp_log, "Holepunch session marked as consumed by native session");
 }
 
 - (void)fini {
-    if (_valid && _session) {
-        chiaki_holepunch_session_fini(_session);
-        _session = NULL;
-        _valid = NO;
+    ChiakiHolepunchSession session = NULL;
+    @synchronized (self) {
+        if (_valid && _session) {
+            session = _session;
+            _session = NULL;
+            _valid = NO;
+        }
+    }
+    if (session) {
+        chiaki_holepunch_session_fini(session);
         os_log(s_hp_log, "Holepunch session finalized");
     }
 }

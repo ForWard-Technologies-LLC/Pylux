@@ -78,6 +78,19 @@ typedef struct chiaki_stream_connection_t
 	char *remote_disconnect_reason;
 
 	double measured_bitrate;
+
+	/**
+	 * Live stream metrics for an optional on-screen stats overlay. These are
+	 * refreshed from the periodic CONNECTIONQUALITY message (same source as
+	 * measured_bitrate) so every platform reads identical, libchiaki-owned values
+	 * with no per-frame instrumentation. measured_fps is real frames/second over
+	 * wall-clock; measured_rtt_ms is the server-reported live RTT (0 until first
+	 * report). measured_loss is the server-reported cumulative lost-packet count.
+	 */
+	double measured_fps;
+	double measured_rtt_ms;
+	uint64_t measured_loss;
+	uint64_t connection_quality_last_us; // internal: timestamp of last CONNECTIONQUALITY, for FPS timing
 } ChiakiStreamConnection;
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_init(ChiakiStreamConnection *stream_connection, ChiakiSession *session, double packet_loss_max);
@@ -95,6 +108,20 @@ CHIAKI_EXPORT ChiakiErrorCode stream_connection_send_toggle_mute_direct_message(
 CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_stop(ChiakiStreamConnection *stream_connection);
 
 CHIAKI_EXPORT ChiakiErrorCode stream_connection_send_corrupt_frame(ChiakiStreamConnection *stream_connection, ChiakiSeqNum16 start, ChiakiSeqNum16 end);
+
+/**
+ * Thread-safe read of the currently-decoded video resolution (the negotiated/adaptive
+ * profile). Returns false if no profile is active yet (caller should fall back to the
+ * requested connect_info profile).
+ */
+CHIAKI_EXPORT bool chiaki_stream_connection_video_resolution(ChiakiStreamConnection *stream_connection,
+		unsigned int *width, unsigned int *height);
+
+/**
+ * Thread-safe read of the cumulative dropped-frames counter for the stats overlay.
+ * Returns 0 if no video receiver is active (yet or anymore).
+ */
+CHIAKI_EXPORT uint64_t chiaki_stream_connection_video_frames_lost(ChiakiStreamConnection *stream_connection);
 
 #ifdef __cplusplus
 }

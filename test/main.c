@@ -12,6 +12,9 @@ extern MunitTest tests_takion[];
 extern MunitTest tests_fec[];
 extern MunitTest tests_regist[];
 extern MunitTest tests_bitstream[];
+extern MunitTest tests_cloudcatalog_merge[];
+extern MunitTest tests_cloudsession_kamaji[];
+extern MunitTest tests_ps_chord[];
 
 static MunitSuite suites[] = {
 	{
@@ -80,6 +83,27 @@ static MunitSuite suites[] = {
 	{
 		"/bitstream",
 		tests_bitstream,
+		NULL,
+		1,
+		MUNIT_SUITE_OPTION_NONE
+	},
+	{
+		"/cloudcatalog_merge",
+		tests_cloudcatalog_merge,
+		NULL,
+		1,
+		MUNIT_SUITE_OPTION_NONE
+	},
+	{
+		"/cloudsession_kamaji",
+		tests_cloudsession_kamaji,
+		NULL,
+		1,
+		MUNIT_SUITE_OPTION_NONE
+	},
+	{
+		"/ps_chord",
+		tests_ps_chord,
 		NULL,
 		1,
 		MUNIT_SUITE_OPTION_NONE

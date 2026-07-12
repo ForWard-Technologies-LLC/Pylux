@@ -101,6 +101,34 @@ data class PsnDevice(
 	val isPS5: Boolean get() = type == 1
 }
 
+/**
+ * Snapshot of the live stream stats for the on-screen overlay. Every value is
+ * computed in libchiaki (shared with Qt/iOS) — the client only renders them.
+ */
+data class StreamMetrics(
+	val bitrateMbps: Double,
+	val packetLoss: Double, // 0..1
+	val droppedFrames: Long,
+	val fps: Double,
+	val rttMs: Double,
+	val width: Int,
+	val height: Int
+)
+{
+	companion object
+	{
+		fun fromArray(a: DoubleArray): StreamMetrics = StreamMetrics(
+			bitrateMbps = a.getOrElse(0) { 0.0 },
+			packetLoss = a.getOrElse(1) { 0.0 },
+			droppedFrames = a.getOrElse(2) { 0.0 }.toLong(),
+			fps = a.getOrElse(3) { 0.0 },
+			rttMs = a.getOrElse(4) { 0.0 },
+			width = a.getOrElse(5) { 0.0 }.toInt(),
+			height = a.getOrElse(6) { 0.0 }.toInt()
+		)
+	}
+}
+
 private class ChiakiNative
 {
 	data class CreateResult(var errorCode: Int, var ptr: Long)
@@ -121,8 +149,18 @@ private class ChiakiNative
 		@JvmStatic external fun sessionStop(ptr: Long): Int
 		@JvmStatic external fun sessionJoin(ptr: Long): Int
 		@JvmStatic external fun sessionSetSurface(ptr: Long, surface: Surface?)
+		@JvmStatic external fun sessionGetMetrics(ptr: Long): DoubleArray
 		@JvmStatic external fun sessionSetControllerState(ptr: Long, controllerState: ControllerState)
+		@JvmStatic external fun sessionSetPsChord(ptr: Long, enabled: Boolean, holdMs: Int)
 		@JvmStatic external fun sessionSetLoginPin(ptr: Long, pin: String)
+		// Shared Madgwick orientation tracker (lib/src/orientation.c) for the
+		// controller-motion path: controller sensors provide only gyro/accel.
+		// update() fills out[10]: gyro xyz, accel xyz, orientation quat xyzw.
+		@JvmStatic external fun orientationTrackerCreate(): Long
+		@JvmStatic external fun orientationTrackerFree(ptr: Long)
+		@JvmStatic external fun orientationTrackerUpdate(ptr: Long,
+			gx: Float, gy: Float, gz: Float, ax: Float, ay: Float, az: Float,
+			timestampUs: Long, out: FloatArray)
 		@JvmStatic external fun discoveryServiceCreate(result: CreateResult, options: DiscoveryServiceOptions, javaService: DiscoveryService)
 		@JvmStatic external fun discoveryServiceFree(ptr: Long)
 		@JvmStatic external fun discoveryServiceWakeup(ptr: Long, host: String, userCredential: Long, ps5: Boolean)
@@ -144,7 +182,75 @@ private class ChiakiNative
 		@JvmStatic external fun holepunchGetRegistInfoData2(sessionPtr: Long): ByteArray?
 		@JvmStatic external fun holepunchGetRegistInfoCustomData1(sessionPtr: Long): ByteArray?
 		@JvmStatic external fun holepunchGetRegistInfoLocalIp(sessionPtr: Long): String?
+
+		// Unified cloud catalog (chiaki/cloudcatalog.h) — single source of truth shared with Qt/iOS.
+		// Returns the UTF-8 JSON contract as raw bytes (decoded to String by the wrapper, since the
+		// payload contains non-ASCII names that JNI's modified-UTF-8 NewStringUTF can't represent).
+		// errorOut[0] receives the lib's failure detail when the result is null.
+		@JvmStatic external fun cloudCatalogFetchUnified(npsso: String?, locale: String?, cacheDir: String, forceRefresh: Boolean, errorOut: Array<String?>): ByteArray?
+		@JvmStatic external fun cloudCatalogInvalidateCache(cacheDir: String)
+		@JvmStatic external fun cloudGaikaiLanguage(locale: String?): String
+		@JvmStatic external fun cloudSupportedLanguages(): Array<String>
+
+		// Unified cloud session provisioning (chiaki/cloudsession.h) — the whole Kamaji+Gaikai
+		// flow in C, shared with Qt/iOS. Blocking; call off the main thread. Progress/cancellation
+		// route through [callbacks] (invoked on the calling thread). Results come back via
+		// stringOut[8] = [serverIp, handshakeKey, launchSpec, sessionId, entitlementId, platform,
+		// datacenterPings, errorMessage] and intOut[5] = [serverPort, psnWrapperType, mtuIn, mtuOut,
+		// rttMs]; the return is the ChiakiErrorCode (0 == success).
+		@JvmStatic external fun cloudProvisionSession(
+			serviceType: String, gameIdentifier: String, gameName: String, npsso: String,
+			storeCountry: String, storeLang: String, gameLanguage: String,
+			ownedEntitlementId: String, ownedPlatform: String, forcedDatacenter: String,
+			priorDatacentersJson: String, catalogIsForeign: Boolean, resolution: Int, bitrateKbps: Int,
+			callbacks: CloudProvisionCallbacks?, stringOut: Array<String?>, intOut: IntArray): Int
 	}
+}
+
+/** Progress + cancellation routed from the native cloud provisioning flow (called on the worker thread). */
+interface CloudProvisionCallbacks
+{
+	fun onProgress(stage: String)
+	fun isCancelled(): Boolean
+}
+
+/** Result of [cloudProvisionSession]; [err] == 0 on a stream-ready allocation. */
+data class CloudProvisionResult(
+	val err: Int,
+	val serverIp: String, val serverPort: Int,
+	val handshakeKey: String, val launchSpec: String, val sessionId: String,
+	val entitlementId: String, val platform: String,
+	val psnWrapperType: Int, val mtuIn: Int, val mtuOut: Int, val rttMs: Int,
+	val datacenterPings: String, val errorMessage: String
+)
+
+/** Kotlin-friendly wrapper over [ChiakiNative.cloudProvisionSession]. Blocking; call off the main thread. */
+fun cloudProvisionSession(
+	serviceType: String, gameIdentifier: String, gameName: String, npsso: String,
+	storeCountry: String, storeLang: String, gameLanguage: String,
+	ownedEntitlementId: String, ownedPlatform: String, forcedDatacenter: String,
+	priorDatacentersJson: String, catalogIsForeign: Boolean, resolution: Int, bitrateKbps: Int,
+	onProgress: ((String) -> Unit)?, isCancelled: () -> Boolean
+): CloudProvisionResult
+{
+	val stringOut = arrayOfNulls<String>(8)
+	val intOut = IntArray(5)
+	val cb = object : CloudProvisionCallbacks
+	{
+		override fun onProgress(stage: String) { onProgress?.invoke(stage) }
+		override fun isCancelled(): Boolean = isCancelled()
+	}
+	val err = ChiakiNative.cloudProvisionSession(
+		serviceType, gameIdentifier, gameName, npsso, storeCountry, storeLang, gameLanguage,
+		ownedEntitlementId, ownedPlatform, forcedDatacenter, priorDatacentersJson,
+		catalogIsForeign, resolution, bitrateKbps, cb, stringOut, intOut)
+	return CloudProvisionResult(
+		err = err,
+		serverIp = stringOut[0] ?: "", serverPort = intOut[0],
+		handshakeKey = stringOut[1] ?: "", launchSpec = stringOut[2] ?: "", sessionId = stringOut[3] ?: "",
+		entitlementId = stringOut[4] ?: "", platform = stringOut[5] ?: "",
+		psnWrapperType = intOut[1], mtuIn = intOut[2], mtuOut = intOut[3], rttMs = intOut[4],
+		datacenterPings = stringOut[6] ?: "", errorMessage = stringOut[7] ?: "")
 }
 
 /** Holepunch port types */
@@ -265,10 +371,72 @@ class HolepunchSession(token: String)
 /** Initialize native SSL CA bundle for curl+mbedTLS on Android. Call once at app startup. */
 fun initNativeSsl(cacheDir: String) = ChiakiNative.initNativeSsl(cacheDir)
 
+/** Result of [cloudCatalogFetchUnified]: [json] is non-null on success (including degraded-but-
+ *  usable results such as expired npsso); on hard failure [json] is null and [errorMessage] carries
+ *  the lib's human-readable detail. */
+data class CloudCatalogFetch(val json: String?, val errorMessage: String?)
+
+/**
+ * Fetch (or load from the lib-owned on-disk cache) the unified cloud catalog as a JSON string.
+ * Blocking — call from a background thread. All OAuth/session exchanges, fetch, dedup, ownership
+ * cross-reference and tagging happen inside libchiaki (shared with Qt and iOS); the caller just
+ * parses and renders the contract.
+ */
+fun cloudCatalogFetchUnified(npsso: String?, locale: String?, cacheDir: String, forceRefresh: Boolean): CloudCatalogFetch
+{
+	val errorOut = arrayOfNulls<String>(1)
+	val bytes = ChiakiNative.cloudCatalogFetchUnified(npsso, locale, cacheDir, forceRefresh, errorOut)
+	return CloudCatalogFetch(bytes?.let { String(it, Charsets.UTF_8) }, errorOut[0])
+}
+
+/** Delete every lib-owned cache file under [cacheDir] (e.g. on locale change). */
+fun cloudCatalogInvalidateCache(cacheDir: String) = ChiakiNative.cloudCatalogInvalidateCache(cacheDir)
+
+// Cloud streaming language helpers, backed by the shared libchiaki table. Game
+// language is tied to the datacenter region (Gaikai ignores a language whose
+// datacenter is not selected).
+
+/** Bare lowercase language code Gaikai expects ("de-DE" -> "de"); "en" default. */
+fun cloudGaikaiLanguage(locale: String?): String = ChiakiNative.cloudGaikaiLanguage(locale)
+
+/** Locales offered in the language picker (BCP-47, e.g. "en-GB"). */
+fun cloudSupportedLanguages(): List<String> = ChiakiNative.cloudSupportedLanguages().toList()
+
 class ErrorCode(val value: Int)
 {
 	override fun toString() = ChiakiNative.errorCodeToString(value)
 	var isSuccess = value == 0
+}
+
+/**
+ * Shared Madgwick orientation tracker (lib/src/orientation.c), used by the
+ * controller-motion path: controller sensors (InputDevice.getSensorManager)
+ * expose only gyro/accel — no rotation vector — so orientation is computed with
+ * the same algorithm Qt (SDL) and iOS (GCMotion) use.
+ */
+class OrientationTracker
+{
+	private var ptr = ChiakiNative.orientationTrackerCreate()
+
+	/**
+	 * Feed one gyro (rad/s) + accel (G) sample. Fills out[10] with the tracked
+	 * state: gyro xyz, accel xyz, orientation quaternion xyzw.
+	 */
+	fun update(gx: Float, gy: Float, gz: Float, ax: Float, ay: Float, az: Float, timestampUs: Long, out: FloatArray)
+	{
+		val p = ptr
+		if(p != 0L)
+			ChiakiNative.orientationTrackerUpdate(p, gx, gy, gz, ax, ay, az, timestampUs, out)
+	}
+
+	fun dispose()
+	{
+		if(ptr != 0L)
+		{
+			ChiakiNative.orientationTrackerFree(ptr)
+			ptr = 0L
+		}
+	}
 }
 
 class ChiakiLog(val levelMask: Int, val callback: (level: Int, text: String) -> Unit)
@@ -482,6 +650,7 @@ data class QuitEvent(val reason: QuitReason, val reasonString: String?): Event()
 data class RumbleEvent(val left: UByte, val right: UByte): Event()
 data class AutoRegistEvent(val host: RegistHost): Event()
 object HolepunchEvent: Event()
+object PsChordEvent: Event() // OPTIONS+SHARE chord fired -> surface the in-stream menu
 
 class CreateError(val errorCode: ErrorCode): Exception("Failed to create a native object: $errorCode")
 
@@ -552,14 +721,29 @@ class Session(connectInfo: ConnectInfo, logFile: String?, logVerbose: Boolean)
 		event(HolepunchEvent)
 	}
 
+	// Called from native (chiaki-jni.c) when the OPTIONS+SHARE chord fires.
+	private fun eventPsChord()
+	{
+		event(PsChordEvent)
+	}
+
 	fun setSurface(surface: Surface?)
 	{
 		ChiakiNative.sessionSetSurface(nativePtr, surface)
 	}
 
+	/** Latest live stream metrics for the stats overlay, or null if the session is gone. */
+	fun getMetrics(): StreamMetrics? =
+		if(nativePtr == 0L) null else StreamMetrics.fromArray(ChiakiNative.sessionGetMetrics(nativePtr))
+
 	fun setControllerState(controllerState: ControllerState)
 	{
 		ChiakiNative.sessionSetControllerState(nativePtr, controllerState)
+	}
+
+	fun setPsChord(enabled: Boolean, holdMs: Int = 0)
+	{
+		ChiakiNative.sessionSetPsChord(nativePtr, enabled, holdMs)
 	}
 
 	fun setLoginPin(pin: String)

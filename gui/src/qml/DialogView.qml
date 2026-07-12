@@ -56,11 +56,19 @@ Item {
         restoreFocusItem = Window.window.activeFocusItem;
     }
 
+    // Seed focus when this dialog becomes the active StackView page and there is
+    // no saved focus to restore. The generic tab-chain walk cannot reach the
+    // controls of every dialog (it lands on a non-control in SettingsDialog and
+    // would clobber that dialog's own seed) -- such dialogs override seedFocus.
+    function seedFocus() {
+        let item = mainItem.nextItemInFocusChain();
+        if (item)
+            item.forceActiveFocus(Qt.TabFocusReason);
+    }
+
     StackView.onActivated: {
         if (!restoreFocusItem) {
-            let item = mainItem.nextItemInFocusChain();
-            if (item)
-                item.forceActiveFocus(Qt.TabFocusReason);
+            dialog.seedFocus();
         } else {
             restoreFocusItem.forceActiveFocus(Qt.TabFocusReason);
             restoreFocusItem = null;

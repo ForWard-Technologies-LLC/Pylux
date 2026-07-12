@@ -91,13 +91,15 @@ final class StreamRumbleFeedback {
         controllerWithEngine = nil
     }
 
-    func applyRumble(left: UInt8, right: UInt8, rumbleEnabled: Bool) {
+    func applyRumble(left: UInt8, right: UInt8, rumbleEnabled: Bool, intensityPercent: Int = 100) {
         if let player = player {
             try? player.stop(atTime: CHHapticTimeImmediate)
         }
         player = nil
         guard rumbleEnabled else { return }
-        let amp = min(255, (Int(left) + Int(right)) / 2)
+        // User-scalable strength (0–500%, 100 = console default), matching Android:
+        // scale the averaged motor amplitude and clamp to the 0–255 range.
+        let amp = min(255, max(0, Int(Double((Int(left) + Int(right)) / 2) * Double(intensityPercent) / 100.0)))
         guard amp > 0 else { return }
 
         let currentController = input?.currentController

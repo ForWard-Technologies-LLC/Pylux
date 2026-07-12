@@ -2,18 +2,40 @@
 # iOS build script for Pylux (Chiaki)
 # Similar to android/build.ps1: dev = simulator + run, release = production archive
 #
-# Usage:
-#   ./build.sh [dev|release]     - dev (default): build and run on device/simulator
-#                                  release: build archive for App Store upload
-#   ./build.sh launch            - Skip build, launch app and stream logs only
-#   ./build.sh iterate           - Fast loop: optional full lib, xcodebuild, install, launch,
-#                                  background syslog (auto-stops after PYLUX_LOG_MINUTES, default 20)
-#   PYLUX_FULL_BUILD=1 ./build.sh iterate  - Rebuild chiaki-lib via CMake first
-#   PYLUX_XCODE_QUIET=1        - Optional: pass xcodebuild -quiet (default: full build log to terminal)
-#   PYLUX_XCODE_CONFIGURATION=Release ./build.sh dev|iterate  - Release build (matches shipped log masks); default Debug
-#   PYLUX_DEV_NO_STREAM=1      - After install/launch, skip foreground log streaming (script exits; default dev waits on logs)
-#   PYLUX_SYSLOG_NETWORK=1     - idevicesyslog always uses -n (override auto USB vs Wi‑Fi)
+# ============================ HOW TO RUN + READ LOGS (iOS) ============================
+# Normal loop:   ./build.sh dev          # build + install + launch (sim or device) + start logs
+# View logs:     ./build.sh logs         # one-shot tail -n 200 of ios/logs/pylux.log (NEVER hangs)
+# Stop logs:     ./build.sh stop-logs
+#
+# Every launch path (dev / launch / iterate) starts a BACKGROUND log capture into ONE fixed file
+# (ios/logs/pylux.log) and returns immediately -- nothing streams in the foreground, so it never
+# hangs. To watch live instead of a snapshot:  tail -f ios/logs/pylux.log
+#
+# PHYSICAL DEVICE LOGS WORK OVER WI-FI -- NO USB CABLE NEEDED (since 2026-07-08).
+# The app is launched via `devicectl ... --console` with OS_ACTIVITY_DT_MODE=YES, which
+# streams os_log over the same CoreDevice channel deploys use: if install works, logs work.
+# Do NOT reach for idevicesyslog: it needs a legacy usbmux pairing this setup doesn't have,
+# and it will sit at "Waiting for device" forever while the log file stays empty.
+# Caveats of the console capture:
+#   - logs flow from APP LAUNCH (the launch and the capture are the same process);
+#     re-attaching to an already-running app without relaunching is not supported over Wi-Fi.
+#   - never TERM the capture pid (devicectl forwards signals to the app); stop-logs uses -9.
+# ======================================================================================
+#
+# Modes:
+#   ./build.sh dev               - (default) build + install + launch on device/sim + background logs
+#   ./build.sh launch            - Skip build; just launch app + background logs
+#   ./build.sh iterate           - Fast loop: optional full lib, xcodebuild, install, launch, background logs
+#   ./build.sh logs              - One-shot dump (tail -n 200) of logs/pylux.log; never streams/hangs
 #   ./build.sh stop-logs         - Stop capture (reads logs/pylux-capture.pid if present)
+#   ./build.sh release           - Build archive for App Store upload
+#
+# Env knobs:
+#   PYLUX_FULL_BUILD=1 ./build.sh iterate  - Rebuild chiaki-lib via CMake first
+#   PYLUX_XCODE_QUIET=1        - Pass xcodebuild -quiet (default: full build log to terminal)
+#   PYLUX_XCODE_CONFIGURATION=Release ./build.sh dev|iterate  - Release build; default Debug
+#   PYLUX_LOG_MINUTES=N        - Background capture auto-stops after N minutes (default 20)
+#   PYLUX_SYSLOG_NETWORK=1     - idevicesyslog always uses -n (override auto USB vs Wi‑Fi)
 #   ./build.sh release xcframework - Also create XCFramework after release build
 #   ./build.sh ship - Archive + export IPA + Fastlane upload (TestFlight). Uses generic/platform=iOS only;
 #       does not install on a device or stream logs. Requires: brew install fastlane + API key env (see below).
@@ -62,43 +84,33 @@ _pylux_idevicesyslog_use_network_flag() {
     return 1
 }
 
-# idevicesyslog -p Pylux (PATH includes Homebrew before any run_*). Fallback: pymobiledevice3.
-_pylux_stream_phys_device_syslog() {
-    local udid="$1"
-    local log_file="$2"
-    local isys
-    isys=$(command -v idevicesyslog 2>/dev/null || true)
-    if [ -n "$isys" ]; then
-        if _pylux_idevicesyslog_use_network_flag "$udid"; then
-            echo "device syslog: $isys -n -u $udid -p Pylux" >&2
-            exec "$isys" -n -u "$udid" -p Pylux 2>&1 | tee "$log_file"
-        else
-            echo "device syslog: $isys -u $udid -p Pylux" >&2
-            exec "$isys" -u "$udid" -p Pylux 2>&1 | tee "$log_file"
-        fi
-    elif python3 -c "import pymobiledevice3" 2>/dev/null; then
-        echo "WARN: no idevicesyslog (brew install libimobiledevice); using pymobiledevice3" >&2
-        local extra=()
-        [ -n "$udid" ] && extra+=(--udid "$udid")
-        exec env PYTHONUNBUFFERED=1 python3 -u -m pymobiledevice3 syslog live "${extra[@]}" 2>&1 | tee "$log_file"
-    else
-        echo "ERROR: install libimobiledevice (idevicesyslog) or pymobiledevice3 for device logs." >&2
-        exit 1
-    fi
-}
-
 _pylux_start_phys_device_syslog_bg() {
     local udid="$1"
     local log_file="$2"
     local isys
+    # LOUD warning when the device isn't reachable over usbmux: idevicesyslog can
+    # only stream over USB (or Wi-Fi *sync* pairing). devicectl install/launch works
+    # over plain Wi-Fi, so builds succeed while the log stays empty -- which looks
+    # like "logging is broken" but just means THE CABLE IS NOT PLUGGED IN.
+    if ! idevice_id -l 2>/dev/null | grep -q . && ! idevice_id -ln 2>/dev/null | grep -q .; then
+        echo "WARN: device not visible over USB (idevice_id -l is empty)." >&2
+        echo "WARN: $log_file will stay EMPTY until the iPhone is plugged in via cable." >&2
+        echo "WARN: capture will attach automatically once it appears." >&2
+    fi
     isys=$(command -v idevicesyslog 2>/dev/null || true)
     if [ -n "$isys" ]; then
+        # Process filter flag differs across libimobiledevice versions: older
+        # builds use `-p <name>`, 1.4.0+ replaced it with `-m <match-string>`.
+        # Passing the wrong one makes idevicesyslog print usage and exit 0, so
+        # detect from --help instead of trying blind.
+        local filter=(-m Pylux)
+        "$isys" --help 2>&1 | grep -qE '^\s+-p, --process' && filter=(-p Pylux)
         if _pylux_idevicesyslog_use_network_flag "$udid"; then
-            echo "device syslog (bg): $isys -n -u $udid -p Pylux" >&2
-            "$isys" -n -u "$udid" -p Pylux >> "$log_file" 2>&1 &
+            echo "device syslog (bg): $isys -n -u $udid ${filter[*]}" >&2
+            "$isys" -n -u "$udid" "${filter[@]}" >> "$log_file" 2>&1 &
         else
-            echo "device syslog (bg): $isys -u $udid -p Pylux" >&2
-            "$isys" -u "$udid" -p Pylux >> "$log_file" 2>&1 &
+            echo "device syslog (bg): $isys -u $udid ${filter[*]}" >&2
+            "$isys" -u "$udid" "${filter[@]}" >> "$log_file" 2>&1 &
         fi
         PYLUX_SYSLOG_BG_PID=$!
     elif python3 -c "import pymobiledevice3" 2>/dev/null; then
@@ -112,6 +124,34 @@ _pylux_start_phys_device_syslog_bg() {
         exit 1
     fi
 }
+
+# ---- Guard: forbid struct-offset-dependent chiaki inline setters in app code ----
+# ChiakiSession's layout depends on the C lib's build config (e.g. the embedded
+# ChiakiECDH changes with CHIAKI_LIB_ENABLE_MBEDTLS). Xcode compiles ObjC/Swift
+# WITHOUT that config, so `static inline` setters from chiaki headers compute
+# WRONG field offsets and silently write into the void (2026-07-08: the haptics
+# sink registered this way stayed NULL inside the lib -> Remote Play rumble was
+# dead on iOS only; it cost days across multiple sessions to find).
+# ALWAYS use the CHIAKI_EXPORT `_ex` wrappers from lib/src/ios_bridge_helpers.c
+# (compiled inside the lib, correct offsets). Add new wrappers there as needed.
+check_forbidden_inline_setters() {
+    local forbidden="chiaki_session_set_event_cb|chiaki_session_set_video_sample_cb|chiaki_session_set_audio_sink|chiaki_session_set_haptics_sink|chiaki_session_ctrl_set_display_sink"
+    local hits
+    hits=$(grep -rnE "($forbidden)\(" "$SCRIPT_DIR/Pylux" --include="*.m" --include="*.mm" --include="*.swift" 2>/dev/null | grep -v "_ex(" || true)
+    if [ -n "$hits" ]; then
+        echo "" >&2
+        echo "BUILD BLOCKED: struct-offset-dependent chiaki inline setter called from app code:" >&2
+        echo "$hits" >&2
+        echo "" >&2
+        echo "These are 'static inline' in the chiaki headers; compiled by Xcode they use a" >&2
+        echo "DIFFERENT ChiakiSession layout than the C library and corrupt/miss the field." >&2
+        echo "Use the _ex wrapper from lib/src/ios_bridge_helpers.c instead" >&2
+        echo "(e.g. chiaki_session_set_haptics_sink_ex). See the comment above" >&2
+        echo "check_forbidden_inline_setters in this script for the full story." >&2
+        exit 1
+    fi
+}
+check_forbidden_inline_setters
 
 # Setup: Homebrew deps (match macOS build)
 if ! command -v brew &>/dev/null; then
@@ -261,31 +301,12 @@ run_dev() {
         INSTALL_UDID="${DEVICECTL_UDID:-$DEVICE_UDID}"
         xcrun devicectl device install app --device "$INSTALL_UDID" "$APP_PATH"
         
-        # Kill existing instance to ensure fresh start
-        xcrun devicectl device process kill --device "$INSTALL_UDID" "$BUNDLE_ID" 2>/dev/null || true
-        sleep 1
-        
-        xcrun devicectl device process launch --device "$INSTALL_UDID" "$BUNDLE_ID" || true
-        
+        # Launch + log capture in ONE step over CoreDevice (Wi-Fi or USB):
+        # console-attached launch streams os_log straight into logs/pylux.log.
+        launch_phys_with_console_log_bg "$INSTALL_UDID" "$BUNDLE_ID"
         echo ""
         echo "App launched on physical device: $DEVICE_NAME"
-        echo ""
-        
-        # Create logs directory and file
-        LOGS_DIR="$SCRIPT_DIR/logs"
-        mkdir -p "$LOGS_DIR"
-        LOG_FILE="$LOGS_DIR/pylux.log"
-        
-        if [ "${PYLUX_DEV_NO_STREAM:-0}" = "1" ]; then
-            echo "PYLUX_DEV_NO_STREAM=1: skipping foreground log stream. Tail logs: ./build.sh launch or Console.app"
-            exit 0
-        fi
-        echo "=== Streaming logs (press Ctrl+C to stop) ==="
-        echo "Logs also being saved to: $LOG_FILE"
-        sleep 1
-
-        SYSLOG_UDID="$(_pylux_resolve_syslog_udid "$DEVICE_UDID")"
-        _pylux_stream_phys_device_syslog "$SYSLOG_UDID" "$LOG_FILE"
+        exit 0
     else
         echo "No physical device found, falling back to simulator"
         echo ""
@@ -332,20 +353,7 @@ run_dev() {
         echo ""
         echo "App launched on simulator."
         echo ""
-        if [ "${PYLUX_DEV_NO_STREAM:-0}" = "1" ]; then
-            echo "PYLUX_DEV_NO_STREAM=1: skipping log stream. Stream: xcrun simctl spawn booted log stream --predicate 'subsystem == \"com.pylux.stream\"'"
-            exit 0
-        fi
-        echo "=== Streaming logs (press Ctrl+C to stop) ==="
-        LOGS_DIR="$SCRIPT_DIR/logs"
-        mkdir -p "$LOGS_DIR"
-        LOG_FILE="$LOGS_DIR/pylux.log"
-        echo "Logs also being saved to: $LOG_FILE"
-        sleep 2
-        
-        xcrun simctl spawn booted log stream \
-            --predicate 'subsystem == "com.pylux.stream"' \
-            --level info 2>&1 | tee "$LOG_FILE"
+        start_sim_log_capture_bg
     fi
 }
 
@@ -515,27 +523,10 @@ run_launch() {
 
         echo "Found physical device: $DEVICE_NAME ($DEVICE_UDID)"
         echo ""
-        echo "=== Killing existing app instance (if running) ==="
-        xcrun devicectl device process kill --device "$DEVICE_UDID" com.pylux.stream 2>/dev/null || true
-        sleep 1
-        
-        echo "=== Launching app on physical device ==="
-        xcrun devicectl device process launch --device "$DEVICE_UDID" com.pylux.stream
-        
+        echo "=== Launching app with console log capture (CoreDevice, Wi-Fi or USB) ==="
+        launch_phys_with_console_log_bg "$DEVICE_UDID" com.pylux.stream
         echo ""
         echo "App launched on physical device: $DEVICE_NAME"
-        echo ""
-        
-        # Create logs directory and file
-        LOGS_DIR="$SCRIPT_DIR/logs"
-        mkdir -p "$LOGS_DIR"
-        LOG_FILE="$LOGS_DIR/pylux.log"
-        
-        echo "=== Streaming logs (press Ctrl+C to stop) ==="
-        echo "Logs also being saved to: $LOG_FILE"
-        sleep 2
-
-        _pylux_stream_phys_device_syslog "$SYSLOG_UDID" "$LOG_FILE"
     else
         echo "No physical device found, launching on simulator"
         echo ""
@@ -550,20 +541,8 @@ run_launch() {
         
         echo "Launching app on simulator: $SIMULATOR_UDID"
         xcrun simctl launch "$SIMULATOR_UDID" com.pylux.stream
-        
         echo ""
-        
-        # Create logs directory and file
-        LOGS_DIR="$SCRIPT_DIR/logs"
-        mkdir -p "$LOGS_DIR"
-        LOG_FILE="$LOGS_DIR/pylux.log"
-        
-        echo "=== Streaming logs (press Ctrl+C to stop) ==="
-        echo "Logs also being saved to: $LOG_FILE"
-        sleep 1
-        
-        # Simulator: use native predicate filter to capture all app logs
-        exec xcrun simctl spawn "$SIMULATOR_UDID" log stream --predicate 'processImagePath CONTAINS "Pylux"' --level debug | tee "$LOG_FILE"
+        start_sim_log_capture_bg
     fi
 }
 
@@ -659,40 +638,105 @@ run_iterate() {
         exit 1
     fi
 
-    echo "=== Install + launch ==="
+    echo "=== Install + launch (console log capture over CoreDevice, Wi-Fi or USB) ==="
     xcrun devicectl device install app --device "$INSTALL_UDID" "$APP_PATH"
-    xcrun devicectl device process kill --device "$INSTALL_UDID" "$BUNDLE_ID" 2>/dev/null || true
-    sleep 1
-    xcrun devicectl device process launch --device "$INSTALL_UDID" "$BUNDLE_ID" || true
+    launch_phys_with_console_log_bg "$INSTALL_UDID" "$BUNDLE_ID"
 
-    STOP_MIN="${PYLUX_LOG_MINUTES:-20}"
-    SESSION_TAG="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    printf '\n\n########## PYLUX STREAM SESSION %s ##########\n' "$SESSION_TAG" >> "$LOG_FILE"
-
-    SYSLOG_CAPTURE_UDID="$(_pylux_resolve_syslog_udid "$DEVICE_UDID")"
-    _pylux_start_phys_device_syslog_bg "$SYSLOG_CAPTURE_UDID" "$LOG_FILE"
-    CAPTURE_PID=$PYLUX_SYSLOG_BG_PID
-    echo "$CAPTURE_PID" > "$CAPTURE_PID_FILE"
-
-    (
-        sleep $((STOP_MIN * 60))
-        if kill -0 "$CAPTURE_PID" 2>/dev/null; then
-            kill "$CAPTURE_PID" 2>/dev/null || true
-        fi
-        rm -f "$CAPTURE_PID_FILE"
-        printf '\n########## SESSION END (auto %s min) %s ##########\n' "$STOP_MIN" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$LOG_FILE"
-    ) &
-
-    echo ""
-    echo "  App launched. Log capture PID $CAPTURE_PID → $LOG_FILE"
-    echo "  Auto-stops in ${STOP_MIN} min (set PYLUX_LOG_MINUTES to change)."
     echo ""
     echo "  → Open Pylux and press Stream."
-    echo "  → Stop early: ./build.sh stop-logs"
     echo "  → Live:  tail -f $LOG_FILE"
     echo "  → Grep:  grep 'Pylux VideoDecoder\\|displayed:' $LOG_FILE | tail -40"
     echo ""
     echo "══════════════════════════════════════════════════════════════"
+}
+
+# --- Start a BACKGROUND simulator log capture to the fixed log file (terminal returns immediately) ---
+# This is the ONE way logs are captured: every launch path (dev/launch/iterate) starts a background
+# capture, then you view it with `./build.sh logs` (bounded dump) and stop it with `./build.sh stop-logs`.
+start_sim_log_capture_bg() {
+    local LOGS_DIR="$SCRIPT_DIR/logs"
+    mkdir -p "$LOGS_DIR"
+    local LOG_FILE="$LOGS_DIR/pylux.log"
+    local CAPTURE_PID_FILE="$LOGS_DIR/pylux-capture.pid"
+    local STOP_MIN="${PYLUX_LOG_MINUTES:-20}"
+    stop_logs >/dev/null 2>&1 || true
+    printf '\n########## SIM SESSION %s ##########\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$LOG_FILE"
+    nohup xcrun simctl spawn booted log stream \
+        --predicate 'subsystem == "com.pylux.stream"' --level info >> "$LOG_FILE" 2>&1 </dev/null &
+    local pid=$!
+    disown "$pid" 2>/dev/null || true
+    echo "$pid" > "$CAPTURE_PID_FILE"
+    # Detach the watchdog from the terminal's stdout/stderr/stdin, otherwise a `... | tail`/`| grep`
+    # on the launch command would block until this subshell exits (i.e. the whole auto-stop window).
+    ( sleep $((STOP_MIN * 60)); kill "$pid" 2>/dev/null || true; rm -f "$CAPTURE_PID_FILE" ) >/dev/null 2>&1 </dev/null &
+    disown 2>/dev/null || true
+    echo "  Background log capture PID $pid -> $LOG_FILE (auto-stops in ${STOP_MIN}m)"
+    echo ""
+    echo "  VIEW LOGS (one-shot, never hangs):"
+    echo "    $0 logs                                  # tail -n 200 of $LOG_FILE"
+    echo "    $0 logs | grep 'Catalog cache invalidated'"
+    echo "  Stop capture:  $0 stop-logs"
+}
+
+# --- Start a BACKGROUND physical-device syslog capture (mirror of the simulator path) ---
+# Launch the app on a physical device WITH LOGS in one step, over the CoreDevice
+# channel (Wi-Fi or USB -- if `devicectl install` works, this works; NO usbmux/USB
+# pairing needed). `--console` attaches the app's output and OS_ACTIVITY_DT_MODE=YES
+# mirrors os_log to that console (the same mechanism Xcode's console uses), streamed
+# into $LOG_FILE. This replaced the idevicesyslog capture on 2026-07-08: idevicesyslog
+# needs a legacy usbmux pairing this device does not have, so the log file silently
+# stayed empty while deploys (CoreDevice/Wi-Fi) kept working.
+# IMPORTANT: devicectl forwards catchable signals to the app, so the watchdog and
+# stop-logs must use kill -9 on this PID (SIGKILL detaches the console WITHOUT
+# killing the app; a plain TERM would terminate Pylux on the phone).
+launch_phys_with_console_log_bg() {
+    local devicectl_id="$1"
+    local bundle_id="$2"
+    local LOGS_DIR="$SCRIPT_DIR/logs"
+    mkdir -p "$LOGS_DIR"
+    local LOG_FILE="$LOGS_DIR/pylux.log"
+    local CAPTURE_PID_FILE="$LOGS_DIR/pylux-capture.pid"
+    local STOP_MIN="${PYLUX_LOG_MINUTES:-20}"
+    stop_logs >/dev/null 2>&1 || true
+    printf '\n########## DEVICE SESSION %s (devicectl console) ##########\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$LOG_FILE"
+    nohup xcrun devicectl device process launch --terminate-existing --console \
+        -e '{"OS_ACTIVITY_DT_MODE":"YES"}' \
+        --device "$devicectl_id" "$bundle_id" >> "$LOG_FILE" 2>&1 &
+    local pid=$!
+    disown "$pid" 2>/dev/null || true
+    echo "$pid" > "$CAPTURE_PID_FILE"
+    # Detach the watchdog from the terminal's stdout/stderr/stdin, otherwise a `... | tail`/`| grep`
+    # on the launch command would block until this subshell exits (i.e. the whole auto-stop window).
+    ( sleep $((STOP_MIN * 60)); kill -9 "$pid" 2>/dev/null || true; rm -f "$CAPTURE_PID_FILE";
+      printf '\n########## SESSION END (auto %s min) %s ##########\n' "$STOP_MIN" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$LOG_FILE" ) >/dev/null 2>&1 </dev/null &
+    disown 2>/dev/null || true
+    echo "  App launched with console log capture PID $pid -> $LOG_FILE (auto-stops in ${STOP_MIN}m)"
+    echo ""
+    echo "  VIEW LOGS (one-shot, never hangs):"
+    echo "    $0 logs                                  # tail -n 200 of $LOG_FILE"
+    echo "    $0 logs | grep 'Catalog cache invalidated'"
+    echo "  Stop capture:  $0 stop-logs"
+}
+
+start_phys_log_capture_bg() {
+    # Legacy usbmux/idevicesyslog capture -- kept only for manually attaching to an
+    # ALREADY-RUNNING app over a USB pairing. All launch paths now use
+    # launch_phys_with_console_log_bg instead (works over Wi-Fi).
+    local udid="$1"
+    local LOG_FILE="$2"
+    local LOGS_DIR="$SCRIPT_DIR/logs"
+    mkdir -p "$LOGS_DIR"
+    local CAPTURE_PID_FILE="$LOGS_DIR/pylux-capture.pid"
+    local STOP_MIN="${PYLUX_LOG_MINUTES:-20}"
+    stop_logs >/dev/null 2>&1 || true
+    printf '\n########## DEVICE SESSION %s ##########\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$LOG_FILE"
+    _pylux_start_phys_device_syslog_bg "$udid" "$LOG_FILE"
+    local pid="$PYLUX_SYSLOG_BG_PID"
+    disown "$pid" 2>/dev/null || true
+    echo "$pid" > "$CAPTURE_PID_FILE"
+    ( sleep $((STOP_MIN * 60)); kill "$pid" 2>/dev/null || true; rm -f "$CAPTURE_PID_FILE" ) >/dev/null 2>&1 </dev/null &
+    disown 2>/dev/null || true
+    echo "  Background log capture PID $pid -> $LOG_FILE (auto-stops in ${STOP_MIN}m)"
 }
 
 # --- Stop log streaming (kill orphan processes) ---
@@ -702,10 +746,14 @@ stop_logs() {
     if [ -f "$CAPTURE_PID_FILE" ]; then
         CAPTURE_PID=$(head -1 "$CAPTURE_PID_FILE" 2>/dev/null || true)
         if [ -n "$CAPTURE_PID" ] && kill -0 "$CAPTURE_PID" 2>/dev/null; then
-            kill "$CAPTURE_PID" 2>/dev/null && { echo "Stopped capture PID $CAPTURE_PID"; killed=1; }
+            # SIGKILL, not TERM: the capture may be a `devicectl ... --console` process,
+            # which FORWARDS catchable signals to the app on the phone. -9 detaches the
+            # console without terminating Pylux.
+            kill -9 "$CAPTURE_PID" 2>/dev/null && { echo "Stopped capture PID $CAPTURE_PID"; killed=1; }
         fi
         rm -f "$CAPTURE_PID_FILE"
     fi
+    pkill -9 -f "devicectl device process launch.*--console" 2>/dev/null && { echo "Stopped devicectl console"; killed=1; }
     for proc in idevicesyslog pymobiledevice3; do
         if pgrep -f "$proc" >/dev/null 2>&1; then
             pkill -f "$proc" 2>/dev/null && { echo "Stopped $proc"; killed=1; }
@@ -735,18 +783,31 @@ case "$MODE" in
     stop-logs)
         stop_logs
         ;;
+    logs)
+        # One-shot bounded dump of the captured log (never streams/hangs). `log show` does NOT
+        # retain .info logs on the simulator, so this tails the file fed by the background capture
+        # (started by `dev`/`iterate`). Start one first if the file is empty/missing.
+        LOG_FILE="$SCRIPT_DIR/logs/pylux.log"
+        if [ -f "$LOG_FILE" ]; then
+            tail -n 200 "$LOG_FILE"
+        else
+            echo "No log file yet at $LOG_FILE."
+            echo "Launch the app first:  $0 dev   (builds + launches + starts background capture)"
+        fi
+        ;;
     iterate)
         run_iterate
         ;;
     *)
-        echo "Usage: $0 [dev|launch|iterate|release|ship|clean|stop-logs]"
-        echo "  dev       - Build and run on device (if connected) or simulator"
-        echo "  launch    - Launch app and stream logs (skip rebuild)"
+        echo "Usage: $0 [dev|launch|iterate|release|ship|clean|logs|stop-logs]"
+        echo "  dev       - Build + install + launch (device/sim) + background logs"
+        echo "  launch    - Launch app (skip rebuild) + background logs"
         echo "  iterate   - Fast xcodebuild + install + launch + background logs (auto-stop, see header in script)"
         echo "  release   - Build archive for App Store upload"
         echo "  release xcframework - Also create XCFramework"
         echo "  ship      - Build + export IPA + upload to App Store Connect (needs fastlane + API key env vars)"
         echo "  clean     - Remove all build directories"
+        echo "  logs      - One-shot dump (tail -n 200) of the captured log; never hangs"
         echo "  stop-logs - Stop log capture"
         exit 1
         ;;

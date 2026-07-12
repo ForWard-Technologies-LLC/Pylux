@@ -1,30 +1,51 @@
 // SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 // Cloud Play UI - mirrors Android CloudPlayFragment.kt + CloudPlayViewModel.kt
 
+import Foundation
 import SwiftUI
 import os.log
 
 private let cloudUILog = OSLog(subsystem: "com.pylux.stream", category: "CloudPlayUI")
 
+/// Thread-safe cancel flag for cloud allocation: set on the main actor by the
+/// Cancel button, polled from libchiaki's provisioning worker thread through the
+/// isCancelled callback (a @MainActor property can't be read from that thread).
+final class AllocationCancelFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+
+    func set() {
+        lock.lock()
+        value = true
+        lock.unlock()
+    }
+
+    var isSet: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+}
+
 // MARK: - ViewModel (matches Android CloudPlayViewModel.kt)
 
 @MainActor
 final class CloudPlayViewModel: ObservableObject {
-    enum Section: String, CaseIterable, Identifiable {
-        case catalog = "Catalog"   // PSNow (PS3/PS4)
-        case library = "Library"   // PS5 Cloud (owned)
-        var id: String { rawValue }
-    }
+    static let tagFilterCategories = [
+        CloudCategory.owned,
+        CloudCategory.streamable,
+        CloudCategory.purchaseable
+    ]
+    static let tagFilterLabels = ["Owned", "Streamable", "Store"]
 
-    // Sort orders matching Android CloudPlayFragment.kt (3 states: 0, 1, 2)
     enum SortOrder: Int, CaseIterable {
-        case defaultOrder = 0  // Recent for Catalog, Owned First for Library
+        case defaultOrder = 0  // Playable First
         case nameAsc = 1       // Name: A -> Z
         case nameDesc = 2      // Name: Z -> A
 
-        func label(for section: Section) -> String {
+        var label: String {
             switch self {
-            case .defaultOrder: return section == .library ? "Owned First" : "Recent"
+            case .defaultOrder: return "Playable First"
             case .nameAsc:      return "Name: A \u{2192} Z"
             case .nameDesc:     return "Name: Z \u{2192} A"
             }
@@ -36,11 +57,11 @@ final class CloudPlayViewModel: ObservableObject {
     @Published var refreshing = false
     @Published var error: String?
     @Published var warning: String?
-    @Published var currentSection: Section = .library
+    @Published var catalogIsForeign: Bool = SecureStore.shared.isCloudCatalogIsForeign
     @Published var searchQuery = ""
     @Published var sortOrder: SortOrder = .defaultOrder
     @Published var showFavoritesOnly = false
-    @Published var showOwnedOnly = false  // Library: false="All", true="Owned" (matches Android default=false)
+    @Published var activeTagFilters: Set<String> = SecureStore.shared.cloudTagFilters
     @Published var favoriteIds: Set<String> = CloudFavoritesManager.getFavorites()
 
     // Allocation state
@@ -49,6 +70,11 @@ final class CloudPlayViewModel: ObservableObject {
     @Published var allocationError: String?
     @Published var showPingTooHighDialog = false
     @Published var cloudSession: CloudStreamSession?
+    // One instance PER allocation (fresh on each start), not one shared flag: a
+    // shared flag's reset-on-start would resurrect a just-cancelled allocation
+    // that hasn't hit its next isCancelled poll yet. Each allocation captures its
+    // own instance; cancel sets the current one.
+    private var allocationCancelFlag = AllocationCancelFlag()
 
     private let catalogService = CloudCatalogService()
     private let streamingBackend = CloudStreamingBackend()
@@ -61,31 +87,42 @@ final class CloudPlayViewModel: ObservableObject {
         SecureStore.shared.cloudSortState = sortOrder.rawValue
     }
 
+    var filterSummary: String {
+        if activeTagFilters.isEmpty { return "All games" }
+        return Self.tagFilterCategories
+            .filter { activeTagFilters.contains($0) }
+            .map { tag in
+                Self.tagFilterLabels[Self.tagFilterCategories.firstIndex(of: tag) ?? 0]
+            }
+            .joined(separator: " · ")
+    }
+
     var filteredGames: [CloudGame] {
         var result = games
 
-        // Favorites filter (matches Android CloudPlayFragment lines 772-778)
+        if !activeTagFilters.isEmpty {
+            result = result.filter { activeTagFilters.contains($0.category) }
+        }
+
         if showFavoritesOnly {
             result = result.filter { favoriteIds.contains($0.id) }
         }
 
-        // Search
         if !searchQuery.isEmpty {
             let q = searchQuery.lowercased()
-            result = result.filter { $0.name.lowercased().contains(q) }
+            result = result.filter {
+                $0.name.lowercased().contains(q) || $0.id.lowercased().contains(q)
+            }
         }
 
-        // Sort (matches Android CloudPlayFragment lines 509-543)
         switch sortOrder {
         case .defaultOrder:
-            if currentSection == .library {
-                // Library default: owned first, then alphabetical
-                result.sort {
-                    if $0.isOwned != $1.isOwned { return $0.isOwned && !$1.isOwned }
-                    return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
-                }
+            result.sort {
+                let p0 = $0.category != CloudCategory.purchaseable
+                let p1 = $1.category != CloudCategory.purchaseable
+                if p0 != p1 { return p0 && !p1 }
+                return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
             }
-            // Catalog: keep original API order (no sort)
         case .nameAsc:
             result.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         case .nameDesc:
@@ -94,59 +131,64 @@ final class CloudPlayViewModel: ObservableObject {
         return result
     }
 
+    func isTagFilterActive(_ tag: String) -> Bool {
+        activeTagFilters.isEmpty || activeTagFilters.contains(tag)
+    }
+
+    func toggleTagFilter(_ tag: String) {
+        var next = activeTagFilters
+        if activeTagFilters.isEmpty {
+            next = Set(Self.tagFilterCategories.filter { $0 != tag })
+        } else if next.contains(tag) {
+            next.remove(tag)
+        } else {
+            next.insert(tag)
+        }
+        normalizeAndPersistTagFilters(next)
+    }
+
+    func setTagFilters(_ tags: Set<String>) {
+        normalizeAndPersistTagFilters(tags)
+    }
+
+    private func normalizeAndPersistTagFilters(_ tags: Set<String>) {
+        let allTags = Set(Self.tagFilterCategories)
+        activeTagFilters = (tags.isEmpty || tags == allTags) ? [] : tags
+        SecureStore.shared.cloudTagFilters = activeTagFilters
+    }
+
     func toggleFavorite(for game: CloudGame) {
-        let isFav = CloudFavoritesManager.toggleFavorite(game.id)
+        _ = CloudFavoritesManager.toggleFavorite(game.id)
         favoriteIds = CloudFavoritesManager.getFavorites()
-        // If favorites filter active and game was un-favorited, list auto-updates via filteredGames
-        _ = isFav // suppress unused warning
     }
 
     func loadGames(npssoToken: String) {
         loading = true
         error = nil
         warning = nil
-        let section = currentSection
-        let ownedOnly = showOwnedOnly
 
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let self = self else { return }
-            let loadedGames: [CloudGame]
-
-            switch section {
-            case .catalog:
-                loadedGames = self.catalogService.fetchPsnowCatalog(npssoToken: npssoToken)
-            case .library:
-                if ownedOnly {
-                    loadedGames = self.catalogService.fetchOwnedPs5Games(npssoToken: npssoToken)
-                } else {
-                    loadedGames = self.catalogService.fetchAllPs5CloudGames(npssoToken: npssoToken)
-                }
-            }
-
+            let loadedGames = self.catalogService.fetchUnifiedCatalog(npssoToken: npssoToken)
             await MainActor.run {
-                self.applyLoadedGames(loadedGames, section: section)
+                self.applyLoadedGames(loadedGames)
             }
         }
     }
 
-    private func applyLoadedGames(_ loadedGames: [CloudGame], section: Section) {
+    private func applyLoadedGames(_ loadedGames: [CloudGame]) {
         games = loadedGames
         loading = false
+        catalogIsForeign = SecureStore.shared.isCloudCatalogIsForeign
         if let fetchError = catalogService.lastLibraryFetchError {
             error = fetchError
         } else if loadedGames.isEmpty {
-            error = section == .library
-                ? "No cloud games found. Check your connection."
-                : "Failed to load catalog. Check your connection."
+            error = "No cloud games found. Check your connection."
         }
-        if section == .library {
-            if let catalogWarning = catalogService.lastCatalogFetchWarning {
-                warning = catalogWarning
-            } else if let libraryWarning = catalogService.lastLibraryFetchWarning {
-                warning = libraryWarning
-            } else if !CloudLocaleSettings.isConfigured {
-                warning = CloudLocaleSettings.unconfiguredWarning()
-            }
+        if let catalogWarning = catalogService.lastCatalogFetchWarning {
+            warning = catalogWarning
+        } else if !CloudLocaleSettings.isConfigured {
+            warning = CloudLocaleSettings.unconfiguredWarning()
         }
     }
 
@@ -156,11 +198,8 @@ final class CloudPlayViewModel: ObservableObject {
         loading = true
         error = nil
         warning = nil
-        let section = currentSection
-        let ownedOnly = showOwnedOnly
 
         Task.detached(priority: .userInitiated) { [weak self] in
-            let loadedGames: [CloudGame]
             defer {
                 Task { @MainActor in
                     self?.loading = false
@@ -168,20 +207,11 @@ final class CloudPlayViewModel: ObservableObject {
                 }
             }
             guard let self = self else { return }
-
-            switch section {
-            case .catalog:
-                loadedGames = self.catalogService.fetchPsnowCatalog(npssoToken: npssoToken, forceRefresh: true)
-            case .library:
-                if ownedOnly {
-                    loadedGames = self.catalogService.fetchOwnedPs5Games(npssoToken: npssoToken, forceRefresh: true)
-                } else {
-                    loadedGames = self.catalogService.fetchAllPs5CloudGames(npssoToken: npssoToken, forceRefresh: true)
-                }
-            }
-
+            let loadedGames = self.catalogService.fetchUnifiedCatalog(
+                npssoToken: npssoToken, forceRefresh: true
+            )
             await MainActor.run {
-                self.applyLoadedGames(loadedGames, section: section)
+                self.applyLoadedGames(loadedGames)
             }
         }
     }
@@ -192,13 +222,20 @@ final class CloudPlayViewModel: ObservableObject {
         allocationError = nil
         showPingTooHighDialog = false
         cloudSession = nil
+        let cancelFlag = AllocationCancelFlag()
+        allocationCancelFlag = cancelFlag
 
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let self = self else { return }
-            let gameIdentifier = game.streamingIdentifier
+            // Stream routing is precomputed by libchiaki: streamServiceType picks the endpoint
+            // (psnow/Kamaji vs pscloud/cronos) and streamIdentifier is the exact id to launch.
+            let gameIdentifier = game.streamIdentifier
             let gameName = game.name
-            let serviceType = game.serviceType
-            var cancelled = false
+            let serviceType = game.streamServiceType
+            // cancelFlag (this allocation's own instance, captured above): Cancel Button
+            // -> cancelAllocation() -> flag -> libchiaki's isCancelled poll aborts
+            // provisioning. Also gates every completion below so a cancelled allocation
+            // never launches the stream or flashes an error alert.
 
             do {
                 let session = try self.streamingBackend.startCompleteCloudSession(
@@ -206,31 +243,39 @@ final class CloudPlayViewModel: ObservableObject {
                     gameIdentifier: gameIdentifier,
                     gameName: gameName,
                     npssoToken: npssoToken,
+                    // Owned-PSNOW fast-path: the catalog's pre-resolved streaming entitlement
+                    // (empty for unowned -> normal full flow). Only used by the PSNOW path.
+                    ownedEntitlementId: game.entitlementId,
+                    ownedPlatform: game.platform,
                     onProgress: { msg in
                         Task { @MainActor in
                             self.allocationProgress = msg
                         }
                     },
-                    isCancelled: { cancelled }
+                    isCancelled: { cancelFlag.isSet }
                 )
 
                 await MainActor.run {
                     self.allocating = false
+                    guard !cancelFlag.isSet else { return } // cancelled: never launch
                     self.cloudSession = session
                 }
             } catch let error as PsPlusSubscriptionError {
                 await MainActor.run {
                     self.allocating = false
+                    guard !cancelFlag.isSet else { return }
                     self.allocationError = error.message
                 }
             } catch is PingTimeoutError {
                 await MainActor.run {
                     self.allocating = false
+                    guard !cancelFlag.isSet else { return }
                     self.showPingTooHighDialog = true
                 }
             } catch {
                 await MainActor.run {
                     self.allocating = false
+                    guard !cancelFlag.isSet else { return }
                     self.allocationError = error.localizedDescription
                 }
             }
@@ -238,6 +283,7 @@ final class CloudPlayViewModel: ObservableObject {
     }
 
     func cancelAllocation() {
+        allocationCancelFlag.set() // aborts the in-flight libchiaki provisioning
         allocating = false
     }
 }
@@ -280,8 +326,23 @@ struct CloudPlayView: View {
                     signInPrompt
                 } else {
                     VStack(spacing: 0) {
-                        // Sub-tabs: Catalog / Library
                         cloudSubTabs
+
+                        // Suppress the region banner when an auth error is present: nativeMode=false
+                        // is then just a side-effect of the failed login (region was never
+                        // determined), so the warning banner below is the real message. Also gate on
+                        // !loading: catalogIsForeign holds a stale persisted value mid-fetch, so the
+                        // banner must only reflect a COMPLETED fetch (otherwise it flashes on load).
+                        if viewModel.catalogIsForeign && viewModel.warning == nil && !viewModel.loading {
+                            Text("Cloud catalog isn't fully available in your region; some titles may not stream.")
+                                .font(.caption)
+                                .foregroundColor(.black.opacity(0.85))
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .frame(maxWidth: .infinity)
+                                .background(Color(red: 1.0, green: 0.92, blue: 0.23))
+                        }
 
                         if let warning = viewModel.warning {
                             Text(warning)
@@ -321,19 +382,6 @@ struct CloudPlayView: View {
         .onAppear {
             viewModel.loadPersistedSortOrder()
             if viewModel.games.isEmpty && !npssoToken.isEmpty {
-                viewModel.loadGames(npssoToken: npssoToken)
-            }
-        }
-        .onChange(of: viewModel.currentSection) { _ in
-            if !npssoToken.isEmpty {
-                viewModel.games = []
-                viewModel.loadGames(npssoToken: npssoToken)
-            }
-        }
-        .onChange(of: viewModel.showOwnedOnly) { _ in
-            // Re-fetch when toggling All/Owned (matches Android applyFilterState)
-            if viewModel.currentSection == .library && !npssoToken.isEmpty {
-                viewModel.games = []
                 viewModel.loadGames(npssoToken: npssoToken)
             }
         }
@@ -396,52 +444,50 @@ struct CloudPlayView: View {
 
     private var cloudSubTabs: some View {
         HStack(spacing: 0) {
-            // Section tabs - fixed width, no wrapping
-            ForEach(CloudPlayViewModel.Section.allCases) { section in
-                let isSelected = viewModel.currentSection == section
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        viewModel.currentSection = section
+            Menu {
+                ForEach(Array(CloudPlayViewModel.tagFilterCategories.enumerated()), id: \.offset) { index, tag in
+                    Button {
+                        viewModel.toggleTagFilter(tag)
+                    } label: {
+                        HStack {
+                            Text(CloudPlayViewModel.tagFilterLabels[index])
+                            if viewModel.isTagFilterActive(tag) {
+                                Image(systemName: "checkmark")
+                            }
+                        }
                     }
-                } label: {
-                    Text(section.rawValue)
-                        .font(.system(size: 13, weight: isSelected ? .bold : .medium))
-                        .foregroundColor(isSelected ? .white : .white.opacity(0.45))
-                        .lineLimit(1)
-                        .fixedSize()
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(
-                            Capsule().fill(isSelected ? Color.white.opacity(0.12) : Color.clear)
-                        )
                 }
-            }
-
-            // Library: All / Owned toggle (matches Android applyFilterState)
-            if viewModel.currentSection == .library {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        viewModel.showOwnedOnly.toggle()
-                    }
-                } label: {
-                    Text(viewModel.showOwnedOnly ? "Owned" : "All")
-                        .font(.system(size: 11, weight: .bold))
-                        .lineLimit(1)
-                        .fixedSize()
-                        .foregroundColor(viewModel.showOwnedOnly ? .green : .white.opacity(0.6))
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 5)
-                        .background(
-                            Capsule().fill(viewModel.showOwnedOnly ? Color.green.opacity(0.15) : Color.white.opacity(0.08))
-                        )
+                Divider()
+                Button("Show all") {
+                    viewModel.setTagFilters([])
                 }
-                .padding(.leading, 4)
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "line.3.horizontal.decrease.circle")
+                        .font(.system(size: 12))
+                    Text(viewModel.filterSummary)
+                        .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
+                }
+                .foregroundColor(viewModel.activeTagFilters.isEmpty ? .white.opacity(0.45) : .blue.opacity(0.9))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
             }
 
             Spacer(minLength: 4)
 
-            // Icon buttons - compact
             HStack(spacing: 0) {
+                // Search toggle (left of favorites, matches Android header order)
+                Button {
+                    withAnimation(.easeInOut(duration: 0.25)) { showSearch.toggle() }
+                    if !showSearch { viewModel.searchQuery = "" }
+                } label: {
+                    Image(systemName: showSearch ? "magnifyingglass.circle.fill" : "magnifyingglass")
+                        .font(.system(size: 12))
+                        .foregroundColor(showSearch ? .white : .white.opacity(0.45))
+                        .frame(width: 28, height: 28)
+                }
+
                 // Favorites filter
                 Button {
                     withAnimation(.easeInOut(duration: 0.2)) {
@@ -462,7 +508,7 @@ struct CloudPlayView: View {
                             viewModel.persistSortOrder()
                         } label: {
                             HStack {
-                                Text(order.label(for: viewModel.currentSection))
+                                Text(order.label)
                                 if viewModel.sortOrder == order {
                                     Image(systemName: "checkmark")
                                 }
@@ -473,17 +519,6 @@ struct CloudPlayView: View {
                     Image(systemName: "arrow.up.arrow.down")
                         .font(.system(size: 12))
                         .foregroundColor(.white.opacity(0.45))
-                        .frame(width: 28, height: 28)
-                }
-
-                // Search toggle
-                Button {
-                    withAnimation(.easeInOut(duration: 0.25)) { showSearch.toggle() }
-                    if !showSearch { viewModel.searchQuery = "" }
-                } label: {
-                    Image(systemName: showSearch ? "magnifyingglass.circle.fill" : "magnifyingglass")
-                        .font(.system(size: 12))
-                        .foregroundColor(showSearch ? .white : .white.opacity(0.45))
                         .frame(width: 28, height: 28)
                 }
 
@@ -538,11 +573,8 @@ struct CloudPlayView: View {
         .padding(.vertical, 8)
     }
 
-    /// Matches Android `CloudPlayFragment.onGameClicked`: PS Cloud + All filter + not owned → add-to-library, else stream.
     private func handleGameTap(_ game: CloudGame) {
-        let isPscloud = game.serviceType.lowercased() == "pscloud"
-        let isAllGamesFilter = !viewModel.showOwnedOnly
-        if viewModel.currentSection == .library && isPscloud && isAllGamesFilter && !game.isOwned {
+        if game.category == CloudCategory.purchaseable {
             let url = game.conceptUrl.trimmingCharacters(in: .whitespacesAndNewlines)
             if url.isEmpty {
                 showMissingConceptAlert = true
@@ -574,8 +606,17 @@ struct CloudPlayView: View {
                         .background(Capsule().fill(Color.yellow.opacity(0.15)))
                 }
 
+                if viewModel.activeTagFilters.count > 0 && viewModel.activeTagFilters.count < CloudPlayViewModel.tagFilterCategories.count {
+                    Text(viewModel.filterSummary)
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.blue.opacity(0.9))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(Color.blue.opacity(0.15)))
+                }
+
                 if viewModel.sortOrder != .defaultOrder {
-                    Text(viewModel.sortOrder.label(for: viewModel.currentSection))
+                    Text(viewModel.sortOrder.label)
                         .font(.system(size: 10, weight: .bold))
                         .foregroundColor(.white.opacity(0.5))
                         .padding(.horizontal, 6)
@@ -593,7 +634,6 @@ struct CloudPlayView: View {
                     CloudGameCardView(
                         game: game,
                         isFavorite: viewModel.favoriteIds.contains(game.id),
-                        showOwnershipBadge: viewModel.currentSection == .library,
                         onTap: {
                             handleGameTap(game)
                         },
@@ -801,7 +841,7 @@ struct CloudPlayView: View {
     @ViewBuilder
     private func allocationCoverThumbnail(width: CGFloat, height: CGFloat) -> some View {
         if let game = selectedGame {
-            AsyncImage(url: URL(string: game.imageUrl), transaction: Transaction(animation: nil)) { phase in
+            CachedAsyncImage(url: URL(string: game.imageUrl)) { phase in
                 switch phase {
                 case .success(let image):
                     image
@@ -826,11 +866,12 @@ struct CloudPlayView: View {
 struct CloudGameCardView: View {
     let game: CloudGame
     let isFavorite: Bool
-    let showOwnershipBadge: Bool  // true only in Library section (matches Android adapter.showOwnershipBadge)
     let onTap: () -> Void
     let onFavoriteToggle: () -> Void
 
     @State private var starTapped = false  // debounce visual
+
+    private var displayCategory: String { game.category }
 
     var body: some View {
         GeometryReader { geo in
@@ -844,26 +885,25 @@ struct CloudGameCardView: View {
                     bottomOverlay
                 }
 
-                // Layer 3: Top overlays - ownership badge (left) + star (right)
+                // Layer 3: Platform "console coin" pinned to the bottom-right corner,
+                // mirroring the star in the top-right. Its own layer (not in the name
+                // row) so it never competes with the title for horizontal space.
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        platformCoin
+                            .padding(.trailing, 8)
+                            .padding(.bottom, 8)
+                    }
+                }
+
+                // Layer 4: Top overlays - category badge (left) + star (right)
                 VStack {
                     HStack(alignment: .top, spacing: 0) {
-                        // Top-left: Ownership badge (matches Android item_cloud_game.xml ownershipBadge)
-                        if showOwnershipBadge && game.serviceType == "pscloud" {
-                            Text(game.isOwned ? "Owned" : "Not Owned")
-                                .font(.system(size: 9, weight: .bold))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 3)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                        .fill(game.isOwned
-                                              ? Color(red: 0.30, green: 0.69, blue: 0.31).opacity(0.85)   // #4CAF50 green
-                                              : Color(red: 1.0, green: 0.60, blue: 0.0).opacity(0.85))    // #FF9800 orange
-                                )
-                                .shadow(color: .black.opacity(0.5), radius: 2, y: 1)
-                                .padding(.top, 6)
-                                .padding(.leading, 6)
-                        }
+                        categoryBadge
+                            .padding(.top, 6)
+                            .padding(.leading, 6)
 
                         Spacer()
 
@@ -888,7 +928,7 @@ struct CloudGameCardView: View {
                     Spacer()
                 }
 
-                // Layer 4: Full-card invisible tap target for launching (behind star button)
+                // Layer 5: Full-card invisible tap target for launching (behind star button)
                 Color.clear
                     .contentShape(Rectangle())
                     .onTapGesture(perform: onTap)
@@ -901,8 +941,32 @@ struct CloudGameCardView: View {
     }
 
     @ViewBuilder
+    private var categoryBadge: some View {
+        let (label, color): (String, Color) = {
+            switch displayCategory {
+            case CloudCategory.owned:
+                return ("Owned", Color(red: 0.30, green: 0.69, blue: 0.31))       // #4CAF50
+            case CloudCategory.streamable:
+                return ("Streamable", Color(red: 0.13, green: 0.59, blue: 0.95))    // #2196F3
+            default:
+                return ("Add Game", Color(red: 1.0, green: 0.60, blue: 0.0))        // #FF9800
+            }
+        }()
+        Text(label)
+            .font(.system(size: 9, weight: .bold))
+            .foregroundColor(.white)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(color.opacity(0.85))
+            )
+            .shadow(color: .black.opacity(0.5), radius: 2, y: 1)
+    }
+
+    @ViewBuilder
     private func coverImage(width: CGFloat, height: CGFloat) -> some View {
-        AsyncImage(url: URL(string: game.imageUrl), transaction: Transaction(animation: nil)) { phase in
+        CachedAsyncImage(url: URL(string: game.imageUrl)) { phase in
             switch phase {
             case .success(let image):
                 // Use .fit so the full image is visible (no awkward cropping),
@@ -928,30 +992,24 @@ struct CloudGameCardView: View {
                     }
             }
         }
-        .id(game.imageUrl)
         .allowsHitTesting(false)
     }
 
     private var bottomOverlay: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(platformLabel)
-                .font(.system(size: 9, weight: .heavy))
-                .foregroundColor(platformColor)
-                .padding(.horizontal, 5)
-                .padding(.vertical, 2)
-                .background(
-                    Capsule().fill(platformColor.opacity(0.2))
-                )
-
+        // Name spans the full width; the platform coin lives in its own bottom-right
+        // corner layer, so we just reserve a little trailing inset here to keep a long
+        // 2-line title from running under the coin.
+        HStack(spacing: 0) {
             Text(game.name)
                 .font(.system(size: 12, weight: .bold))
                 .foregroundColor(.white)
                 .lineLimit(2)
                 .multilineTextAlignment(.leading)
                 .shadow(color: .black.opacity(0.8), radius: 2, y: 1)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 8)
+        .padding(.leading, 8)
+        .padding(.trailing, 34)
         .padding(.bottom, 8)
         .padding(.top, 40)
         .background(
@@ -965,6 +1023,29 @@ struct CloudGameCardView: View {
             )
         )
         .allowsHitTesting(false)
+    }
+
+    /// Neon platform tag pinned to the bottom-right corner. A flat, translucent
+    /// rounded-rect with a glowing platform-colored outline + text glow, so it reads
+    /// as part of the app's electric-blue theme instead of a floating coin.
+    private var platformCoin: some View {
+        Text(platformLabel)
+            .font(.system(size: 11, weight: .black, design: .rounded))
+            .foregroundColor(.white)
+            .shadow(color: platformColor.opacity(0.95), radius: 3.5) // inner text glow
+            .frame(minWidth: 10)
+            .padding(.horizontal, 4.5)
+            .padding(.vertical, 1.5)
+            .background(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(.black.opacity(0.40))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 5, style: .continuous)
+                            .stroke(platformColor.opacity(0.95), lineWidth: 1)
+                    )
+            )
+            .shadow(color: platformColor.opacity(0.75), radius: 5)   // outer neon glow
+            .allowsHitTesting(false)
     }
 
     /// Platform label without "PS" prefix to avoid trademark

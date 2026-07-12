@@ -4,10 +4,6 @@ package com.metallic.chiaki.cloudplay
 
 object CloudLocale
 {
-	const val DEFAULT = "en-US"
-
-	fun toImagicLocale(stored: String): String = stored.lowercase()
-
 	fun parseStorePath(stored: String): Pair<String, String>
 	{
 		val parts = stored.split("-", limit = 2)

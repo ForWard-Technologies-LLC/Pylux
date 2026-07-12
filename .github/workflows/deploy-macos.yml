@@ -154,6 +154,24 @@ jobs:
 
           ln -sf libvulkan.1.dylib build/gui/chiaki.app/Contents/Frameworks/vulkan 2>/dev/null || true
 
+          # Bundle SDL3 for sdl2-compat. Homebrew's `sdl2` (installed above) is now sdl2-compat -- an
+          # SDL2 API shim that dlopens SDL3 at runtime via @loader_path/libSDL3.dylib (next to libSDL2
+          # in Frameworks). macdeployqt does NOT copy SDL3 (it is loaded via dlopen, not linked), so
+          # without this the App Store .app aborts on launch with "Failed loading SDL3 library" before
+          # any of our code runs. It MUST be named libSDL3.dylib (the @loader_path name) -- not
+          # libSDL3.0.dylib, which only sdl2-compat's bare-name fallback (system search path) finds,
+          # masking the bug on dev machines. The per-arch copy is lipo-merged into the universal
+          # bundle in the create-appstore-pkg job and signed there with the rest of the dylibs.
+          SDL3_SRC="${{ matrix.brew_prefix }}/opt/sdl3/lib/libSDL3.0.dylib"
+          if [ -f "$SDL3_SRC" ]; then
+            echo "Bundling SDL3 (required by sdl2-compat)..."
+            cp -f "$SDL3_SRC" build/gui/chiaki.app/Contents/Frameworks/libSDL3.dylib
+            chmod u+w build/gui/chiaki.app/Contents/Frameworks/libSDL3.dylib
+            install_name_tool -id "@rpath/libSDL3.dylib" build/gui/chiaki.app/Contents/Frameworks/libSDL3.dylib
+          else
+            echo "::warning::SDL3 not found at $SDL3_SRC -- if libSDL2 is sdl2-compat the app will crash on launch"
+          fi
+
       - name: Create tarball for PKG job (cache, not workflow artifact)
         run: |
           cd build/gui

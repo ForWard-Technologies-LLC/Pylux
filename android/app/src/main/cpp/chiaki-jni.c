@@ -12,6 +12,9 @@
 #include <chiaki/senkusha.h>
 #include <chiaki/remote/holepunch.h>
 #include <chiaki/base64.h>
+#include <chiaki/cloudcatalog.h>
+#include <chiaki/cloudsession.h>
+#include <chiaki/orientation.h>
 
 #include <string.h>
 #include <stdlib.h>
@@ -186,6 +189,52 @@ JNIEXPORT jboolean JNICALL JNI_FCN(quitReasonIsError)(JNIEnv *env, jobject obj, 
 	return chiaki_quit_reason_is_error(value);
 }
 
+// --- Orientation tracker (controller gyro -> orientation quaternion) ---
+// Thin wrappers around the shared Madgwick tracker (lib/src/orientation.c) so the
+// Kotlin controller-motion path computes orientation with the SAME algorithm as
+// Qt (SDL sensors) and iOS (GCMotion), instead of duplicating it in Kotlin.
+// Controller sensors on Android (InputDevice.getSensorManager, API 31+) provide
+// only gyro/accel -- no rotation vector -- hence the tracker.
+
+JNIEXPORT jlong JNICALL JNI_FCN(orientationTrackerCreate)(JNIEnv *env, jobject obj)
+{
+	ChiakiOrientationTracker *tracker = malloc(sizeof(ChiakiOrientationTracker));
+	if(!tracker)
+		return 0;
+	chiaki_orientation_tracker_init(tracker);
+	return (jlong)(uintptr_t)tracker;
+}
+
+JNIEXPORT void JNICALL JNI_FCN(orientationTrackerFree)(JNIEnv *env, jobject obj, jlong ptr)
+{
+	free((ChiakiOrientationTracker *)(uintptr_t)ptr);
+}
+
+/**
+ * Feed one gyro (rad/s) + accel (G) sample and return the tracked state:
+ * out[0..2] = gyro, out[3..5] = accel, out[6..9] = orientation quaternion x/y/z/w
+ * (as chiaki_orientation_tracker_apply_to_controller_state would write them).
+ */
+JNIEXPORT void JNICALL JNI_FCN(orientationTrackerUpdate)(JNIEnv *env, jobject obj, jlong ptr,
+	jfloat gx, jfloat gy, jfloat gz, jfloat ax, jfloat ay, jfloat az, jlong timestamp_us, jfloatArray out)
+{
+	ChiakiOrientationTracker *tracker = (ChiakiOrientationTracker *)(uintptr_t)ptr;
+	if(!tracker)
+		return;
+	ChiakiAccelNewZero accel_zero;
+	chiaki_accel_new_zero_set_inactive(&accel_zero, false);
+	chiaki_orientation_tracker_update(tracker, gx, gy, gz, ax, ay, az, &accel_zero, true, (uint32_t)timestamp_us);
+	ChiakiControllerState state;
+	chiaki_controller_state_set_idle(&state);
+	chiaki_orientation_tracker_apply_to_controller_state(tracker, &state);
+	jfloat vals[10] = {
+		state.gyro_x, state.gyro_y, state.gyro_z,
+		state.accel_x, state.accel_y, state.accel_z,
+		state.orient_x, state.orient_y, state.orient_z, state.orient_w,
+	};
+	(*env)->SetFloatArrayRegion(env, out, 0, 10, vals);
+}
+
 JNIEXPORT jobject JNICALL JNI_FCN(videoProfilePreset)(JNIEnv *env, jobject obj, jint resolution_preset, jint fps_preset, jobject codec)
 {
 	ChiakiConnectVideoProfile profile = { 0 };
@@ -207,6 +256,7 @@ typedef struct android_chiaki_session_t
 	jmethodID java_session_event_rumble_meth;
 	jmethodID java_session_event_regist_meth;
 	jmethodID java_session_event_holepunch_meth;
+	jmethodID java_session_event_ps_chord_meth;
 	// Cached class refs for CHIAKI_EVENT_REGIST (FindClass doesn't work from native threads)
 	jclass java_target_class;
 	jmethodID java_target_from_value;
@@ -239,6 +289,8 @@ typedef struct android_chiaki_session_t
 	AndroidChiakiOpusDecoder opus_decoder;
 	bool use_opus_decoder; // true for PSCloud, false for PSNow/Remote Play
 	void *audio_output;
+	uint8_t last_haptic_amp; // last haptic-audio-derived rumble amplitude emitted (throttle)
+	uint16_t haptic_same_amp_frames; // consecutive frames suppressed by the throttle
 } AndroidChiakiSession;
 
 static void android_chiaki_event_cb(ChiakiEvent *event, void *user)
@@ -309,11 +361,74 @@ static void android_chiaki_event_cb(ChiakiEvent *event, void *user)
 			E->CallVoidMethod(env, session->java_session,
 							  session->java_session_event_holepunch_meth);
 			break;
+		case CHIAKI_EVENT_PS_CHORD:
+			// OPTIONS+SHARE chord fired: PS pulse already went to the console;
+			// tell Kotlin so the activity can also surface its in-stream menu.
+			E->CallVoidMethod(env, session->java_session,
+							  session->java_session_event_ps_chord_meth);
+			break;
+		case CHIAKI_EVENT_TRIGGER_EFFECTS:
+		case CHIAKI_EVENT_HAPTIC_INTENSITY:
+		case CHIAKI_EVENT_TRIGGER_INTENSITY:
+		case CHIAKI_EVENT_LED_COLOR:
+		case CHIAKI_EVENT_PLAYER_INDEX:
+		case CHIAKI_EVENT_MOTION_RESET:
+			// Intentionally unhandled on Android: DualSense adaptive triggers have no
+			// public Android API (only reachable via raw USB/BT HID output reports,
+			// which we deliberately do not do), and the same goes for controller LED /
+			// player-index. Rumble is NOT lost though: enable_dualsense is true in
+			// sessionCreate, so a PS5 delivers rumble as haptic audio through the
+			// haptics sink (see the chiaki_session_set_haptics_sink_ex setup below),
+			// converted to vibrator amplitudes in Kotlin.
+			break;
 		default:
 			break;
 	}
 
 	(*global_vm)->DetachCurrentThread(global_vm);
+}
+
+// With enable_dualsense=true a PS5 streams rumble as DualSense haptic-audio PCM
+// (interleaved stereo int16) rather than classic rumble packets. Android can't play
+// rich body haptics, so -- like Qt and iOS -- collapse each frame to a single motor
+// amplitude and re-emit it through the normal rumble path (android_chiaki_event_cb ->
+// eventRumble -> vibrator). Throttled to amplitude changes so we don't churn the JVM.
+static void android_chiaki_haptics_frame_cb(uint8_t *buf, size_t buf_size, void *user)
+{
+	AndroidChiakiSession *session = user;
+	if(!buf)
+		return;
+	const size_t sample_size = 2 * sizeof(int16_t); // interleaved stereo int16
+	size_t n = buf_size / sample_size;
+	if(n == 0)
+		return;
+	uint64_t sum = 0;
+	for(size_t i = 0; i < n; i++)
+	{
+		int16_t l = 0, r = 0;
+		memcpy(&l, buf + i * sample_size, sizeof(int16_t));
+		memcpy(&r, buf + i * sample_size + sizeof(int16_t), sizeof(int16_t));
+		int al = l < 0 ? -l : l, ar = r < 0 ? -r : r;
+		sum += (uint64_t)(al > ar ? al : ar);
+	}
+	uint32_t avg = (uint32_t)(sum / n); // 0..32767
+	uint8_t amp = avg >= 32767 ? 255 : (uint8_t)((avg * 255) / 32767);
+	// Only emit on change -- but the consumer plays a FINITE (1s) effect, so a
+	// constant non-zero amplitude sustained past that would go silent. Let equal
+	// amplitudes through periodically to re-arm the effect (~every 0.5s at the
+	// ~100 frames/s haptic rate).
+	if(amp == session->last_haptic_amp)
+	{
+		if(amp == 0 || ++session->haptic_same_amp_frames < 50)
+			return;
+	}
+	session->haptic_same_amp_frames = 0;
+	session->last_haptic_amp = amp;
+	ChiakiEvent event = { 0 };
+	event.type = CHIAKI_EVENT_RUMBLE;
+	event.rumble.left = amp;
+	event.rumble.right = amp;
+	android_chiaki_event_cb(&event, session); // reuse the existing rumble dispatch
 }
 
 JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject result, jobject connect_info_obj, jstring log_file_str, jboolean log_verbose, jobject java_session)
@@ -339,6 +454,15 @@ JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject 
 	jclass connect_video_profile_class = E->GetObjectClass(env, connect_video_profile_obj);
 
 	ChiakiConnectInfo connect_info = { 0 };
+	// enable_dualsense=true so a PS5 sends rumble at all in Remote Play. With it OFF an
+	// RP PS5 delivers rumble ONLY as DualSense haptic audio (a DualShock4-declared client
+	// never gets classic type-7 rumble packets -- confirmed on-device: only type-9
+	// PAD_INFO arrives, which carries no motor data), so RP rumble was silent while Cloud
+	// still worked. We can't play rich body haptics or adaptive triggers on Android (no
+	// public API -- those events stay ignored), but the haptics sink registered below
+	// converts the haptic-audio PCM to one motor amplitude and re-emits it as a normal
+	// rumble event (same approach as Qt/iOS), so rumble works for both RP and Cloud.
+	connect_info.enable_dualsense = true;
 	connect_info.ps5 = ps5;
 
 	const char *str_borrow = E->GetStringUTFChars(env, host_string, NULL);
@@ -590,6 +714,7 @@ JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject 
 	session->java_session_event_rumble_meth = E->GetMethodID(env, session->java_session_class, "eventRumble", "(II)V");
 	session->java_session_event_regist_meth = E->GetMethodID(env, session->java_session_class, "eventRegist", "(L"BASE_PACKAGE"/RegistHost;)V");
 	session->java_session_event_holepunch_meth = E->GetMethodID(env, session->java_session_class, "eventHolepunch", "()V");
+	session->java_session_event_ps_chord_meth = E->GetMethodID(env, session->java_session_class, "eventPsChord", "()V");
 
 	// Cache class refs for CHIAKI_EVENT_REGIST (FindClass won't work from native threads)
 	session->java_target_class = E->NewGlobalRef(env, E->FindClass(env, BASE_PACKAGE"/Target"));
@@ -642,6 +767,16 @@ JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject 
 	else
 		android_chiaki_audio_decoder_get_sink(&session->audio_decoder, &audio_sink);
 	chiaki_session_set_audio_sink(&session->session, &audio_sink);
+
+	// DualSense haptic-audio -> motor rumble (see android_chiaki_haptics_frame_cb).
+	// Required because enable_dualsense=true makes the PS5 deliver rumble as haptic audio.
+	// Zero-init: ChiakiAudioSink also has a header_cb member; leaving it as stack
+	// garbage plants a wild function pointer in the session for any future code
+	// that dispatches headers to the haptics sink.
+	ChiakiAudioSink haptics_sink = { 0 };
+	haptics_sink.user = session;
+	haptics_sink.frame_cb = android_chiaki_haptics_frame_cb;
+	chiaki_session_set_haptics_sink(&session->session, &haptics_sink);
 
 beach:
 	if(!session && log)
@@ -705,6 +840,45 @@ JNIEXPORT void JNICALL JNI_FCN(sessionSetSurface)(JNIEnv *env, jobject obj, jlon
 	android_chiaki_video_decoder_set_surface(&session->video_decoder, env, surface);
 }
 
+// Live stream metrics for the optional on-screen stats overlay. All values are
+// owned/computed by libchiaki (shared with Qt/iOS) so the client just renders
+// them. Returns a double[7]:
+//   [0] bitrate (Mbit/s)   [1] packet loss (0..1)   [2] dropped frames (cumulative)
+//   [3] fps                [4] rtt (ms)             [5] width   [6] height
+// Cheap best-effort read (same as Qt's polling timer); video_receiver-derived
+// values go through locked accessors, the rest are unlocked scalar reads. Only
+// called while a session is live and the overlay is toggled on.
+JNIEXPORT jdoubleArray JNICALL JNI_FCN(sessionGetMetrics)(JNIEnv *env, jobject obj, jlong ptr)
+{
+	jdouble vals[7] = { 0 };
+	AndroidChiakiSession *session = (AndroidChiakiSession *)ptr;
+	if(session)
+	{
+		ChiakiStreamConnection *sc = &session->session.stream_connection;
+		vals[0] = sc->measured_bitrate;
+		vals[1] = sc->congestion_control.packet_loss;
+		vals[3] = sc->measured_fps;
+		vals[4] = sc->measured_rtt_ms;
+		vals[2] = (jdouble)chiaki_stream_connection_video_frames_lost(sc); // 0 when no receiver — same as the zero-initialized array
+		unsigned int vw = 0, vh = 0;
+		if(chiaki_stream_connection_video_resolution(sc, &vw, &vh))
+		{
+			vals[5] = (jdouble)vw;
+			vals[6] = (jdouble)vh;
+		}
+		// Fall back to the requested profile before the first adaptive profile is selected.
+		if(vals[5] == 0 || vals[6] == 0)
+		{
+			vals[5] = (jdouble)session->session.connect_info.video_profile.width;
+			vals[6] = (jdouble)session->session.connect_info.video_profile.height;
+		}
+	}
+	jdoubleArray arr = E->NewDoubleArray(env, 7);
+	if(arr)
+		E->SetDoubleArrayRegion(env, arr, 0, 7, vals);
+	return arr;
+}
+
 JNIEXPORT void JNICALL JNI_FCN(sessionSetControllerState)(JNIEnv *env, jobject obj, jlong ptr, jobject controller_state_java)
 {
 	AndroidChiakiSession *session = (AndroidChiakiSession *)ptr;
@@ -746,6 +920,14 @@ JNIEXPORT void JNICALL JNI_FCN(sessionSetControllerState)(JNIEnv *env, jobject o
 	controller_state.orient_z = E->GetFloatField(env, controller_state_java, session->java_controller_state_orient_z);
 	controller_state.orient_w = E->GetFloatField(env, controller_state_java, session->java_controller_state_orient_w);
 	chiaki_session_set_controller_state(&session->session, &controller_state);
+}
+
+JNIEXPORT void JNICALL JNI_FCN(sessionSetPsChord)(JNIEnv *env, jobject obj, jlong ptr, jboolean enabled, jint hold_ms)
+{
+	AndroidChiakiSession *session = (AndroidChiakiSession *)ptr;
+	if(!session)
+		return;
+	chiaki_session_set_ps_chord(&session->session, enabled, hold_ms > 0 ? (uint32_t)hold_ms : 0);
 }
 
 JNIEXPORT void JNICALL JNI_FCN(sessionSetLoginPin)(JNIEnv *env, jobject obj, jlong ptr, jstring pin_java)
@@ -1308,190 +1490,255 @@ JNIEXPORT jstring JNICALL JNI_FCN(holepunchGetRegistInfoLocalIp)(JNIEnv *env, jo
 	return E->NewStringUTF(env, info.regist_local_ip);
 }
 
-// Datacenter Ping JNI
-JNIEXPORT jobject JNICALL Java_com_metallic_chiaki_cloudplay_ping_DatacenterPingNative_performPing(
-	JNIEnv *env, jobject obj, jstring publicIp, jint port, jstring sessionKey, jstring serviceType)
+
+// Unified cloud catalog (chiaki/cloudcatalog.h): one fetch+dedup+ownership+tagging pass shared
+// with Qt and iOS. Returns the UTF-8 JSON contract as a byte[] (the payload has non-ASCII names
+// that JNI's modified-UTF-8 NewStringUTF can't safely carry; Kotlin decodes the bytes as UTF-8).
+// On hard failure returns NULL and, if error_out is a non-empty String[], stores the lib's
+// human-readable detail in error_out[0] so the caller can surface it (mirrors iOS).
+JNIEXPORT jbyteArray JNICALL JNI_FCN(cloudCatalogFetchUnified)(JNIEnv *env, jobject obj,
+	jstring npsso_str, jstring locale_str, jstring cache_dir_str, jboolean force_refresh,
+	jobjectArray error_out)
 {
-	// Create a minimal logger (Qt line 54-55)
-	ChiakiLog log;
-	chiaki_log_init(&log, CHIAKI_LOG_ALL & ~CHIAKI_LOG_VERBOSE, chiaki_log_cb_print, NULL);
-	
-	const char *ip_str = (*env)->GetStringUTFChars(env, publicIp, NULL);
-	const char *session_key_str = (*env)->GetStringUTFChars(env, sessionKey, NULL);
-	const char *service_type_str = (*env)->GetStringUTFChars(env, serviceType, NULL);
-	
-	if(!ip_str || !session_key_str || !service_type_str)
+	const char *npsso = npsso_str ? E->GetStringUTFChars(env, npsso_str, NULL) : NULL;
+	const char *locale = locale_str ? E->GetStringUTFChars(env, locale_str, NULL) : NULL;
+	const char *cache_dir = cache_dir_str ? E->GetStringUTFChars(env, cache_dir_str, NULL) : NULL;
+
+	// The lib requires a non-null cache dir; bail (releasing whatever succeeded) if a requested
+	// string failed to materialize (only under OOM).
+	if((cache_dir_str && !cache_dir) || (npsso_str && !npsso) || (locale_str && !locale))
 	{
-		CHIAKI_LOGI(&log, "DatacenterPing: Failed to get JNI strings");
-		
-		// Create failure result
-		jclass pingResultClass = (*env)->FindClass(env, "com/metallic/chiaki/cloudplay/ping/PingResult");
-		jmethodID constructor = (*env)->GetMethodID(env, pingResultClass, "<init>", "(JII)V");
-		jobject result = (*env)->NewObject(env, pingResultClass, constructor, (jlong)-1, (jint)0, (jint)0);
-		
-		if(ip_str) (*env)->ReleaseStringUTFChars(env, publicIp, ip_str);
-		if(session_key_str) (*env)->ReleaseStringUTFChars(env, sessionKey, session_key_str);
-		if(service_type_str) (*env)->ReleaseStringUTFChars(env, serviceType, service_type_str);
-		return result;
+		CHIAKI_LOGE(&global_log, "[CloudCatalog] GetStringUTFChars failed (out of memory?)");
+		if(npsso) E->ReleaseStringUTFChars(env, npsso_str, npsso);
+		if(locale) E->ReleaseStringUTFChars(env, locale_str, locale);
+		if(cache_dir) E->ReleaseStringUTFChars(env, cache_dir_str, cache_dir);
+		return NULL;
 	}
-	
-	CHIAKI_LOGI(&log, "DatacenterPing: Pinging %s:%d (service=%s)", ip_str, port, service_type_str);
-	
-	// Resolve hostname to IP
-	struct addrinfo hints;
-	memset(&hints, 0, sizeof(hints));
-	hints.ai_family = AF_INET;
-	hints.ai_socktype = SOCK_DGRAM;
-	hints.ai_protocol = IPPROTO_UDP;
-	
-	char port_str[16];
-	snprintf(port_str, sizeof(port_str), "%d", port);
-	
-	struct addrinfo *addrinfo_result = NULL;
-	int err = getaddrinfo(ip_str, port_str, &hints, &addrinfo_result);
-	if(err != 0 || !addrinfo_result)
+
+	ChiakiCloudCatalogConfig cfg;
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.npsso = (npsso && npsso[0]) ? npsso : NULL;
+	cfg.locale = (locale && locale[0]) ? locale : NULL;
+	cfg.cache_dir = cache_dir;
+	cfg.force_refresh = force_refresh ? true : false;
+
+	ChiakiCloudCatalogResult res;
+	memset(&res, 0, sizeof(res));
+	ChiakiErrorCode err = chiaki_cloudcatalog_fetch_unified(&cfg, &res, &global_log);
+
+	jbyteArray result = NULL;
+	const char *fail_detail = NULL; // non-NULL => report via error_out[0]
+	if(res.json)
 	{
-		CHIAKI_LOGE(&log, "DatacenterPing: Failed to resolve %s:%d - %s", ip_str, port, gai_strerror(err));
-		
-		// Create failure result
-		jclass pingResultClass = (*env)->FindClass(env, "com/metallic/chiaki/cloudplay/ping/PingResult");
-		jmethodID constructor = (*env)->GetMethodID(env, pingResultClass, "<init>", "(JII)V");
-		jobject result = (*env)->NewObject(env, pingResultClass, constructor, (jlong)-1, (jint)0, (jint)0);
-		
-		(*env)->ReleaseStringUTFChars(env, publicIp, ip_str);
-		(*env)->ReleaseStringUTFChars(env, sessionKey, session_key_str);
-		(*env)->ReleaseStringUTFChars(env, serviceType, service_type_str);
-		return result;
-	}
-	
-	// Allocate and initialize session buffer (Qt lines 115-132)
-	size_t session_size = sizeof(ChiakiSession);
-	ChiakiSession *session = (ChiakiSession *)calloc(1, session_size);
-	if(!session)
-	{
-		CHIAKI_LOGE(&log, "DatacenterPing: Failed to allocate session buffer");
-		freeaddrinfo(addrinfo_result);
-		
-		// Create failure result
-		jclass pingResultClass = (*env)->FindClass(env, "com/metallic/chiaki/cloudplay/ping/PingResult");
-		jmethodID constructor = (*env)->GetMethodID(env, pingResultClass, "<init>", "(JII)V");
-		jobject result = (*env)->NewObject(env, pingResultClass, constructor, (jlong)-1, (jint)0, (jint)0);
-		
-		(*env)->ReleaseStringUTFChars(env, publicIp, ip_str);
-		(*env)->ReleaseStringUTFChars(env, sessionKey, session_key_str);
-		(*env)->ReleaseStringUTFChars(env, serviceType, service_type_str);
-		return result;
-	}
-	
-	session->log = &log;
-	session->connect_info.host_addrinfo_selected = addrinfo_result;
-	session->connect_info.enable_dualsense = false;
-	session->target = CHIAKI_TARGET_PS5_1;
-	session->cloud_port = port;
-	
-	// Set service type for cloud ping (Qt lines 133-145)
-	if(strcmp(service_type_str, "pscloud") == 0)
-	{
-		session->cloud_psn_wrapper_type = 0;  // No PSN wrapper for PSCloud
-		session->service_type = CHIAKI_SERVICE_TYPE_PSCLOUD;
-	}
-	else  // "psnow" or fallback
-	{
-		session->cloud_psn_wrapper_type = 0x01;  // PSN wrapper for PSNOW
-		session->service_type = CHIAKI_SERVICE_TYPE_PSNOW;
-	}
-	
-	// Initialize senkusha (Qt lines 148-159)
-	ChiakiSenkusha senkusha;
-	ChiakiErrorCode chiaki_err = chiaki_senkusha_init(&senkusha, session);
-	if(chiaki_err != CHIAKI_ERR_SUCCESS)
-	{
-		CHIAKI_LOGE(&log, "DatacenterPing: Failed to initialize senkusha: %d", chiaki_err);
-		freeaddrinfo(addrinfo_result);
-		free(session);
-		
-		// Create failure result
-		jclass pingResultClass = (*env)->FindClass(env, "com/metallic/chiaki/cloudplay/ping/PingResult");
-		jmethodID constructor = (*env)->GetMethodID(env, pingResultClass, "<init>", "(JII)V");
-		jobject result = (*env)->NewObject(env, pingResultClass, constructor, (jlong)-1, (jint)0, (jint)0);
-		
-		(*env)->ReleaseStringUTFChars(env, publicIp, ip_str);
-		(*env)->ReleaseStringUTFChars(env, sessionKey, session_key_str);
-		(*env)->ReleaseStringUTFChars(env, serviceType, service_type_str);
-		return result;
-	}
-	
-	// Force protocol version to 9 for cloud ping (Qt line 162)
-	senkusha.protocol_version = 9;
-	
-	// Set session key (x-gaikai-session) for cloud mode BIG message (Qt lines 164-179)
-	size_t session_key_len = strlen(session_key_str);
-	senkusha.cloud_launch_spec = (char *)malloc(session_key_len + 1);
-	if(!senkusha.cloud_launch_spec)
-	{
-		CHIAKI_LOGE(&log, "DatacenterPing: Failed to allocate session key string");
-		chiaki_senkusha_fini(&senkusha);
-		freeaddrinfo(addrinfo_result);
-		free(session);
-		
-		// Create failure result
-		jclass pingResultClass = (*env)->FindClass(env, "com/metallic/chiaki/cloudplay/ping/PingResult");
-		jmethodID constructor = (*env)->GetMethodID(env, pingResultClass, "<init>", "(JII)V");
-		jobject result = (*env)->NewObject(env, pingResultClass, constructor, (jlong)-1, (jint)0, (jint)0);
-		
-		(*env)->ReleaseStringUTFChars(env, publicIp, ip_str);
-		(*env)->ReleaseStringUTFChars(env, sessionKey, session_key_str);
-		(*env)->ReleaseStringUTFChars(env, serviceType, service_type_str);
-		return result;
-	}
-	memcpy(senkusha.cloud_launch_spec, session_key_str, session_key_len);
-	senkusha.cloud_launch_spec[session_key_len] = '\0';
-	
-	// Run senkusha (this will do the full handshake + echo/ping test) (Qt line 186)
-	uint32_t mtu_in = 0;
-	uint32_t mtu_out = 0;
-	uint64_t rtt_us = 0;
-	
-	chiaki_err = chiaki_senkusha_run(&senkusha, &mtu_in, &mtu_out, &rtt_us, NULL);
-	
-	// Free resources (Qt lines 189-196)
-	if(senkusha.cloud_launch_spec)
-	{
-		free(senkusha.cloud_launch_spec);
-		senkusha.cloud_launch_spec = NULL;
-	}
-	
-	chiaki_senkusha_fini(&senkusha);
-	freeaddrinfo(addrinfo_result);
-	free(session);
-	
-	// Create result object (Qt lines 198-210)
-	jlong result_rtt_us = -1;
-	jint result_mtu_in = 0;
-	jint result_mtu_out = 0;
-	
-	if(chiaki_err == CHIAKI_ERR_SUCCESS)
-	{
-		result_rtt_us = (jlong)rtt_us;
-		result_mtu_in = (jint)mtu_in;
-		result_mtu_out = (jint)mtu_out;
-		CHIAKI_LOGI(&log, "DatacenterPing: %s:%d - RTT: %lld us, MTU in: %d, MTU out: %d", 
-			ip_str, port, (long long)rtt_us, mtu_in, mtu_out);
+		size_t len = strlen(res.json);
+		result = E->NewByteArray(env, (jsize)len);
+		if(result)
+			E->SetByteArrayRegion(env, result, 0, (jsize)len, (const jbyte *)res.json);
+		else
+			fail_detail = "Out of memory building cloud catalog payload"; // alloc failed despite valid json
 	}
 	else
 	{
-		CHIAKI_LOGE(&log, "DatacenterPing: %s:%d - Ping failed with error: %d", ip_str, port, chiaki_err);
+		CHIAKI_LOGE(&global_log, "[CloudCatalog] fetch failed (err=%d): %s",
+			(int)err, res.error_message ? res.error_message : "no detail");
+		fail_detail = res.error_message ? res.error_message : chiaki_error_string(err);
 	}
-	
-	// Release JNI strings
-	(*env)->ReleaseStringUTFChars(env, publicIp, ip_str);
-	(*env)->ReleaseStringUTFChars(env, sessionKey, session_key_str);
-	(*env)->ReleaseStringUTFChars(env, serviceType, service_type_str);
-	
-	// Create and return PingResult object
-	jclass pingResultClass = (*env)->FindClass(env, "com/metallic/chiaki/cloudplay/ping/PingResult");
-	jmethodID constructor = (*env)->GetMethodID(env, pingResultClass, "<init>", "(JII)V");
-	jobject result = (*env)->NewObject(env, pingResultClass, constructor, result_rtt_us, result_mtu_in, result_mtu_out);
-	
+
+	if(!result && fail_detail && error_out && E->GetArrayLength(env, error_out) > 0)
+	{
+		jstring jdetail = E->NewStringUTF(env, fail_detail);
+		if(jdetail)
+		{
+			E->SetObjectArrayElement(env, error_out, 0, jdetail);
+			E->DeleteLocalRef(env, jdetail);
+		}
+	}
+
+	chiaki_cloudcatalog_result_fini(&res);
+	if(npsso_str) E->ReleaseStringUTFChars(env, npsso_str, npsso);
+	if(locale_str) E->ReleaseStringUTFChars(env, locale_str, locale);
+	if(cache_dir_str) E->ReleaseStringUTFChars(env, cache_dir_str, cache_dir);
 	return result;
+}
+
+JNIEXPORT void JNICALL JNI_FCN(cloudCatalogInvalidateCache)(JNIEnv *env, jobject obj, jstring cache_dir_str)
+{
+	const char *cache_dir = cache_dir_str ? E->GetStringUTFChars(env, cache_dir_str, NULL) : NULL;
+	if(cache_dir)
+	{
+		chiaki_cloudcatalog_invalidate_cache(cache_dir);
+		E->ReleaseStringUTFChars(env, cache_dir_str, cache_dir);
+	}
+}
+
+// Unified cloud session provisioning (chiaki/cloudsession.h): the whole Kamaji+Gaikai flow
+// in C, shared with Qt/iOS. Blocking -- call from a background thread. Progress + cancellation
+// route back to a Kotlin CloudProvisionCallbacks object, called on THIS thread (so this JNIEnv
+// stays valid; the lib's parallel ping threads never touch JNI). Result comes back via
+// stringOut[8] + intOut[5]; returns the ChiakiErrorCode. All result strings are ASCII
+// (ip/keys/launchSpec/json/errorMessage), so NewStringUTF is safe (unlike the catalog payload).
+typedef struct
+{
+	JNIEnv *env;
+	jobject callbacks;
+	jmethodID on_progress;   // (Ljava/lang/String;)V
+	jmethodID is_cancelled;  // ()Z
+} CloudCbCtx;
+
+static void cloud_jni_progress(const char *stage, void *user)
+{
+	CloudCbCtx *c = (CloudCbCtx *)user;
+	if(!c || !c->callbacks || !c->on_progress) return;
+	JNIEnv *env = c->env;
+	jstring s = E->NewStringUTF(env, stage ? stage : "");
+	if(!s) return;
+	E->CallVoidMethod(env, c->callbacks, c->on_progress, s);
+	if(E->ExceptionCheck(env)) E->ExceptionClear(env);
+	E->DeleteLocalRef(env, s);
+}
+
+static bool cloud_jni_cancelled(void *user)
+{
+	CloudCbCtx *c = (CloudCbCtx *)user;
+	if(!c || !c->callbacks || !c->is_cancelled) return false;
+	JNIEnv *env = c->env;
+	jboolean b = E->CallBooleanMethod(env, c->callbacks, c->is_cancelled);
+	if(E->ExceptionCheck(env)) { E->ExceptionClear(env); return false; }
+	return b ? true : false;
+}
+
+static void cloud_set_str_out(JNIEnv *env, jobjectArray arr, int idx, const char *s)
+{
+	if(!s || !*s) return;
+	jstring js = E->NewStringUTF(env, s);
+	if(!js) return;
+	E->SetObjectArrayElement(env, arr, (jsize)idx, js);
+	E->DeleteLocalRef(env, js);
+}
+
+JNIEXPORT jint JNICALL JNI_FCN(cloudProvisionSession)(JNIEnv *env, jobject obj,
+	jstring service_type_str, jstring game_identifier_str, jstring game_name_str, jstring npsso_str,
+	jstring store_country_str, jstring store_lang_str, jstring game_language_str,
+	jstring owned_entitlement_str, jstring owned_platform_str, jstring forced_dc_str,
+	jstring prior_dc_str, jboolean catalog_is_foreign, jint resolution, jint bitrate_kbps,
+	jobject callbacks, jobjectArray string_out, jintArray int_out)
+{
+	(void)obj;
+	const char *service_type = service_type_str ? E->GetStringUTFChars(env, service_type_str, NULL) : NULL;
+	const char *game_identifier = game_identifier_str ? E->GetStringUTFChars(env, game_identifier_str, NULL) : NULL;
+	const char *game_name = game_name_str ? E->GetStringUTFChars(env, game_name_str, NULL) : NULL;
+	const char *npsso = npsso_str ? E->GetStringUTFChars(env, npsso_str, NULL) : NULL;
+	const char *store_country = store_country_str ? E->GetStringUTFChars(env, store_country_str, NULL) : NULL;
+	const char *store_lang = store_lang_str ? E->GetStringUTFChars(env, store_lang_str, NULL) : NULL;
+	const char *game_language = game_language_str ? E->GetStringUTFChars(env, game_language_str, NULL) : NULL;
+	const char *owned_entitlement = owned_entitlement_str ? E->GetStringUTFChars(env, owned_entitlement_str, NULL) : NULL;
+	const char *owned_platform = owned_platform_str ? E->GetStringUTFChars(env, owned_platform_str, NULL) : NULL;
+	const char *forced_dc = forced_dc_str ? E->GetStringUTFChars(env, forced_dc_str, NULL) : NULL;
+	const char *prior_dc = prior_dc_str ? E->GetStringUTFChars(env, prior_dc_str, NULL) : NULL;
+
+	CloudCbCtx cb;
+	memset(&cb, 0, sizeof(cb));
+	cb.env = env;
+	cb.callbacks = callbacks;
+	if(callbacks)
+	{
+		jclass cls = E->GetObjectClass(env, callbacks);
+		cb.on_progress = E->GetMethodID(env, cls, "onProgress", "(Ljava/lang/String;)V");
+		cb.is_cancelled = E->GetMethodID(env, cls, "isCancelled", "()Z");
+	}
+
+	ChiakiCloudProvisionConfig cfg;
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.service_type = service_type;
+	cfg.game_identifier = game_identifier;
+	cfg.game_name = game_name;
+	cfg.npsso = npsso;
+	cfg.store_country = store_country;
+	cfg.store_lang = store_lang;
+	cfg.game_language = game_language;
+	cfg.owned_entitlement_id = owned_entitlement;
+	cfg.owned_platform = owned_platform;
+	cfg.forced_datacenter = forced_dc;
+	cfg.prior_datacenters_json = prior_dc;
+	cfg.catalog_is_foreign = catalog_is_foreign ? true : false;
+	cfg.skip_account_attr_check = false;
+	cfg.resolution = resolution;
+	cfg.bitrate_kbps = bitrate_kbps;
+	cfg.progress = callbacks ? cloud_jni_progress : NULL;
+	cfg.is_cancelled = callbacks ? cloud_jni_cancelled : NULL;
+	cfg.user = &cb;
+
+	ChiakiCloudProvisionResult res;
+	memset(&res, 0, sizeof(res));
+	ChiakiErrorCode err = chiaki_cloud_provision_session(&cfg, &res, &global_log);
+
+	// stringOut: [serverIp, handshakeKey, launchSpec, sessionId, entitlementId, platform, datacenterPings, errorMessage]
+	if(string_out && E->GetArrayLength(env, string_out) >= 8)
+	{
+		cloud_set_str_out(env, string_out, 0, res.server_ip);
+		cloud_set_str_out(env, string_out, 1, res.handshake_key);
+		cloud_set_str_out(env, string_out, 2, res.launch_spec);
+		cloud_set_str_out(env, string_out, 3, res.session_id);
+		cloud_set_str_out(env, string_out, 4, res.entitlement_id);
+		cloud_set_str_out(env, string_out, 5, res.platform);
+		cloud_set_str_out(env, string_out, 6, res.datacenter_pings);
+		cloud_set_str_out(env, string_out, 7, res.error_message);
+	}
+	// intOut: [serverPort, psnWrapperType, mtuIn, mtuOut, rttMs]
+	if(int_out && E->GetArrayLength(env, int_out) >= 5)
+	{
+		jint ints[5] = { (jint)res.server_port, (jint)res.psn_wrapper_type,
+			(jint)res.mtu_in, (jint)res.mtu_out, (jint)(res.rtt_us / 1000) };
+		E->SetIntArrayRegion(env, int_out, 0, 5, ints);
+	}
+
+	chiaki_cloud_provision_result_fini(&res);
+	if(service_type_str) E->ReleaseStringUTFChars(env, service_type_str, service_type);
+	if(game_identifier_str) E->ReleaseStringUTFChars(env, game_identifier_str, game_identifier);
+	if(game_name_str) E->ReleaseStringUTFChars(env, game_name_str, game_name);
+	if(npsso_str) E->ReleaseStringUTFChars(env, npsso_str, npsso);
+	if(store_country_str) E->ReleaseStringUTFChars(env, store_country_str, store_country);
+	if(store_lang_str) E->ReleaseStringUTFChars(env, store_lang_str, store_lang);
+	if(game_language_str) E->ReleaseStringUTFChars(env, game_language_str, game_language);
+	if(owned_entitlement_str) E->ReleaseStringUTFChars(env, owned_entitlement_str, owned_entitlement);
+	if(owned_platform_str) E->ReleaseStringUTFChars(env, owned_platform_str, owned_platform);
+	if(forced_dc_str) E->ReleaseStringUTFChars(env, forced_dc_str, forced_dc);
+	if(prior_dc_str) E->ReleaseStringUTFChars(env, prior_dc_str, prior_dc);
+	return (jint)err;
+}
+
+// Cloud streaming language helpers (chiaki/cloudcatalog.h): the shared lib table
+// is the single source of truth across Qt/iOS/Android. Game language is tied to
+// the datacenter region (Gaikai ignores a language whose datacenter is unselected).
+
+JNIEXPORT jstring JNICALL JNI_FCN(cloudGaikaiLanguage)(JNIEnv *env, jobject obj, jstring locale_str)
+{
+	(void)obj;
+	const char *locale = locale_str ? E->GetStringUTFChars(env, locale_str, NULL) : NULL;
+	char buf[16];
+	chiaki_cloud_gaikai_language((locale && locale[0]) ? locale : NULL, buf, sizeof(buf));
+	if(locale_str && locale) E->ReleaseStringUTFChars(env, locale_str, locale);
+	return E->NewStringUTF(env, buf);
+}
+
+JNIEXPORT jobjectArray JNICALL JNI_FCN(cloudSupportedLanguages)(JNIEnv *env, jobject obj)
+{
+	(void)obj;
+	size_t n = chiaki_cloud_supported_locale_count();
+	jclass str_class = E->FindClass(env, "java/lang/String");
+	if(!str_class)
+		return NULL;
+	jobjectArray arr = E->NewObjectArray(env, (jsize)n, str_class, NULL);
+	if(!arr)
+		return NULL;
+	for(size_t i = 0; i < n; i++)
+	{
+		jstring s = E->NewStringUTF(env, chiaki_cloud_supported_locale(i));
+		if(s)
+		{
+			E->SetObjectArrayElement(env, arr, (jsize)i, s);
+			E->DeleteLocalRef(env, s);
+		}
+	}
+	return arr;
 }

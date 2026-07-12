@@ -146,8 +146,15 @@ QmlBackend::QmlBackend(Settings *settings, QmlMainWindow *window, SteamworksWrap
 #endif
     cloud_streaming_backend = new CloudStreamingBackend(settings, this);
     cloud_catalog_backend = new CloudCatalogBackend(settings, this);
-    connect(settings_qml, &QmlSettings::cloudLanguagePSCloudChanged, this, [this]() {
-        cloud_catalog_backend->invalidatePs5CatalogCache();
+    connect(settings_qml, &QmlSettings::cloudStoreLocaleChanged, this, [this]() {
+        // Full wipe (not just the v6 PS5 intermediates): the unified catalog is locale-specific,
+        // so a language change must also drop unified_catalog_v3 or a stale-locale list is served.
+        cloud_catalog_backend->invalidateCache();
+    });
+    // Account/profile change (login, logout, token re-entry) must drop the cached catalog so
+    // one account never sees another account's owned games.
+    connect(settings, &Settings::NpssoTokenChanged, this, [this]() {
+        cloud_catalog_backend->invalidateCache();
     });
     
     // Connect cloud streaming backend to register sessions
@@ -705,11 +712,33 @@ void QmlBackend::profileChanged()
     connect(settings, &Settings::ManualHostsUpdated, this, &QmlBackend::hostsChanged);
     connect(settings, &Settings::CurrentProfileChanged, this, &QmlBackend::profileChanged);
     connect(settings, &Settings::ControllerMappingsUpdated, this, &QmlBackend::updateControllerMappings);
+    // The npsso-change hook was bound to the previous (now-deleted) Settings object, so rebind
+    // it to the new profile's Settings.
+    if(cloud_catalog_backend)
+    {
+        connect(settings, &Settings::NpssoTokenChanged, this, [this]() {
+            cloud_catalog_backend->invalidateCache();
+        });
+    }
     settings_qml->setSettings(settings);
     games_backend->setSettings(settings);  // Update games backend settings too
     discovery_manager.SetSettings(settings);
     window->setSettings(settings);
     setDiscoveryEnabled(true);
+
+    // Drop the cached cloud catalog and reload AFTER every consumer above points at the new
+    // profile's Settings. Switching profiles switches the active PSN account and the catalog cache
+    // is a single shared dir, so the new profile must not see the previous profile's owned games
+    // (treat it like a re-login). Order matters: invalidateCache() emits cacheInvalidated, which
+    // makes the cloud view re-fetch immediately -- if we did this before the setSettings() calls,
+    // the re-fetch would read the OLD account's npsso and repopulate the cache with its owned games.
+    if(cloud_catalog_backend)
+    {
+        cloud_catalog_backend->setSettings(settings);
+        cloud_catalog_backend->invalidateCache();
+    }
+    if(cloud_streaming_backend)
+        cloud_streaming_backend->setSettings(settings);
 
     auto_connect_mac = settings->GetAutoConnectHost().GetServerMAC();
     auto_connect_nickname = settings->GetAutoConnectHost().GetServerNickname();

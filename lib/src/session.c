@@ -397,6 +397,12 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_session_init(ChiakiSession *session, Chiaki
 
 	chiaki_controller_state_set_idle(&session->controller_state);
 
+	// Default OFF in the lib: only frontends that explicitly call
+	// chiaki_session_set_ps_chord (Qt/Android/iOS, default on via their own pref)
+	// opt in. Unwired frontends (cli, switch, ...) keep normal OPTIONS+SHARE.
+	session->ps_chord_enabled = false;
+	session->ps_chord_hold_ms = 2000;
+
 	session->connect_info.ps5 = connect_info->ps5;
 	const uint8_t did_prefix[] = { 0x00, 0x18, 0x00, 0x00, 0x00, 0x07, 0x00, 0x40, 0x00, 0x80 };
 	const uint8_t did_suffix[] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
@@ -487,6 +493,20 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_session_set_controller_state(ChiakiSession 
 	session->controller_state = *state;
 	if(session->stream_connection.feedback_sender_active)
 		chiaki_feedback_sender_set_controller_state(&session->stream_connection.feedback_sender, &session->controller_state);
+	chiaki_mutex_unlock(&session->stream_connection.feedback_sender_mutex);
+	return CHIAKI_ERR_SUCCESS;
+}
+
+CHIAKI_EXPORT ChiakiErrorCode chiaki_session_set_ps_chord(ChiakiSession *session, bool enabled, uint32_t hold_ms)
+{
+	ChiakiErrorCode err = chiaki_mutex_lock(&session->stream_connection.feedback_sender_mutex);
+	if(err != CHIAKI_ERR_SUCCESS)
+		return err;
+	session->ps_chord_enabled = enabled;
+	if(hold_ms)
+		session->ps_chord_hold_ms = hold_ms;
+	if(session->stream_connection.feedback_sender_active)
+		chiaki_feedback_sender_set_ps_chord(&session->stream_connection.feedback_sender, enabled, hold_ms);
 	chiaki_mutex_unlock(&session->stream_connection.feedback_sender_mutex);
 	return CHIAKI_ERR_SUCCESS;
 }
