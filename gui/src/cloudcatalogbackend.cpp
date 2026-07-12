@@ -973,7 +973,9 @@ void CloudCatalogBackend::createCloudSteamShortcut(const QString &gameIdentifier
     // Load fixed assets
     qInfo() << "Loading fixed assets...";
     QPixmap icon(":/icons/game_shortcut_icon.png");
-    QPixmap logo(":/icons/game_shortcut_logo.png");
+    // Same Pylux logo the app-level startup shortcut uses (the old game_shortcut_logo.png
+    // still carried PS Stream branding)
+    QPixmap logo(":/icons/steam_logo.png");
     
     if (icon.isNull()) {
         qWarning() << "Failed to load game shortcut icon, using fallback";
