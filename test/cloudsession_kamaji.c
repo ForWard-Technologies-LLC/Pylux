@@ -145,10 +145,12 @@ static MunitResult test_gs_fallback_none(const MunitParameter p[], void *data)
 		"]}");
 	char out[128] = "unchanged";
 	munit_assert_false(km_pick_streaming_gs_id(sku, false, NULL, out, sizeof(out), NULL));
+	munit_assert_string_equal(out, "unchanged");
 	json_object_put(sku);
 
 	struct json_object *empty = parse("{\"id\":\"SKU-2\"}");
 	munit_assert_false(km_pick_streaming_gs_id(empty, false, NULL, out, sizeof(out), NULL));
+	munit_assert_string_equal(out, "unchanged");
 	json_object_put(empty);
 	return MUNIT_OK;
 }

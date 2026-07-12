@@ -282,7 +282,7 @@ bool km_pick_streaming_gs_id(struct json_object *sku, bool require_title,
 		if(require_title && title_id && *title_id && !strstr(id, title_id))
 			continue;
 		snprintf(out_id, out_sz, "%s", id);
-		if(log) CHIAKI_LOGI(log, "[KAMAJI] streaming entitlement (*GS fallback, license_type!=4): %s pkg=%s", id, pkg);
+		if(log) CHIAKI_LOGI(log, "[KAMAJI] streaming entitlement (*GS package fallback): %s pkg=%s", id, pkg);
 		return true;
 	}
 	return false;
