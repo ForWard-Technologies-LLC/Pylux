@@ -46,6 +46,9 @@ static void redact_credentials(char *buf, size_t len)
 {
 	static const char *const keys[] = {
 		"npsso", "jsessionid", "bearer", "access_token", "refresh_token", "id_token", "code",
+		// Gaikai stream secrets: the allocate response's handshake key / launch spec
+		// and the live session header are enough to hijack the stream they protect.
+		"handshakekey", "launchspecification", "x-gaikai-session",
 	};
 	for(size_t k = 0; k < sizeof(keys) / sizeof(keys[0]); k++)
 	{

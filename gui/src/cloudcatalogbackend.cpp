@@ -263,7 +263,10 @@ void CloudCatalogBackend::fetchUnifiedCatalog(const QJSValue &callback)
         // QJSValue must be invoked on the engine (main) thread. Route through qApp so
         // the callback is fetched and invoked on the GUI thread even if `self` is
         // destroyed before the worker finishes.
-        QMetaObject::invokeMethod(qApp, [self, reqId, gen, success, message, json]() mutable {
+        QCoreApplication *app = QCoreApplication::instance();
+        if (!app)
+            return; // user quit mid-fetch: the app object is gone, nothing to deliver to
+        QMetaObject::invokeMethod(app, [self, reqId, gen, success, message, json]() mutable {
             if (!self)
                 return; // backend destroyed while the worker ran
             const QJSValue cb = self->pending_callbacks.take(reqId);

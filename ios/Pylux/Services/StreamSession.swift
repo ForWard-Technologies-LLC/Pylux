@@ -83,6 +83,13 @@ final class StreamSession: ObservableObject {
     /// landing in that window would let the freshly created session start and stream
     /// with no owner left to stop it.
     private var isShutDown = false
+    // Number of PSN threads currently inside chiaki_session_bridge_create (which can
+    // block for seconds holding the holepunch pointer). While nonzero, shutdown() must
+    // NOT fini the holepunch session — the create thread owns it and finis it via
+    // its own failure path or the unpublished-session free. A counter, not a Bool, so
+    // a cancel-and-reconnect overlap can't let the old create's exit unguard the new
+    // create's window. Main-actor only.
+    private var psnCreatesInFlight = 0
     /// Holepunch session for PSN connections (kept alive for session lifetime)
     private var holepunchSession: PyluxHolepunchSession?
     /// Chiaki `CHIAKI_EVENT_RUMBLE` → Core Haptics (when `rumbleEnabled`).
@@ -203,9 +210,15 @@ final class StreamSession: ObservableObject {
         } else {
             let hpSession = holepunchSession
             holepunchSession = nil
-            DispatchQueue.global(qos: .userInitiated).async { [hpSession] in
-                hpSession?.fini()
+            if psnCreatesInFlight == 0 {
+                DispatchQueue.global(qos: .userInitiated).async { [hpSession] in
+                    hpSession?.fini()
+                }
             }
+            // else: the PSN create thread is inside chiaki_session_bridge_create with
+            // this pointer right now — fini-ing it here would free it out from under
+            // the create (and double-free via chiaki_session_fini later). That thread
+            // sees isShutDown at its publish gate and finis via the unpublished free.
             eventReceiver?.invalidate()
         }
         eventReceiver = nil
@@ -586,8 +599,9 @@ final class StreamSession: ObservableObject {
 
         let startErr = chiaki_session_bridge_start(ref)
         if startErr != 0 {
-            chiaki_session_bridge_free(ref)
-            receiver.invalidate() // matches the sync path; without it each failed start leaks a receiver
+            // Retire the published refs BEFORE freeing: metrics() and the controller
+            // callback read sessionRef on the main actor, so clearing there first
+            // (main is serial) means nothing can reach the session once free runs.
             await MainActor.run { [weak self] in
                 self?.connectionPhase = ""
                 self?.sessionRef = nil
@@ -595,6 +609,8 @@ final class StreamSession: ObservableObject {
                 self?.eventReceiver = nil
                 self?.state = .createError(errorCode: startErr, message: nil)
             }
+            chiaki_session_bridge_free(ref)
+            receiver.invalidate() // matches the sync path; without it each failed start leaks a receiver
             return
         }
 
@@ -603,11 +619,12 @@ final class StreamSession: ObservableObject {
         let joinRef = ref
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             _ = chiaki_session_bridge_join(joinRef)
-            chiaki_session_bridge_free(joinRef)
-            // Release THIS session's receiver directly (idempotent): after join+free no
-            // callback can fire, and self.eventReceiver may already point elsewhere.
-            receiver.invalidate()
-            Task { @MainActor [weak self] in
+            // Retire the published refs BEFORE freeing (previously free ran first,
+            // leaving a window where the 1 Hz metrics poll or a controller-state
+            // callback on main could reach the freed session on a console-initiated
+            // quit). Main is serial: once this sync block returns, any reader that
+            // grabbed the ref has already finished its call.
+            DispatchQueue.main.sync { [weak self] in
                 self?.rumbleFeedback?.shutdown()
                 self?.rumbleFeedback = nil
                 if self?.sessionRef == nil {
@@ -625,12 +642,33 @@ final class StreamSession: ObservableObject {
                     }
                 }
             }
+            chiaki_session_bridge_free(joinRef)
+            // Release THIS session's receiver directly (idempotent): after join+free no
+            // callback can fire, and self.eventReceiver may already point elsewhere.
+            receiver.invalidate()
         }
     }
 
     // MARK: - Synchronous session creation for PSN connections (runs on dedicated thread)
 
     private func createAndStartSessionSync(connectInfo: StreamConnectInfo, holepunchPtr: UInt, hpSession: PyluxHolepunchSession) {
+        // Claim the create window on main BEFORE the blocking create: while
+        // psnCreatesInFlight is nonzero, shutdown() leaves the holepunch pointer's
+        // ownership with this thread instead of fini-ing it out from under the
+        // create call (which would be a use-after-free plus a later double-fini).
+        let mayCreate = DispatchQueue.main.sync { [weak self] () -> Bool in
+            guard let self, !self.isShutDown else { return false }
+            self.psnCreatesInFlight += 1
+            return true
+        }
+        if !mayCreate {
+            // shutdown() already ran; the flag was never set, so its else-branch
+            // fini'd (or queued the fini of) the wrapper. fini here is an
+            // idempotent no-op either way (@synchronized), keeping the fini single.
+            hpSession.fini()
+            return
+        }
+
         let receiver = makeSessionEventReceiver()
 
         let decoder = PyluxVideoDecoder(
@@ -682,8 +720,9 @@ final class StreamSession: ObservableObject {
         guard let ref = ref else {
             os_log(.default, log: sessionLog, "%{public}s", "[StreamSession] Failed to create session: \(err)")
             receiver.invalidate() // the create call already took the self-retain
-            hpSession.fini()
+            hpSession.fini() // create failed -> the session never took ownership; single fini here
             DispatchQueue.main.async { [weak self] in
+                self?.psnCreatesInFlight -= 1
                 self?.connectionPhase = ""
                 self?.state = .createError(errorCode: err != 0 ? err : 1, message: nil)
             }
@@ -696,34 +735,54 @@ final class StreamSession: ObservableObject {
         // controller is (or later becomes) attached.
         chiaki_session_bridge_enable_haptics_rumble(ref)
 
-        // Native session owns holepunch pointer now
-        DispatchQueue.main.async { [weak self] in
-            self?.holepunchSession?.markConsumed()
-            self?.holepunchSession = nil
-            self?.sessionRef = ref
-            self?.videoDecoder = decoder
-            self?.eventReceiver = receiver
+        // The native session owns the holepunch pointer from the moment create
+        // succeeded: consume the wrapper's claim NOW, on this thread, so a shutdown()
+        // landing before the publish below can't fini a pointer the session owns.
+        hpSession.markConsumed()
+
+        // Publish, unless shutdown() ran while the session was being created (the
+        // create call above can block for seconds): then the session was never
+        // started and nobody owns it, so free it here instead of letting it stream
+        // unowned (same guard as createAndStartSession's async path).
+        let published = DispatchQueue.main.sync { [weak self] () -> Bool in
+            guard let self else { return false }
+            self.psnCreatesInFlight -= 1 // create returned; ownership decided below
+            guard !self.isShutDown else { return false }
+            self.holepunchSession = nil // claim already consumed above
+            self.sessionRef = ref
+            self.videoDecoder = decoder
+            self.eventReceiver = receiver
             // Attach stored view immediately (matches Android: setSurface when session created)
-            if let view = self?.pendingVideoView, let layer = view.videoDisplayLayer {
+            if let view = self.pendingVideoView, let layer = view.videoDisplayLayer {
                 let b = layer.bounds
                 os_log(.default, log: sessionLog, "[StreamSession] PSN: attaching stored view layer.bounds=%.0fx%.0f", b.width, b.height)
                 decoder.setDisplayLayer(layer)
             } else {
-                os_log(.default, log: sessionLog, "[StreamSession] PSN: no stored view (pending=%d)", self?.pendingVideoView != nil ? 1 : 0)
+                os_log(.default, log: sessionLog, "[StreamSession] PSN: no stored view (pending=%d)", self.pendingVideoView != nil ? 1 : 0)
             }
+            return true
+        }
+        if !published {
+            os_log(.default, log: sessionLog, "%{public}s", "[StreamSession] PSN: shut down during session creation; discarding unstarted session")
+            chiaki_session_bridge_free(ref) // never started -> free directly, no join needed (also finis the consumed holepunch session)
+            receiver.invalidate()
+            return
         }
 
         chiaki_session_bridge_set_video_sample_cb(ref, PyluxVideoDecoderVideoSampleCallback, Unmanaged.passUnretained(decoder).toOpaque())
 
         let startErr = chiaki_session_bridge_start(ref)
         if startErr != 0 {
-            chiaki_session_bridge_free(ref)
-            receiver.invalidate()
-            DispatchQueue.main.async { [weak self] in
+            // Retire the published refs BEFORE freeing: metrics() and the controller
+            // callback read sessionRef on the main thread, so clearing there first
+            // (main is serial) means nothing can reach the session once free runs.
+            DispatchQueue.main.sync { [weak self] in
                 self?.connectionPhase = ""
                 self?.sessionRef = nil; self?.videoDecoder = nil; self?.eventReceiver = nil
                 self?.state = .createError(errorCode: startErr, message: nil)
             }
+            chiaki_session_bridge_free(ref)
+            receiver.invalidate()
             return
         }
 
@@ -734,11 +793,12 @@ final class StreamSession: ObservableObject {
         let joinRef = ref
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             _ = chiaki_session_bridge_join(joinRef)
-            chiaki_session_bridge_free(joinRef)
-            // Release THIS session's receiver directly (idempotent): after join+free no
-            // callback can fire, and self.eventReceiver may already point elsewhere.
-            receiver.invalidate()
-            Task { @MainActor [weak self] in
+            // Retire the published refs BEFORE freeing, same as the async path's join
+            // task: on a console-initiated quit sessionRef is still set here, and the
+            // 1 Hz metrics poll / controller callbacks on main could otherwise reach
+            // the freed session. Main is serial: once this sync block returns, any
+            // reader that grabbed the ref has already finished its call.
+            DispatchQueue.main.sync { [weak self] in
                 self?.rumbleFeedback?.shutdown()
                 self?.rumbleFeedback = nil
                 if self?.sessionRef == nil {
@@ -755,6 +815,10 @@ final class StreamSession: ObservableObject {
                     }
                 }
             }
+            chiaki_session_bridge_free(joinRef)
+            // Release THIS session's receiver directly (idempotent): after join+free no
+            // callback can fire, and self.eventReceiver may already point elsewhere.
+            receiver.invalidate()
         }
     }
 

@@ -47,6 +47,13 @@ typedef struct
 	char *commerce_token;
 } KamajiCtx;
 
+static bool km_cancelled(const KamajiCtx *c)
+{
+	return c->cfg->is_cancelled && c->cfg->is_cancelled(c->cfg->user);
+}
+
+static void km_urlencode(const char *in, char *out, size_t out_size);
+
 static char *km_hdr(const char *key, const char *value)
 {
 	size_t n = strlen(key) + 2 + (value ? strlen(value) : 0) + 1;
@@ -255,9 +262,14 @@ static ChiakiErrorCode km_step0_5d_resolve(KamajiCtx *c, char **out_error)
 	if(c->cfg->progress) c->cfg->progress("Resolving Game - Step 2 of 5", c->cfg->user);
 	const char *country = (c->cfg->store_country && *c->cfg->store_country) ? c->cfg->store_country : "US";
 	const char *lang = (c->cfg->store_lang && *c->cfg->store_lang) ? c->cfg->store_lang : "en";
+	// Percent-encode the id before splicing it into the path: a no-op for real
+	// product ids ([A-Z0-9-_]), but a corrupted catalog entry containing ?/#//
+	// must not be able to rewrite the request.
+	char enc_pid[256];
+	km_urlencode(c->cfg->game_identifier, enc_pid, sizeof(enc_pid));
 	char url[512];
 	snprintf(url, sizeof(url), "https://psnow.playstation.com/store/api/pcnow/00_09_000/container/"
-		"%s/%s/19/%s?useOffers=true&gkb=1&gkb2=1", country, lang, c->cfg->game_identifier);
+		"%s/%s/19/%s?useOffers=true&gkb=1&gkb2=1", country, lang, enc_pid);
 	CHIAKI_LOGI(c->log, "[KAMAJI] 0.5d resolve %s (store %s/%s)", c->cfg->game_identifier, country, lang);
 
 	const char *hdrs[] = { "Accept: application/json",
@@ -455,6 +467,9 @@ static ChiakiErrorCode km_check_account_attributes(KamajiCtx *c, char **out_erro
 
 static ChiakiErrorCode km_checkout_acquire(KamajiCtx *c, char **out_error)
 {
+	// Last poll before the flow starts mutating the account: past this point a
+	// cancel can no longer prevent the $0 acquisition landing on the user's library.
+	if(km_cancelled(c)) return CHIAKI_ERR_CANCELED;
 	if(c->cfg->progress) c->cfg->progress("Acquiring License - Step 3 of 5", c->cfg->user);
 	char *h_auth = NULL; cc_http_make_bearer_header(&h_auth, c->commerce_token);
 	char *h_ua = km_hdr("User-Agent", KM_USER_AGENT);
@@ -491,7 +506,17 @@ static ChiakiErrorCode km_checkout_acquire(KamajiCtx *c, char **out_error)
 	}
 	struct json_object *pdata = cc_json_obj(pj, "data");
 	struct json_object *cart = pdata ? cc_json_obj(pdata, "cart") : NULL;
-	int total = cart ? cc_json_int(cart, "total_price_value") : -1;
+	if(!cart)
+	{
+		// A 200 without a parseable cart (maintenance page, schema drift) says
+		// nothing about the price -- fail generically instead of telling the user
+		// their free PS+ title "is not free".
+		CHIAKI_LOGE(c->log, "[KAMAJI] checkout preview returned 200 without a cart");
+		if(pj) json_object_put(pj);
+		free(h_auth); free(h_ua); free(h_cookie); cc_http_response_fini(&presp);
+		return CHIAKI_ERR_UNKNOWN;
+	}
+	int total = cc_json_int(cart, "total_price_value");
 	if(total != 0)
 	{
 		const char *price = cart ? cc_json_str(cart, "total_price") : "";
@@ -521,6 +546,9 @@ static ChiakiErrorCode km_checkout_acquire(KamajiCtx *c, char **out_error)
 	cc_http_response_fini(&presp);
 
 	// --- buynow: complete the $0 acquire ---
+	// The preview above is read-only, so a cancel that landed during it can still
+	// stop cleanly here; buynow is the first request with a lasting side effect.
+	if(km_cancelled(c)) { free(h_auth); free(h_ua); free(h_cookie); return CHIAKI_ERR_CANCELED; }
 	char buy_body[256];
 	snprintf(buy_body, sizeof(buy_body), "sku=%s&skipEmail=true", c->streaming_sku);
 	const char *buy_hdrs[] = {
@@ -553,9 +581,11 @@ static ChiakiErrorCode km_step0_5e_check_acquire(KamajiCtx *c, char **out_error)
 	e = km_check_account_attributes(c, out_error);
 	if(e != CHIAKI_ERR_SUCCESS) return e;
 
-	char url[256];
+	char enc_ent[256];
+	km_urlencode(c->entitlement_id, enc_ent, sizeof(enc_ent)); // no-op for real ids, see 0.5d
+	char url[512];
 	snprintf(url, sizeof(url), "https://commerce.api.np.km.playstation.net/commerce/api/v1/users/me/"
-		"internal_entitlements/%s?fields=game_meta", c->entitlement_id);
+		"internal_entitlements/%s?fields=game_meta", enc_ent);
 	char *h_auth = NULL; cc_http_make_bearer_header(&h_auth, c->commerce_token);
 	char *h_ua = km_hdr("User-Agent", KM_USER_AGENT);
 	if(!h_auth || !h_ua) { free(h_auth); free(h_ua); return CHIAKI_ERR_MEMORY; } // OOM guard (else NULL header)
@@ -642,18 +672,26 @@ ChiakiErrorCode cc_kamaji_resolve(ChiakiLog *log,
 	}
 	else
 	{
+		// Poll cancellation between steps (header contract) so a user backing out
+		// mid-flow stops before the next network round-trip — most importantly
+		// before 0.5e, which can mutate the account (the $0 checkout).
 		char *anon_code = NULL;
 		e = km_step0_5b_anon_authcode(&c, &anon_code);
+		if(e == CHIAKI_ERR_SUCCESS && km_cancelled(&c)) e = CHIAKI_ERR_CANCELED;
 		if(e == CHIAKI_ERR_SUCCESS) e = km_step0_5c_anon_session(&c, anon_code);
 		free(anon_code);
+		if(e == CHIAKI_ERR_SUCCESS && km_cancelled(&c)) e = CHIAKI_ERR_CANCELED;
 		if(e == CHIAKI_ERR_SUCCESS) e = km_step0_5d_resolve(&c, out_error);
+		if(e == CHIAKI_ERR_SUCCESS && km_cancelled(&c)) e = CHIAKI_ERR_CANCELED;
 		if(e == CHIAKI_ERR_SUCCESS) e = km_step0_5e_check_acquire(&c, out_error);
 	}
 
+	if(e == CHIAKI_ERR_SUCCESS && km_cancelled(&c)) e = CHIAKI_ERR_CANCELED;
 	if(e == CHIAKI_ERR_SUCCESS)
 	{
 		char *auth_code = NULL;
 		e = km_step5_authcode(&c, &auth_code);
+		if(e == CHIAKI_ERR_SUCCESS && km_cancelled(&c)) e = CHIAKI_ERR_CANCELED;
 		if(e == CHIAKI_ERR_SUCCESS) e = km_step6_auth_session(&c, auth_code);
 		free(auth_code);
 	}

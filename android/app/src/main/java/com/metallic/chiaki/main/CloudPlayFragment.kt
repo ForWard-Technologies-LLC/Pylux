@@ -43,6 +43,7 @@ import com.metallic.chiaki.cloudplay.model.CloudGame
 import com.metallic.chiaki.common.Preferences
 import com.metallic.chiaki.common.ext.viewModelFactory
 import com.pylux.stream.databinding.FragmentCloudPlayBinding
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 class CloudPlayFragment : Fragment()
@@ -1090,6 +1091,14 @@ class CloudPlayFragment : Fragment()
 			try
 			{
 				val backend = CloudStreamingBackend(requireContext(), viewModel.preferences)
+				// Owned-PSNOW fast-path, gated like Qt's getOwnedPsnowEntitlement: only owned
+				// PSNOW rows carry a pre-resolved streaming entitlement. Passing entitlementId
+				// unconditionally worked only because unowned rows currently normalize to an
+				// empty one -- if that upstream invariant ever breaks, every unowned launch
+				// would take the fast path and hard-fail (the lib's one-shot recovery only
+				// catches the noGameForEntitlement error shape).
+				val ownedFastPath = game.isOwned && game.streamServiceType == "psnow" &&
+					game.entitlementId.isNotEmpty()
 				// Stream routing is precomputed by libchiaki: streamServiceType picks the endpoint
 				// (psnow/Kamaji vs pscloud/cronos) and streamIdentifier is the exact id to launch.
 				val result = backend.startCompleteCloudSession(
@@ -1097,10 +1106,8 @@ class CloudPlayFragment : Fragment()
 					gameIdentifier = game.streamIdentifier,
 					gameName = game.name,
 					npssoToken = npssoToken,
-					// Owned-PSNOW fast-path: the catalog's pre-resolved streaming entitlement (empty
-					// for unowned titles -> normal full flow). Only used by the PSNOW path.
-					ownedEntitlementId = game.entitlementId,
-					ownedPlatform = game.platform,
+					ownedEntitlementId = if (ownedFastPath) game.entitlementId else "",
+					ownedPlatform = if (ownedFastPath) game.platform else "",
 					onProgress = { message ->
 						activity?.runOnUiThread {
 							allocationProgressTextView?.text = message
@@ -1122,15 +1129,19 @@ class CloudPlayFragment : Fragment()
 				}
 				
 				result.onFailure { error ->
-					requireActivity().runOnUiThread {
-						requireActivity().requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+					// The fragment can be destroyed while the (non-cancellable) JNI call
+					// runs; requireActivity() would throw on the detached fragment. No
+					// activity also means no UI to clean up or show dialogs on.
+					val act = activity ?: return@launch
+					act.runOnUiThread {
+						act.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
 						savedOrientation = -1
 						allocationProgressDialog?.dismiss()
 						allocationProgressDialog = null
 						allocationProgressTextView = null
 						allocationGameImageView = null
 					}
-					
+
 					if (allocationCancelled) return@launch
 					
 					Log.e(TAG, "Cloud session failed: ${error.message}")
@@ -1162,17 +1173,27 @@ class CloudPlayFragment : Fragment()
 					}
 				}
 			}
+			catch (e: CancellationException)
+			{
+				// lifecycleScope was cancelled (fragment destroyed / user left) while
+				// the JNI call was in flight: rethrow instead of running failure UI on
+				// a dead fragment -- catching this via Exception below is what used to
+				// crash in requireActivity().
+				throw e
+			}
 			catch (e: Exception)
 			{
-				requireActivity().runOnUiThread {
-					requireActivity().requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+				// Same detachment guard as onFailure above.
+				val act = activity ?: return@launch
+				act.runOnUiThread {
+					act.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
 					savedOrientation = -1
 					allocationProgressDialog?.dismiss()
 					allocationProgressDialog = null
 					allocationProgressTextView = null
 					allocationGameImageView = null
 				}
-				
+
 				if (allocationCancelled) return@launch
 				
 				Log.e(TAG, "Exception starting cloud session", e)

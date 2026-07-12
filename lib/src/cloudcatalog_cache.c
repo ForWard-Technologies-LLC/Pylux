@@ -7,6 +7,7 @@
 #include "cloudcatalog_internal.h"
 
 #include <errno.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -146,8 +147,12 @@ ChiakiErrorCode cc_cache_write(ChiakiLog *log, const char *cache_dir, const char
 
 	// Write to a unique temp file then atomically rename, so a concurrent reader
 	// (or an overlapping writer on the same cache dir) never sees a torn file.
-	char tmp[1056];
-	snprintf(tmp, sizeof(tmp), "%s.tmp.%ld", path, (long)cc_getpid());
+	// The pid alone is not unique within this process — two worker threads writing
+	// the same key would interleave into one temp file — so add a per-call counter.
+	static atomic_uint tmp_seq;
+	char tmp[1088];
+	snprintf(tmp, sizeof(tmp), "%s.tmp.%ld.%u", path, (long)cc_getpid(),
+		atomic_fetch_add(&tmp_seq, 1));
 
 	FILE *f = fopen(tmp, "wb");
 	if(!f)
@@ -157,8 +162,9 @@ ChiakiErrorCode cc_cache_write(ChiakiLog *log, const char *cache_dir, const char
 	}
 	size_t len = strlen(json);
 	size_t wr = fwrite(json, 1, len, f);
-	fclose(f);
-	if(wr != len)
+	// fclose flushes stdio's buffer, so a full disk can first surface here — treat
+	// a failed close like a short write or we'd rename a truncated file into place.
+	if(fclose(f) != 0 || wr != len)
 	{
 		remove(tmp);
 		return CHIAKI_ERR_UNKNOWN;
