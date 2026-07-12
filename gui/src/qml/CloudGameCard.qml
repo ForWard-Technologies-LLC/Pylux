@@ -24,7 +24,7 @@ Rectangle {
     readonly property bool needsAddToLibrary: gameData && gameData.category === "purchaseable"
     property bool isFavorite: false // Whether this game is favorited
     
-    // Steam library shortcut: only when Steamworks build + Steam client (same gate as createCloudSteamShortcut usefulness)
+    // Steam library shortcut: shown when a Steam install is detected on this device (steam-shortcut build only)
     readonly property bool showCloudSteamShortcut: Chiaki.cloudSteamShortcutEnabled
         && !needsAddToLibrary
     
@@ -436,7 +436,7 @@ Rectangle {
                 }
             }
             
-            // Shortcut button with Square/X icon (Steamworks + steam-shortcut build only; hidden for non-owned in "All" filter)
+            // Shortcut button with Square/X icon (shown when Steam is installed; hidden for non-owned in "All" filter)
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 36

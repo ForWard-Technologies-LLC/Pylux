@@ -623,8 +623,16 @@ CloudCatalogBackend *QmlBackend::cloudCatalog() const
 
 bool QmlBackend::cloudSteamShortcutEnabled() const
 {
-#if CHIAKI_GUI_ENABLE_STEAM_SHORTCUT && defined(CHIAKI_ENABLE_STEAMWORKS)
-    return steamworks_wrapper && steamworks_wrapper->isSteamAvailable();
+#if CHIAKI_GUI_ENABLE_STEAM_SHORTCUT
+    // Steam installed on this device is enough — shortcut creation writes
+    // shortcuts.vdf directly and doesn't need the Steamworks API/client.
+    // Cached: the QML property is CONSTANT and read per game card.
+    static const bool steam_installed = [] {
+        auto noop = [](const QString &) {};
+        SteamTools steam(noop, noop, QString());
+        return steam.steamExists();
+    }();
+    return steam_installed;
 #else
     return false;
 #endif

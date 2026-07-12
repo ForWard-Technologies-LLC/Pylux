@@ -1055,9 +1055,13 @@ void CloudCatalogBackend::createCloudSteamShortcut(const QString &gameIdentifier
     qInfo() << "Application executable path:" << executable;
     
     #ifdef Q_OS_LINUX
-        // Check if running as AppImage
         QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-        if (env.contains("APPIMAGE")) {
+        // In a Flatpak sandbox applicationFilePath() is /app/bin/... which doesn't
+        // exist on the host; Steam must invoke the host's flatpak command instead
+        // (same as QmlBackend::getExecutable())
+        if (!env.value("FLATPAK_ID").isEmpty()) {
+            executable = QStringLiteral("flatpak");
+        } else if (env.contains("APPIMAGE")) {
             executable = env.value("APPIMAGE");
             qInfo() << "Running as AppImage, using:" << executable;
         }
