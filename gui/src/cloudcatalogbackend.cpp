@@ -981,11 +981,9 @@ void CloudCatalogBackend::createCloudSteamShortcut(const QString &gameIdentifier
         qWarning() << "Failed to load game shortcut icon, using fallback";
         icon = QPixmap(":/icons/steam_icon.png");
     }
-    if (logo.isNull()) {
-        qWarning() << "Failed to load game shortcut logo, using fallback";
-        logo = QPixmap(":/icons/steam_logo.png");
-    }
-    
+    if (logo.isNull())
+        qWarning() << "Failed to load game shortcut logo";
+
     // Create artwork map
     QMap<QString, const QPixmap*> artwork;
     

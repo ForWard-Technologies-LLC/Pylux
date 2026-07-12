@@ -878,11 +878,9 @@ void QmlGamesBackend::createGameSteamShortcut(const QString &titleId, const QStr
         qCWarning(chiakiGuiGames) << "Failed to load game shortcut icon, using fallback";
         icon = QPixmap(":/icons/steam_icon.png");
     }
-    if (logo.isNull()) {
-        qCWarning(chiakiGuiGames) << "Failed to load game shortcut logo, using fallback";
-        logo = QPixmap(":/icons/steam_logo.png");
-    }
-    
+    if (logo.isNull())
+        qCWarning(chiakiGuiGames) << "Failed to load game shortcut logo";
+
     // Create artwork map
     QMap<QString, const QPixmap*> artwork;
     
