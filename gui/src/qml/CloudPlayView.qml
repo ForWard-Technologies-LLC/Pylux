@@ -1296,9 +1296,10 @@ Pane {
                             return;
                         }
                         
-                        // Square/X button - Create shortcut
+                        // Square/X button - Create shortcut (same gate as the card's button/X handler:
+                        // Steam installed and game not in the non-owned "Add Game" state)
                         if (event.key === Qt.Key_X || event.key === Qt.Key_Backslash || event.key === Qt.Key_No) {
-                            if (currentItem && currentItem.createShortcut) {
+                            if (currentItem && currentItem.createShortcut && currentItem.showCloudSteamShortcut) {
                                 // Use getProductIdForApi() to get the correct product ID for API calls
                                 let productId = currentItem.getProductIdForApi ? currentItem.getProductIdForApi() : currentItem.getProductId();
                                 // Use getStreamingIdentifier() to get the entitlement ID for launch command
