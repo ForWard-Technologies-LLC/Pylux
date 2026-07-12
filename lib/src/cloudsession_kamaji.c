@@ -257,6 +257,45 @@ static bool km_pick_fullgame(KamajiCtx *c, struct json_object *sku, bool require
 	return true;
 }
 
+// Streaming-package fallback: some store regions publish a title's game-streaming
+// sku with license_type=0 instead of 4 (e.g. Bloodborne on the GB store,
+// EP9000-CUSA00207_00-PSRSVD0000000000 packageType PS4GS), so km_pick_streaming
+// misses it and the *GD full-game fallback hands Gaikai a purchase entitlement it
+// rejects (002.2026 noGameForEntitlementId). A packageType ending in "GS" is a
+// streaming entitlement regardless of the flag; picking it keeps 0.5e's
+// check/$0-acquire on the correct sku. Same shape as km_pick_fullgame_id
+// (non-static, unit-tested in test/cloudsession_kamaji.c).
+bool km_pick_streaming_gs_id(struct json_object *sku, bool require_title,
+	const char *title_id, char *out_id, size_t out_sz, ChiakiLog *log)
+{
+	struct json_object *ents = cc_json_arr(sku, "entitlements");
+	if(!ents) return false;
+	size_t n = json_object_array_length(ents);
+	for(size_t i = 0; i < n; i++)
+	{
+		struct json_object *ent = json_object_array_get_idx(ents, i);
+		const char *id = cc_json_str(ent, "id");
+		const char *pkg = cc_json_str(ent, "packageType");
+		size_t plen = strlen(pkg);
+		if(!id || !*id || plen < 2 || strcmp(pkg + plen - 2, "GS") != 0)
+			continue;
+		if(require_title && title_id && *title_id && !strstr(id, title_id))
+			continue;
+		snprintf(out_id, out_sz, "%s", id);
+		if(log) CHIAKI_LOGI(log, "[KAMAJI] streaming entitlement (*GS fallback, license_type!=4): %s pkg=%s", id, pkg);
+		return true;
+	}
+	return false;
+}
+
+static bool km_pick_streaming_gs(KamajiCtx *c, struct json_object *sku, bool require_title, const char *title_id)
+{
+	if(!km_pick_streaming_gs_id(sku, require_title, title_id, c->entitlement_id, sizeof(c->entitlement_id), c->log))
+		return false;
+	snprintf(c->streaming_sku, sizeof(c->streaming_sku), "%s", cc_json_str(sku, "id"));
+	return true;
+}
+
 static ChiakiErrorCode km_step0_5d_resolve(KamajiCtx *c, char **out_error)
 {
 	if(c->cfg->progress) c->cfg->progress("Resolving Game - Step 2 of 5", c->cfg->user);
@@ -304,19 +343,33 @@ static ChiakiErrorCode km_step0_5d_resolve(KamajiCtx *c, char **out_error)
 		if(skus) for(size_t i = 0; i < json_object_array_length(skus) && !c->entitlement_id[0]; i++)
 			km_pick_streaming(c, json_object_array_get_idx(skus, i));
 	}
+	char title_id[64] = "";
+	{
+		const char *dash = strchr(c->cfg->game_identifier, '-');
+		if(dash)
+		{
+			const char *t = dash + 1;
+			size_t tl = strcspn(t, "_");
+			if(tl < sizeof(title_id)) { memcpy(title_id, t, tl); title_id[tl] = '\0'; }
+		}
+	}
+	// Streaming-package fallback ("*GS" with license_type!=4, see
+	// km_pick_streaming_gs_id): title-match then any, before the full-game fallback
+	// so a mispublished streaming sku still beats the purchase entitlement.
+	if(!c->entitlement_id[0])
+	{
+		struct json_object *skus = cc_json_arr(obj, "skus");
+		for(int pass = 0; pass < 2 && !c->entitlement_id[0]; pass++)
+		{
+			bool require_title = (pass == 0);
+			if(default_sku && km_pick_streaming_gs(c, default_sku, require_title, title_id)) break;
+			if(skus) for(size_t i = 0; i < json_object_array_length(skus) && !c->entitlement_id[0]; i++)
+				km_pick_streaming_gs(c, json_object_array_get_idx(skus, i), require_title, title_id);
+		}
+	}
 	// Full-game fallback (PS Plus catalog titles have no license_type==4): title-match then any.
 	if(!c->entitlement_id[0])
 	{
-		char title_id[64] = "";
-		{
-			const char *dash = strchr(c->cfg->game_identifier, '-');
-			if(dash)
-			{
-				const char *t = dash + 1;
-				size_t tl = strcspn(t, "_");
-				if(tl < sizeof(title_id)) { memcpy(title_id, t, tl); title_id[tl] = '\0'; }
-			}
-		}
 		struct json_object *skus = cc_json_arr(obj, "skus");
 		for(int pass = 0; pass < 2 && !c->entitlement_id[0]; pass++)
 		{
