@@ -1676,17 +1676,17 @@ Pane {
                         antialiasing: true
                     }
                     Label {
-                        text: qsTr("Stream")
+                        text: qsTr("Play")
                         font.pixelSize: 13
                         font.weight: Font.Medium
                         color: "white"
                     }
                 }
-                
-                // Shortcut hint (X/Square button)
+
+                // Shortcut hint (X/Square button; only relevant when Steam is installed)
                 RowLayout {
                     spacing: 6
-                    visible: mainTabBar.currentIndex === 1
+                    visible: mainTabBar.currentIndex === 1 && Chiaki.cloudSteamShortcutEnabled
                     Image {
                         Layout.preferredWidth: 18
                         Layout.preferredHeight: 18
@@ -1697,7 +1697,7 @@ Pane {
                         antialiasing: true
                     }
                     Label {
-                        text: qsTr("Shortcut")
+                        text: qsTr("Add to Steam")
                         font.pixelSize: 13
                         font.weight: Font.Medium
                         color: "white"

@@ -9,7 +9,9 @@ Rectangle {
     id: card
     
     property var gameData
-    property bool isHovered: false
+    // HoverHandler (unlike MouseArea hover) stays hovered while the pointer is over
+    // child mouse areas, so the revealed action row doesn't flicker in a hover loop
+    property bool isHovered: cardHoverHandler.hovered
     property bool isCurrentItem: GridView.isCurrentItem || false
     property bool hasFocus: isCurrentItem && GridView.view.activeFocus
     property bool isPsnow: isPsnowGame()
@@ -24,7 +26,7 @@ Rectangle {
     readonly property bool needsAddToLibrary: gameData && gameData.category === "purchaseable"
     property bool isFavorite: false // Whether this game is favorited
     
-    // Steam library shortcut: only when Steamworks build + Steam client (same gate as createCloudSteamShortcut usefulness)
+    // Steam library shortcut: shown when a Steam install is detected on this device (steam-shortcut build only)
     readonly property bool showCloudSteamShortcut: Chiaki.cloudSteamShortcutEnabled
         && !needsAddToLibrary
     
@@ -170,12 +172,13 @@ Rectangle {
     
     Behavior on color { ColorAnimation { duration: 150 } }
     
+    HoverHandler {
+        id: cardHoverHandler
+    }
+
     MouseArea {
         id: mouseArea
         anchors.fill: parent
-        hoverEnabled: true
-        onEntered: isHovered = true
-        onExited: isHovered = false
         onClicked: parent.GridView.view.currentIndex = index
     }
     
@@ -293,22 +296,29 @@ Rectangle {
                 }
             }
             
-            // Game Title overlay - Bottom (platform badge at end of row, matches Android item_cloud_game.xml)
+            // Bottom overlay: title always visible; action row revealed on hover/focus
+            // (progressive disclosure — controller hints live in the footer legend, not here)
             Rectangle {
                 id: titleOverlay
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom
-                height: Math.max(titleRow.implicitHeight + 12, 36)
+                readonly property bool showActions: card.isHovered || card.isCurrentItem
+                readonly property real titleAreaHeight: Math.max(titleRow.implicitHeight + 12, 36)
+                height: titleAreaHeight + (showActions ? actionsRow.height + 8 : 0)
                 color: Qt.rgba(0, 0, 0, 0.6)
-                
+
+                Behavior on height { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+
                 RowLayout {
                     id: titleRow
-                    anchors.fill: parent
+                    anchors.top: parent.top
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    height: titleOverlay.titleAreaHeight - 12
                     anchors.leftMargin: 8
                     anchors.rightMargin: 8
                     anchors.topMargin: 6
-                    anchors.bottomMargin: 6
                     spacing: 6
                     
                     Label {
@@ -350,150 +360,156 @@ Rectangle {
                         }
                     }
                 }
-            }
-        }
-        
-        // Action Buttons - fixed size to always fit
-        ColumnLayout {
-            Layout.fillWidth: true
-            Layout.preferredHeight: showCloudSteamShortcut ? 84 : 40  // 40 (stream) + optional 36 (shortcut) + 8 (spacing)
-            spacing: 8
-            visible: true
-            
-            // Stream Game — primary CTA without full neon slab (muted fill + accent ring; stronger on hover)
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 40
-                Layout.minimumHeight: 40
-                Layout.maximumHeight: 40
-                radius: 6
-                readonly property color streamFillIdle: Qt.alpha(Material.accent, 0.2)
-                readonly property color streamFillHover: Qt.alpha(Material.accent, 0.42)
-                readonly property color streamBorderIdle: Qt.alpha(Material.accent, 0.55)
-                readonly property color streamBorderHover: Qt.alpha(Material.accent, 0.95)
-                color: streamMouseArea.containsMouse ? streamFillHover : streamFillIdle
-                border.width: 1
-                border.color: streamMouseArea.containsMouse ? streamBorderHover : streamBorderIdle
-                
-                Behavior on color { ColorAnimation { duration: 150 } }
-                Behavior on border.color { ColorAnimation { duration: 150 } }
-                
-                MouseArea {
-                    id: streamMouseArea
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    
-                    onClicked: {
-                        console.log("[CloudGameCard] Button clicked - isPsnow:", isPsnow, "gameData:", gameData, "isOwned:", gameData ? gameData.isOwned : "N/A");
-                        console.log("[CloudGameCard] qrCodeDialog:", qrCodeDialog);
-                        
-                        // Check if this is a non-owned game in "All" filter mode
-                        if (needsAddToLibrary) {
-                            console.log("[CloudGameCard] Condition met for QR code - showing dialog");
-                            // Show QR code dialog with conceptUrl
-                            let conceptUrl = gameData.conceptUrl || gameData.concept_url;
-                            console.log("[CloudGameCard] conceptUrl:", conceptUrl);
-                            console.log("[CloudGameCard] qrCodeDialog type:", typeof qrCodeDialog, "qrCodeDialog value:", qrCodeDialog);
-                            
-                            if (conceptUrl) {
-                                console.log("[CloudGameCard] conceptUrl found:", conceptUrl);
-                                if (qrCodeDialog) {
-                                    console.log("[CloudGameCard] Calling qrCodeDialog.showDialog()");
-                                    qrCodeDialog.showDialog(conceptUrl);
-                                    console.log("[CloudGameCard] showDialog() called");
-                                } else {
-                                    console.error("[CloudGameCard] ERROR: qrCodeDialog is null/undefined!");
-                                }
-                            } else {
-                                console.error("[CloudGameCard] ERROR: conceptUrl is missing!");
-                            }
-                        } else {
-                            console.log("[CloudGameCard] Normal stream behavior");
-                            // Normal stream behavior - use getStreamingIdentifier for correct ID
-                            let streamingId = getStreamingIdentifier();
-                            let platform = getPlatform();
-                            let serviceType = getServiceType();
-                            if (streamingId !== "") {
-                                streamGame(streamingId, platform, getStreamServiceType());
-                            }
-                        }
-                    }
-                }
-                
-                Label {
-                    anchors.centerIn: parent
-                    text: {
-                        if (needsAddToLibrary) {
-                            return qsTr("Add Game")
-                        }
-                        return qsTr("Stream Game")
-                    }
-                    font.pixelSize: 14
-                    font.weight: Font.DemiBold
-                    color: streamMouseArea.containsMouse ? "#FFFFFF" : "#DCECF3"
-                    Behavior on color { ColorAnimation { duration: 150 } }
-                }
-            }
-            
-            // Shortcut button with Square/X icon (Steamworks + steam-shortcut build only; hidden for non-owned in "All" filter)
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 36
-                Layout.minimumHeight: 36
-                Layout.maximumHeight: 36
-                visible: showCloudSteamShortcut
-                radius: 6
-                color: shortcutMouseArea.containsMouse ? Qt.rgba(255, 255, 255, 0.3) : Qt.rgba(255, 255, 255, 0.15)
-                border.width: 1
-                border.color: Qt.rgba(255, 255, 255, 0.2)
-                
-                Behavior on color { ColorAnimation { duration: 150 } }
-                
-                MouseArea {
-                    id: shortcutMouseArea
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    
-                        onClicked: {
-                            let productIdForApi = getProductIdForApi();
-                            let entitlementId = getStreamingIdentifier(); // For PSCloud: entitlement ID, for PSNOW: product ID
-                            let platform = getPlatform();
-                            let serviceType = getServiceType();
-                            let gameName = getGameName();
-                            
-                            if (productIdForApi !== "") {
-                                // Open dialog - it will fetch game details itself using productIdForApi
-                                // entitlementId is used for the launch command
-                                console.log("[CloudGameCard] Opening shortcut dialog, productId for API:", productIdForApi, "entitlementId:", entitlementId, "isPsnow:", isPsnow);
-                                createShortcut(productIdForApi, entitlementId, platform, serviceType, gameName);
-                            } else {
-                                console.warn("[CloudGameCard] Cannot create shortcut - missing product ID for API");
-                            }
-                        }
-                }
-                
+
+                // Action row — only on the hovered/focused card (text carries the meaning;
+                // controller glyphs stay in the footer legend)
                 RowLayout {
-                    anchors.centerIn: parent
+                    id: actionsRow
+                    anchors.bottom: parent.bottom
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.leftMargin: 8
+                    anchors.rightMargin: 8
+                    anchors.bottomMargin: 6
+                    height: 28
                     spacing: 6
-                    
-                    Label {
-                        text: qsTr("Shortcut")
-                        font.pixelSize: 12
-                        font.weight: Font.Medium
-                        color: "white"
-                        verticalAlignment: Text.AlignVCenter
+                    opacity: titleOverlay.showActions ? 1 : 0
+                    visible: opacity > 0
+                    Behavior on opacity { NumberAnimation { duration: 150 } }
+
+                    // Add to Steam — secondary, Square/X glyph; the footer legend carries the label
+                    // (shown when Steam is installed; hidden for non-owned in "All" filter)
+                    Rectangle {
+                        Layout.preferredWidth: 34
+                        Layout.fillHeight: true
+                        visible: showCloudSteamShortcut
+                        radius: 6
+                        color: shortcutMouseArea.containsMouse ? Qt.rgba(1, 1, 1, 0.18) : Qt.rgba(1, 1, 1, 0.06)
+                        border.width: 1
+                        border.color: shortcutMouseArea.containsMouse ? Qt.rgba(1, 1, 1, 0.45) : Qt.rgba(1, 1, 1, 0.22)
+
+                        Behavior on color { ColorAnimation { duration: 150 } }
+                        Behavior on border.color { ColorAnimation { duration: 150 } }
+
+                        MouseArea {
+                            id: shortcutMouseArea
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+
+                            onClicked: {
+                                let productIdForApi = getProductIdForApi();
+                                let entitlementId = getStreamingIdentifier(); // For PSCloud: entitlement ID, for PSNOW: product ID
+                                let platform = getPlatform();
+                                let serviceType = getServiceType();
+                                let gameName = getGameName();
+
+                                if (productIdForApi !== "") {
+                                    // Open dialog - it will fetch game details itself using productIdForApi
+                                    // entitlementId is used for the launch command
+                                    console.log("[CloudGameCard] Opening shortcut dialog, productId for API:", productIdForApi, "entitlementId:", entitlementId, "isPsnow:", isPsnow);
+                                    createShortcut(productIdForApi, entitlementId, platform, serviceType, gameName);
+                                } else {
+                                    console.warn("[CloudGameCard] Cannot create shortcut - missing product ID for API");
+                                }
+                            }
+                        }
+
+                        Image {
+                            anchors.centerIn: parent
+                            width: 16
+                            height: 16
+                            sourceSize: Qt.size(32, 32)
+                            source: getControllerIcon("box")
+                            opacity: 0.9
+                            smooth: true
+                            antialiasing: true
+                        }
                     }
-                    
-                    Image {
-                        Layout.preferredWidth: 18
-                        Layout.preferredHeight: 18
-                        sourceSize: Qt.size(36, 36)
-                        source: getControllerIcon("box")
-                        opacity: 0.9
-                        smooth: true
-                        antialiasing: true
+
+                    // Play — primary CTA (muted accent fill + ring; stronger on hover)
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        radius: 6
+                        readonly property color streamFillIdle: Qt.alpha(Material.accent, 0.25)
+                        readonly property color streamFillHover: Qt.alpha(Material.accent, 0.45)
+                        readonly property color streamBorderIdle: Qt.alpha(Material.accent, 0.55)
+                        readonly property color streamBorderHover: Qt.alpha(Material.accent, 0.95)
+                        color: streamMouseArea.containsMouse ? streamFillHover : streamFillIdle
+                        border.width: 1
+                        border.color: streamMouseArea.containsMouse ? streamBorderHover : streamBorderIdle
+
+                        Behavior on color { ColorAnimation { duration: 150 } }
+                        Behavior on border.color { ColorAnimation { duration: 150 } }
+
+                        MouseArea {
+                            id: streamMouseArea
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+
+                            onClicked: {
+                                console.log("[CloudGameCard] Button clicked - isPsnow:", isPsnow, "gameData:", gameData, "isOwned:", gameData ? gameData.isOwned : "N/A");
+                                console.log("[CloudGameCard] qrCodeDialog:", qrCodeDialog);
+
+                                // Check if this is a non-owned game in "All" filter mode
+                                if (needsAddToLibrary) {
+                                    console.log("[CloudGameCard] Condition met for QR code - showing dialog");
+                                    // Show QR code dialog with conceptUrl
+                                    let conceptUrl = gameData.conceptUrl || gameData.concept_url;
+                                    console.log("[CloudGameCard] conceptUrl:", conceptUrl);
+                                    console.log("[CloudGameCard] qrCodeDialog type:", typeof qrCodeDialog, "qrCodeDialog value:", qrCodeDialog);
+
+                                    if (conceptUrl) {
+                                        console.log("[CloudGameCard] conceptUrl found:", conceptUrl);
+                                        if (qrCodeDialog) {
+                                            console.log("[CloudGameCard] Calling qrCodeDialog.showDialog()");
+                                            qrCodeDialog.showDialog(conceptUrl);
+                                            console.log("[CloudGameCard] showDialog() called");
+                                        } else {
+                                            console.error("[CloudGameCard] ERROR: qrCodeDialog is null/undefined!");
+                                        }
+                                    } else {
+                                        console.error("[CloudGameCard] ERROR: conceptUrl is missing!");
+                                    }
+                                } else {
+                                    console.log("[CloudGameCard] Normal stream behavior");
+                                    // Normal stream behavior - use getStreamingIdentifier for correct ID
+                                    let streamingId = getStreamingIdentifier();
+                                    let platform = getPlatform();
+                                    let serviceType = getServiceType();
+                                    if (streamingId !== "") {
+                                        streamGame(streamingId, platform, getStreamServiceType());
+                                    }
+                                }
+                            }
+                        }
+
+                        Row {
+                            anchors.centerIn: parent
+                            spacing: 7
+
+                            Label {
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: needsAddToLibrary ? qsTr("Add Game") : qsTr("Play")
+                                font.pixelSize: 14
+                                font.weight: Font.DemiBold
+                                color: streamMouseArea.containsMouse ? "#FFFFFF" : "#DCECF3"
+                                Behavior on color { ColorAnimation { duration: 150 } }
+                            }
+
+                            Image {
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: 17
+                                height: 17
+                                sourceSize: Qt.size(34, 34)
+                                source: getControllerIcon("cross")
+                                opacity: 0.9
+                                smooth: true
+                                antialiasing: true
+                            }
+                        }
                     }
                 }
             }

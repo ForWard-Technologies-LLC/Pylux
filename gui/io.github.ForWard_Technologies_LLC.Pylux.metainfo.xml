@@ -32,6 +32,11 @@
   <content_rating type="oars-1.1" />
   <!-- Flathub: add <release> entries here when shipping new versions (not generated from CMake). -->
   <releases>
+    <release date="2026-07-11" version="2.11.3">
+      <description>
+        <p>Fix Steam shortcut creation for games on Flatpak and refresh shortcut branding.</p>
+      </description>
+    </release>
     <release date="2026-07-11" version="2.11.2">
       <description>
         <p>Improved controller support and various bug fixes.</p>
