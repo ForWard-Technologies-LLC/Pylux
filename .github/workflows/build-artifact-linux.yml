@@ -1,0 +1,68 @@
+# Build Linux artifact — on-demand, build-only.
+
+name: Build Linux (artifact)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: build-artifact-linux-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Linux x86_64 (artifact)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get -y install podman zip jq
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          path: pylux
+
+      - name: Set short commit hash
+        run: echo "SHORT_SHA=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+
+      - name: Add QmlWebEngine import
+        working-directory: pylux
+        run: cp scripts/qtwebengine_import.qml gui/src/qml/
+
+      - name: Build in container
+        working-directory: pylux
+        run: |
+          podman run --rm \
+            -v "$PWD:/build/chiaki" \
+            -w "/build/chiaki" \
+            --device /dev/fuse \
+            --cap-add SYS_ADMIN \
+            -t docker.io/streetpea/chiaki-ng-builder:qt6.9 \
+            /bin/bash -c "sudo -E scripts/build-appimage.sh /build/appdir"
+
+      - name: Package portable zip
+        working-directory: pylux/appimage
+        run: zip -r pylux.zip pylux
+
+      - name: Extract version
+        id: extract_version
+        uses: ./pylux/.github/actions/extract-version
+        with:
+          cmakelists: pylux/CMakeLists.txt
+
+      - name: Upload AppImage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pylux-Linux-${{ steps.extract_version.outputs.version }}-${{ env.SHORT_SHA }}.AppImage
+          path: pylux/appimage/pylux.AppImage
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Upload portable zip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pylux-Linux-${{ steps.extract_version.outputs.version }}-${{ env.SHORT_SHA }}.zip
+          path: pylux/appimage/pylux.zip
+          retention-days: 14
+          if-no-files-found: error
