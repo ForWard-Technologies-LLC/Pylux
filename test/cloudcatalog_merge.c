@@ -227,6 +227,42 @@ static MunitResult test_duplicate_product_id_after_routing(const MunitParameter 
 	return MUNIT_OK;
 }
 
+// Canonical full-game entitlements commonly have id == product_id. They are still
+// real owned entitlements and must reach the contract so PSNOW can use its owned
+// fast path instead of resolving a potentially stale catalog alias through pcnow.
+static MunitResult test_owned_psnow_canonical_entitlement(const MunitParameter p[], void *data)
+{
+	(void)p; (void)data;
+	struct json_object *owned = parse(
+		"[{\"id\":\"EP9000-CUSA07410_00-00000000GODOFWAR\","
+		"\"product_id\":\"EP9000-CUSA07410_00-00000000GODOFWAR\","
+		"\"productId\":\"EP9000-CUSA07410_00-00000000GODOFWAR\","
+		"\"catalogProductId\":\"EP9000-CUSA07410_00-0000000GODOFWARN\","
+		"\"name\":\"God of War\",\"serviceType\":\"psnow\","
+		"\"feature_type\":3,\"device\":[\"PS4\"]}]");
+
+	CCAssembleInput in = { 0 };
+	in.owned_cross_ref = owned;
+	in.native_mode = false;
+	in.fallback_region = "GB";
+
+	struct json_object *env = cc_assemble_unified_catalog(get_test_log(), &in);
+	struct json_object *game = find_pid(games_of(env),
+		"EP9000-CUSA07410_00-00000000GODOFWAR");
+	munit_assert_not_null(game);
+	munit_assert_true(cc_json_bool(game, "isOwned"));
+	munit_assert_string_equal(cc_json_str(game, "entitlementId"),
+		"EP9000-CUSA07410_00-00000000GODOFWAR");
+	munit_assert_string_equal(cc_json_str(game, "storeProductId"),
+		"EP9000-CUSA07410_00-00000000GODOFWAR");
+	munit_assert_string_equal(cc_json_str(game, "streamIdentifier"),
+		"EP9000-CUSA07410_00-0000000GODOFWARN");
+
+	json_object_put(env);
+	json_object_put(owned);
+	return MUNIT_OK;
+}
+
 // owned rows sort before non-owned; envelope carries schema + counts.
 static MunitResult test_sort_and_envelope(const MunitParameter p[], void *data)
 {
@@ -392,6 +428,7 @@ MunitTest tests_cloudcatalog_merge[] = {
 	{ "/crossbuy_and_trial", test_crossbuy_and_trial, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/crossbuy_sku_sibling", test_crossbuy_sku_sibling, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/duplicate_product_id_after_routing", test_duplicate_product_id_after_routing, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
+	{ "/owned_psnow_canonical_entitlement", test_owned_psnow_canonical_entitlement, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/sort_and_envelope", test_sort_and_envelope, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/cloud_language_helpers", test_cloud_language_helpers, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/parse_container_store_locale", test_parse_container_store_locale, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },

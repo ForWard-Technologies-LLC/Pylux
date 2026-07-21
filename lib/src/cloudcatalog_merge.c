@@ -1400,10 +1400,25 @@ struct json_object *cc_assemble_unified_catalog(ChiakiLog *log, const CCAssemble
 		// normalize identity fields the clients read
 		if(!cc_json_has(g, "productId") && cc_json_has(g, "product_id"))
 			cc_json_set_str(g, "productId", cc_json_str(g, "product_id"));
+		// Owned rows must expose their entitlement even when it is the canonical
+		// full-game id and therefore equals productId. The PSNOW owned fast path
+		// consumes this field to skip a store product lookup; treating equality as
+		// "not an entitlement" regressed titles whose catalog alias no longer
+		// resolves (God of War 2018 is one such PAL-store title).
 		const char *ent = game_entitlement_id(g);
+		if(cc_json_bool(g, "isOwned"))
+		{
+			const char *owned_id = cc_json_str(g, "id");
+			if(*owned_id)
+				ent = owned_id;
+		}
 		if(*ent)
 			cc_json_set_str(g, "entitlementId", ent);
-		const char *store = cc_json_str(g, "catalogProductId");
+		// Likewise preserve the entitlement API's product_id for owned rows.
+		// catalogProductId is the browse alias and can be a different SKU.
+		const char *store = cc_json_bool(g, "isOwned") ? cc_json_str(g, "product_id") : "";
+		if(!*store)
+			store = cc_json_str(g, "catalogProductId");
 		if(!*store)
 			store = cc_json_str(g, "storeProductId");
 		if(*store)

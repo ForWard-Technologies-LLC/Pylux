@@ -199,8 +199,11 @@ static ChiakiErrorCode km_step0_5c_anon_session(KamajiCtx *c, const char *anon_c
 	return CHIAKI_ERR_SUCCESS;
 }
 
-// Pick a streaming entitlement (license_type==4) from one sku; returns true if found.
-static bool km_pick_streaming(KamajiCtx *c, struct json_object *sku)
+// Sony normally marks streaming reservations license_type 4, but some live rows
+// (notably Bloodborne in HU/en) expose the PS4GS reservation as license_type 0.
+// The package suffix is the authoritative fallback: GS is the streaming package,
+// while GD is the downloadable full game.
+bool km_pick_streaming_id(struct json_object *sku, char *out_id, size_t out_sz)
 {
 	struct json_object *ents = cc_json_arr(sku, "entitlements");
 	if(!ents) return false;
@@ -208,18 +211,26 @@ static bool km_pick_streaming(KamajiCtx *c, struct json_object *sku)
 	for(size_t i = 0; i < n; i++)
 	{
 		struct json_object *ent = json_object_array_get_idx(ents, i);
-		if(cc_json_int(ent, "license_type") == 4)
+		const char *pkg = cc_json_str(ent, "packageType");
+		if(cc_json_int(ent, "license_type") == 4 || cc_ends_with(pkg, "GS"))
 		{
 			const char *id = cc_json_str(ent, "id");
-			if(id && *id)
+			if(id && *id && out_id && out_sz > 0)
 			{
-				snprintf(c->entitlement_id, sizeof(c->entitlement_id), "%s", id);
-				snprintf(c->streaming_sku, sizeof(c->streaming_sku), "%s", cc_json_str(sku, "id"));
+				snprintf(out_id, out_sz, "%s", id);
 				return true;
 			}
 		}
 	}
 	return false;
+}
+
+static bool km_pick_streaming(KamajiCtx *c, struct json_object *sku)
+{
+	if(!km_pick_streaming_id(sku, c->entitlement_id, sizeof(c->entitlement_id)))
+		return false;
+	snprintf(c->streaming_sku, sizeof(c->streaming_sku), "%s", cc_json_str(sku, "id"));
+	return true;
 }
 
 // PS Plus catalog fallback: a full-game digital entitlement ("*GD"); optionally
@@ -257,11 +268,41 @@ static bool km_pick_fullgame(KamajiCtx *c, struct json_object *sku, bool require
 	return true;
 }
 
+static bool km_is_legacy_classic_id(const char *game_identifier)
+{
+	const char *id = game_identifier ? game_identifier : "";
+	return !cc_contains(id, "CUSA") && !cc_contains(id, "PPSA");
+}
+
+bool km_should_skip_acquire(const char *game_identifier, bool catalog_is_foreign)
+{
+	return catalog_is_foreign && km_is_legacy_classic_id(game_identifier);
+}
+
+void km_resolve_store_locale(const char *game_identifier,
+	const char *account_country, const char *account_lang,
+	char *out_country, size_t country_sz, char *out_lang, size_t lang_sz)
+{
+	if(!out_country || country_sz == 0 || !out_lang || lang_sz == 0)
+		return;
+	const char *country = (account_country && *account_country) ? account_country : "US";
+	const char *lang = (account_lang && *account_lang) ? account_lang : "en";
+	if(km_is_legacy_classic_id(game_identifier))
+	{
+		country = cc_classics_store_country(country);
+		lang = "en";
+	}
+	snprintf(out_country, country_sz, "%s", country);
+	snprintf(out_lang, lang_sz, "%s", lang);
+}
+
 static ChiakiErrorCode km_step0_5d_resolve(KamajiCtx *c, char **out_error)
 {
 	if(c->cfg->progress) c->cfg->progress("Resolving Game - Step 2 of 5", c->cfg->user);
-	const char *country = (c->cfg->store_country && *c->cfg->store_country) ? c->cfg->store_country : "US";
-	const char *lang = (c->cfg->store_lang && *c->cfg->store_lang) ? c->cfg->store_lang : "en";
+	char country[8], lang[8];
+	km_resolve_store_locale(c->cfg->game_identifier,
+		c->cfg->store_country, c->cfg->store_lang,
+		country, sizeof(country), lang, sizeof(lang));
 	// Percent-encode the id before splicing it into the path: a no-op for real
 	// product ids ([A-Z0-9-_]), but a corrupted catalog entry containing ?/#//
 	// must not be able to rewrite the request.
@@ -602,9 +643,13 @@ static ChiakiErrorCode km_step0_5e_check_acquire(KamajiCtx *c, char **out_error)
 	if(status == 200) { CHIAKI_LOGI(c->log, "[KAMAJI] entitlement already owned"); return CHIAKI_ERR_SUCCESS; }
 	if(status == 404)
 	{
-		if(c->cfg->catalog_is_foreign)
+		// Region-group fallback is required only for legacy PS3 Classics, where
+		// accounts such as HU have no pcnow checkout storefront. Modern CUSA/PPSA
+		// titles still require the normal free acquisition in their account store;
+		// skipping it makes Gaikai reject the reservation as unauthorized.
+		if(km_should_skip_acquire(c->cfg->game_identifier, c->cfg->catalog_is_foreign))
 		{
-			CHIAKI_LOGI(c->log, "[KAMAJI] entitlement 404, fallback region -> skip acquire, let Gaikai validate");
+			CHIAKI_LOGI(c->log, "[KAMAJI] entitlement 404, legacy Classics fallback -> skip acquire, let Gaikai validate");
 			return CHIAKI_ERR_SUCCESS;
 		}
 		return km_checkout_acquire(c, out_error);

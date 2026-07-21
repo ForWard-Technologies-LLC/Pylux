@@ -33,8 +33,10 @@ extern "C" {
  *     could contain the same owned PS5 edition through both psnow and pscloud routes,
  *     which also violated Android RecyclerView's former stable-ID assumption.
  * v5: public Classics fallback uses the dedicated regional PS3 child container;
- *     invalidates v4 caches that could contain no PS3 titles after walking APOLLOROOT. */
-#define CHIAKI_CLOUDCATALOG_SCHEMA_VERSION 5
+ *     invalidates v4 caches that could contain no PS3 titles after walking APOLLOROOT.
+ * v6: owned rows always expose their canonical entitlementId and storeProductId,
+ *     including when the entitlement id equals productId. */
+#define CHIAKI_CLOUDCATALOG_SCHEMA_VERSION 6
 
 typedef struct chiaki_cloudcatalog_config_t
 {
@@ -61,10 +63,11 @@ typedef struct chiaki_cloudcatalog_result_t
  * The JSON envelope (see CHIAKI_CLOUDCATALOG_SCHEMA_VERSION):
  *
  *   {
- *     "schemaVersion": 4,
+ *     "schemaVersion": 6,
  *     "total": <int>,
  *     "nativeMode": <bool>,            // true when the authenticated PS Now walk succeeded
- *     "fallbackRegion": "US"|"GB"|...,  // server-authoritative store country for container URLs
+ *     "fallbackRegion": "US"|"HU"|...,  // account country used for modern product resolution;
+ *                                      // legacy PS3 ids map to the regional US/GB Classics store
  *     "resolvedStoreLang": "nl"|"",    // server store language parsed from the native base_url;
  *                                      // clients use it for the step0_5d container URL (a non-English
  *                                      // native store 404s on the wrong language). "" in fallback mode.
