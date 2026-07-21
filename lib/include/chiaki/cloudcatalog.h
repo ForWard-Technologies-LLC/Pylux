@@ -28,8 +28,11 @@ extern "C" {
  *     and must be refetched.
  * v3: adds "resolvedStoreLang" (server store language for the step0_5d container URL);
  *     bumped so existing caches refetch and clients get the field immediately rather
- *     than after the 24h TTL. */
-#define CHIAKI_CLOUDCATALOG_SCHEMA_VERSION 3
+ *     than after the 24h TTL.
+ * v4: guarantees that productId is unique in the games array. Older unified caches
+ *     could contain the same owned PS5 edition through both psnow and pscloud routes,
+ *     which also violated Android RecyclerView's former stable-ID assumption. */
+#define CHIAKI_CLOUDCATALOG_SCHEMA_VERSION 4
 
 typedef struct chiaki_cloudcatalog_config_t
 {
@@ -56,7 +59,7 @@ typedef struct chiaki_cloudcatalog_result_t
  * The JSON envelope (see CHIAKI_CLOUDCATALOG_SCHEMA_VERSION):
  *
  *   {
- *     "schemaVersion": 3,
+ *     "schemaVersion": 4,
  *     "total": <int>,
  *     "nativeMode": <bool>,            // true when the authenticated PS Now walk succeeded
  *     "fallbackRegion": "US"|"GB"|...,  // server-authoritative store country for container URLs
@@ -68,7 +71,7 @@ typedef struct chiaki_cloudcatalog_result_t
  *                                      // locale chain settles); clients persist this verbatim
  *     "warning": "",                   // non-empty => client shows a banner verbatim (e.g. expired npsso)
  *     "games": [ {
- *       "productId":        <string>,  // canonical catalog id + stable dedup key
+ *       "productId":        <string>,  // canonical catalog id; unique in this array
  *       "name":             <string>,
  *       "imageUrl":         <string>,  // portrait/box art
  *       "landscapeImageUrl":<string>,

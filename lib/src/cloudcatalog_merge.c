@@ -382,6 +382,66 @@ static int sort_owned_then_name(const void *a, const void *b)
 	return strcasecmp(game_name(ao), game_name(bo));
 }
 
+// Exact productId duplicates can be created after ownership stamping: two source
+// rows that started with different catalog ids may both be rewritten to the owned
+// product id. Keep the route the UI can actually use now (owned pscloud first,
+// otherwise subscription-streamable psnow) and preserve list membership metadata.
+static int contract_game_rank(struct json_object *g)
+{
+	bool owned = cc_json_bool(g, "isOwned");
+	const char *category = cc_json_str(g, "category");
+	const char *service = cc_json_str(g, "streamServiceType");
+	int rank = owned ? 100 : 0;
+	if(strcmp(category, "owned") == 0)
+		rank += 40;
+	else if(strcmp(category, "streamable") == 0)
+		rank += 20;
+	if(owned && strcmp(service, "pscloud") == 0)
+		rank += 10;
+	if(cc_json_int(g, "feature_type") != 1)
+		rank += 2; // full game over a trial wrapper for the same exact SKU
+	if(cc_json_bool(g, "plusCatalog"))
+		rank += 1;
+	return rank;
+}
+
+// Returns a NEW array and consumes no references from games.
+static struct json_object *dedupe_contract_product_ids(struct json_object *games)
+{
+	struct json_object *out = json_object_new_array();
+	struct json_object *index = json_object_new_object();
+	size_t n = json_object_array_length(games);
+	for(size_t i = 0; i < n; i++)
+	{
+		struct json_object *candidate = json_object_array_get_idx(games, i);
+		const char *pid = cc_json_str(candidate, "productId");
+		int existing_idx = *pid ? idx_get(index, pid) : -1;
+		if(existing_idx < 0)
+		{
+			if(*pid)
+				idx_put(index, pid, (int)json_object_array_length(out));
+			json_object_array_add(out, json_object_get(candidate));
+			continue;
+		}
+
+		struct json_object *existing = json_object_array_get_idx(out, (size_t)existing_idx);
+		bool plus_catalog = cc_json_bool(existing, "plusCatalog")
+			|| cc_json_bool(candidate, "plusCatalog");
+		if(contract_game_rank(candidate) > contract_game_rank(existing))
+		{
+			cc_json_set_bool(candidate, "plusCatalog", plus_catalog);
+			json_object_array_put_idx(out, (size_t)existing_idx, json_object_get(candidate));
+		}
+		else
+		{
+			cc_json_set_bool(existing, "plusCatalog", plus_catalog);
+		}
+	}
+	json_object_put(index);
+	json_object_array_sort(out, sort_owned_then_name);
+	return out;
+}
+
 // Returns a NEW array (caller owns). browse and owned are borrowed.
 static struct json_object *merge_owned_into_browse(struct json_object *browse,
                                                    struct json_object *owned_cross_ref,
@@ -1349,6 +1409,14 @@ struct json_object *cc_assemble_unified_catalog(ChiakiLog *log, const CCAssemble
 		if(*store)
 			cc_json_set_str(g, "storeProductId", store);
 	}
+
+	// Ownership stamping can converge formerly distinct source ids onto one canonical
+	// productId. Enforce the public contract's uniqueness invariant after every routing
+	// and category field has been computed, then invalidate pre-v4 caches via the schema.
+	struct json_object *deduped = dedupe_contract_product_ids(games);
+	json_object_put(games);
+	games = deduped;
+	n = json_object_array_length(games);
 
 	// 7. envelope
 	struct json_object *out = json_object_new_object();

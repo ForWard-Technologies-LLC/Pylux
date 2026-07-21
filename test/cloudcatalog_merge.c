@@ -196,6 +196,37 @@ static MunitResult test_crossbuy_sku_sibling(const MunitParameter p[], void *dat
 	return MUNIT_OK;
 }
 
+// Ownership stamping can make two source rows converge on the same canonical
+// productId. The contract must emit one card, preferring the directly streamable
+// owned pscloud route over the legacy psnow wrapper. Android used to crash as soon
+// as both cards were laid out because productId backed RecyclerView stable IDs.
+static MunitResult test_duplicate_product_id_after_routing(const MunitParameter p[], void *data)
+{
+	(void)p; (void)data;
+	struct json_object *browse = parse(
+		"[{\"productId\":\"EP-CUSA-DUP_00\",\"name\":\"Duplicate\",\"conceptId\":700,\"device\":[\"PS5\"],\"streamingSupported\":true,\"serviceType\":\"psnow\",\"isOwned\":true,\"plusCatalog\":true},"
+		" {\"productId\":\"EP-CUSA-DUP_00\",\"name\":\"Duplicate\",\"conceptId\":700,\"device\":[\"PS5\"],\"streamingSupported\":true,\"serviceType\":\"pscloud\",\"isOwned\":true}]");
+
+	CCAssembleInput in = { 0 };
+	in.imagic_browse = browse;
+	in.native_mode = false;
+	in.fallback_region = "";
+
+	struct json_object *env = cc_assemble_unified_catalog(get_test_log(), &in);
+	struct json_object *games = games_of(env);
+
+	munit_assert_int(count_pid(games, "EP-CUSA-DUP_00"), ==, 1);
+	struct json_object *game = find_pid(games, "EP-CUSA-DUP_00");
+	munit_assert_not_null(game);
+	munit_assert_string_equal(cc_json_str(game, "category"), "owned");
+	munit_assert_string_equal(cc_json_str(game, "streamServiceType"), "pscloud");
+	munit_assert_true(cc_json_bool(game, "plusCatalog"));
+
+	json_object_put(env);
+	json_object_put(browse);
+	return MUNIT_OK;
+}
+
 // owned rows sort before non-owned; envelope carries schema + counts.
 static MunitResult test_sort_and_envelope(const MunitParameter p[], void *data)
 {
@@ -339,6 +370,7 @@ MunitTest tests_cloudcatalog_merge[] = {
 	{ "/device_based_ps5", test_device_based_ps5, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/crossbuy_and_trial", test_crossbuy_and_trial, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/crossbuy_sku_sibling", test_crossbuy_sku_sibling, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
+	{ "/duplicate_product_id_after_routing", test_duplicate_product_id_after_routing, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/sort_and_envelope", test_sort_and_envelope, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/cloud_language_helpers", test_cloud_language_helpers, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/parse_container_store_locale", test_parse_container_store_locale, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
