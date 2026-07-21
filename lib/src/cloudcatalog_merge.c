@@ -512,6 +512,8 @@ static struct json_object *merge_owned_into_browse(struct json_object *browse,
 			if(cc_ieq(owned_service, "pscloud"))
 			{
 				cc_json_set_bool(existing, "isOwned", true);
+				if(cc_json_bool(owned_game, "preferProductForStreaming"))
+					cc_json_set_bool(existing, "preferProductForStreaming", true);
 				const char *owned_id = cc_json_str(owned_game, "id");
 				if(*owned_id)
 					cc_json_set_str(existing, "id", owned_id);
@@ -691,7 +693,8 @@ static void streamability_fini(StreamabilityIndex *ix)
 
 // ---------------------------------------------------------------------------
 // streamIdentifier (contract field): what the streaming layer is handed.
-//   pscloud: the entitlement's own id when owned, else the catalog productId.
+//   pscloud: the entitlement id when owned, except an explicit disc-upgrade
+//            rescue whose stale wrapper is replaced with a launchable product id.
 //   psnow:   the catalog product variant (catalogProductId or productId).
 // ---------------------------------------------------------------------------
 
@@ -699,9 +702,22 @@ static const char *stream_identifier(struct json_object *g, const char *stream_s
 {
 	if(strcmp(stream_service, "pscloud") == 0)
 	{
-		const char *id = cc_json_str(g, "id");
-		if(cc_json_bool(g, "isOwned") && *id)
-			return id;
+		if(cc_json_bool(g, "isOwned"))
+		{
+			if(cc_json_bool(g, "preferProductForStreaming"))
+			{
+				const char *product = cc_json_str(g, "storeProductId");
+				if(!*product)
+					product = cc_json_str(g, "product_id");
+				if(!*product)
+					product = game_product_id(g);
+				if(*product)
+					return product;
+			}
+			const char *id = cc_json_str(g, "id");
+			if(*id)
+				return id;
+		}
 		return game_product_id(g);
 	}
 	const char *cat = cc_json_str(g, "catalogProductId");
@@ -1264,6 +1280,7 @@ struct json_object *cc_build_owned_cross_ref(ChiakiLog *log,
 		cc_json_set_str(entry, "product_id", replacement);
 		cc_json_set_str(entry, "productId", replacement);
 		cc_json_set_str(entry, "catalogProductId", replacement);
+		cc_json_set_bool(entry, "preferProductForStreaming", true);
 		CHIAKI_LOGI(log, "[CROSS-REF] disc-upgrade rescue: %s -> %s", disc_name, replacement);
 	}
 

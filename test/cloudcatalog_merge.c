@@ -147,7 +147,7 @@ static MunitResult test_crossbuy_and_trial(const MunitParameter p[], void *data)
 	munit_assert_true(cc_json_bool(track, "isOwned"));
 	munit_assert_string_equal(cc_json_str(track, "category"), "owned");
 	munit_assert_string_equal(cc_json_str(track, "serviceType"), "pscloud");
-	// pscloud owned streams the entitlement's own id
+	// Ordinary pscloud ownership streams through its entitlement id.
 	munit_assert_string_equal(cc_json_str(track, "streamIdentifier"), "PPSA-TRACK-ENT");
 
 	json_object_put(env);
@@ -260,6 +260,53 @@ static MunitResult test_owned_psnow_canonical_entitlement(const MunitParameter p
 
 	json_object_put(env);
 	json_object_put(owned);
+	return MUNIT_OK;
+}
+
+// A disc-upgrade rescue explicitly launches through its replacement product id.
+// Ordinary PS5 ownership stays entitlement-first to preserve known-good routes.
+static MunitResult test_owned_pscloud_disc_rescue_identifier(const MunitParameter p[], void *data)
+{
+	(void)p; (void)data;
+	struct json_object *browse = parse(
+		"[{\"productId\":\"EP9000-PPSA01521_00-FORBIDDENWESTPS5\","
+		"\"name\":\"Horizon Forbidden West\",\"conceptId\":1001,"
+		"\"device\":[\"PS5\"],\"streamingSupported\":true},"
+		"{\"productId\":\"EP9000-PPSA01411_00-MARVELSSPIDERMAN\","
+		"\"name\":\"Marvel's Spider-Man Remastered\",\"conceptId\":1002,"
+		"\"device\":[\"PS5\"],\"streamingSupported\":true}]");
+	struct json_object *raw_owned = parse(
+		"[{\"id\":\"EP9000-PPSA01521_00-FORBIDDENWESTPS5\","
+		"\"product_id\":\"EP9000-PPSA01521_00-FORBIDDENWESTPS5\","
+		"\"feature_type\":5,\"game_meta\":{\"name\":\"Horizon Forbidden West\"},"
+		"\"entitlement_attributes\":[{\"platform_id\":\"ps5\"}]},"
+		"{\"id\":\"EP9000-PPSA17903_00-HFWCE00000000000\","
+		"\"product_id\":\"EP9000-PPSA17903_00-HFWCE00000000000\","
+		"\"feature_type\":3,\"game_meta\":{\"name\":\"Horizon Forbidden West\"},"
+		"\"entitlement_attributes\":[{\"platform_id\":\"ps5\"}]},"
+		"{\"id\":\"EP9000-PPSA01411_00-MARVELSSPIDERMAN00\","
+		"\"product_id\":\"EP9000-PPSA01411_00-MARVELSSPIDERMAN\","
+		"\"feature_type\":3,\"game_meta\":{\"name\":\"Marvel's Spider-Man Remastered\"},"
+		"\"entitlement_attributes\":[{\"platform_id\":\"ps5\"}]}]");
+	struct json_object *owned = cc_build_owned_cross_ref(get_test_log(),
+		NULL, browse, NULL, NULL, raw_owned, NULL);
+	munit_assert_int((int)json_object_array_length(owned), ==, 2);
+	CCAssembleInput in = { 0 };
+	in.imagic_browse = browse;
+	in.owned_cross_ref = owned;
+	in.native_mode = false;
+	struct json_object *env = cc_assemble_unified_catalog(get_test_log(), &in);
+	struct json_object *games = games_of(env);
+	munit_assert_string_equal(cc_json_str(find_pid(games,
+		"EP9000-PPSA17903_00-HFWCE00000000000"), "streamIdentifier"),
+		"EP9000-PPSA17903_00-HFWCE00000000000");
+	munit_assert_string_equal(cc_json_str(find_pid(games,
+		"EP9000-PPSA01411_00-MARVELSSPIDERMAN"), "streamIdentifier"),
+		"EP9000-PPSA01411_00-MARVELSSPIDERMAN00");
+	json_object_put(env);
+	json_object_put(browse);
+	json_object_put(owned);
+	json_object_put(raw_owned);
 	return MUNIT_OK;
 }
 
@@ -429,6 +476,7 @@ MunitTest tests_cloudcatalog_merge[] = {
 	{ "/crossbuy_sku_sibling", test_crossbuy_sku_sibling, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/duplicate_product_id_after_routing", test_duplicate_product_id_after_routing, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/owned_psnow_canonical_entitlement", test_owned_psnow_canonical_entitlement, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
+	{ "/owned_pscloud_disc_rescue_identifier", test_owned_pscloud_disc_rescue_identifier, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/sort_and_envelope", test_sort_and_envelope, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/cloud_language_helpers", test_cloud_language_helpers, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/parse_container_store_locale", test_parse_container_store_locale, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },

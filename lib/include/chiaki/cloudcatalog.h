@@ -35,8 +35,9 @@ extern "C" {
  * v5: public Classics fallback uses the dedicated regional PS3 child container;
  *     invalidates v4 caches that could contain no PS3 titles after walking APOLLOROOT.
  * v6: owned rows always expose their canonical entitlementId and storeProductId,
- *     including when the entitlement id equals productId. */
-#define CHIAKI_CLOUDCATALOG_SCHEMA_VERSION 6
+ *     including when the entitlement id equals productId.
+ * v7: explicit disc-upgrade rescues launch through their replacement product id. */
+#define CHIAKI_CLOUDCATALOG_SCHEMA_VERSION 7
 
 typedef struct chiaki_cloudcatalog_config_t
 {
@@ -63,7 +64,7 @@ typedef struct chiaki_cloudcatalog_result_t
  * The JSON envelope (see CHIAKI_CLOUDCATALOG_SCHEMA_VERSION):
  *
  *   {
- *     "schemaVersion": 6,
+ *     "schemaVersion": 7,
  *     "total": <int>,
  *     "nativeMode": <bool>,            // true when the authenticated PS Now walk succeeded
  *     "fallbackRegion": "US"|"HU"|...,  // account country used for modern product resolution;
