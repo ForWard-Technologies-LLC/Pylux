@@ -3,7 +3,7 @@
 // Blocking network fetch flows for the unified cloud catalog. Faithful port of
 // the async QNetworkAccessManager state machines in cloudcatalogbackend.cpp:
 //   - PS Now OAuth -> session -> stores -> APOLLOROOT root + alphabetical walk
-//   - public APOLLOROOT fallback pagination (region-unsupported accounts)
+//   - public PS3 Classics child-container pagination (region-unsupported accounts)
 //   - imagic 6-list fetch with locale fallback chain
 //   - owned entitlements OAuth(token) -> paginated internal_entitlements -> filter
 
@@ -504,7 +504,7 @@ CCNativeResult cc_fetch_psnow_native(ChiakiLog *log, const char *npsso, struct j
 }
 
 // ===========================================================================
-// Public APOLLOROOT fallback pagination
+// Public PS3 Classics fallback pagination
 // ===========================================================================
 
 struct json_object *cc_fetch_apollo_fallback(ChiakiLog *log, const char *account_country, bool *out_complete)
@@ -512,7 +512,7 @@ struct json_object *cc_fetch_apollo_fallback(ChiakiLog *log, const char *account
 	if(out_complete)
 		*out_complete = true;
 	const char *store_country = cc_classics_store_country(account_country);
-	const char *container = cc_apollo_root_container_id(account_country);
+	const char *container = cc_classics_ps3_container_id(account_country);
 	char container_url[512];
 	snprintf(container_url, sizeof(container_url),
 		"https://psnow.playstation.com/store/api/pcnow/00_09_000/container/%s/en/19/%s",
@@ -538,7 +538,7 @@ struct json_object *cc_fetch_apollo_fallback(ChiakiLog *log, const char *account
 			// incomplete so the caller never caches a partial classics list.
 			if(out_complete)
 				*out_complete = false;
-			CHIAKI_LOGW(log, "[UNIFIED] APOLLOROOT fallback page at start=%d failed; list incomplete", start);
+			CHIAKI_LOGW(log, "[UNIFIED] PS3 Classics fallback page at start=%d failed; list incomplete", start);
 			break;
 		}
 		struct json_object *obj = parse_body(&resp);
@@ -547,7 +547,7 @@ struct json_object *cc_fetch_apollo_fallback(ChiakiLog *log, const char *account
 		{
 			if(out_complete)
 				*out_complete = false;
-			CHIAKI_LOGW(log, "[UNIFIED] APOLLOROOT fallback page at start=%d unparseable; list incomplete", start);
+			CHIAKI_LOGW(log, "[UNIFIED] PS3 Classics fallback page at start=%d unparseable; list incomplete", start);
 			break;
 		}
 		if(total < 0 && cc_json_has(obj, "total_results"))
@@ -582,7 +582,7 @@ struct json_object *cc_fetch_apollo_fallback(ChiakiLog *log, const char *account
 			// completeness, so serve what we have but don't let it cache.
 			if(out_complete)
 				*out_complete = false;
-			CHIAKI_LOGW(log, "[UNIFIED] APOLLOROOT fallback ended at start=%d without a confirmed total; list incomplete", start - 100);
+			CHIAKI_LOGW(log, "[UNIFIED] PS3 Classics fallback ended at start=%d without a confirmed total; list incomplete", start - 100);
 			break;
 		}
 		if(start >= 10000)
@@ -591,11 +591,11 @@ struct json_object *cc_fetch_apollo_fallback(ChiakiLog *log, const char *account
 			// total) can't spin this loop forever.
 			if(out_complete)
 				*out_complete = false;
-			CHIAKI_LOGW(log, "[UNIFIED] APOLLOROOT fallback page cap hit at start=%d; list incomplete", start);
+			CHIAKI_LOGW(log, "[UNIFIED] PS3 Classics fallback page cap hit at start=%d; list incomplete", start);
 			break;
 		}
 	}
-	CHIAKI_LOGI(log, "[UNIFIED] APOLLOROOT fallback: %d titles", (int)json_object_array_length(games));
+	CHIAKI_LOGI(log, "[UNIFIED] PS3 Classics fallback: %d titles", (int)json_object_array_length(games));
 	return games;
 }
 

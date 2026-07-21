@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 //
 // Unified catalog orchestrator + public API. Mirrors the Qt fetchUnifiedCatalog
-// chain: native APOLLOROOT probe -> (public fallback | expired-warning) ->
+// chain: native APOLLOROOT probe -> (public PS3 Classics fallback | expired-warning) ->
 // imagic 6-list -> owned entitlements -> cross-reference -> assemble. Cache keys
 // (unified_catalog_v3 [contract schema; was v2 pre-migration], ps5_cloud_catalog_v6,
 // ps5_cloud_library) are shared across platforms so files stay byte-comparable, and

@@ -31,8 +31,10 @@ extern "C" {
  *     than after the 24h TTL.
  * v4: guarantees that productId is unique in the games array. Older unified caches
  *     could contain the same owned PS5 edition through both psnow and pscloud routes,
- *     which also violated Android RecyclerView's former stable-ID assumption. */
-#define CHIAKI_CLOUDCATALOG_SCHEMA_VERSION 4
+ *     which also violated Android RecyclerView's former stable-ID assumption.
+ * v5: public Classics fallback uses the dedicated regional PS3 child container;
+ *     invalidates v4 caches that could contain no PS3 titles after walking APOLLOROOT. */
+#define CHIAKI_CLOUDCATALOG_SCHEMA_VERSION 5
 
 typedef struct chiaki_cloudcatalog_config_t
 {
