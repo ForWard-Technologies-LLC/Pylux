@@ -29,7 +29,7 @@ extern "C" {
  * v3: adds "resolvedStoreLang" (server store language for the step0_5d container URL);
  *     bumped so existing caches refetch and clients get the field immediately rather
  *     than after the 24h TTL. */
-#define CHIAKI_CLOUDCATALOG_SCHEMA_VERSION 3
+#define CHIAKI_CLOUDCATALOG_SCHEMA_VERSION 4
 
 typedef struct chiaki_cloudcatalog_config_t
 {

@@ -196,6 +196,69 @@ static MunitResult test_crossbuy_sku_sibling(const MunitParameter p[], void *dat
 	return MUNIT_OK;
 }
 
+// Fortnite regression: the public browse SKU is FNBNDL, while Sony's purchased
+// library reports the launchable PSCP product and FORTNITETESTING2 entitlement.
+// The stable/concept cross-reference must replace "Add Game" with one owned card
+// and retain the entitlement as the Cronos stream identifier.
+static MunitResult test_fortnite_purchased_library_sku(const MunitParameter p[], void *data)
+{
+	(void)p; (void)data;
+	struct json_object *browse = parse(
+		"[{\"productId\":\"UP1477-PPSA01922_00-FNBNDL0000000000\","
+		"\"name\":\"Fortnite\",\"conceptId\":228748,\"device\":[\"PS5\"],"
+		"\"streamingSupported\":true}]");
+	struct json_object *raw_purchased = parse(
+		"{\"isActive\":true,\"platform\":\"PS5\",\"conceptId\":\"228748\","
+		"\"entitlementId\":\"UP1477-PPSA01922_00-FORTNITETESTING2\","
+		"\"productId\":\"UP1477-PPSA01922_00-PSCP320000000000\","
+		"\"titleId\":\"PPSA01922_00\",\"name\":\"Fortnite\","
+		"\"image\":{\"url\":\"https://example.invalid/fortnite.png\"}}");
+	struct json_object *normalized = cc_normalize_purchased_game(raw_purchased);
+	munit_assert_not_null(normalized);
+	munit_assert_string_equal(cc_json_str(normalized, "serviceType"), "pscloud");
+	munit_assert_string_equal(cc_json_str(normalized, "conceptId"), "228748");
+	struct json_object *purchased = json_object_new_array();
+	json_object_array_add(purchased, normalized);
+	struct json_object *components = parse(
+		"{\"UP1477-PPSA01922_00-PSCP320000000000\":"
+		"[\"UP1477-PPSA01922_00-FORTNITETESTING2\"]}");
+
+	struct json_object *cross_ref = cc_build_owned_cross_ref(get_test_log(),
+		NULL, browse, NULL, NULL, purchased, components);
+	munit_assert_int((int)json_object_array_length(cross_ref), ==, 1);
+
+	CCAssembleInput in = { 0 };
+	in.imagic_browse = browse;
+	in.owned_cross_ref = cross_ref;
+	in.native_mode = true;
+
+	struct json_object *env = cc_assemble_unified_catalog(get_test_log(), &in);
+	struct json_object *games = games_of(env);
+	munit_assert_int((int)json_object_array_length(games), ==, 1);
+
+	struct json_object *fortnite =
+		find_pid(games, "UP1477-PPSA01922_00-PSCP320000000000");
+	munit_assert_not_null(fortnite);
+	munit_assert_true(cc_json_bool(fortnite, "isOwned"));
+	munit_assert_string_equal(cc_json_str(fortnite, "category"), "owned");
+	munit_assert_string_equal(cc_json_str(fortnite, "serviceType"), "pscloud");
+	munit_assert_string_equal(cc_json_str(fortnite, "storeProductId"),
+		"UP1477-PPSA01922_00-FNBNDL0000000000");
+	munit_assert_string_equal(cc_json_str(fortnite, "entitlementId"),
+		"UP1477-PPSA01922_00-FORTNITETESTING2");
+	munit_assert_string_equal(cc_json_str(fortnite, "streamIdentifier"),
+		"UP1477-PPSA01922_00-FORTNITETESTING2");
+	munit_assert_null(find_pid(games, "UP1477-PPSA01922_00-FNBNDL0000000000"));
+
+	json_object_put(env);
+	json_object_put(cross_ref);
+	json_object_put(components);
+	json_object_put(purchased);
+	json_object_put(raw_purchased);
+	json_object_put(browse);
+	return MUNIT_OK;
+}
+
 // owned rows sort before non-owned; envelope carries schema + counts.
 static MunitResult test_sort_and_envelope(const MunitParameter p[], void *data)
 {
@@ -339,6 +402,7 @@ MunitTest tests_cloudcatalog_merge[] = {
 	{ "/device_based_ps5", test_device_based_ps5, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/crossbuy_and_trial", test_crossbuy_and_trial, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/crossbuy_sku_sibling", test_crossbuy_sku_sibling, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
+	{ "/fortnite_purchased_library_sku", test_fortnite_purchased_library_sku, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/sort_and_envelope", test_sort_and_envelope, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/cloud_language_helpers", test_cloud_language_helpers, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/parse_container_store_locale", test_parse_container_store_locale, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },

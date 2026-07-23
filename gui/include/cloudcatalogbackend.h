@@ -119,7 +119,7 @@ private:
 
     // Helper methods
     // PSCloud entitlement → productId library lookup (used by getGameLandscapeImageFromCache
-    // and createCloudSteamShortcut). Returns productId from ps5_cloud_library cache, or
+    // and createCloudSteamShortcut). Returns productId from ps5_cloud_library_v2 cache, or
     // entitlementId if not found.
     QString findProductIdForEntitlement(const QString &entitlementId);
     void setCachedData(const QString &key, const QJsonDocument &data);

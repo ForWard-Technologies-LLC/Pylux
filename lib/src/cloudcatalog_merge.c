@@ -453,8 +453,11 @@ static struct json_object *merge_owned_into_browse(struct json_object *browse,
 			{
 				cc_json_set_bool(existing, "isOwned", true);
 				const char *owned_id = cc_json_str(owned_game, "id");
+				const char *catalog_id = cc_json_str(owned_game, "catalogProductId");
 				if(*owned_id)
 					cc_json_set_str(existing, "id", owned_id);
+				if(*catalog_id)
+					cc_json_set_str(existing, "catalogProductId", catalog_id);
 				if(*owned_pid)
 				{
 					cc_json_set_str(existing, "product_id", owned_pid);
@@ -884,10 +887,19 @@ static void build_concept_index(struct json_object *arr, struct json_object *map
 
 void cc_sanitize_owned_service_type(struct json_object *ent)
 {
+	char canonical[16] = "";
+	const char *existing = cc_json_str(ent, "serviceType");
+	if(cc_ieq(existing, "pscloud") || cc_ieq(existing, "psnow"))
+		snprintf(canonical, sizeof(canonical), "%s",
+			cc_ieq(existing, "pscloud") ? "pscloud" : "psnow");
 	json_object_object_del(ent, "serviceType");
 	struct json_object *attrs = cc_json_arr(ent, "entitlement_attributes");
 	if(!attrs)
+	{
+		if(*canonical)
+			cc_json_set_str(ent, "serviceType", canonical);
 		return;
+	}
 	size_t n = json_object_array_length(attrs);
 	for(size_t i = 0; i < n; i++)
 	{
@@ -898,6 +910,8 @@ void cc_sanitize_owned_service_type(struct json_object *ent)
 		if(cc_ieq(pid, "ps5")) { cc_json_set_str(ent, "serviceType", "pscloud"); return; }
 		if(cc_ieq(pid, "ps4") || cc_ieq(pid, "ps3")) { cc_json_set_str(ent, "serviceType", "psnow"); return; }
 	}
+	if(*canonical)
+		cc_json_set_str(ent, "serviceType", canonical);
 }
 
 // emitOwned: enrich `ow` with `meta`, dedupe into owned_by_key (ranked).
