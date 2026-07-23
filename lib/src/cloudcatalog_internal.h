@@ -179,7 +179,8 @@ const char *cc_stable_key(const char *product_id, char *out, size_t out_sz);
 
 /**
  * Strip Sony's numeric serviceType and set canonical pscloud/psnow from
- * entitlement_attributes[].platform_id. Mirrors sanitizeOwnedEntitlementServiceType.
+ * entitlement_attributes[].platform_id. Already-canonical values from normalized
+ * purchased-library rows are preserved when no structured attribute overrides them.
  */
 void cc_sanitize_owned_service_type(struct json_object *ent);
 
@@ -245,7 +246,10 @@ typedef enum cc_owned_result_t
 	CC_OWNED_ERROR
 } CCOwnedResult;
 
-/** Owned entitlements OAuth + pagination + filter. Outputs new games array + componentIds object. */
+/** Normalize one purchasedTitlesRetrieve game row. Returns a new reference or NULL. */
+struct json_object *cc_normalize_purchased_game(struct json_object *raw);
+
+/** Purchased-library fetch with legacy entitlement fallback. Outputs new games + component IDs. */
 CCOwnedResult cc_fetch_owned(ChiakiLog *log, const char *npsso,
 	struct json_object **out_games, struct json_object **out_component_ids);
 

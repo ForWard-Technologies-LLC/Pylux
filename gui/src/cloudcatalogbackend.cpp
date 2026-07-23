@@ -508,7 +508,7 @@ QJsonObject CloudCatalogBackend::extractGameImages(const QJsonObject &gameData)
 
 QString CloudCatalogBackend::findProductIdForEntitlement(const QString &entitlementId)
 {
-    QString libraryCached = getCachedData("ps5_cloud_library", INT_MAX);
+    QString libraryCached = getCachedData("ps5_cloud_library_v2", INT_MAX);
     if (libraryCached.isEmpty())
         return entitlementId;
     QJsonDocument libraryDoc = QJsonDocument::fromJson(libraryCached.toUtf8());
@@ -1176,5 +1176,4 @@ void CloudCatalogBackend::createCloudSteamShortcut(const QString &gameIdentifier
 
 #endif // CHIAKI_GUI_ENABLE_STEAM_SHORTCUT
 }
-
 

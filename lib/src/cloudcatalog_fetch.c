@@ -5,7 +5,8 @@
 //   - PS Now OAuth -> session -> stores -> APOLLOROOT root + alphabetical walk
 //   - public APOLLOROOT fallback pagination (region-unsupported accounts)
 //   - imagic 6-list fetch with locale fallback chain
-//   - owned entitlements OAuth(token) -> paginated internal_entitlements -> filter
+//   - owned games mobile OAuth -> purchasedTitlesRetrieve GraphQL
+//   - legacy internal_entitlements fallback for accounts where GraphQL is unavailable
 
 #include "cloudcatalog_internal.h"
 #include "curl_http.h"
@@ -30,12 +31,18 @@
 #define KAMAJI_BASE     "https://psnow.playstation.com/kamaji/api/pcnow/00_09_000"
 #define PSNOW_CLIENT_ID "bc6b0777-abb5-40da-92ca-e133cf18e989"
 #define OWNED_CLIENT_ID "dc523cc2-b51b-4190-bff0-3397c06871b3"
+#define MOBILE_CLIENT_ID "09515159-7237-4370-9b40-3806e67c0891"
 #define PS4_SCOPES      "kamaji:commerce_native kamaji:commerce_container kamaji:lists kamaji:s2s.subscriptionsPremium.get"
 #define OWNED_SCOPES    "kamaji:get_internal_entitlements user:account.attributes.validate"
+#define MOBILE_SCOPES   "psn:mobile.v2.core psn:clientapp"
 #define KAMAJI_UA       "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) playstation-now/0.0.0 Chrome/83.0.4103.104 Electron/9.0.4 Safari/537.36 gkApollo"
 #define KAMAJI_ORIGIN   "https://psnow.playstation.com"
 #define KAMAJI_REFERER  "https://psnow.playstation.com/app/2.2.0/133/5cdcc037d/"
 #define KAMAJI_REDIRECT "https://psnow.playstation.com/app/2.2.0/133/5cdcc037d/grc-response.html"
+#define MOBILE_REDIRECT "com.scee.psxandroid.scecompcall://redirect"
+#define MOBILE_BASIC_AUTH "Authorization: Basic MDk1MTUxNTktNzIzNy00MzcwLTliNDAtMzgwNmU2N2MwODkxOnVjUGprYTV0bnRCMktxc1A="
+#define PURCHASED_GRAPHQL "https://web.np.playstation.com/api/graphql/v1/op"
+#define PURCHASED_QUERY_HASH "827a423f6a8ddca4107ac01395af2ec0eafd8396fc7fa204aaf9b7ed2eefa168"
 #define GENERIC_UA      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 #define OWNED_PAGE_SIZE 300
 
@@ -779,7 +786,329 @@ static struct json_object *filter_owned(ChiakiLog *log, struct json_object *enti
 	return out;
 }
 
-static CCOwnedResult owned_oauth(ChiakiLog *log, const char *npsso, char *out_token, size_t tok_sz)
+// Sony's current clients use the mobile OAuth client and the PlayStation Store
+// purchasedTitlesRetrieve GraphQL operation for the user's library. The older
+// internal_entitlements endpoint below omits some free-to-play/add-to-library
+// licenses (notably Fortnite's PSCP entitlement), so it remains a fallback only.
+static CCOwnedResult mobile_owned_oauth(ChiakiLog *log, const char *npsso,
+	char *out_token, size_t tok_sz)
+{
+	char *enc_scope = url_encode(MOBILE_SCOPES);
+	char *enc_redirect = url_encode(MOBILE_REDIRECT);
+	if(!enc_scope || !enc_redirect)
+	{
+		free(enc_scope);
+		free(enc_redirect);
+		return CC_OWNED_ERROR;
+	}
+
+	char url[1536];
+	snprintf(url, sizeof(url),
+		ACCOUNT_BASE "/authz/v3/oauth/authorize?response_type=code&scope=%s"
+		"&client_id=" MOBILE_CLIENT_ID "&redirect_uri=%s"
+		"&service_entity=urn%%3Aservice-entity%%3Apsn&prompt=none",
+		enc_scope, enc_redirect);
+	free(enc_scope);
+
+	char *cookie = NULL;
+	if(cc_http_make_cookie_header(&cookie, "npsso", npsso) != CHIAKI_ERR_SUCCESS)
+	{
+		free(enc_redirect);
+		return CC_OWNED_ERROR;
+	}
+	const char *authorize_headers[] = { cookie, "User-Agent: " GENERIC_UA };
+	CCHttpRequest authorize_req = { 0 };
+	authorize_req.url = url;
+	authorize_req.headers = authorize_headers;
+	authorize_req.header_count = 2;
+
+	CCHttpResponse authorize_resp;
+	if(cc_http_perform(log, &authorize_req, &authorize_resp) != CHIAKI_ERR_SUCCESS)
+	{
+		free(cookie);
+		free(enc_redirect);
+		return CC_OWNED_ERROR;
+	}
+	free(cookie);
+
+	char code[2048];
+	CCOwnedResult result = CC_OWNED_AUTH_ERROR;
+	if(authorize_resp.status_code == 302 && authorize_resp.redirect_url)
+	{
+		char error[128];
+		if(extract_param(authorize_resp.redirect_url, "error", error, sizeof(error)))
+			result = CC_OWNED_AUTH_ERROR;
+		else if(extract_param(authorize_resp.redirect_url, "code", code, sizeof(code)))
+			result = CC_OWNED_OK;
+	}
+	else if(authorize_resp.status_code >= 500)
+		result = CC_OWNED_ERROR;
+	cc_http_response_fini(&authorize_resp);
+	if(result != CC_OWNED_OK)
+	{
+		free(enc_redirect);
+		return result;
+	}
+
+	// `token_format=jwt` is required for the Store GraphQL authorization layer.
+	// Without it Sony returns a valid opaque token that purchasedTitlesRetrieve rejects.
+	char *enc_code = url_encode(code);
+	if(!enc_code)
+	{
+		free(enc_redirect);
+		return CC_OWNED_ERROR;
+	}
+	char body[4096];
+	snprintf(body, sizeof(body),
+		"code=%s&redirect_uri=%s&grant_type=authorization_code&token_format=jwt",
+		enc_code, enc_redirect);
+	free(enc_code);
+	free(enc_redirect);
+
+	const char *token_headers[] = {
+		MOBILE_BASIC_AUTH,
+		"Content-Type: application/x-www-form-urlencoded",
+		"Accept: application/json",
+		"User-Agent: " GENERIC_UA,
+	};
+	CCHttpRequest token_req = { 0 };
+	token_req.method = "POST";
+	token_req.url = ACCOUNT_BASE "/authz/v3/oauth/token";
+	token_req.headers = token_headers;
+	token_req.header_count = 4;
+	token_req.body = body;
+
+	CCHttpResponse token_resp;
+	if(cc_http_perform(log, &token_req, &token_resp) != CHIAKI_ERR_SUCCESS)
+		return CC_OWNED_ERROR;
+
+	result = CC_OWNED_ERROR;
+	if(token_resp.status_code == 200)
+	{
+		struct json_object *obj = parse_body(&token_resp);
+		const char *access_token = obj ? cc_json_str(obj, "access_token") : "";
+		if(*access_token && strlen(access_token) < tok_sz)
+		{
+			snprintf(out_token, tok_sz, "%s", access_token);
+			result = CC_OWNED_OK;
+		}
+		if(obj)
+			json_object_put(obj);
+	}
+	else if(token_resp.status_code == 400 || token_resp.status_code == 401
+		|| token_resp.status_code == 403)
+		result = CC_OWNED_AUTH_ERROR;
+	cc_http_response_fini(&token_resp);
+	return result;
+}
+
+static void owned_component_add(struct json_object *components,
+	const char *product_id, const char *entitlement_id)
+{
+	if(!product_id || !*product_id || !entitlement_id || !*entitlement_id)
+		return;
+	struct json_object *arr = NULL;
+	if(!json_object_object_get_ex(components, product_id, &arr))
+	{
+		arr = json_object_new_array();
+		json_object_object_add(components, product_id, arr);
+	}
+	json_object_array_add(arr, json_object_new_string(entitlement_id));
+}
+
+struct json_object *cc_normalize_purchased_game(struct json_object *raw)
+{
+	if(!raw || json_object_get_type(raw) != json_type_object
+		|| !cc_json_bool(raw, "isActive"))
+		return NULL;
+
+	const char *product_id = cc_json_str(raw, "productId");
+	const char *entitlement_id = cc_json_str(raw, "entitlementId");
+	if(!*product_id)
+		return NULL;
+	if(!*entitlement_id)
+		entitlement_id = product_id;
+
+	const char *platform = cc_json_str(raw, "platform");
+	if(!cc_ieq(platform, "PS4") && !cc_ieq(platform, "PS5"))
+		return NULL;
+
+	struct json_object *owned = json_object_new_object();
+	cc_json_set_str(owned, "id", entitlement_id);
+	cc_json_set_str(owned, "product_id", product_id);
+	cc_json_set_str(owned, "productId", product_id);
+	cc_json_set_str(owned, "serviceType",
+		cc_ieq(platform, "PS5") ? "pscloud" : "psnow");
+	json_object_object_add(owned, "active_flag", json_object_new_boolean(true));
+	json_object_object_add(owned, "feature_type", json_object_new_int(3));
+
+	struct json_object *concept = NULL;
+	if(json_object_object_get_ex(raw, "conceptId", &concept) && concept
+		&& json_object_get_type(concept) != json_type_null)
+		json_object_object_add(owned, "conceptId", cc_json_clone(concept));
+	const char *title_id = cc_json_str(raw, "titleId");
+	if(*title_id)
+		cc_json_set_str(owned, "titleId", title_id);
+
+	struct json_object *game_meta = json_object_new_object();
+	const char *name = cc_json_str(raw, "name");
+	if(*name)
+		cc_json_set_str(game_meta, "name", name);
+	struct json_object *image = cc_json_obj(raw, "image");
+	const char *image_url = image ? cc_json_str(image, "url") : "";
+	if(*image_url)
+	{
+		cc_json_set_str(game_meta, "icon_url", image_url);
+		cc_json_set_str(owned, "imageUrl", image_url);
+	}
+	json_object_object_add(owned, "game_meta", game_meta);
+	return owned;
+}
+
+static CCOwnedResult fetch_owned_mobile(ChiakiLog *log, const char *npsso,
+	struct json_object **out_games, struct json_object **out_component_ids)
+{
+	*out_games = NULL;
+	*out_component_ids = NULL;
+
+	char token[8192];
+	CCOwnedResult oauth_result = mobile_owned_oauth(log, npsso, token, sizeof(token));
+	if(oauth_result != CC_OWNED_OK)
+		return oauth_result;
+
+	char *bearer = NULL;
+	if(cc_http_make_bearer_header(&bearer, token) != CHIAKI_ERR_SUCCESS)
+		return CC_OWNED_ERROR;
+
+	struct json_object *games = json_object_new_array();
+	struct json_object *components = json_object_new_object();
+	CCOwnedResult result = CC_OWNED_OK;
+	int start = 0;
+	int raw_total = 0;
+	bool complete = false;
+
+	for(int pages = 0; pages < 200; pages++)
+	{
+		char variables[512];
+		snprintf(variables, sizeof(variables),
+			"{\"isActive\":true,\"platform\":[\"ps4\",\"ps5\"],\"size\":%d,"
+			"\"start\":%d,\"sortBy\":\"ACTIVE_DATE\",\"sortDirection\":\"desc\"}",
+			OWNED_PAGE_SIZE, start);
+		const char extensions[] =
+			"{\"persistedQuery\":{\"version\":1,\"sha256Hash\":\""
+			PURCHASED_QUERY_HASH "\"}}";
+		char *enc_variables = url_encode(variables);
+		char *enc_extensions = url_encode(extensions);
+		if(!enc_variables || !enc_extensions)
+		{
+			free(enc_variables);
+			free(enc_extensions);
+			result = CC_OWNED_ERROR;
+			break;
+		}
+
+		char url[8192];
+		snprintf(url, sizeof(url),
+			PURCHASED_GRAPHQL "?operationName=getPurchasedGameList"
+			"&variables=%s&extensions=%s", enc_variables, enc_extensions);
+		free(enc_variables);
+		free(enc_extensions);
+
+		const char *headers[] = {
+			bearer,
+			"Accept: application/json",
+			"Content-Type: application/json",
+			"apollographql-client-name: @sie-private/web-commerce-anywhere",
+			"apollographql-client-version: 0.0.1",
+		};
+		CCHttpRequest req = { 0 };
+		req.url = url;
+		req.headers = headers;
+		req.header_count = 5;
+
+		CCHttpResponse resp;
+		if(cc_http_perform(log, &req, &resp) != CHIAKI_ERR_SUCCESS)
+		{
+			result = CC_OWNED_ERROR;
+			break;
+		}
+		if(resp.status_code == 401 || resp.status_code == 403)
+		{
+			cc_http_response_fini(&resp);
+			result = CC_OWNED_AUTH_ERROR;
+			break;
+		}
+		if(resp.status_code < 200 || resp.status_code >= 300)
+		{
+			cc_http_response_fini(&resp);
+			result = CC_OWNED_ERROR;
+			break;
+		}
+
+		struct json_object *root = parse_body(&resp);
+		cc_http_response_fini(&resp);
+		struct json_object *data = root ? cc_json_obj(root, "data") : NULL;
+		struct json_object *purchased = data ? cc_json_obj(data, "purchasedTitlesRetrieve") : NULL;
+		if(!purchased)
+		{
+			// A stale persisted-query hash and other GraphQL errors are not evidence
+			// that the user's NPSSO expired. Only HTTP 401/403 is classified as auth.
+			result = CC_OWNED_ERROR;
+			if(root)
+				json_object_put(root);
+			break;
+		}
+
+		struct json_object *page = cc_json_arr(purchased, "games");
+		int page_count = page ? (int)json_object_array_length(page) : 0;
+		for(int i = 0; i < page_count; i++)
+		{
+			struct json_object *raw = json_object_array_get_idx(page, i);
+			struct json_object *owned = cc_normalize_purchased_game(raw);
+			if(!owned)
+				continue;
+			owned_component_add(components, cc_json_str(owned, "product_id"),
+				cc_json_str(owned, "id"));
+			json_object_array_add(games, owned);
+		}
+		raw_total += page_count;
+
+		struct json_object *page_info = cc_json_obj(purchased, "pageInfo");
+		bool is_last = page_info && cc_json_bool(page_info, "isLast");
+		if(root)
+			json_object_put(root);
+		// Prefer Sony's explicit pageInfo. The service may clamp a requested page
+		// size, in which case a short-but-not-last page must still advance.
+		if(page_count == 0 || is_last || (!page_info && page_count < OWNED_PAGE_SIZE))
+		{
+			complete = true;
+			break;
+		}
+		start += page_count;
+		CC_MS_SLEEP(100);
+	}
+	free(bearer);
+
+	if(result == CC_OWNED_OK && !complete)
+	{
+		CHIAKI_LOGW(log, "[OWNED] purchased-library page cap reached; refusing partial library");
+		result = CC_OWNED_ERROR;
+	}
+	if(result != CC_OWNED_OK)
+	{
+		json_object_put(games);
+		json_object_put(components);
+		return result;
+	}
+
+	*out_games = games;
+	*out_component_ids = components;
+	CHIAKI_LOGI(log, "[OWNED] purchased library: %d rows -> %d active games",
+		raw_total, (int)json_object_array_length(games));
+	return CC_OWNED_OK;
+}
+
+static CCOwnedResult legacy_owned_oauth(ChiakiLog *log, const char *npsso, char *out_token, size_t tok_sz)
 {
 	char *enc_scope = url_encode(OWNED_SCOPES);
 	char *enc_redirect = url_encode(KAMAJI_REDIRECT);
@@ -824,8 +1153,9 @@ static CCOwnedResult owned_oauth(ChiakiLog *log, const char *npsso, char *out_to
 	return result;
 }
 
-CCOwnedResult cc_fetch_owned(ChiakiLog *log, const char *npsso,
-                             struct json_object **out_games, struct json_object **out_component_ids)
+static CCOwnedResult fetch_owned_legacy(ChiakiLog *log, const char *npsso,
+                                        struct json_object **out_games,
+                                        struct json_object **out_component_ids)
 {
 	*out_games = NULL;
 	*out_component_ids = NULL;
@@ -833,7 +1163,7 @@ CCOwnedResult cc_fetch_owned(ChiakiLog *log, const char *npsso,
 		return CC_OWNED_AUTH_ERROR;
 
 	char token[2048];
-	CCOwnedResult r = owned_oauth(log, npsso, token, sizeof(token));
+	CCOwnedResult r = legacy_owned_oauth(log, npsso, token, sizeof(token));
 	if(r != CC_OWNED_OK)
 		return r;
 
@@ -921,4 +1251,29 @@ CCOwnedResult cc_fetch_owned(ChiakiLog *log, const char *npsso,
 	CHIAKI_LOGI(log, "[OWNED] %d entitlements -> %d games",
 		(int)an, (int)json_object_array_length(*out_games));
 	return CC_OWNED_OK;
+}
+
+CCOwnedResult cc_fetch_owned(ChiakiLog *log, const char *npsso,
+	struct json_object **out_games, struct json_object **out_component_ids)
+{
+	*out_games = NULL;
+	*out_component_ids = NULL;
+	if(!npsso || !*npsso)
+		return CC_OWNED_AUTH_ERROR;
+
+	CCOwnedResult mobile = fetch_owned_mobile(log, npsso, out_games, out_component_ids);
+	if(mobile == CC_OWNED_OK)
+		return CC_OWNED_OK;
+
+	CHIAKI_LOGW(log, "[OWNED] purchased-library fetch failed (%s); trying legacy entitlements",
+		mobile == CC_OWNED_AUTH_ERROR ? "authorization" : "network/server");
+	CCOwnedResult legacy = fetch_owned_legacy(log, npsso, out_games, out_component_ids);
+	if(legacy == CC_OWNED_OK)
+		return CC_OWNED_OK;
+
+	// Only call the session expired when both independent OAuth flows rejected
+	// the NPSSO. A transport/server failure in either path must not log the user out.
+	if(mobile == CC_OWNED_AUTH_ERROR && legacy == CC_OWNED_AUTH_ERROR)
+		return CC_OWNED_AUTH_ERROR;
+	return CC_OWNED_ERROR;
 }
