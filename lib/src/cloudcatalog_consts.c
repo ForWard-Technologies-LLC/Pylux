@@ -36,11 +36,11 @@ const char *cc_classics_store_country(const char *account_country)
 	return is_americas_classics_region(account_country) ? "US" : "GB";
 }
 
-const char *cc_apollo_root_container_id(const char *account_country)
+const char *cc_classics_ps3_container_id(const char *account_country)
 {
 	return is_americas_classics_region(account_country)
-		? "STORE-MSF192018-APOLLOROOT"
-		: "STORE-MSF192014-APOLLOROOT";
+		? "STORE-MSF192018-APOLLOPS3GAMES"
+		: "STORE-MSF192014-APOLLOPS3";
 }
 
 // Canonicalize "language-COUNTRY" to lowercase-lang / uppercase-country.
