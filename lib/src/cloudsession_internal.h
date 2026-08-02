@@ -70,6 +70,20 @@ bool km_pick_fullgame_id(struct json_object *sku, bool require_title,
 	const char *title_id, char *out_id, size_t out_sz, ChiakiLog *log);
 
 /**
+ * Resolve the store path for a PSNOW product. Native catalogs always use the
+ * server-authoritative account store verbatim. Foreign (fallback-region)
+ * catalogs keep modern CUSA/PPSA ids in the account store but route legacy
+ * PS3 Classics ids to the matching US/GB Apollo family (where the fallback
+ * walk sourced them). Exposed so the unit suite can protect the distinction.
+ */
+void km_resolve_store_locale(const char *game_identifier, bool catalog_is_foreign,
+	const char *account_country, const char *account_lang,
+	char *out_country, size_t country_sz, char *out_lang, size_t lang_sz);
+
+/** True only when a foreign-catalog legacy Classic cannot use account checkout. */
+bool km_should_skip_acquire(const char *game_identifier, bool catalog_is_foreign);
+
+/**
  * Pure picker for the game-streaming-package ("*GS") fallback that step 0.5d tries
  * between the license_type==4 pass and the *GD full-game fallback: some store
  * regions publish a title's streaming sku with license_type=0 (e.g. Bloodborne GB),

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 //
 // Unified catalog orchestrator + public API. Mirrors the Qt fetchUnifiedCatalog
-// chain: native APOLLOROOT probe -> (public fallback | expired-warning) ->
+// chain: native APOLLOROOT probe -> (public APOLLOROOT fallback walk | expired-warning) ->
 // imagic 6-list -> owned entitlements -> cross-reference -> assemble. Cache keys
 // (unified_catalog_v3 [contract schema; was v2 pre-migration], ps5_cloud_catalog_v6,
 // ps5_cloud_library) are shared across platforms so files stay byte-comparable, and
@@ -199,8 +199,12 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_cloudcatalog_fetch_unified(
 			account_country_from_locale(locale, cc, sizeof(cc));
 		bool fallback_complete = true;
 		apollo = cc_fetch_apollo_fallback(log, cc, &fallback_complete);
-		snprintf(fallback_region, sizeof(fallback_region), "%s", cc_classics_store_country(cc));
-		CHIAKI_LOGI(log, "[UNIFIED] resolvedStoreCountry=%s (fallback cc_classics)", fallback_region);
+		// Preserve the account country for modern PS4 product resolution. The
+		// cloud-session layer maps only legacy PS3 ids to the regional US/GB
+		// Classics store; using that Classics country for every title makes modern
+		// CUSA products disappear (for example HU/en products 404 in GB/en).
+		snprintf(fallback_region, sizeof(fallback_region), "%s", cc);
+		CHIAKI_LOGI(log, "[UNIFIED] resolvedStoreCountry=%s (fallback account country)", fallback_region);
 		// Only a definitive REGION_UNSUPPORTED (completed 4xx) may be cached: a FATAL
 		// (transport failure / 5xx anywhere in the native probe) means a native-capable
 		// account could be looking at the degraded fallback, so serve it for this

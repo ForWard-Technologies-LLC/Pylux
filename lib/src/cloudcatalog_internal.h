@@ -218,7 +218,9 @@ CCNativeResult cc_fetch_psnow_native(ChiakiLog *log, const char *npsso, struct j
 	bool *out_complete);
 
 /**
- * Public APOLLOROOT fallback pagination for @p account_country. New array or NULL.
+ * Public APOLLOROOT one-level walk for @p account_country: paginates the root
+ * and every child container once, deduped by product id (full PS3+PS4 list).
+ * New array or NULL.
  * *out_complete (may be NULL) is set false when pagination aborted early on an
  * HTTP/parse error, so callers must not cache the partial list.
  */
