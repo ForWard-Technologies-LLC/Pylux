@@ -1,0 +1,42 @@
+{
+  "source": "qt-cloudcatalogbackend",
+  "capturedAtUtc": "2026-06-25T00:51:14.398237+00:00",
+  "qtCachePath": "/Users/alexward/Library/Caches/pylux/pylux/cloud_catalog",
+  "platform": "qt-desktop",
+  "cacheKeyConvention": {
+    "unified": "unified_catalog_v2.json",
+    "ps5Imagic": "ps5_cloud_catalog_v6.json",
+    "ownedLibrary": "ps5_cloud_library.json",
+    "gameDetailsPrefix": "game_details_"
+  },
+  "files": [
+    {
+      "name": "ps5_cloud_catalog_v3.json",
+      "bytes": 3166965,
+      "sha256": "18cf5d970ba3450fbc5fd242c847bf4231d4aa08128ec3e0e452166dc5659959",
+      "mtimeUtc": "2026-06-02T22:32:00.561463+00:00"
+    },
+    {
+      "name": "ps5_cloud_catalog_v6.json",
+      "bytes": 3561785,
+      "sha256": "8c13fbfab832923f420c00894c741383641a54dbbba37923befb2378ae281127",
+      "mtimeUtc": "2026-06-24T23:57:40.602299+00:00"
+    },
+    {
+      "name": "ps5_cloud_library.json",
+      "bytes": 171681,
+      "sha256": "525ab3ec9623e77c71419c765be5ea699da358403b32bdb12e512e21aeabd832",
+      "mtimeUtc": "2026-06-24T23:57:41.289950+00:00"
+    },
+    {
+      "name": "unified_catalog_v2.json",
+      "bytes": 5675654,
+      "sha256": "c244ecd1758a2ff6ef701d7488dfe90cb943e1a867be73c78c5d72225baa7784",
+      "mtimeUtc": "2026-06-24T23:57:41.442789+00:00"
+    }
+  ],
+  "notes": [
+    "Contains account-specific owned-game rows. Do not commit if repo is public without review.",
+    "Use scripts/compare-cloud-catalog-baseline.py after libchiaki fetch."
+  ]
+}

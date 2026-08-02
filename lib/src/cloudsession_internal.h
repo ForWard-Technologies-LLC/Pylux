@@ -69,15 +69,14 @@ struct json_object; // json-c, forward-declared so this header needs no umbrella
 bool km_pick_fullgame_id(struct json_object *sku, bool require_title,
 	const char *title_id, char *out_id, size_t out_sz, ChiakiLog *log);
 
-/** Pick a streaming reservation (license_type 4 or an explicit "*GS" package). */
-bool km_pick_streaming_id(struct json_object *sku, char *out_id, size_t out_sz);
-
 /**
- * Resolve the store path for a PSNOW product. Modern CUSA/PPSA ids stay in the
- * account store; legacy PS3 Classics ids use the matching US/GB Apollo family.
- * Exposed so the unit suite can protect the regional routing distinction.
+ * Resolve the store path for a PSNOW product. Native catalogs always use the
+ * server-authoritative account store verbatim. Foreign (fallback-region)
+ * catalogs keep modern CUSA/PPSA ids in the account store but route legacy
+ * PS3 Classics ids to the matching US/GB Apollo family (where the fallback
+ * walk sourced them). Exposed so the unit suite can protect the distinction.
  */
-void km_resolve_store_locale(const char *game_identifier,
+void km_resolve_store_locale(const char *game_identifier, bool catalog_is_foreign,
 	const char *account_country, const char *account_lang,
 	char *out_country, size_t country_sz, char *out_lang, size_t lang_sz);
 

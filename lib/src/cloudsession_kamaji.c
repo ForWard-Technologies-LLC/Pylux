@@ -199,11 +199,12 @@ static ChiakiErrorCode km_step0_5c_anon_session(KamajiCtx *c, const char *anon_c
 	return CHIAKI_ERR_SUCCESS;
 }
 
-// Sony normally marks streaming reservations license_type 4, but some live rows
-// (notably Bloodborne in HU/en) expose the PS4GS reservation as license_type 0.
-// The package suffix is the authoritative fallback: GS is the streaming package,
-// while GD is the downloadable full game.
-bool km_pick_streaming_id(struct json_object *sku, char *out_id, size_t out_sz)
+// Pick a streaming entitlement (license_type==4) from one sku; returns true if found.
+// Rows that mark the streaming reservation license_type 0 (e.g. Bloodborne EU's
+// PS4GS row) are caught by the title-matched *GS fallback pass in step 0.5d —
+// keeping this primary pass strict avoids grabbing an untitled sibling "*GS"
+// entitlement out of a bundle sku ahead of the correct title's reservation.
+static bool km_pick_streaming(KamajiCtx *c, struct json_object *sku)
 {
 	struct json_object *ents = cc_json_arr(sku, "entitlements");
 	if(!ents) return false;
@@ -211,26 +212,18 @@ bool km_pick_streaming_id(struct json_object *sku, char *out_id, size_t out_sz)
 	for(size_t i = 0; i < n; i++)
 	{
 		struct json_object *ent = json_object_array_get_idx(ents, i);
-		const char *pkg = cc_json_str(ent, "packageType");
-		if(cc_json_int(ent, "license_type") == 4 || cc_ends_with(pkg, "GS"))
+		if(cc_json_int(ent, "license_type") == 4)
 		{
 			const char *id = cc_json_str(ent, "id");
-			if(id && *id && out_id && out_sz > 0)
+			if(id && *id)
 			{
-				snprintf(out_id, out_sz, "%s", id);
+				snprintf(c->entitlement_id, sizeof(c->entitlement_id), "%s", id);
+				snprintf(c->streaming_sku, sizeof(c->streaming_sku), "%s", cc_json_str(sku, "id"));
 				return true;
 			}
 		}
 	}
 	return false;
-}
-
-static bool km_pick_streaming(KamajiCtx *c, struct json_object *sku)
-{
-	if(!km_pick_streaming_id(sku, c->entitlement_id, sizeof(c->entitlement_id)))
-		return false;
-	snprintf(c->streaming_sku, sizeof(c->streaming_sku), "%s", cc_json_str(sku, "id"));
-	return true;
 }
 
 // PS Plus catalog fallback: a full-game digital entitlement ("*GD"); optionally
@@ -307,10 +300,18 @@ static bool km_pick_streaming_gs(KamajiCtx *c, struct json_object *sku, bool req
 	return true;
 }
 
+// Legacy (PS3/PS1/PSP-era) vs modern is decided by the title-id segment alone —
+// the part between the first '-' and the following '_' (CUSAxxxxx / PPSAxxxxx).
+// The label tail after the second '-' is region-varying free-form text and must
+// not participate (see the data-handling rules in CLAUDE.md / cc_stable_key).
 static bool km_is_legacy_classic_id(const char *game_identifier)
 {
 	const char *id = game_identifier ? game_identifier : "";
-	return !cc_contains(id, "CUSA") && !cc_contains(id, "PPSA");
+	const char *dash = strchr(id, '-');
+	if(!dash)
+		return true;
+	const char *title = dash + 1;
+	return !(strncmp(title, "CUSA", 4) == 0 || strncmp(title, "PPSA", 4) == 0);
 }
 
 bool km_should_skip_acquire(const char *game_identifier, bool catalog_is_foreign)
@@ -318,7 +319,7 @@ bool km_should_skip_acquire(const char *game_identifier, bool catalog_is_foreign
 	return catalog_is_foreign && km_is_legacy_classic_id(game_identifier);
 }
 
-void km_resolve_store_locale(const char *game_identifier,
+void km_resolve_store_locale(const char *game_identifier, bool catalog_is_foreign,
 	const char *account_country, const char *account_lang,
 	char *out_country, size_t country_sz, char *out_lang, size_t lang_sz)
 {
@@ -326,7 +327,12 @@ void km_resolve_store_locale(const char *game_identifier,
 		return;
 	const char *country = (account_country && *account_country) ? account_country : "US";
 	const char *lang = (account_lang && *account_lang) ? account_lang : "en";
-	if(km_is_legacy_classic_id(game_identifier))
+	// Only fallback-region catalogs source their legacy ids from the US/GB
+	// APOLLOROOT walk, so only they remap the resolve to that store. A native
+	// account's ids come from its own store walk and must resolve there
+	// (server-authoritative country/lang — e.g. a JP classic does not exist in
+	// the GB store, and the NL store 404s on NL/en).
+	if(catalog_is_foreign && km_is_legacy_classic_id(game_identifier))
 	{
 		country = cc_classics_store_country(country);
 		lang = "en";
@@ -339,7 +345,7 @@ static ChiakiErrorCode km_step0_5d_resolve(KamajiCtx *c, char **out_error)
 {
 	if(c->cfg->progress) c->cfg->progress("Resolving Game - Step 2 of 5", c->cfg->user);
 	char country[8], lang[8];
-	km_resolve_store_locale(c->cfg->game_identifier,
+	km_resolve_store_locale(c->cfg->game_identifier, c->cfg->catalog_is_foreign,
 		c->cfg->store_country, c->cfg->store_lang,
 		country, sizeof(country), lang, sizeof(lang));
 	// Percent-encode the id before splicing it into the path: a no-op for real
@@ -347,33 +353,52 @@ static ChiakiErrorCode km_step0_5d_resolve(KamajiCtx *c, char **out_error)
 	// must not be able to rewrite the request.
 	char enc_pid[256];
 	km_urlencode(c->cfg->game_identifier, enc_pid, sizeof(enc_pid));
-	char url[512];
-	snprintf(url, sizeof(url), "https://psnow.playstation.com/store/api/pcnow/00_09_000/container/"
-		"%s/%s/19/%s?useOffers=true&gkb=1&gkb2=1", country, lang, enc_pid);
-	CHIAKI_LOGI(c->log, "[KAMAJI] 0.5d resolve %s (store %s/%s)", c->cfg->game_identifier, country, lang);
 
-	const char *hdrs[] = { "Accept: application/json",
-		"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" };
-	CCHttpRequest req = { 0 };
-	req.url = url; req.headers = hdrs; req.header_count = 2;
-	CCHttpResponse resp = { 0 };
-	ChiakiErrorCode e = cc_http_perform(c->log, &req, &resp);
-	if(e != CHIAKI_ERR_SUCCESS) { cc_http_response_fini(&resp); return e; }
-	if(resp.status_code == 404)
+	struct json_object *obj = NULL;
+	for(int attempt = 0; attempt < 2 && !obj; attempt++)
 	{
-		CHIAKI_LOGE(c->log, "[KAMAJI] 0.5d product not found (404)");
-		if(out_error)
+		char url[512];
+		snprintf(url, sizeof(url), "https://psnow.playstation.com/store/api/pcnow/00_09_000/container/"
+			"%s/%s/19/%s?useOffers=true&gkb=1&gkb2=1", country, lang, enc_pid);
+		CHIAKI_LOGI(c->log, "[KAMAJI] 0.5d resolve %s (store %s/%s)", c->cfg->game_identifier, country, lang);
+
+		const char *hdrs[] = { "Accept: application/json",
+			"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" };
+		CCHttpRequest req = { 0 };
+		req.url = url; req.headers = hdrs; req.header_count = 2;
+		CCHttpResponse resp = { 0 };
+		ChiakiErrorCode e = cc_http_perform(c->log, &req, &resp);
+		if(e != CHIAKI_ERR_SUCCESS) { cc_http_response_fini(&resp); return e; }
+		if(resp.status_code == 404)
 		{
-			char b[256];
-			snprintf(b, sizeof(b), "Game not found: Product ID '%s' does not exist or is not available for cloud streaming", c->cfg->game_identifier);
-			*out_error = strdup(b);
+			cc_http_response_fini(&resp);
+			// Foreign-catalog modern titles resolve in the account store first
+			// (live-verified where a storefront exists), but a country whose pcnow
+			// storefront is missing must not fail before trying the pre-existing
+			// US/GB Classics-store route once.
+			const char *retry_cc = cc_classics_store_country(country);
+			if(attempt == 0 && c->cfg->catalog_is_foreign
+				&& !km_is_legacy_classic_id(c->cfg->game_identifier)
+				&& (strcmp(country, retry_cc) != 0 || strcmp(lang, "en") != 0))
+			{
+				CHIAKI_LOGW(c->log, "[KAMAJI] 0.5d product not found in %s/%s; retrying via %s/en", country, lang, retry_cc);
+				snprintf(country, sizeof(country), "%s", retry_cc);
+				snprintf(lang, sizeof(lang), "en");
+				continue;
+			}
+			CHIAKI_LOGE(c->log, "[KAMAJI] 0.5d product not found (404)");
+			if(out_error)
+			{
+				char b[256];
+				snprintf(b, sizeof(b), "Game not found: Product ID '%s' does not exist or is not available for cloud streaming", c->cfg->game_identifier);
+				*out_error = strdup(b);
+			}
+			return CHIAKI_ERR_UNKNOWN;
 		}
+		if(resp.status_code != 200 || !resp.data) { cc_http_response_fini(&resp); return CHIAKI_ERR_UNKNOWN; }
+		obj = json_tokener_parse(resp.data);
 		cc_http_response_fini(&resp);
-		return CHIAKI_ERR_UNKNOWN;
 	}
-	if(resp.status_code != 200 || !resp.data) { cc_http_response_fini(&resp); return CHIAKI_ERR_UNKNOWN; }
-	struct json_object *obj = json_tokener_parse(resp.data);
-	cc_http_response_fini(&resp);
 	if(!obj) return CHIAKI_ERR_UNKNOWN;
 
 	struct json_object *default_sku = cc_json_obj(obj, "default_sku");
@@ -705,7 +730,20 @@ static ChiakiErrorCode km_step0_5e_check_acquire(KamajiCtx *c, char **out_error)
 			CHIAKI_LOGI(c->log, "[KAMAJI] entitlement 404, legacy Classics fallback -> skip acquire, let Gaikai validate");
 			return CHIAKI_ERR_SUCCESS;
 		}
-		return km_checkout_acquire(c, out_error);
+		ChiakiErrorCode ae = km_checkout_acquire(c, out_error);
+		if(ae == CHIAKI_ERR_SUCCESS || ae == CHIAKI_ERR_CANCELED || !c->cfg->catalog_is_foreign)
+			return ae;
+		// Foreign accounts historically skipped the acquire entirely and let
+		// Gaikai auto-authorize; a checkout failure on a storefront we could not
+		// live-verify (only HU is proven) must not be fatal — fall through to the
+		// old behavior instead of surfacing a possibly-wrong PS+ error.
+		CHIAKI_LOGW(c->log, "[KAMAJI] foreign-catalog acquire failed; continuing, let Gaikai validate");
+		if(out_error && *out_error)
+		{
+			free(*out_error);
+			*out_error = NULL;
+		}
+		return CHIAKI_ERR_SUCCESS;
 	}
 	CHIAKI_LOGE(c->log, "[KAMAJI] entitlement check failed (%ld)", status);
 	return CHIAKI_ERR_UNKNOWN;
