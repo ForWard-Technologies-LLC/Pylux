@@ -95,3 +95,18 @@ ios/logs/
 # Local scratch: build + logcat captures (may contain PSN session tokens) -- never track
 # (anchored to the repo root so legitimate nested tmp/ dirs aren't swallowed)
 /tmp/
+
+# Local API captures, entitlement dumps, and baselines (real-account data) -- NEVER track.
+# These are working files for the cloud-catalog probe scripts; committing them
+# publishes cached PSN API responses (accidentally happened once, 2026-08-02).
+test/fixtures/cloud-catalog-baseline/
+test-results/
+/entitlements-full.json
+/entitlements-filtered-psgd.json
+scripts/__pycache__/
+
+# Local build/session artifacts, never track
+build-ctrl/
+build-output-appstore-final/
+.playwright-mcp/
+docs/handoff/
