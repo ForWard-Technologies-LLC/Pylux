@@ -87,8 +87,8 @@ struct json_object *cc_json_clone(struct json_object *src);
 /** "US" for Americas account regions, else "GB". @p account_country may be NULL. */
 const char *cc_classics_store_country(const char *account_country);
 
-/** Fully-qualified PS3 Classics child-container id for the account's region group. */
-const char *cc_classics_ps3_container_id(const char *account_country);
+/** Fully-qualified APOLLOROOT container id for the account's region group. */
+const char *cc_apollo_root_container_id(const char *account_country);
 
 /**
  * Build the ordered store-locale fallback chain (canonical, en-COUNTRY, en-US).
@@ -218,7 +218,9 @@ CCNativeResult cc_fetch_psnow_native(ChiakiLog *log, const char *npsso, struct j
 	bool *out_complete);
 
 /**
- * Public PS3 Classics child-container pagination for @p account_country. New array or NULL.
+ * Public APOLLOROOT one-level walk for @p account_country: paginates the root
+ * and every child container once, deduped by product id (full PS3+PS4 list).
+ * New array or NULL.
  * *out_complete (may be NULL) is set false when pagination aborted early on an
  * HTTP/parse error, so callers must not cache the partial list.
  */

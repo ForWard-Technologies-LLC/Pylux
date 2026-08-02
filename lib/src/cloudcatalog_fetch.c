@@ -3,7 +3,7 @@
 // Blocking network fetch flows for the unified cloud catalog. Faithful port of
 // the async QNetworkAccessManager state machines in cloudcatalogbackend.cpp:
 //   - PS Now OAuth -> session -> stores -> APOLLOROOT root + alphabetical walk
-//   - public PS3 Classics child-container pagination (region-unsupported accounts)
+//   - public APOLLOROOT one-level walk (region-unsupported accounts)
 //   - imagic 6-list fetch with locale fallback chain
 //   - owned entitlements OAuth(token) -> paginated internal_entitlements -> filter
 
@@ -504,21 +504,25 @@ CCNativeResult cc_fetch_psnow_native(ChiakiLog *log, const char *npsso, struct j
 }
 
 // ===========================================================================
-// Public PS3 Classics fallback pagination
+// Public APOLLOROOT fallback walk
 // ===========================================================================
 
-struct json_object *cc_fetch_apollo_fallback(ChiakiLog *log, const char *account_country, bool *out_complete)
+#define APOLLO_FALLBACK_MAX_CHILDREN 40
+
+// Paginate one container: append container_type=="product" rows to games (deduped
+// across containers via the seen-id set) and record container_type=="container"
+// child ids when collectors are given (root pass only — one level, like the native
+// walk). Returns false when the pagination could not be confirmed complete, in
+// which case the rows collected so far are still kept.
+static bool apollo_walk_container(ChiakiLog *log, const char *store_country,
+	const char *container_id, struct json_object *games, struct json_object *seen,
+	char (*child_ids)[64], int *child_count, int max_children, bool *children_overflow)
 {
-	if(out_complete)
-		*out_complete = true;
-	const char *store_country = cc_classics_store_country(account_country);
-	const char *container = cc_classics_ps3_container_id(account_country);
 	char container_url[512];
 	snprintf(container_url, sizeof(container_url),
 		"https://psnow.playstation.com/store/api/pcnow/00_09_000/container/%s/en/19/%s",
-		store_country, container);
+		store_country, container_id);
 
-	struct json_object *games = json_object_new_array();
 	int start = 0, total = -1;
 	for(;;)
 	{
@@ -534,25 +538,19 @@ struct json_object *cc_fetch_apollo_fallback(ChiakiLog *log, const char *account
 		if(cc_http_perform(log, &req, &resp) != CHIAKI_ERR_SUCCESS || resp.status_code != 200)
 		{
 			cc_http_response_fini(&resp);
-			// Mid-pagination failure: serve what we have this session, but report
-			// incomplete so the caller never caches a partial classics list.
-			if(out_complete)
-				*out_complete = false;
-			CHIAKI_LOGW(log, "[UNIFIED] PS3 Classics fallback page at start=%d failed; list incomplete", start);
-			break;
+			CHIAKI_LOGW(log, "[UNIFIED] APOLLO fallback %s page at start=%d failed; list incomplete", container_id, start);
+			return false;
 		}
 		struct json_object *obj = parse_body(&resp);
 		cc_http_response_fini(&resp);
 		if(!obj)
 		{
-			if(out_complete)
-				*out_complete = false;
-			CHIAKI_LOGW(log, "[UNIFIED] PS3 Classics fallback page at start=%d unparseable; list incomplete", start);
-			break;
+			CHIAKI_LOGW(log, "[UNIFIED] APOLLO fallback %s page at start=%d unparseable; list incomplete", container_id, start);
+			return false;
 		}
 		if(total < 0 && cc_json_has(obj, "total_results"))
 			total = cc_json_int(obj, "total_results");
-		int product_count = 0;
+		int link_count = 0;
 		struct json_object *links = cc_json_arr(obj, "links");
 		if(links)
 		{
@@ -560,42 +558,97 @@ struct json_object *cc_fetch_apollo_fallback(ChiakiLog *log, const char *account
 			for(size_t i = 0; i < n; i++)
 			{
 				struct json_object *g = json_object_array_get_idx(links, i);
-				if(!cc_ieq(cc_json_str(g, "container_type"), "product"))
+				if(!g || json_object_get_type(g) != json_type_object)
 					continue;
-				struct json_object *gc = cc_json_clone(g);
-				char img[1024];
-				cc_extract_cover_image(gc, img, sizeof(img));
-				if(*img)
-					cc_json_set_str(gc, "imageUrl", img);
-				json_object_array_add(games, gc);
-				product_count++;
+				link_count++;
+				const char *id = cc_json_str(g, "id");
+				const char *ctype = cc_json_str(g, "container_type");
+				if(cc_ieq(ctype, "product"))
+				{
+					// The same product appears in several children (genre lists
+					// overlap the alphabetical ones); keep the first occurrence.
+					if(*id && json_object_object_get_ex(seen, id, NULL))
+						continue;
+					if(*id)
+						json_object_object_add(seen, id, json_object_new_boolean(true));
+					struct json_object *gc = cc_json_clone(g);
+					char img[1024];
+					cc_extract_cover_image(gc, img, sizeof(img));
+					if(*img)
+						cc_json_set_str(gc, "imageUrl", img);
+					json_object_array_add(games, gc);
+				}
+				else if(child_ids && cc_ieq(ctype, "container") && *id)
+				{
+					bool dup = false;
+					for(int c = 0; c < *child_count && !dup; c++)
+						dup = strcmp(child_ids[c], id) == 0;
+					if(dup)
+						continue;
+					if(*child_count >= max_children || strlen(id) >= sizeof(child_ids[0]))
+					{
+						// More (or longer) children than we can walk: the list we
+						// build cannot be called complete.
+						if(children_overflow)
+							*children_overflow = true;
+						continue;
+					}
+					snprintf(child_ids[(*child_count)++], sizeof(child_ids[0]), "%s", id);
+				}
 			}
 		}
 		json_object_put(obj);
 		start += 100;
 		if(total >= 0 && start >= total)
-			break; // server-confirmed end of list
-		if(product_count <= 0)
+			return true; // server-confirmed end of list
+		if(link_count <= 0)
 		{
 			// Ran dry before the declared total, or the server never sent
 			// total_results at all (schema drift): either way we can't confirm
 			// completeness, so serve what we have but don't let it cache.
-			if(out_complete)
-				*out_complete = false;
-			CHIAKI_LOGW(log, "[UNIFIED] PS3 Classics fallback ended at start=%d without a confirmed total; list incomplete", start - 100);
-			break;
+			CHIAKI_LOGW(log, "[UNIFIED] APOLLO fallback %s ended at start=%d without a confirmed total; list incomplete", container_id, start - 100);
+			return false;
 		}
 		if(start >= 10000)
 		{
-			// Hard cap so a server that keeps returning products (with no usable
+			// Hard cap so a server that keeps returning rows (with no usable
 			// total) can't spin this loop forever.
-			if(out_complete)
-				*out_complete = false;
-			CHIAKI_LOGW(log, "[UNIFIED] PS3 Classics fallback page cap hit at start=%d; list incomplete", start);
-			break;
+			CHIAKI_LOGW(log, "[UNIFIED] APOLLO fallback %s page cap hit at start=%d; list incomplete", container_id, start);
+			return false;
 		}
 	}
-	CHIAKI_LOGI(log, "[UNIFIED] PS3 Classics fallback: %d titles", (int)json_object_array_length(games));
+}
+
+struct json_object *cc_fetch_apollo_fallback(ChiakiLog *log, const char *account_country, bool *out_complete)
+{
+	const char *store_country = cc_classics_store_country(account_country);
+	const char *root = cc_apollo_root_container_id(account_country);
+
+	// APOLLOROOT historically listed product rows directly; today it lists one
+	// level of category containers (genres, A-Z, PS3, PSP/PS1/PS2, Remasters...)
+	// whose union is the full PS Now catalog. Collect products wherever they
+	// appear and walk every child once, so either server structure yields the
+	// complete PS3+PS4 list without hardcoding child container ids.
+	struct json_object *games = json_object_new_array();
+	struct json_object *seen = json_object_new_object();
+	char child_ids[APOLLO_FALLBACK_MAX_CHILDREN][64];
+	int child_count = 0;
+	bool children_overflow = false;
+	bool complete = apollo_walk_container(log, store_country, root, games, seen,
+		child_ids, &child_count, APOLLO_FALLBACK_MAX_CHILDREN, &children_overflow);
+	for(int i = 0; i < child_count; i++)
+	{
+		if(!apollo_walk_container(log, store_country, child_ids[i], games, seen,
+				NULL, NULL, 0, NULL))
+			complete = false;
+	}
+	if(children_overflow)
+		complete = false;
+	json_object_put(seen);
+	if(out_complete)
+		*out_complete = complete;
+	CHIAKI_LOGI(log, "[UNIFIED] APOLLO fallback walk: %d containers, %d titles%s",
+		child_count, (int)json_object_array_length(games), complete ? "" : " (incomplete)");
 	return games;
 }
 

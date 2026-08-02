@@ -434,24 +434,25 @@ static MunitResult test_parse_container_store_locale(const MunitParameter p[], v
 	return MUNIT_OK;
 }
 
-// Public fallback must walk the PS3 child container, not APOLLOROOT. The root
-// contains category links only, so filtering it for products produces zero games.
+// The public fallback starts from the regional APOLLOROOT and walks its child
+// containers (the root itself lists categories only, no products). Region groups
+// map Americas accounts to the US root and everyone else to the GB root.
 static MunitResult test_classics_region_containers(const MunitParameter p[], void *data)
 {
 	(void)p; (void)data;
 	munit_assert_string_equal(cc_classics_store_country("US"), "US");
-	munit_assert_string_equal(cc_classics_ps3_container_id("US"),
-		"STORE-MSF192018-APOLLOPS3GAMES");
+	munit_assert_string_equal(cc_apollo_root_container_id("US"),
+		"STORE-MSF192018-APOLLOROOT");
 	munit_assert_string_equal(cc_classics_store_country("BR"), "US");
-	munit_assert_string_equal(cc_classics_ps3_container_id("BR"),
-		"STORE-MSF192018-APOLLOPS3GAMES");
+	munit_assert_string_equal(cc_apollo_root_container_id("BR"),
+		"STORE-MSF192018-APOLLOROOT");
 
 	munit_assert_string_equal(cc_classics_store_country("HU"), "GB");
-	munit_assert_string_equal(cc_classics_ps3_container_id("HU"),
-		"STORE-MSF192014-APOLLOPS3");
+	munit_assert_string_equal(cc_apollo_root_container_id("HU"),
+		"STORE-MSF192014-APOLLOROOT");
 	munit_assert_string_equal(cc_classics_store_country("JP"), "GB");
-	munit_assert_string_equal(cc_classics_ps3_container_id("JP"),
-		"STORE-MSF192014-APOLLOPS3");
+	munit_assert_string_equal(cc_apollo_root_container_id("JP"),
+		"STORE-MSF192014-APOLLOROOT");
 	return MUNIT_OK;
 }
 

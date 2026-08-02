@@ -36,8 +36,11 @@ extern "C" {
  *     invalidates v4 caches that could contain no PS3 titles after walking APOLLOROOT.
  * v6: owned rows always expose their canonical entitlementId and storeProductId,
  *     including when the entitlement id equals productId.
- * v7: explicit disc-upgrade rescues launch through their replacement product id. */
-#define CHIAKI_CLOUDCATALOG_SCHEMA_VERSION 7
+ * v7: explicit disc-upgrade rescues launch through their replacement product id.
+ * v8: public fallback walks every APOLLOROOT child container (genres, A-Z, PS3,
+ *     PSP/PS1/PS2) deduped by product id, restoring the PS4 streamable catalog for
+ *     fallback regions; invalidates v5-v7 caches that held only the PS3 child. */
+#define CHIAKI_CLOUDCATALOG_SCHEMA_VERSION 8
 
 typedef struct chiaki_cloudcatalog_config_t
 {
