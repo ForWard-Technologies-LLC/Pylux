@@ -34,8 +34,9 @@ extern "C" {
  *     which also violated Android RecyclerView's former stable-ID assumption.
  * v5: public Classics fallback uses the dedicated regional PS3 child container;
  *     invalidates v4 caches that could contain no PS3 titles after walking APOLLOROOT.
- * v6: owned rows always expose their canonical entitlementId and storeProductId,
- *     including when the entitlement id equals productId.
+ * v6: owned rows always expose their canonical entitlementId (and, when a store
+ *     product id is known, storeProductId), including when the entitlement id
+ *     equals productId.
  * v7: explicit disc-upgrade rescues launch through their replacement product id.
  * v8: public fallback walks every APOLLOROOT child container (genres, A-Z, PS3,
  *     PSP/PS1/PS2) deduped by product id, restoring the PS4 streamable catalog for
@@ -67,7 +68,7 @@ typedef struct chiaki_cloudcatalog_result_t
  * The JSON envelope (see CHIAKI_CLOUDCATALOG_SCHEMA_VERSION):
  *
  *   {
- *     "schemaVersion": 7,
+ *     "schemaVersion": 8,
  *     "total": <int>,
  *     "nativeMode": <bool>,            // true when the authenticated PS Now walk succeeded
  *     "fallbackRegion": "US"|"HU"|...,  // account country used for modern product resolution;

@@ -405,7 +405,9 @@ static int contract_game_rank(struct json_object *g)
 	return rank;
 }
 
-// Returns a NEW array and consumes no references from games.
+// Returns a NEW array; consumes no references from games, but may stamp the
+// merged plusCatalog flag onto the surviving input rows (callers free the
+// input immediately after).
 static struct json_object *dedupe_contract_product_ids(struct json_object *games)
 {
 	struct json_object *out = json_object_new_array();
@@ -706,9 +708,13 @@ static const char *stream_identifier(struct json_object *g, const char *stream_s
 		{
 			if(cc_json_bool(g, "preferProductForStreaming"))
 			{
-				const char *product = cc_json_str(g, "storeProductId");
+				// product_id first: the disc-upgrade rescue rewrites it to the
+				// launchable replacement, while storeProductId is only normalized
+				// AFTER streamIdentifier is stamped (and could carry a stale
+				// wrapper if an upstream feed ever starts supplying it).
+				const char *product = cc_json_str(g, "product_id");
 				if(!*product)
-					product = cc_json_str(g, "product_id");
+					product = cc_json_str(g, "storeProductId");
 				if(!*product)
 					product = game_product_id(g);
 				if(*product)

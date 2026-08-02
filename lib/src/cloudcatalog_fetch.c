@@ -508,15 +508,24 @@ CCNativeResult cc_fetch_psnow_native(ChiakiLog *log, const char *npsso, struct j
 // ===========================================================================
 
 #define APOLLO_FALLBACK_MAX_CHILDREN 40
+// Global request budget for one fallback fetch. Observed live usage is ~40
+// pages across ~25 containers; the budget bounds a misbehaving server (200s
+// with no usable total on every container) to a sane ceiling instead of
+// max-children x per-container-cap.
+#define APOLLO_FALLBACK_PAGE_BUDGET 200
 
 // Paginate one container: append container_type=="product" rows to games (deduped
 // across containers via the seen-id set) and record container_type=="container"
 // child ids when collectors are given (root pass only — one level, like the native
-// walk). Returns false when the pagination could not be confirmed complete, in
-// which case the rows collected so far are still kept.
+// walk). *page_budget is decremented per request across the whole fallback fetch.
+// Returns false when the pagination could not be confirmed complete — including
+// when a container row is met where children can't be collected (nested deeper
+// than one level, id missing/too long, more than max_children): those rows are
+// data we did not walk, so the resulting list must not be cached as complete.
+// The rows collected so far are always kept.
 static bool apollo_walk_container(ChiakiLog *log, const char *store_country,
 	const char *container_id, struct json_object *games, struct json_object *seen,
-	char (*child_ids)[64], int *child_count, int max_children, bool *children_overflow)
+	char (*child_ids)[64], int *child_count, int max_children, int *page_budget)
 {
 	char container_url[512];
 	snprintf(container_url, sizeof(container_url),
@@ -524,8 +533,16 @@ static bool apollo_walk_container(ChiakiLog *log, const char *store_country,
 		store_country, container_id);
 
 	int start = 0, total = -1;
+	bool children_dropped = false;
 	for(;;)
 	{
+		if(*page_budget <= 0)
+		{
+			CHIAKI_LOGW(log, "[UNIFIED] APOLLO fallback page budget exhausted at %s start=%d; list incomplete", container_id, start);
+			return false;
+		}
+		(*page_budget)--;
+
 		char url[700];
 		snprintf(url, sizeof(url), "%s?useOffers=true&gkb=1&gkb2=1&start=%d&size=100", container_url, start);
 		const char *headers[] = { "Accept: application/json", "User-Agent: " KAMAJI_UA };
@@ -565,12 +582,15 @@ static bool apollo_walk_container(ChiakiLog *log, const char *store_country,
 				const char *ctype = cc_json_str(g, "container_type");
 				if(cc_ieq(ctype, "product"))
 				{
+					// A product row without an id is unusable downstream and
+					// would dodge the dedupe; drop it.
+					if(!*id)
+						continue;
 					// The same product appears in several children (genre lists
 					// overlap the alphabetical ones); keep the first occurrence.
-					if(*id && json_object_object_get_ex(seen, id, NULL))
+					if(json_object_object_get_ex(seen, id, NULL))
 						continue;
-					if(*id)
-						json_object_object_add(seen, id, json_object_new_boolean(true));
+					json_object_object_add(seen, id, json_object_new_boolean(true));
 					struct json_object *gc = cc_json_clone(g);
 					char img[1024];
 					cc_extract_cover_image(gc, img, sizeof(img));
@@ -578,8 +598,23 @@ static bool apollo_walk_container(ChiakiLog *log, const char *store_country,
 						cc_json_set_str(gc, "imageUrl", img);
 					json_object_array_add(games, gc);
 				}
-				else if(child_ids && cc_ieq(ctype, "container") && *id)
+				else if(cc_ieq(ctype, "container"))
 				{
+					if(!child_ids)
+					{
+						// A grandchild container: this walk is one level deep, so
+						// whatever is inside will not be collected this fetch.
+						if(!children_dropped)
+							CHIAKI_LOGW(log, "[UNIFIED] APOLLO fallback %s contains nested container %s; not walked, list incomplete", container_id, *id ? id : "(no id)");
+						children_dropped = true;
+						continue;
+					}
+					if(!*id)
+					{
+						CHIAKI_LOGW(log, "[UNIFIED] APOLLO fallback %s lists a container without an id; list incomplete", container_id);
+						children_dropped = true;
+						continue;
+					}
 					bool dup = false;
 					for(int c = 0; c < *child_count && !dup; c++)
 						dup = strcmp(child_ids[c], id) == 0;
@@ -587,10 +622,8 @@ static bool apollo_walk_container(ChiakiLog *log, const char *store_country,
 						continue;
 					if(*child_count >= max_children || strlen(id) >= sizeof(child_ids[0]))
 					{
-						// More (or longer) children than we can walk: the list we
-						// build cannot be called complete.
-						if(children_overflow)
-							*children_overflow = true;
+						CHIAKI_LOGW(log, "[UNIFIED] APOLLO fallback child %s dropped (limit %d, id len %zu); list incomplete", id, max_children, strlen(id));
+						children_dropped = true;
 						continue;
 					}
 					snprintf(child_ids[(*child_count)++], sizeof(child_ids[0]), "%s", id);
@@ -600,7 +633,7 @@ static bool apollo_walk_container(ChiakiLog *log, const char *store_country,
 		json_object_put(obj);
 		start += 100;
 		if(total >= 0 && start >= total)
-			return true; // server-confirmed end of list
+			return !children_dropped; // server-confirmed end of list
 		if(link_count <= 0)
 		{
 			// Ran dry before the declared total, or the server never sent
@@ -633,17 +666,15 @@ struct json_object *cc_fetch_apollo_fallback(ChiakiLog *log, const char *account
 	struct json_object *seen = json_object_new_object();
 	char child_ids[APOLLO_FALLBACK_MAX_CHILDREN][64];
 	int child_count = 0;
-	bool children_overflow = false;
+	int page_budget = APOLLO_FALLBACK_PAGE_BUDGET;
 	bool complete = apollo_walk_container(log, store_country, root, games, seen,
-		child_ids, &child_count, APOLLO_FALLBACK_MAX_CHILDREN, &children_overflow);
+		child_ids, &child_count, APOLLO_FALLBACK_MAX_CHILDREN, &page_budget);
 	for(int i = 0; i < child_count; i++)
 	{
 		if(!apollo_walk_container(log, store_country, child_ids[i], games, seen,
-				NULL, NULL, 0, NULL))
+				NULL, NULL, 0, &page_budget))
 			complete = false;
 	}
-	if(children_overflow)
-		complete = false;
 	json_object_put(seen);
 	if(out_complete)
 		*out_complete = complete;
