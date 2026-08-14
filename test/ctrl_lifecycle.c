@@ -22,6 +22,7 @@
 #include <munit.h>
 
 #include <chiaki/ctrl.h>
+#include <chiaki/thread.h>
 
 #include <string.h>
 
@@ -77,7 +78,42 @@ static MunitResult test_join_is_idempotent(const MunitParameter p[], void *data)
 	return MUNIT_OK;
 }
 
+static void *trivial_thread_func(void *arg)
+{
+	(void)arg;
+	return NULL;
+}
+
+// Positive path: a genuinely running thread joins cleanly through the new guard, the flag
+// drops, and a repeat join is a no-op instead of a second pthread_join on a spent handle.
+// (chiaki_ctrl_start() itself isn't used here because it spins the real ctrl thread, which
+// immediately tries to open a session connection; the guard only cares about thread +
+// thread_started, so the thread is created directly the same way chiaki_ctrl_start does.)
+static MunitResult test_join_real_thread(const MunitParameter p[], void *data)
+{
+	(void)p; (void)data;
+
+	ChiakiCtrl ctrl;
+	memset(&ctrl, 0, sizeof(ctrl));
+
+	munit_assert_int(chiaki_thread_create(&ctrl.thread, trivial_thread_func, NULL), ==, CHIAKI_ERR_SUCCESS);
+	ctrl.thread_started = true;
+
+	munit_assert_int(chiaki_ctrl_join(&ctrl), ==, CHIAKI_ERR_SUCCESS);
+	munit_assert_false(ctrl.thread_started);
+
+	// The handle is spent; a second join must not reach pthread_join.
+	munit_assert_int(chiaki_ctrl_join(&ctrl), ==, CHIAKI_ERR_SUCCESS);
+
+	return MUNIT_OK;
+}
+
 MunitTest tests_ctrl_lifecycle[] = {
+	{
+		"/join_real_thread",
+		test_join_real_thread,
+		NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL
+	},
 	{
 		"/join_never_started",
 		test_join_never_started,

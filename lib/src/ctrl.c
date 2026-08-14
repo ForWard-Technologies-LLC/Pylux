@@ -134,6 +134,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_ctrl_init(ChiakiCtrl *ctrl, ChiakiSession *
 	chiaki_mutex_lock(&ctrl->notif_mutex);
 	ctrl->session = session;
 
+	ctrl->thread_started = false;
 	ctrl->should_stop = false;
 	ctrl->login_pin_entered = false;
 	ctrl->login_pin_requested = false;

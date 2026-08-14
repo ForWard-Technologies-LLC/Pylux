@@ -95,6 +95,10 @@ static void android_chiaki_audio_decoder_header(ChiakiAudioHeader *header, void 
 	if(decoder->codec)
 	{
 		CHIAKI_LOGI(decoder->log, "Audio decoder already initialized, shutting down the old one");
+		// Stop before joining, same as android_chiaki_audio_decoder_fini: the output thread
+		// loops on TRY_AGAIN and only exits on a dequeue error or EOS, so joining a running
+		// codec's consumer hangs this thread forever. Stopping makes the dequeue error out.
+		AMediaCodec_stop(decoder->codec);
 		chiaki_thread_join(&decoder->output_thread, NULL);
 		AMediaCodec_delete(decoder->codec);
 		decoder->codec = NULL;
