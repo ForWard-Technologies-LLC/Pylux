@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Auto Backup / device-transfer rules for API 31+ (android:dataExtractionRules).
+  Same reasoning as backup_rules.xml: the EncryptedSharedPreferences master key lives in the
+  Android Keystore and is never transferred, so carrying secure_tokens.xml to another device
+  yields undecryptable ciphertext (AEADBadTagException). Excluded from both cloud backup and
+  direct device-to-device transfer.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="secure_tokens.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="secure_tokens.xml" />
+    </device-transfer>
+</data-extraction-rules>

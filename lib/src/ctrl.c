@@ -164,6 +164,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_ctrl_start(ChiakiCtrl *ctrl)
 	if(err != CHIAKI_ERR_SUCCESS)
 		return err;
 
+	ctrl->thread_started = true;
 	chiaki_thread_set_name(&ctrl->thread, "Chiaki Ctrl");
 	return err;
 }
@@ -179,16 +180,20 @@ CHIAKI_EXPORT void chiaki_ctrl_stop(ChiakiCtrl *ctrl)
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_ctrl_join(ChiakiCtrl *ctrl)
 {
-	// Check if thread was ever started by comparing with zero-initialized thread
-	// This prevents segfault when trying to join a thread that was never created
-	ChiakiThread zero_thread = { 0 };
-	if(memcmp(&ctrl->thread, &zero_thread, sizeof(ChiakiThread)) == 0)
-	{
-		// Thread was never started, nothing to join
+	// Nothing to join if ctrl was never started (or has already been joined). This must
+	// key off thread_started, NOT off the contents of ctrl->thread: ChiakiThread wraps an
+	// opaque pthread_t, and a stale or partially written handle compares non-zero while
+	// still being invalid. pthread_join() does not report that as an error — bionic
+	// aborts the whole process ("invalid pthread_t ... passed to pthread_join").
+	if(!ctrl->thread_started)
 		return CHIAKI_ERR_SUCCESS;
-	}
-	
-	return chiaki_thread_join(&ctrl->thread, NULL);
+
+	ChiakiErrorCode err = chiaki_thread_join(&ctrl->thread, NULL);
+	// Cleared unconditionally: once joined the handle is spent, and if the join did fail
+	// the handle is unusable, so it must never reach pthread_join() a second time.
+	ctrl->thread_started = false;
+	memset(&ctrl->thread, 0, sizeof(ctrl->thread));
+	return err;
 }
 
 CHIAKI_EXPORT void chiaki_ctrl_fini(ChiakiCtrl *ctrl)
@@ -1064,14 +1069,28 @@ static ChiakiErrorCode ctrl_connect(ChiakiCtrl *ctrl)
 	{
 		CHIAKI_LOGI(session->log, "CTRL - Starting RUDP session");
 		RudpMessage message;
-		ChiakiErrorCode err = chiaki_rudp_send_recv(session->rudp, &message, NULL, 0, 0, INIT_REQUEST, INIT_RESPONSE, 8, 3);
+		// NB: assigns the outer `err` on purpose. This used to redeclare `err` here, which
+		// shadowed it, so every `goto error` in this block returned the outer err's initial
+		// CHIAKI_ERR_SUCCESS — reporting a failed RUDP init as a successful connect.
+		err = chiaki_rudp_send_recv(session->rudp, &message, NULL, 0, 0, INIT_REQUEST, INIT_RESPONSE, 8, 3);
 		if(err != CHIAKI_ERR_SUCCESS)
 		{
 			CHIAKI_LOGE(session->log, "CTRL - Failed to init rudp");
 			goto error;
 		}
+		// data_size is peer-controlled. Subtracting the 8 byte header before validating it
+		// underflows size_t on a short message, which turns the VLA below into a stack
+		// allocation of ~2^64 bytes — the stack pointer lands outside any mapped region and
+		// the thread crashes at an unmapped PC rather than at a readable fault address.
+		if(!message.data || message.data_size < 8 || message.data_size > sizeof(ctrl->rudp_recv_buf))
+		{
+			CHIAKI_LOGE(session->log, "CTRL - rudp init response has invalid size %zu", (size_t)message.data_size);
+			chiaki_rudp_message_pointers_free(&message);
+			err = CHIAKI_ERR_INVALID_DATA;
+			goto error;
+		}
 		size_t init_response_size = message.data_size - 8;
-		uint8_t init_response[init_response_size];
+		uint8_t init_response[init_response_size ? init_response_size : 1];
 		memcpy(init_response, message.data + 8, init_response_size);
 		chiaki_rudp_message_pointers_free(&message);
 		err = chiaki_rudp_send_recv(session->rudp, &message, init_response, init_response_size, 0, COOKIE_REQUEST, COOKIE_RESPONSE, 2, 3);

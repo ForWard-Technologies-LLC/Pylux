@@ -24,7 +24,15 @@ class CloudGameAdapter(
 		const val PAYLOAD_RELOAD_IMAGE = "reload_image"
 	}
 
-	init { setHasStableIds(true) }
+	// Deliberately NOT using stable ids. This used to return productId.hashCode() as the
+	// item id, which collides whenever two productIds share a 32-bit hash (or when the
+	// catalog contains a duplicate), and a duplicate stable id makes RecyclerView throw
+	// IllegalStateException from handleMissingPreInfoForChangeError during change
+	// animations. Identity here is positional, which is exactly what Qt does (GridView over
+	// a plain array model, gui/src/qml/CloudPlayView.qml) — iOS keys off the productId
+	// string itself, never a hash. Uniqueness of productId is the lib's job
+	// (dedupe_contract_product_ids in lib/src/cloudcatalog_merge.c); the adapter must not
+	// second-guess it by merging or dropping rows.
 
 	var games: List<CloudGame> = emptyList()
 		set(value)
@@ -41,8 +49,6 @@ class CloudGameAdapter(
 		}
 
 	var isScrollingFast = false
-
-	override fun getItemId(position: Int): Long = games[position].productId.hashCode().toLong()
 
 	override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): CloudGameViewHolder
 	{

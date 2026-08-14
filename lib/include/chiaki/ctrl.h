@@ -32,6 +32,10 @@ typedef struct chiaki_ctrl_t
 {
 	struct chiaki_session_t *session;
 	ChiakiThread thread;
+	// Whether `thread` currently holds a live, unjoined thread. ChiakiThread wraps an
+	// opaque pthread_t, so it can't be inspected to answer that (a stale or partially
+	// written handle is indistinguishable from a real one) — track it explicitly.
+	bool thread_started;
 
 	bool should_stop;
 	bool login_pin_entered;

@@ -15,8 +15,16 @@ extern MunitTest tests_bitstream[];
 extern MunitTest tests_cloudcatalog_merge[];
 extern MunitTest tests_cloudsession_kamaji[];
 extern MunitTest tests_ps_chord[];
+extern MunitTest tests_ctrl_lifecycle[];
 
 static MunitSuite suites[] = {
+	{
+		"/ctrl_lifecycle",
+		tests_ctrl_lifecycle,
+		NULL,
+		1,
+		MUNIT_SUITE_OPTION_NONE
+	},
 	{
 		"/seq_num",
 		tests_seq_num,
