@@ -47,8 +47,10 @@ class SecureTokenManager(context: Context)
 		// After a failed open, don't retry (Keystore + file I/O, under the lock, often from
 		// the main thread) on every hasNpssoToken()/getNpssoToken() call — hot paths like the
 		// catalog observer would otherwise turn a persistent failure into a jank loop.
-		private var lastOpenFailureMs = 0L
+		// Initialized to -BACKOFF (not 0): elapsedRealtime() counts from boot, so a 0 start
+		// would suppress the very first open for the first 30s of device uptime.
 		private const val OPEN_RETRY_BACKOFF_MS = 30_000L
+		private var lastOpenFailureMs = -OPEN_RETRY_BACKOFF_MS
 
 		/**
 		 * Opens (or returns the cached) process-wide encrypted store. Returns null when the

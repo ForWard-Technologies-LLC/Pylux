@@ -27,6 +27,10 @@ typedef struct android_chiaki_video_decoder_t
 	// destroy codec_mutex/teardown_cond while either shutdown_output is set (a kill is in
 	// flight) or a waiter is still inside the condvar — it waits for both to clear.
 	unsigned int teardown_waiters;
+	// Set (under codec_mutex) at the top of fini. set_surface callers that wake from the
+	// teardown_cond wait check it and bail out instead of acting on a decoder that is being
+	// destroyed; fini re-waits for such late waiters after its kill completes.
+	bool fini_requested;
 	int32_t target_width;
 	int32_t target_height;
 	ChiakiCodec target_codec;

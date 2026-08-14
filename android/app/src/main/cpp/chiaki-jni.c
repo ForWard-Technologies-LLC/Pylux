@@ -470,6 +470,12 @@ JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject 
 	E->ReleaseStringUTFChars(env, host_string, str_borrow);
 	if(!connect_info.host)
 	{
+		// Part of the "sessionCreate consumes the holepunch pointer on every outcome"
+		// contract (see below): this failure fires before connect_info.holepunch_session is
+		// assigned, so read the field directly — Kotlin has already dropped its reference.
+		jlong hp_ptr_on_err = E->GetLongField(env, connect_info_obj, E->GetFieldID(env, connect_info_class, "holepunchSessionPtr", "J"));
+		if(hp_ptr_on_err)
+			chiaki_holepunch_session_fini((ChiakiHolepunchSession)hp_ptr_on_err);
 		err = CHIAKI_ERR_MEMORY;
 		goto beach;
 	}

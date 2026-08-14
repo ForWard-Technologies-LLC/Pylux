@@ -24,6 +24,7 @@ ChiakiErrorCode android_chiaki_video_decoder_init(AndroidChiakiVideoDecoder *dec
 	decoder->target_codec = codec;
 	decoder->shutdown_output = false;
 	decoder->teardown_waiters = 0;
+	decoder->fini_requested = false;
 	ChiakiErrorCode err = chiaki_mutex_init(&decoder->codec_mutex, false);
 	if(err != CHIAKI_ERR_SUCCESS)
 		return err;
@@ -81,6 +82,9 @@ static void kill_decoder(AndroidChiakiVideoDecoder *decoder)
 void android_chiaki_video_decoder_fini(AndroidChiakiVideoDecoder *decoder)
 {
 	chiaki_mutex_lock(&decoder->codec_mutex);
+	// From here on, set_surface callers waking from the teardown_cond wait bail out instead
+	// of touching the dying decoder.
+	decoder->fini_requested = true;
 	// shutdown_output doubles as a "kill in progress" marker: kill_decoder drops the mutex
 	// around its join. Waiting (rather than skipping) matters specifically here — skipping
 	// would let this function destroy codec_mutex while the in-flight kill_decoder is about
@@ -91,6 +95,11 @@ void android_chiaki_video_decoder_fini(AndroidChiakiVideoDecoder *decoder)
 		chiaki_cond_wait(&decoder->teardown_cond, &decoder->codec_mutex);
 	if(decoder->codec)
 		kill_decoder(decoder);
+	// kill_decoder dropped the mutex around its join; a set_surface caller may have slipped
+	// in and parked during that window. Wait those stragglers out too (fini_requested makes
+	// them bail immediately on wake) so the condvar/mutex are destroyed with no thread inside.
+	while(decoder->teardown_waiters > 0)
+		chiaki_cond_wait(&decoder->teardown_cond, &decoder->codec_mutex);
 	chiaki_mutex_unlock(&decoder->codec_mutex);
 	chiaki_cond_fini(&decoder->teardown_cond);
 	chiaki_mutex_fini(&decoder->codec_mutex);
@@ -108,6 +117,11 @@ void android_chiaki_video_decoder_set_surface(AndroidChiakiVideoDecoder *decoder
 		chiaki_cond_wait(&decoder->teardown_cond, &decoder->codec_mutex);
 	decoder->teardown_waiters--;
 	chiaki_cond_broadcast(&decoder->teardown_cond);
+	// fini is destroying this decoder; the surface no longer matters. Bail before touching
+	// any state — fini is waiting for teardown_waiters to drain before it finis the
+	// condvar/mutex, and it must not be raced into another kill.
+	if(decoder->fini_requested)
+		goto beach;
 
 	if(!surface)
 	{

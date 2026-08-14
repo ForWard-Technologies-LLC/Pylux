@@ -186,6 +186,9 @@ class StreamSession(val connectInfo: ConnectInfo, val logManager: LogManager, va
 				// The native session_init() will use this for the streaming connection
 				// (data hole punching happens inside the native session thread)
 				val psnConnectInfo = connectInfo.copy(holepunchSessionPtr = hpSession.getPtr())
+				// Anything that can throw BEFORE the native sessionCreate call must run while
+				// the field is still set, so the catch blocks can fini the holepunch session.
+				val logPath = logManager.createNewFile().file.absolutePath
 				// Ownership transfer happens at the Session() call: sessionCreate (chiaki-jni.c)
 				// consumes the holepunch pointer on EVERY outcome — on success chiaki_session_fini
 				// will fini it, and every native failure path finis it before throwing. Null the
@@ -193,7 +196,7 @@ class StreamSession(val connectInfo: ConnectInfo, val logManager: LogManager, va
 				// a second chiaki_holepunch_session_fini double-frees its strings, joins an
 				// already-joined ws thread (bionic abort), and finis destroyed mutexes.
 				holepunchSession = null
-				val session = Session(psnConnectInfo, logManager.createNewFile().file.absolutePath, logVerbose)
+				val session = Session(psnConnectInfo, logPath, logVerbose)
 				session.eventCallback = this::eventCallback
 				session.setPsChord(true) // always on: safe, no user toggle
 				// A failed start means no session thread exists; publishing the session anyway

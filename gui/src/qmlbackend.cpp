@@ -170,10 +170,16 @@ QmlBackend::QmlBackend(Settings *settings, QmlMainWindow *window, SteamworksWrap
             chiaki_log_mutex.unlock();
             StreamSession *old_session = session;
             session = nullptr;
-            // Detach every handler this backend attached to the old session. In particular
-            // its SessionQuit lambda operates on the *member* `session` — left connected, a
-            // late quit from the old session would deleteLater the NEW session.
-            disconnect(old_session, nullptr, this, nullptr);
+            // Sever ALL of the old session's outgoing connections, not just those with
+            // `this` as receiver: the SessionQuit lambda operates on the *member* `session`
+            // (it would deleteLater the NEW session), FfmpegFrameAvailable is connected with
+            // frame_obj as context (its lambda derefs the member `session`, which is null
+            // right now — a queued frame would crash the frame thread), and QmlMainWindow
+            // connects SessionQuit straight to QGuiApplication::quit in direct-stream mode
+            // (a late quit from the old session would exit the whole app). The only other
+            // casualties are the session's internal haptics self-connections, irrelevant for
+            // a session being stopped.
+            old_session->disconnect();
             if (old_session->IsStarted()) {
                 // Live session: deleting it here would make ~StreamSession join the session
                 // thread on the GUI thread, which deadlocks if that thread is blocked in a
