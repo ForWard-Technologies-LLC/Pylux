@@ -71,6 +71,17 @@ static void *android_chiaki_audio_decoder_output_thread_func(void *user)
 
 		size_t codec_buf_size;
 		uint8_t *codec_buf = AMediaCodec_getOutputBuffer(decoder->codec, (size_t)codec_buf_index, &codec_buf_size);
+		if(!codec_buf)
+		{
+			// AMediaCodec_stop (fini or the reinit path) can land between our dequeue and
+			// this call, releasing the buffer arrays — getOutputBuffer then returns NULL.
+			// Passing that to frame_cb with samples_count > 0 memcpy's from NULL. Hand the
+			// buffer index back first (harmless error if the codec is stopped) so a
+			// transient NULL doesn't strand it.
+			AMediaCodec_releaseOutputBuffer(decoder->codec, (size_t)codec_buf_index, false);
+			CHIAKI_LOGI(decoder->log, "Audio Decoder output buffer gone (codec stopped); exiting output thread");
+			break;
+		}
 		size_t samples_count = info.size / sizeof(int16_t);
 		if(decoder->frame_cb)
 			decoder->frame_cb((int16_t *)codec_buf, samples_count, decoder->cb_user);
@@ -95,6 +106,10 @@ static void android_chiaki_audio_decoder_header(ChiakiAudioHeader *header, void 
 	if(decoder->codec)
 	{
 		CHIAKI_LOGI(decoder->log, "Audio decoder already initialized, shutting down the old one");
+		// Stop before joining, same as android_chiaki_audio_decoder_fini: the output thread
+		// loops on TRY_AGAIN and only exits on a dequeue error or EOS, so joining a running
+		// codec's consumer hangs this thread forever. Stopping makes the dequeue error out.
+		AMediaCodec_stop(decoder->codec);
 		chiaki_thread_join(&decoder->output_thread, NULL);
 		AMediaCodec_delete(decoder->codec);
 		decoder->codec = NULL;

@@ -23,43 +23,105 @@ ChiakiErrorCode android_chiaki_video_decoder_init(AndroidChiakiVideoDecoder *dec
 	decoder->target_height = target_height;
 	decoder->target_codec = codec;
 	decoder->shutdown_output = false;
-	return chiaki_mutex_init(&decoder->codec_mutex, false);
+	decoder->teardown_waiters = 0;
+	decoder->fini_requested = false;
+	ChiakiErrorCode err = chiaki_mutex_init(&decoder->codec_mutex, false);
+	if(err != CHIAKI_ERR_SUCCESS)
+		return err;
+	err = chiaki_cond_init(&decoder->teardown_cond);
+	if(err != CHIAKI_ERR_SUCCESS)
+		chiaki_mutex_fini(&decoder->codec_mutex);
+	return err;
 }
 
+// Shuts the codec down and reaps the output thread. Caller must hold codec_mutex; returns
+// with codec_mutex held again (it is dropped around the join so the output thread can finish).
+//
+// This used to take codec_mutex itself, which self-deadlocked when called from
+// set_surface() (which already holds it — codec_mutex is non-recursive); that hang on the
+// UI thread is the "chiaki_mutex_lock / Input dispatching timed out" ANR in Play vitals.
+// It also only joined the output thread on the EOS path: on the fallback path it deleted
+// the codec (and reset shutdown_output) while the output thread was still blocked inside
+// AMediaCodec_dequeueOutputBuffer on that same codec — a use-after-free in MediaCodec's
+// state machine, consistent with the libc.so abort cluster
+// (MediaCodec.cpp CHECK(mActivityNotify == NULL) failed). The join now happens on every
+// path, strictly before AMediaCodec_delete.
 static void kill_decoder(AndroidChiakiVideoDecoder *decoder)
 {
-	chiaki_mutex_lock(&decoder->codec_mutex);
 	decoder->shutdown_output = true;
 	ssize_t codec_buf_index = AMediaCodec_dequeueInputBuffer(decoder->codec, 1000);
 	if(codec_buf_index >= 0)
 	{
 		CHIAKI_LOGI(decoder->log, "Video Decoder sending EOS buffer");
 		AMediaCodec_queueInputBuffer(decoder->codec, (size_t)codec_buf_index, 0, 0, decoder->timestamp_cur++, AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM);
-		AMediaCodec_stop(decoder->codec);
-		chiaki_mutex_unlock(&decoder->codec_mutex);
-		chiaki_thread_join(&decoder->output_thread, NULL);
 	}
 	else
-	{
 		CHIAKI_LOGE(decoder->log, "Failed to get input buffer for shutting down Video Decoder!");
-		AMediaCodec_stop(decoder->codec);
-		chiaki_mutex_unlock(&decoder->codec_mutex);
-	}
+	// Stopping the codec forces the output thread's blocking dequeue to return an error, at
+	// which point it observes shutdown_output and exits; when the EOS buffer above was
+	// queued it instead drains and exits on the EOS flag.
+	AMediaCodec_stop(decoder->codec);
+	chiaki_mutex_unlock(&decoder->codec_mutex);
+	chiaki_thread_join(&decoder->output_thread, NULL);
+	chiaki_mutex_lock(&decoder->codec_mutex);
 	AMediaCodec_delete(decoder->codec);
 	decoder->codec = NULL;
+	if(decoder->window)
+	{
+		// The old code never released the window here; the next set_surface overwrote the
+		// pointer, leaking one ANativeWindow ref per surface teardown cycle.
+		ANativeWindow_release(decoder->window);
+		decoder->window = NULL;
+	}
 	decoder->shutdown_output = false;
+	// Wake anyone parked in the teardown_cond wait loops (fini / set_surface) so they can
+	// re-examine state now that this teardown is fully finished.
+	chiaki_cond_broadcast(&decoder->teardown_cond);
 }
 
 void android_chiaki_video_decoder_fini(AndroidChiakiVideoDecoder *decoder)
 {
+	chiaki_mutex_lock(&decoder->codec_mutex);
+	// From here on, set_surface callers waking from the teardown_cond wait bail out instead
+	// of touching the dying decoder.
+	decoder->fini_requested = true;
+	// shutdown_output doubles as a "kill in progress" marker: kill_decoder drops the mutex
+	// around its join. Waiting (rather than skipping) matters specifically here — skipping
+	// would let this function destroy codec_mutex while the in-flight kill_decoder is about
+	// to relock it, and then the caller frees the whole decoder under it. teardown_waiters
+	// extends the same guarantee to threads parked in set_surface's wait loop: destroying
+	// the condvar/mutex while they are still inside pthread_cond_wait is UB.
+	while(decoder->shutdown_output || decoder->teardown_waiters > 0)
+		chiaki_cond_wait(&decoder->teardown_cond, &decoder->codec_mutex);
 	if(decoder->codec)
 		kill_decoder(decoder);
+	// kill_decoder dropped the mutex around its join; a set_surface caller may have slipped
+	// in and parked during that window. Wait those stragglers out too (fini_requested makes
+	// them bail immediately on wake) so the condvar/mutex are destroyed with no thread inside.
+	while(decoder->teardown_waiters > 0)
+		chiaki_cond_wait(&decoder->teardown_cond, &decoder->codec_mutex);
+	chiaki_mutex_unlock(&decoder->codec_mutex);
+	chiaki_cond_fini(&decoder->teardown_cond);
 	chiaki_mutex_fini(&decoder->codec_mutex);
 }
 
 void android_chiaki_video_decoder_set_surface(AndroidChiakiVideoDecoder *decoder, JNIEnv *env, jobject surface)
 {
 	chiaki_mutex_lock(&decoder->codec_mutex);
+	// If a teardown is in flight (kill_decoder drops the mutex around its join), wait for it
+	// to finish before acting on codec state — entering it twice would double-join the
+	// output thread, and swapping the surface mid-teardown would operate on a dying codec.
+	// teardown_waiters registers this thread so fini cannot destroy the condvar under it.
+	decoder->teardown_waiters++;
+	while(decoder->shutdown_output)
+		chiaki_cond_wait(&decoder->teardown_cond, &decoder->codec_mutex);
+	decoder->teardown_waiters--;
+	chiaki_cond_broadcast(&decoder->teardown_cond);
+	// fini is destroying this decoder; the surface no longer matters. Bail before touching
+	// any state — fini is waiting for teardown_waiters to drain before it finis the
+	// condvar/mutex, and it must not be raced into another kill.
+	if(decoder->fini_requested)
+		goto beach;
 
 	if(!surface)
 	{
@@ -68,7 +130,9 @@ void android_chiaki_video_decoder_set_surface(AndroidChiakiVideoDecoder *decoder
 			kill_decoder(decoder);
 			CHIAKI_LOGI(decoder->log, "Decoder shut down after surface was removed");
 		}
-		return;
+		// goto, not return: this used to return while still holding codec_mutex, so even
+		// when the kill_decoder deadlock didn't bite, every later decode call blocked forever.
+		goto beach;
 	}
 
 	if(decoder->codec)
@@ -149,9 +213,17 @@ bool android_chiaki_video_decoder_video_sample(uint8_t *buf, size_t buf_size, in
 
 	chiaki_mutex_lock(&decoder->codec_mutex);
 
-	if(!decoder->codec)
+	// shutdown_output: a teardown is in flight (kill_decoder has stopped the codec and
+	// dropped the mutex around its join) — the codec pointer is non-NULL but stopped, so
+	// dequeueing would just fail three times per frame. Skip quietly, and report the frame
+	// as NOT processed (r = false): videoreceiver.c only records a reference frame when the
+	// callback succeeds, so lying with true would make the console keep referencing a frame
+	// that was never decoded.
+	if(!decoder->codec || decoder->shutdown_output)
 	{
-		CHIAKI_LOGE(decoder->log, "Received video data, but decoder is not initialized!");
+		if(!decoder->codec)
+			CHIAKI_LOGE(decoder->log, "Received video data, but decoder is not initialized!");
+		r = false;
 		goto beach;
 	}
 
@@ -173,6 +245,14 @@ bool android_chiaki_video_decoder_video_sample(uint8_t *buf, size_t buf_size, in
 
 		size_t codec_buf_size;
 		uint8_t *codec_buf = AMediaCodec_getInputBuffer(decoder->codec, (size_t)codec_buf_index, &codec_buf_size);
+		if(!codec_buf)
+		{
+			// Defensive: the codec can only be stopped under codec_mutex (which we hold), but
+			// a NULL here must never reach the memcpy below.
+			CHIAKI_LOGE(decoder->log, "AMediaCodec_getInputBuffer returned NULL");
+			r = false;
+			break;
+		}
 		size_t codec_sample_size = buf_size;
 		if(codec_sample_size > codec_buf_size)
 		{
@@ -200,8 +280,27 @@ static void *android_chiaki_video_decoder_output_thread_func(void *user)
 
 	while(1)
 	{
+		// Re-check shutdown at the top of every iteration, not only on dequeue errors: a
+		// vendor codec that keeps yielding output buffers (without EOS) after stop() would
+		// otherwise never take the error branch, leaving the teardown join unbounded again.
+		chiaki_mutex_lock(&decoder->codec_mutex);
+		bool shutdown_requested = decoder->shutdown_output;
+		chiaki_mutex_unlock(&decoder->codec_mutex);
+		if(shutdown_requested)
+		{
+			CHIAKI_LOGI(decoder->log, "Video Decoder Output Thread detected shutdown");
+			break;
+		}
+
 		AMediaCodecBufferInfo info;
-		ssize_t status = AMediaCodec_dequeueOutputBuffer(decoder->codec, &info, -1);
+		// Finite timeout, NOT -1: teardown's join relies on this dequeue returning after
+		// AMediaCodec_stop. Stock AOSP cancels a pending infinite dequeue on stop, but the
+		// crash reports this file addresses come from vendor-modified TV-box MediaCodec
+		// stacks — with an infinite wait, a vendor stop() that fails to cancel would turn
+		// the teardown join into a permanent main-thread block (the same ANR class this
+		// change fixes). With 100ms, the error branch below re-checks shutdown_output and
+		// exits within one period on every device, regardless of vendor stop() behavior.
+		ssize_t status = AMediaCodec_dequeueOutputBuffer(decoder->codec, &info, 100000);
 		if(status >= 0)
 		{
 			AMediaCodec_releaseOutputBuffer(decoder->codec, (size_t)status, info.size != 0);

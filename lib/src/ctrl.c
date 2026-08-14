@@ -134,6 +134,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_ctrl_init(ChiakiCtrl *ctrl, ChiakiSession *
 	chiaki_mutex_lock(&ctrl->notif_mutex);
 	ctrl->session = session;
 
+	ctrl->thread_started = false;
 	ctrl->should_stop = false;
 	ctrl->login_pin_entered = false;
 	ctrl->login_pin_requested = false;
@@ -164,6 +165,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_ctrl_start(ChiakiCtrl *ctrl)
 	if(err != CHIAKI_ERR_SUCCESS)
 		return err;
 
+	ctrl->thread_started = true;
 	chiaki_thread_set_name(&ctrl->thread, "Chiaki Ctrl");
 	return err;
 }
@@ -179,16 +181,20 @@ CHIAKI_EXPORT void chiaki_ctrl_stop(ChiakiCtrl *ctrl)
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_ctrl_join(ChiakiCtrl *ctrl)
 {
-	// Check if thread was ever started by comparing with zero-initialized thread
-	// This prevents segfault when trying to join a thread that was never created
-	ChiakiThread zero_thread = { 0 };
-	if(memcmp(&ctrl->thread, &zero_thread, sizeof(ChiakiThread)) == 0)
-	{
-		// Thread was never started, nothing to join
+	// Nothing to join if ctrl was never started (or has already been joined). This must
+	// key off thread_started, NOT off the contents of ctrl->thread: ChiakiThread wraps an
+	// opaque pthread_t, and a stale or partially written handle compares non-zero while
+	// still being invalid. pthread_join() does not report that as an error — bionic
+	// aborts the whole process ("invalid pthread_t ... passed to pthread_join").
+	if(!ctrl->thread_started)
 		return CHIAKI_ERR_SUCCESS;
-	}
-	
-	return chiaki_thread_join(&ctrl->thread, NULL);
+
+	ChiakiErrorCode err = chiaki_thread_join(&ctrl->thread, NULL);
+	// Cleared unconditionally: once joined the handle is spent, and if the join did fail
+	// the handle is unusable, so it must never reach pthread_join() a second time.
+	ctrl->thread_started = false;
+	memset(&ctrl->thread, 0, sizeof(ctrl->thread));
+	return err;
 }
 
 CHIAKI_EXPORT void chiaki_ctrl_fini(ChiakiCtrl *ctrl)
@@ -1064,14 +1070,31 @@ static ChiakiErrorCode ctrl_connect(ChiakiCtrl *ctrl)
 	{
 		CHIAKI_LOGI(session->log, "CTRL - Starting RUDP session");
 		RudpMessage message;
-		ChiakiErrorCode err = chiaki_rudp_send_recv(session->rudp, &message, NULL, 0, 0, INIT_REQUEST, INIT_RESPONSE, 8, 3);
+		// NB: assigns the outer `err` on purpose. This used to redeclare `err` here, which
+		// shadowed it, so every `goto error` in this block returned the outer err's initial
+		// CHIAKI_ERR_SUCCESS — reporting a failed RUDP init as a successful connect.
+		err = chiaki_rudp_send_recv(session->rudp, &message, NULL, 0, 0, INIT_REQUEST, INIT_RESPONSE, 8, 3);
 		if(err != CHIAKI_ERR_SUCCESS)
 		{
 			CHIAKI_LOGE(session->log, "CTRL - Failed to init rudp");
 			goto error;
 		}
+		// Defense-in-depth around the VLA below. chiaki_rudp_send_recv already guarantees
+		// data_size >= min_data_size (8) on success and its parse clamps data_size to the
+		// 1500-byte recv buffer, so on the success path `data_size - 8` cannot underflow
+		// size_t (which would turn the VLA into a ~2^64 byte stack allocation) and cannot
+		// exceed ~1492. This check makes ctrl_connect's stack safety self-contained instead
+		// of an unstated dependency on the rudp layer's internals; the 1500 cap matches the
+		// rudp recv buffer, so it can never reject a message that layer can produce.
+		if(!message.data || message.data_size < 8 || message.data_size > 1500)
+		{
+			CHIAKI_LOGE(session->log, "CTRL - rudp init response has invalid size %zu", (size_t)message.data_size);
+			chiaki_rudp_message_pointers_free(&message);
+			err = CHIAKI_ERR_INVALID_DATA;
+			goto error;
+		}
 		size_t init_response_size = message.data_size - 8;
-		uint8_t init_response[init_response_size];
+		uint8_t init_response[init_response_size ? init_response_size : 1];
 		memcpy(init_response, message.data + 8, init_response_size);
 		chiaki_rudp_message_pointers_free(&message);
 		err = chiaki_rudp_send_recv(session->rudp, &message, init_response, init_response_size, 0, COOKIE_REQUEST, COOKIE_RESPONSE, 2, 3);
@@ -1141,6 +1164,11 @@ static ChiakiErrorCode ctrl_connect(ChiakiCtrl *ctrl)
 				CHIAKI_LOGE(session->log, "Ctrl connect failed: %s", chiaki_error_string(err));
 				ChiakiQuitReason quit_reason = err == CHIAKI_ERR_CONNECTION_REFUSED ? CHIAKI_QUIT_REASON_CTRL_CONNECTION_REFUSED : CHIAKI_QUIT_REASON_CTRL_UNKNOWN;
 				ctrl_failed(ctrl, quit_reason);
+				// sock was never stored into ctrl->sock, and the error label only closes
+				// ctrl->sock — without this every failed TCP ctrl connect leaked one fd
+				// for the life of the session.
+				if(!CHIAKI_SOCKET_IS_INVALID(sock))
+					CHIAKI_SOCKET_CLOSE(sock);
 			}
 			goto error;
 		}
@@ -1170,7 +1198,10 @@ static ChiakiErrorCode ctrl_connect(ChiakiCtrl *ctrl)
 	uint8_t ostype_enc[128];
 	size_t ostype_len = strlen(SESSION_OSTYPE) + 1;
 	if(ostype_len > sizeof(ostype_enc))
+	{
+		err = CHIAKI_ERR_BUF_TOO_SMALL; // unreachable today (fixed literal), but goto error must not return SUCCESS
 		goto error;
+	}
 	err = chiaki_rpcrypt_encrypt(&session->rpcrypt, ctrl->crypt_counter_local++, (const uint8_t *)SESSION_OSTYPE, ostype_enc, ostype_len);
 	if(err != CHIAKI_ERR_SUCCESS)
 		goto error;
@@ -1265,7 +1296,13 @@ static ChiakiErrorCode ctrl_connect(ChiakiCtrl *ctrl)
 			have_streaming_type ? streaming_type_b64 : "",
 			have_streaming_type ? "\r\n" : "");
 	if(request_len < 0 || request_len >= sizeof(send_buf))
+	{
+		// Without this, goto error returned the outer err's CHIAKI_ERR_SUCCESS — a
+		// too-long request (e.g. a near-256-char hostname) reported "Ctrl connected"
+		// with nothing sent, and the ctrl thread parked in select until session timeout.
+		err = CHIAKI_ERR_BUF_TOO_SMALL;
 		goto error;
+	}
 
 	CHIAKI_LOGI(session->log, "Sending ctrl request");
 	chiaki_log_hexdump(session->log, CHIAKI_LOG_VERBOSE, (const uint8_t *)send_buf, (size_t)request_len);

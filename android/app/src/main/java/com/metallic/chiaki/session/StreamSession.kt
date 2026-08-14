@@ -186,10 +186,29 @@ class StreamSession(val connectInfo: ConnectInfo, val logManager: LogManager, va
 				// The native session_init() will use this for the streaming connection
 				// (data hole punching happens inside the native session thread)
 				val psnConnectInfo = connectInfo.copy(holepunchSessionPtr = hpSession.getPtr())
-				val session = Session(psnConnectInfo, logManager.createNewFile().file.absolutePath, logVerbose)
+				// Anything that can throw BEFORE the native sessionCreate call must run while
+				// the field is still set, so the catch blocks can fini the holepunch session.
+				val logPath = logManager.createNewFile().file.absolutePath
+				// Ownership transfer happens at the Session() call: sessionCreate (chiaki-jni.c)
+				// consumes the holepunch pointer on EVERY outcome — on success chiaki_session_fini
+				// will fini it, and every native failure path finis it before throwing. Null the
+				// field before constructing so no catch block below can fini it a second time;
+				// a second chiaki_holepunch_session_fini double-frees its strings, joins an
+				// already-joined ws thread (bionic abort), and finis destroyed mutexes.
+				holepunchSession = null
+				val session = Session(psnConnectInfo, logPath, logVerbose)
 				session.eventCallback = this::eventCallback
 				session.setPsChord(true) // always on: safe, no user toggle
-				session.start()
+				// A failed start means no session thread exists; publishing the session anyway
+				// used to make shutdown() -> dispose() -> sessionJoin join a never-created
+				// thread. The native join is guarded now, but a failed start is still an error
+				// the user must see, not a silent black screen.
+				val sessionStartErr = session.start()
+				if(!sessionStartErr.isSuccess)
+				{
+					session.dispose()
+					throw CreateError(sessionStartErr)
+				}
 				val surface = surface
 				if(surface != null)
 					session.setSurface(surface)
@@ -223,7 +242,13 @@ class StreamSession(val connectInfo: ConnectInfo, val logManager: LogManager, va
 				val session = Session(connectInfo, logManager.createNewFile().file.absolutePath, logVerbose)
 				session.eventCallback = this::eventCallback
 				session.setPsChord(true) // always on: safe, no user toggle
-				session.start()
+				// See the PSN path above: never publish a session whose start failed.
+				val sessionStartErr = session.start()
+				if(!sessionStartErr.isSuccess)
+				{
+					session.dispose()
+					throw CreateError(sessionStartErr)
+				}
 				val surface = surface
 				if(surface != null)
 					session.setSurface(surface)

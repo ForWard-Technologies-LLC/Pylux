@@ -265,6 +265,10 @@ typedef struct chiaki_session_t
 	ChiakiCtrlDisplaySink display_sink;
 
 	ChiakiThread session_thread;
+	// Whether session_thread currently holds a live, unjoined thread. Same rationale as
+	// ChiakiCtrl.thread_started: the opaque pthread_t inside ChiakiThread cannot be
+	// inspected to answer this, and pthread_join on a stale/invalid handle aborts on bionic.
+	bool session_thread_started;
 
 	ChiakiCond state_cond;
 	ChiakiMutex state_mutex;

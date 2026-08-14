@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Auto Backup rules for API 24-30 (android:fullBackupContent).
+
+  secure_tokens.xml is written by EncryptedSharedPreferences, whose master key lives in the
+  Android Keystore. Keystore material is device-bound and is never included in a backup, so
+  restoring this file onto a different device leaves ciphertext with no key to decrypt it —
+  Tink then throws AEADBadTagException on first read. Excluding the file means a restored
+  device simply starts signed out, which is the same state Qt and iOS land in when their
+  token storage has nothing readable in it.
+-->
+<full-backup-content>
+    <exclude domain="sharedpref" path="secure_tokens.xml" />
+</full-backup-content>

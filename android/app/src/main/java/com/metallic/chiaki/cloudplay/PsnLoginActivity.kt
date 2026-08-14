@@ -408,9 +408,16 @@ class PsnLoginActivity : AppCompatActivity()
 	
 	private fun onLoginSuccess(token: String)
 	{
-		// Save NPSSO token securely
-		tokenManager.saveNpssoToken(token)
-		
+		// Save NPSSO token securely. If the secure store is unavailable the token would be
+		// forgotten by the next screen — reporting success anyway put the user in a silent
+		// login loop (log in, see "success", land back on the login screen). Surface it.
+		if(!tokenManager.saveNpssoToken(token))
+		{
+			Log.e(TAG, "PSN login: token could not be stored; not reporting success")
+			Toast.makeText(this, getString(R.string.psn_login_token_store_error), Toast.LENGTH_LONG).show()
+			return
+		}
+
 		// Show progress and exchange for Remote Play tokens on background thread (matches Qt app flow)
 		Toast.makeText(this, "Setting up PSN (Cloud + Remote Play)...", Toast.LENGTH_SHORT).show()
 		

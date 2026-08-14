@@ -168,7 +168,31 @@ QmlBackend::QmlBackend(Settings *settings, QmlMainWindow *window, SteamworksWrap
             chiaki_log_mutex.lock();
             chiaki_log_ctx = nullptr;
             chiaki_log_mutex.unlock();
-            session->deleteLater();
+            StreamSession *old_session = session;
+            session = nullptr;
+            // Sever ALL of the old session's outgoing connections, not just those with
+            // `this` as receiver: the SessionQuit lambda operates on the *member* `session`
+            // (it would deleteLater the NEW session), FfmpegFrameAvailable is connected with
+            // frame_obj as context (its lambda derefs the member `session`, which is null
+            // right now — a queued frame would crash the frame thread), and QmlMainWindow
+            // connects SessionQuit straight to QGuiApplication::quit in direct-stream mode
+            // (a late quit from the old session would exit the whole app). The only other
+            // casualties are the session's internal haptics self-connections, irrelevant for
+            // a session being stopped.
+            old_session->disconnect();
+            if (old_session->IsStarted()) {
+                // Live session: deleting it here would make ~StreamSession join the session
+                // thread on the GUI thread, which deadlocks if that thread is blocked in a
+                // BlockingQueuedConnection into the GUI loop (e.g. InitAudio). Quit-driven
+                // deletion instead: Stop() makes SessionQuit fire, and the direct connection
+                // below deletes it once its thread is finishing.
+                connect(old_session, &StreamSession::SessionQuit, old_session, &QObject::deleteLater);
+                old_session->Stop();
+            } else {
+                // Never started (or start failed): there is no thread to join —
+                // chiaki_session_join is a guarded no-op — so a plain deferred delete is safe.
+                old_session->deleteLater();
+            }
         }
         
         // Register the new session
@@ -181,6 +205,10 @@ QmlBackend::QmlBackend(Settings *settings, QmlMainWindow *window, SteamworksWrap
         
         // Connect frame presentation (critical for video display!)
         connect(session, &StreamSession::FfmpegFrameAvailable, frame_thread->parent(), [this, window]() {
+            // Queued delivery: a metacall already posted to the frame thread survives
+            // disconnect() of a replaced session, and `session` is nulled during replacement.
+            if (!session)
+                return;
             ChiakiFfmpegDecoder *decoder = session->GetFfmpegDecoder();
             if (!decoder) {
                 qCCritical(chiakiGui) << "Session has no FFmpeg decoder";
@@ -1170,6 +1198,10 @@ void QmlBackend::createSession(const StreamSessionConnectInfo &connect_info)
 #endif
 
     connect(session, &StreamSession::FfmpegFrameAvailable, frame_thread->parent(), [this]() {
+        // Queued delivery: a metacall already posted to the frame thread survives
+        // disconnect() of a replaced session, and `session` is nulled during teardown.
+        if (!session)
+            return;
         ChiakiFfmpegDecoder *decoder = session->GetFfmpegDecoder();
         if (!decoder) {
             qCCritical(chiakiGui) << "Session has no FFmpeg decoder";

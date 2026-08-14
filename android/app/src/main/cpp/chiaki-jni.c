@@ -470,6 +470,12 @@ JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject 
 	E->ReleaseStringUTFChars(env, host_string, str_borrow);
 	if(!connect_info.host)
 	{
+		// Part of the "sessionCreate consumes the holepunch pointer on every outcome"
+		// contract (see below): this failure fires before connect_info.holepunch_session is
+		// assigned, so read the field directly — Kotlin has already dropped its reference.
+		jlong hp_ptr_on_err = E->GetLongField(env, connect_info_obj, E->GetFieldID(env, connect_info_class, "holepunchSessionPtr", "J"));
+		if(hp_ptr_on_err)
+			chiaki_holepunch_session_fini((ChiakiHolepunchSession)hp_ptr_on_err);
 		err = CHIAKI_ERR_MEMORY;
 		goto beach;
 	}
@@ -631,9 +637,15 @@ JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject 
 	connect_info.cloud_mtu_out = (uint32_t)E->GetIntField(env, connect_info_obj, E->GetFieldID(env, connect_info_class, "cloudMtuOut", "I"));
 	connect_info.cloud_rtt_us = (uint64_t)E->GetLongField(env, connect_info_obj, E->GetFieldID(env, connect_info_class, "cloudRttUs", "J"));
 
+	// From here on, sessionCreate consumes connect_info.holepunch_session on EVERY failure:
+	// chiaki_session_init's own error path finis it (lib/src/session.c error label), and the
+	// pre-init failures below fini it explicitly. Kotlin therefore must not fini the
+	// holepunch session once it has been handed to this call — see StreamSession.kt.
 	session = CHIAKI_NEW(AndroidChiakiSession);
 	if(!session)
 	{
+		if(connect_info.holepunch_session)
+			chiaki_holepunch_session_fini(connect_info.holepunch_session);
 		err = CHIAKI_ERR_MEMORY;
 		goto beach;
 	}
@@ -643,6 +655,8 @@ JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject 
 			connect_info.ps5 ? connect_info.video_profile.codec : CHIAKI_CODEC_H264);
 	if(err != CHIAKI_ERR_SUCCESS)
 	{
+		if(connect_info.holepunch_session)
+			chiaki_holepunch_session_fini(connect_info.holepunch_session);
 		free(session);
 		session = NULL;
 		goto beach;
@@ -659,6 +673,8 @@ JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject 
 		err = android_chiaki_opus_decoder_init(&session->opus_decoder, log);
 		if(err != CHIAKI_ERR_SUCCESS)
 		{
+			if(connect_info.holepunch_session)
+				chiaki_holepunch_session_fini(connect_info.holepunch_session);
 			android_chiaki_video_decoder_fini(&session->video_decoder);
 			free(session);
 			session = NULL;
@@ -671,6 +687,8 @@ JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject 
 		err = android_chiaki_audio_decoder_init(&session->audio_decoder, log);
 		if(err != CHIAKI_ERR_SUCCESS)
 		{
+			if(connect_info.holepunch_session)
+				chiaki_holepunch_session_fini(connect_info.holepunch_session);
 			android_chiaki_video_decoder_fini(&session->video_decoder);
 			free(session);
 			session = NULL;
@@ -837,6 +855,10 @@ JNIEXPORT jint JNICALL JNI_FCN(sessionJoin)(JNIEnv *env, jobject obj, jlong ptr)
 JNIEXPORT void JNICALL JNI_FCN(sessionSetSurface)(JNIEnv *env, jobject obj, jlong ptr, jobject surface)
 {
 	AndroidChiakiSession *session = (AndroidChiakiSession *)ptr;
+	// Same guard as sessionFree: a surface callback racing session disposal must not walk
+	// into a freed session / destroyed decoder mutex.
+	if(!session)
+		return;
 	android_chiaki_video_decoder_set_surface(&session->video_decoder, env, surface);
 }
 

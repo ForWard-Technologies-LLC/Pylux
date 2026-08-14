@@ -725,10 +725,15 @@ void StreamSession::Start()
 		connect_timer.start();
 	ChiakiErrorCode err = chiaki_session_start(&session);
 	if(err != CHIAKI_ERR_SUCCESS)
-	{
-		session_started = true;
 		throw ChiakiException("Chiaki Session Start failed");
-	}
+	// Only a successful start leaves a session thread to join. This flag used to be set in
+	// the failure branch instead (inverted): on success the destructor skipped
+	// chiaki_session_join and ran chiaki_session_fini under a still-running session/ctrl
+	// thread (destroying notif_mutex beneath a live chiaki_cond_timedwait), and on failure
+	// it joined a thread that was never created. Upstream sets it on success; this restores
+	// that. chiaki_session_join itself is also guarded now, so even a stale flag can no
+	// longer reach pthread_join with an invalid handle.
+	session_started = true;
 }
 
 void StreamSession::Stop()

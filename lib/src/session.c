@@ -461,6 +461,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_session_start(ChiakiSession *session)
 	ChiakiErrorCode err = chiaki_thread_create(&session->session_thread, session_thread_func, session);
 	if(err != CHIAKI_ERR_SUCCESS)
 		return err;
+	session->session_thread_started = true;
 	chiaki_thread_set_name(&session->session_thread, "Chiaki Session");
 	return err;
 }
@@ -482,7 +483,17 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_session_stop(ChiakiSession *session)
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_join(ChiakiSession *session)
 {
-	return chiaki_thread_join(&session->session_thread, NULL);
+	// Same guard as chiaki_ctrl_join: joining is only valid while a live, unjoined thread
+	// exists. Frontends can reach this without a successful start (e.g. Android's
+	// StreamSession used to call sessionJoin during shutdown even when sessionStart had
+	// failed), and pthread_join on a never-created or spent handle aborts on bionic.
+	if(!session->session_thread_started)
+		return CHIAKI_ERR_SUCCESS;
+
+	ChiakiErrorCode err = chiaki_thread_join(&session->session_thread, NULL);
+	session->session_thread_started = false;
+	memset(&session->session_thread, 0, sizeof(session->session_thread));
+	return err;
 }
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_set_controller_state(ChiakiSession *session, ChiakiControllerState *state)

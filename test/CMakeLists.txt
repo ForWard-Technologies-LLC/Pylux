@@ -18,6 +18,7 @@ add_executable(chiaki-unit
 		regist.c
 		cloudcatalog_merge.c
 		cloudsession_kamaji.c
+		ctrl_lifecycle.c
 		pschord.c)
 
 target_link_libraries(chiaki-unit chiaki-lib munit)
