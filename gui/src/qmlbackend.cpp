@@ -168,7 +168,25 @@ QmlBackend::QmlBackend(Settings *settings, QmlMainWindow *window, SteamworksWrap
             chiaki_log_mutex.lock();
             chiaki_log_ctx = nullptr;
             chiaki_log_mutex.unlock();
-            session->deleteLater();
+            StreamSession *old_session = session;
+            session = nullptr;
+            // Detach every handler this backend attached to the old session. In particular
+            // its SessionQuit lambda operates on the *member* `session` — left connected, a
+            // late quit from the old session would deleteLater the NEW session.
+            disconnect(old_session, nullptr, this, nullptr);
+            if (old_session->IsStarted()) {
+                // Live session: deleting it here would make ~StreamSession join the session
+                // thread on the GUI thread, which deadlocks if that thread is blocked in a
+                // BlockingQueuedConnection into the GUI loop (e.g. InitAudio). Quit-driven
+                // deletion instead: Stop() makes SessionQuit fire, and the direct connection
+                // below deletes it once its thread is finishing.
+                connect(old_session, &StreamSession::SessionQuit, old_session, &QObject::deleteLater);
+                old_session->Stop();
+            } else {
+                // Never started (or start failed): there is no thread to join —
+                // chiaki_session_join is a guarded no-op — so a plain deferred delete is safe.
+                old_session->deleteLater();
+            }
         }
         
         // Register the new session

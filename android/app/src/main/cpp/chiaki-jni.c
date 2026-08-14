@@ -631,9 +631,15 @@ JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject 
 	connect_info.cloud_mtu_out = (uint32_t)E->GetIntField(env, connect_info_obj, E->GetFieldID(env, connect_info_class, "cloudMtuOut", "I"));
 	connect_info.cloud_rtt_us = (uint64_t)E->GetLongField(env, connect_info_obj, E->GetFieldID(env, connect_info_class, "cloudRttUs", "J"));
 
+	// From here on, sessionCreate consumes connect_info.holepunch_session on EVERY failure:
+	// chiaki_session_init's own error path finis it (lib/src/session.c error label), and the
+	// pre-init failures below fini it explicitly. Kotlin therefore must not fini the
+	// holepunch session once it has been handed to this call — see StreamSession.kt.
 	session = CHIAKI_NEW(AndroidChiakiSession);
 	if(!session)
 	{
+		if(connect_info.holepunch_session)
+			chiaki_holepunch_session_fini(connect_info.holepunch_session);
 		err = CHIAKI_ERR_MEMORY;
 		goto beach;
 	}
@@ -643,6 +649,8 @@ JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject 
 			connect_info.ps5 ? connect_info.video_profile.codec : CHIAKI_CODEC_H264);
 	if(err != CHIAKI_ERR_SUCCESS)
 	{
+		if(connect_info.holepunch_session)
+			chiaki_holepunch_session_fini(connect_info.holepunch_session);
 		free(session);
 		session = NULL;
 		goto beach;
@@ -659,6 +667,8 @@ JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject 
 		err = android_chiaki_opus_decoder_init(&session->opus_decoder, log);
 		if(err != CHIAKI_ERR_SUCCESS)
 		{
+			if(connect_info.holepunch_session)
+				chiaki_holepunch_session_fini(connect_info.holepunch_session);
 			android_chiaki_video_decoder_fini(&session->video_decoder);
 			free(session);
 			session = NULL;
@@ -671,6 +681,8 @@ JNIEXPORT void JNICALL JNI_FCN(sessionCreate)(JNIEnv *env, jobject obj, jobject 
 		err = android_chiaki_audio_decoder_init(&session->audio_decoder, log);
 		if(err != CHIAKI_ERR_SUCCESS)
 		{
+			if(connect_info.holepunch_session)
+				chiaki_holepunch_session_fini(connect_info.holepunch_session);
 			android_chiaki_video_decoder_fini(&session->video_decoder);
 			free(session);
 			session = NULL;

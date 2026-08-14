@@ -329,6 +329,12 @@ class StreamSession : public QObject
 		~StreamSession();
 
 		bool IsConnected()	{ return connected; }
+		// Whether chiaki_session_start succeeded, i.e. a session thread exists that the
+		// destructor will join. Callers deleting a session synchronously must check this:
+		// deleting a *started* session from the GUI thread joins its thread and can deadlock
+		// against BlockingQueuedConnection calls into the GUI loop — use Stop() and delete
+		// from the SessionQuit signal instead (see QmlBackend's cloud sessionCreated handler).
+		bool IsStarted() const	{ return session_started; }
 		bool IsConnecting()	{ return connect_timer.isValid(); }
 
 		void Start();

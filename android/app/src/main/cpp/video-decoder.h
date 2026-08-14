@@ -23,6 +23,10 @@ typedef struct android_chiaki_video_decoder_t
 	uint64_t timestamp_cur;
 	ChiakiThread output_thread;
 	bool shutdown_output;
+	// Number of threads parked in the teardown_cond wait inside set_surface. fini must not
+	// destroy codec_mutex/teardown_cond while either shutdown_output is set (a kill is in
+	// flight) or a waiter is still inside the condvar — it waits for both to clear.
+	unsigned int teardown_waiters;
 	int32_t target_width;
 	int32_t target_height;
 	ChiakiCodec target_codec;

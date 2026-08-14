@@ -8,8 +8,13 @@ import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.metallic.chiaki.cloudplay.repository.CloudGameRepository
+import android.os.SystemClock
 import java.security.GeneralSecurityException
 import java.security.KeyStore
+import java.security.KeyStoreException
+import java.security.NoSuchAlgorithmException
+import java.security.NoSuchProviderException
+import java.security.UnrecoverableKeyException
 
 /**
  * Secure storage for PSN tokens using EncryptedSharedPreferences.
@@ -39,6 +44,11 @@ class SecureTokenManager(context: Context)
 		// The reset deletes user data (the stored token), so it is allowed exactly once per
 		// process, and only for a proven crypto failure — never for transient errors.
 		private var resetAttempted = false
+		// After a failed open, don't retry (Keystore + file I/O, under the lock, often from
+		// the main thread) on every hasNpssoToken()/getNpssoToken() call — hot paths like the
+		// catalog observer would otherwise turn a persistent failure into a jank loop.
+		private var lastOpenFailureMs = 0L
+		private const val OPEN_RETRY_BACKOFF_MS = 30_000L
 
 		/**
 		 * Opens (or returns the cached) process-wide encrypted store. Returns null when the
@@ -56,6 +66,8 @@ class SecureTokenManager(context: Context)
 			synchronized(storeLock)
 			{
 				store?.let { return it }
+				if (SystemClock.elapsedRealtime() - lastOpenFailureMs < OPEN_RETRY_BACKOFF_MS)
+					return null
 				try
 				{
 					store = openEncryptedPrefs(context)
@@ -86,12 +98,15 @@ class SecureTokenManager(context: Context)
 					}
 					else
 					{
-						// Transient failure (Keystore hiccup, I/O): do NOT delete anything.
+						// Transient failure (Keystore hiccup, I/O) — or a crypto failure when
+						// the one permitted reset has already run: do NOT delete anything.
 						// The old behavior was to throw (crashing the app); degrading to
 						// signed-out for this attempt preserves the token for the next one.
 						Log.e(TAG, "Failed to open secure token storage (not resetting)", e)
 					}
 				}
+				if (store == null)
+					lastOpenFailureMs = SystemClock.elapsedRealtime()
 				return store
 			}
 		}
@@ -115,19 +130,33 @@ class SecureTokenManager(context: Context)
 		 * True only for failures that mean the stored ciphertext/keysets can never be read
 		 * again (wrong or missing master key, corrupted keyset) — the cases where deleting
 		 * the store is recovery rather than data loss.
+		 *
+		 * Everything androidx/Tink throws funnels into GeneralSecurityException, including
+		 * the *transient* environment failures (Keystore daemon unavailable, provider or
+		 * algorithm lookup), so those subtypes are explicitly subtracted first: a keystore
+		 * hiccup must never delete a valid token.
 		 */
 		private fun isUnrecoverableCryptoFailure(e: Throwable): Boolean
 		{
 			var cause: Throwable? = e
-			while (cause != null)
+			repeat(16)
 			{
-				if (cause is GeneralSecurityException)
-					return true
+				val c = cause ?: return false
+				when (c)
+				{
+					is KeyStoreException,
+					is NoSuchProviderException,
+					is NoSuchAlgorithmException,
+					is UnrecoverableKeyException ->
+						return false // keystore unavailable / environment problem — transient
+					is GeneralSecurityException ->
+						return true // AEADBadTag, BadPadding, InvalidKey, ... — real corruption
+				}
 				// Tink's shaded protobuf exception for a corrupted keyset; matched by name to
 				// avoid depending on the shaded package.
-				if (cause.javaClass.name.contains("InvalidProtocolBuffer"))
+				if (c.javaClass.name.contains("InvalidProtocolBuffer"))
 					return true
-				cause = cause.cause
+				cause = c.cause
 			}
 			return false
 		}
@@ -182,9 +211,17 @@ class SecureTokenManager(context: Context)
 			// can re-save the same npsso (e.g. token re-exchange after an expired access
 			// token), which is not an account change and must not wipe the 24h cache.
 			val changed = (prefs.getString(KEY_NPSSO_TOKEN, "") ?: "") != token
-			prefs.edit()
+			// commit(), not apply(): the return value promises durable storage, and apply()
+			// is asynchronous and swallows disk failures — a false "saved" here is exactly
+			// the login loop the caller guards against. Once per login, so blocking is fine.
+			val committed = prefs.edit()
 				.putString(KEY_NPSSO_TOKEN, token)
-				.apply()
+				.commit()
+			if (!committed)
+			{
+				Log.e(TAG, "Failed to persist NPSSO token (commit returned false)")
+				return false
+			}
 			Log.i(TAG, "NPSSO token saved securely")
 			if (changed)
 			{
