@@ -15,6 +15,9 @@ typedef struct android_chiaki_video_decoder_t
 {
 	ChiakiLog *log;
 	ChiakiMutex codec_mutex;
+	// Broadcast (with codec_mutex held) when a kill_decoder finishes; teardown entry
+	// points wait on it while shutdown_output is set instead of skipping — see kill_decoder.
+	ChiakiCond teardown_cond;
 	AMediaCodec *codec;
 	ANativeWindow *window;
 	uint64_t timestamp_cur;

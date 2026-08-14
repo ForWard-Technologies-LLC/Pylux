@@ -4,6 +4,7 @@ package com.metallic.chiaki.main
 
 import android.view.LayoutInflater
 import android.view.ViewGroup
+import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import coil.dispose
 import coil.load
@@ -28,24 +29,44 @@ class CloudGameAdapter(
 	// item id, which collides whenever two productIds share a 32-bit hash (or when the
 	// catalog contains a duplicate), and a duplicate stable id makes RecyclerView throw
 	// IllegalStateException from handleMissingPreInfoForChangeError during change
-	// animations. Identity here is positional, which is exactly what Qt does (GridView over
-	// a plain array model, gui/src/qml/CloudPlayView.qml) — iOS keys off the productId
-	// string itself, never a hash. Uniqueness of productId is the lib's job
-	// (dedupe_contract_product_ids in lib/src/cloudcatalog_merge.c); the adapter must not
-	// second-guess it by merging or dropping rows.
+	// animations. Updates instead go through DiffUtil keyed on the productId *string* (see
+	// the games setter) — the same identity iOS uses; Qt renders a plain array model.
+	// Uniqueness of productId is the lib's job (dedupe_contract_product_ids in
+	// lib/src/cloudcatalog_merge.c); the adapter must not second-guess it by merging or
+	// dropping rows — a duplicate here degrades animations, never crashes.
 
 	var games: List<CloudGame> = emptyList()
 		set(value)
 		{
+			val old = field
 			field = value
-			notifyDataSetChanged()
+			// DiffUtil instead of notifyDataSetChanged: with stable ids gone, a full reset
+			// makes RecyclerView's focus recovery fall back to index 0, so every refresh
+			// (sort change, favorites toggle, catalog reload) yanked D-pad focus to the
+			// first card on Android TV. Diff dispatch keeps unchanged rows' views attached,
+			// so focus stays on the focused card. Item identity is productId (CloudGame is
+			// a data class, so contents-equality is field-wise); duplicate ids — which the
+			// lib's dedupe should prevent — degrade to imperfect animations here, never to
+			// the IllegalStateException that stable ids turned them into.
+			DiffUtil.calculateDiff(object : DiffUtil.Callback() {
+				override fun getOldListSize() = old.size
+				override fun getNewListSize() = value.size
+				override fun areItemsTheSame(oldPos: Int, newPos: Int) =
+					old[oldPos].productId == value[newPos].productId
+				override fun areContentsTheSame(oldPos: Int, newPos: Int) =
+					old[oldPos] == value[newPos]
+			}).dispatchUpdatesTo(this)
 		}
 
 	var showOwnershipBadge: Boolean = false
 		set(value)
 		{
+			if (field == value)
+				return
 			field = value
-			notifyDataSetChanged()
+			// Content-only change: rebind every row without a structural reset so focus and
+			// scroll position survive (notifyDataSetChanged would not guarantee either).
+			notifyItemRangeChanged(0, itemCount)
 		}
 
 	var isScrollingFast = false

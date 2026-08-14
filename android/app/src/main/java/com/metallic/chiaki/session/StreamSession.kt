@@ -189,7 +189,16 @@ class StreamSession(val connectInfo: ConnectInfo, val logManager: LogManager, va
 				val session = Session(psnConnectInfo, logManager.createNewFile().file.absolutePath, logVerbose)
 				session.eventCallback = this::eventCallback
 				session.setPsChord(true) // always on: safe, no user toggle
-				session.start()
+				// A failed start means no session thread exists; publishing the session anyway
+				// used to make shutdown() -> dispose() -> sessionJoin join a never-created
+				// thread. The native join is guarded now, but a failed start is still an error
+				// the user must see, not a silent black screen.
+				val sessionStartErr = session.start()
+				if(!sessionStartErr.isSuccess)
+				{
+					session.dispose()
+					throw CreateError(sessionStartErr)
+				}
 				val surface = surface
 				if(surface != null)
 					session.setSurface(surface)
@@ -223,7 +232,13 @@ class StreamSession(val connectInfo: ConnectInfo, val logManager: LogManager, va
 				val session = Session(connectInfo, logManager.createNewFile().file.absolutePath, logVerbose)
 				session.eventCallback = this::eventCallback
 				session.setPsChord(true) // always on: safe, no user toggle
-				session.start()
+				// See the PSN path above: never publish a session whose start failed.
+				val sessionStartErr = session.start()
+				if(!sessionStartErr.isSuccess)
+				{
+					session.dispose()
+					throw CreateError(sessionStartErr)
+				}
 				val surface = surface
 				if(surface != null)
 					session.setSurface(surface)

@@ -71,6 +71,14 @@ static void *android_chiaki_audio_decoder_output_thread_func(void *user)
 
 		size_t codec_buf_size;
 		uint8_t *codec_buf = AMediaCodec_getOutputBuffer(decoder->codec, (size_t)codec_buf_index, &codec_buf_size);
+		if(!codec_buf)
+		{
+			// AMediaCodec_stop (fini or the reinit path) can land between our dequeue and
+			// this call, releasing the buffer arrays — getOutputBuffer then returns NULL.
+			// Passing that to frame_cb with samples_count > 0 memcpy's from NULL.
+			CHIAKI_LOGI(decoder->log, "Audio Decoder output buffer gone (codec stopped); exiting output thread");
+			break;
+		}
 		size_t samples_count = info.size / sizeof(int16_t);
 		if(decoder->frame_cb)
 			decoder->frame_cb((int16_t *)codec_buf, samples_count, decoder->cb_user);

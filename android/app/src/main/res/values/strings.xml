@@ -176,6 +176,7 @@
     <string name="psn_login_title">Login</string>
     <string name="psn_login_button">LOGIN</string>
     <string name="psn_login_success">Login successful</string>
+    <string name="psn_login_token_store_error">Login succeeded, but the sign-in could not be saved on this device. Please restart the app and try again.</string>
     <string name="psn_login_failed">Login failed. Please try again.</string>
     <string name="psn_login_required_title">Login Required</string>
     <string name="psn_login_required_message">Please login to access cloud streaming</string>

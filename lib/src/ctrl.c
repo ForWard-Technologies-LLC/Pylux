@@ -1164,6 +1164,11 @@ static ChiakiErrorCode ctrl_connect(ChiakiCtrl *ctrl)
 				CHIAKI_LOGE(session->log, "Ctrl connect failed: %s", chiaki_error_string(err));
 				ChiakiQuitReason quit_reason = err == CHIAKI_ERR_CONNECTION_REFUSED ? CHIAKI_QUIT_REASON_CTRL_CONNECTION_REFUSED : CHIAKI_QUIT_REASON_CTRL_UNKNOWN;
 				ctrl_failed(ctrl, quit_reason);
+				// sock was never stored into ctrl->sock, and the error label only closes
+				// ctrl->sock — without this every failed TCP ctrl connect leaked one fd
+				// for the life of the session.
+				if(!CHIAKI_SOCKET_IS_INVALID(sock))
+					CHIAKI_SOCKET_CLOSE(sock);
 			}
 			goto error;
 		}
@@ -1193,7 +1198,10 @@ static ChiakiErrorCode ctrl_connect(ChiakiCtrl *ctrl)
 	uint8_t ostype_enc[128];
 	size_t ostype_len = strlen(SESSION_OSTYPE) + 1;
 	if(ostype_len > sizeof(ostype_enc))
+	{
+		err = CHIAKI_ERR_BUF_TOO_SMALL; // unreachable today (fixed literal), but goto error must not return SUCCESS
 		goto error;
+	}
 	err = chiaki_rpcrypt_encrypt(&session->rpcrypt, ctrl->crypt_counter_local++, (const uint8_t *)SESSION_OSTYPE, ostype_enc, ostype_len);
 	if(err != CHIAKI_ERR_SUCCESS)
 		goto error;
@@ -1288,7 +1296,13 @@ static ChiakiErrorCode ctrl_connect(ChiakiCtrl *ctrl)
 			have_streaming_type ? streaming_type_b64 : "",
 			have_streaming_type ? "\r\n" : "");
 	if(request_len < 0 || request_len >= sizeof(send_buf))
+	{
+		// Without this, goto error returned the outer err's CHIAKI_ERR_SUCCESS — a
+		// too-long request (e.g. a near-256-char hostname) reported "Ctrl connected"
+		// with nothing sent, and the ctrl thread parked in select until session timeout.
+		err = CHIAKI_ERR_BUF_TOO_SMALL;
 		goto error;
+	}
 
 	CHIAKI_LOGI(session->log, "Sending ctrl request");
 	chiaki_log_hexdump(session->log, CHIAKI_LOG_VERBOSE, (const uint8_t *)send_buf, (size_t)request_len);
