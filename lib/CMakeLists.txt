@@ -240,6 +240,10 @@ if(CHIAKI_ENABLE_TESTS)
 		add_executable(cloudcatalog-test test_cloudcatalog/cloudcatalog-test.c)
 		target_link_libraries(cloudcatalog-test chiaki-lib)
 
+		add_executable(apollo-fallback-test test_cloudcatalog/apollo-fallback-test.c)
+		target_link_libraries(apollo-fallback-test chiaki-lib)
+		target_include_directories(apollo-fallback-test PRIVATE src)
+
 		add_executable(cloudsession-probe test_cloudsession/cloudsession-probe.c)
 		target_link_libraries(cloudsession-probe chiaki-lib)
 		target_include_directories(cloudsession-probe PRIVATE src)

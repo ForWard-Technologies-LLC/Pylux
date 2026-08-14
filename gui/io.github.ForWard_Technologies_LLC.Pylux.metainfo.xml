@@ -32,6 +32,11 @@
   <content_rating type="oars-1.1" />
   <!-- Flathub: add <release> entries here when shipping new versions (not generated from CMake). -->
   <releases>
+    <release date="2026-08-02" version="2.11.4">
+      <description>
+        <p>Cloud Play fixes for regions without native PlayStation cloud support: the streamable PS3 and PS4 catalog is restored, and titles such as Bloodborne now launch correctly. Improved store routing and reliability for all regions.</p>
+      </description>
+    </release>
     <release date="2026-07-11" version="2.11.3">
       <description>
         <p>Fix Steam shortcut creation for games on Flatpak and refresh shortcut branding.</p>

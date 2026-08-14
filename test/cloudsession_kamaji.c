@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 //
-// Offline tests for the Kamaji resolve helpers. Covers the step 0.5d full-game
-// ("*GD") fallback: when a PS Plus title's store container exposes no
-// license_type==4 streaming reservation, km_pick_fullgame_id selects the
-// full-game digital entitlement (packageType ending "GD"), title-matched first.
-// This branch is effectively unreachable with the live catalog (every sampled
-// PS4 title carries a streaming reservation), so a synthetic JSON test is the
-// only way to pin its behavior.
+// Offline tests for the Kamaji resolve helpers. Covers the step 0.5d fallbacks
+// (km_pick_streaming_gs_id — the title-matched "*GS" pass that catches streaming
+// reservations published with license_type=0, real GB-store Bloodborne data —
+// and km_pick_fullgame_id, the PS Plus full-game "*GD" fallback), and the
+// regional store routing helpers (km_resolve_store_locale / km_should_skip_acquire).
 
 #include <munit.h>
 
@@ -82,6 +80,131 @@ static MunitResult test_gd_fallback_none(const MunitParameter p[], void *data)
 	return MUNIT_OK;
 }
 
+// Real-world regression (GB store, July 2026): Bloodborne's PSNow sku carries the
+// PSRSVD streaming entitlement with license_type=0 — the license_type==4 pass misses
+// it, and before the *GS fallback existed the *GD purchase entitlement won and Gaikai
+// rejected it (002.2026 noGameForEntitlementId). Sku JSON trimmed from the live
+// container response for EP9000-CUSA00207_00-BLOODBORNE0000EU.
+static MunitResult test_gs_fallback_bloodborne_gb(const MunitParameter p[], void *data)
+{
+	(void)p; (void)data;
+	struct json_object *gd_sku = parse(
+		"{\"id\":\"EP9000-CUSA00207_00-BLOODBORNE0000EU-E009\",\"name\":\"Game\",\"entitlements\":["
+		"{\"id\":\"EP9000-CUSA00207_00-BLOODBORNE0000EU\",\"license_type\":0,\"packageType\":\"PS4GD\"}"
+		"]}");
+	struct json_object *gs_sku = parse(
+		"{\"id\":\"EP9000-CUSA00207_00-BLOODBORNE0000EU-EC02\",\"name\":\"PSNow\",\"entitlements\":["
+		"{\"id\":\"EP9000-CUSA00207_00-PSRSVD0000000000\",\"license_type\":0,\"packageType\":\"PS4GS\"}"
+		"]}");
+	char out[128] = "";
+	// The purchase sku has no *GS entitlement; the PSNow sku's is found despite license_type=0.
+	munit_assert_false(km_pick_streaming_gs_id(gd_sku, true, "CUSA00207", out, sizeof(out), NULL));
+	munit_assert_true(km_pick_streaming_gs_id(gs_sku, true, "CUSA00207", out, sizeof(out), NULL));
+	munit_assert_string_equal(out, "EP9000-CUSA00207_00-PSRSVD0000000000");
+	json_object_put(gd_sku);
+	json_object_put(gs_sku);
+	return MUNIT_OK;
+}
+
+// require_title picks the *GS entitlement whose id contains the title id; the relaxed
+// pass takes the first *GS regardless (mirrors km_step0_5d_resolve's two-pass loop).
+// Non-"GS" package types are never picked.
+static MunitResult test_gs_fallback_title_match(const MunitParameter p[], void *data)
+{
+	(void)p; (void)data;
+	struct json_object *sku = parse(
+		"{\"id\":\"SKU-1\",\"entitlements\":["
+		"{\"id\":\"UP9000-CUSA12345_00-FULLGAME00000001\",\"packageType\":\"PS4GD\"},"
+		"{\"id\":\"UP9000-CUSA99999_00-PSRSVD0000000000\",\"packageType\":\"PS4GS\"},"
+		"{\"id\":\"UP9000-CUSA12345_00-PSRSVD0000000000\",\"packageType\":\"PS4GS\"}"
+		"]}");
+	char out[128] = "";
+	munit_assert_true(km_pick_streaming_gs_id(sku, true, "CUSA12345", out, sizeof(out), NULL));
+	munit_assert_string_equal(out, "UP9000-CUSA12345_00-PSRSVD0000000000");
+
+	out[0] = '\0';
+	munit_assert_false(km_pick_streaming_gs_id(sku, true, "CUSA00000", out, sizeof(out), NULL));
+	munit_assert_string_equal(out, "");
+
+	munit_assert_true(km_pick_streaming_gs_id(sku, false, "CUSA00000", out, sizeof(out), NULL));
+	munit_assert_string_equal(out, "UP9000-CUSA99999_00-PSRSVD0000000000");
+	json_object_put(sku);
+	return MUNIT_OK;
+}
+
+// No *GS entitlement, and a missing entitlements array, both yield no pick (no crash).
+static MunitResult test_gs_fallback_none(const MunitParameter p[], void *data)
+{
+	(void)p; (void)data;
+	struct json_object *sku = parse(
+		"{\"id\":\"SKU-1\",\"entitlements\":["
+		"{\"id\":\"UP9000-CUSA00001_00-DLC0000000000001\",\"packageType\":\"PS4DL\"},"
+		"{\"id\":\"UP9000-CUSA12345_00-FULLGAME00000001\",\"packageType\":\"PS4GD\"}"
+		"]}");
+	char out[128] = "unchanged";
+	munit_assert_false(km_pick_streaming_gs_id(sku, false, NULL, out, sizeof(out), NULL));
+	munit_assert_string_equal(out, "unchanged");
+	json_object_put(sku);
+
+	struct json_object *empty = parse("{\"id\":\"SKU-2\"}");
+	munit_assert_false(km_pick_streaming_gs_id(empty, false, NULL, out, sizeof(out), NULL));
+	munit_assert_string_equal(out, "unchanged");
+	json_object_put(empty);
+	return MUNIT_OK;
+}
+
+static MunitResult test_regional_store_routing(const MunitParameter p[], void *data)
+{
+	(void)p; (void)data;
+	char country[8], lang[8];
+
+	// Foreign catalog, modern PS4 title: resolve in the account storefront. God
+	// of War's HU/en product exists while the same product 404s in the GB store.
+	km_resolve_store_locale("EP9000-CUSA07410_00-0000000GODOFWARN", true,
+		"HU", "en", country, sizeof(country), lang, sizeof(lang));
+	munit_assert_string_equal(country, "HU");
+	munit_assert_string_equal(lang, "en");
+
+	// Foreign catalog, legacy Classics: the fallback walk sourced these ids from
+	// the US/GB Apollo family, so the resolve goes there (English store paths).
+	km_resolve_store_locale("EP9000-NPEA00255_00-GGODOFWARH000001", true,
+		"HU", "hu", country, sizeof(country), lang, sizeof(lang));
+	munit_assert_string_equal(country, "GB");
+	munit_assert_string_equal(lang, "en");
+	km_resolve_store_locale("UP9000-NPUA80490_00-LEGACYCLASSIC00", true,
+		"BR", "pt", country, sizeof(country), lang, sizeof(lang));
+	munit_assert_string_equal(country, "US");
+	munit_assert_string_equal(lang, "en");
+
+	// Native catalogs pass the server-authoritative store through verbatim for
+	// BOTH id families: a JP classic does not exist in the GB store, and the
+	// native NL store 404s on NL/en (server store language is authoritative).
+	km_resolve_store_locale("EP9000-NPEA00255_00-GGODOFWARH000001", false,
+		"NL", "nl", country, sizeof(country), lang, sizeof(lang));
+	munit_assert_string_equal(country, "NL");
+	munit_assert_string_equal(lang, "nl");
+	km_resolve_store_locale("EP9000-CUSA07410_00-0000000GODOFWARN", false,
+		"NL", "nl", country, sizeof(country), lang, sizeof(lang));
+	munit_assert_string_equal(country, "NL");
+	munit_assert_string_equal(lang, "nl");
+
+	// A foreign Classics catalog skips checkout only for legacy ids. Modern PS4
+	// reservations still need their free entitlement acquired before Gaikai auth.
+	munit_assert_false(km_should_skip_acquire(
+		"EP0001-CUSA00605_00-AC5GAMEPS4000001", true));
+	munit_assert_true(km_should_skip_acquire(
+		"EP9000-NPEA00255_00-GGODOFWARH000001", true));
+	munit_assert_false(km_should_skip_acquire(
+		"EP9000-NPEA00255_00-GGODOFWARH000001", false));
+
+	// Legacy-vs-modern is decided by the title-id segment ONLY: a legacy id whose
+	// free-form label tail happens to contain "CUSA" must stay legacy (the tail is
+	// region-varying text; see the structural-matching rule in CLAUDE.md).
+	munit_assert_true(km_should_skip_acquire(
+		"EP9000-NPEA00255_00-GCUSALABELED0001", true));
+	return MUNIT_OK;
+}
+
 static bool always_cancelled(void *user)
 {
 	(void)user;
@@ -111,6 +234,10 @@ MunitTest tests_cloudsession_kamaji[] = {
 	{ "/gd_fallback_picks_gd", test_gd_fallback_picks_gd, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/gd_fallback_title_match", test_gd_fallback_title_match, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/gd_fallback_none", test_gd_fallback_none, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
+	{ "/gs_fallback_bloodborne_gb", test_gs_fallback_bloodborne_gb, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
+	{ "/gs_fallback_title_match", test_gs_fallback_title_match, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
+	{ "/gs_fallback_none", test_gs_fallback_none, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
+	{ "/regional_store_routing", test_regional_store_routing, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ "/cancelled_before_start", test_cancelled_before_start, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{ NULL, NULL, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL }
 };
