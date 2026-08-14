@@ -1079,11 +1079,14 @@ static ChiakiErrorCode ctrl_connect(ChiakiCtrl *ctrl)
 			CHIAKI_LOGE(session->log, "CTRL - Failed to init rudp");
 			goto error;
 		}
-		// data_size is peer-controlled. Subtracting the 8 byte header before validating it
-		// underflows size_t on a short message, which turns the VLA below into a stack
-		// allocation of ~2^64 bytes — the stack pointer lands outside any mapped region and
-		// the thread crashes at an unmapped PC rather than at a readable fault address.
-		if(!message.data || message.data_size < 8 || message.data_size > sizeof(ctrl->rudp_recv_buf))
+		// Defense-in-depth around the VLA below. chiaki_rudp_send_recv already guarantees
+		// data_size >= min_data_size (8) on success and its parse clamps data_size to the
+		// 1500-byte recv buffer, so on the success path `data_size - 8` cannot underflow
+		// size_t (which would turn the VLA into a ~2^64 byte stack allocation) and cannot
+		// exceed ~1492. This check makes ctrl_connect's stack safety self-contained instead
+		// of an unstated dependency on the rudp layer's internals; the 1500 cap matches the
+		// rudp recv buffer, so it can never reject a message that layer can produce.
+		if(!message.data || message.data_size < 8 || message.data_size > 1500)
 		{
 			CHIAKI_LOGE(session->log, "CTRL - rudp init response has invalid size %zu", (size_t)message.data_size);
 			chiaki_rudp_message_pointers_free(&message);
