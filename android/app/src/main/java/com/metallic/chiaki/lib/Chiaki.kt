@@ -729,6 +729,10 @@ class Session(connectInfo: ConnectInfo, logFile: String?, logVerbose: Boolean)
 
 	fun setSurface(surface: Surface?)
 	{
+		// Same guard as dispose(): a surface callback arriving after disposal must not hand
+		// a stale/zero pointer to native code.
+		if(nativePtr == 0L)
+			return
 		ChiakiNative.sessionSetSurface(nativePtr, surface)
 	}
 

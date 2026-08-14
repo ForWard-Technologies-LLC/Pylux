@@ -205,6 +205,10 @@ QmlBackend::QmlBackend(Settings *settings, QmlMainWindow *window, SteamworksWrap
         
         // Connect frame presentation (critical for video display!)
         connect(session, &StreamSession::FfmpegFrameAvailable, frame_thread->parent(), [this, window]() {
+            // Queued delivery: a metacall already posted to the frame thread survives
+            // disconnect() of a replaced session, and `session` is nulled during replacement.
+            if (!session)
+                return;
             ChiakiFfmpegDecoder *decoder = session->GetFfmpegDecoder();
             if (!decoder) {
                 qCCritical(chiakiGui) << "Session has no FFmpeg decoder";
@@ -1194,6 +1198,10 @@ void QmlBackend::createSession(const StreamSessionConnectInfo &connect_info)
 #endif
 
     connect(session, &StreamSession::FfmpegFrameAvailable, frame_thread->parent(), [this]() {
+        // Queued delivery: a metacall already posted to the frame thread survives
+        // disconnect() of a replaced session, and `session` is nulled during teardown.
+        if (!session)
+            return;
         ChiakiFfmpegDecoder *decoder = session->GetFfmpegDecoder();
         if (!decoder) {
             qCCritical(chiakiGui) << "Session has no FFmpeg decoder";

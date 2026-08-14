@@ -855,6 +855,10 @@ JNIEXPORT jint JNICALL JNI_FCN(sessionJoin)(JNIEnv *env, jobject obj, jlong ptr)
 JNIEXPORT void JNICALL JNI_FCN(sessionSetSurface)(JNIEnv *env, jobject obj, jlong ptr, jobject surface)
 {
 	AndroidChiakiSession *session = (AndroidChiakiSession *)ptr;
+	// Same guard as sessionFree: a surface callback racing session disposal must not walk
+	// into a freed session / destroyed decoder mutex.
+	if(!session)
+		return;
 	android_chiaki_video_decoder_set_surface(&session->video_decoder, env, surface);
 }
 
