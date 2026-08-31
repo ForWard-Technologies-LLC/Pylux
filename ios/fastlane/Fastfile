@@ -28,6 +28,7 @@ def pylux_upload_ipa!
   reviewer_notes = "Minor bug fix post release. No new features."
 
   if beta_external
+    # release/beta → TestFlight external beta distribution
     UI.message("TestFlight: external beta (wait for processing, External group)")
     upload_to_testflight(
       api_key: api_key,
@@ -44,6 +45,7 @@ def pylux_upload_ipa!
       }
     )
   elsif submit
+    # master → App Store production submission
     UI.message("Submitting to App Store for review")
     upload_to_app_store(
       api_key: api_key,
@@ -61,6 +63,7 @@ def pylux_upload_ipa!
       }
     )
   else
+    # upload only, no submission (e.g. workflow_dispatch dry run)
     UI.message("Uploading to App Store Connect only (no submission)")
     upload_to_testflight(
       api_key: api_key,
