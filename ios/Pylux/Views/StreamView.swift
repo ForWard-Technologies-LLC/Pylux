@@ -23,12 +23,6 @@ private func chiakiQuitReasonDescription(_ reason: Int32) -> String {
     }
 }
 
-enum DisplayMode: String, CaseIterable {
-    case fit = "Fit"
-    case zoom = "Zoom"
-    case stretch = "Stretch"
-}
-
 struct StreamView: View {
     let connectInfo: StreamConnectInfo
     @Environment(\.dismiss) private var dismiss

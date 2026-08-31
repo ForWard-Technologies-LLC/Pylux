@@ -1,0 +1,93 @@
+# Build tvOS (unsigned compile check)
+#
+# PR-triggered verification: chiaki-lib for PLATFORM=TVOS + xcodebuild of PyluxTV
+# without signing secrets. Deploy/TestFlight is deploy-tvos.yml (workflow_dispatch).
+
+name: Build tvOS
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-tvos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-tvos:
+    name: Build PyluxTV (unsigned)
+    runs-on: macos-26
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Extract version
+        id: extract_version
+        uses: ./.github/actions/extract-version
+
+      - name: Install build dependencies
+        run: |
+          retry() {
+            local attempts="$1"
+            shift
+            local n=1
+            until "$@"; do
+              if [ "$n" -ge "$attempts" ]; then
+                echo "Command failed after $n attempts: $*"
+                return 1
+              fi
+              local sleep_s=$((n * 15))
+              echo "Attempt $n failed; retrying in ${sleep_s}s: $*"
+              sleep "$sleep_s"
+              n=$((n + 1))
+            done
+          }
+          retry 4 brew install cmake ninja protobuf@29 python-setuptools
+          pip3 install --user --break-system-packages 'protobuf>=5,<6'
+          echo "$(brew --prefix)/opt/protobuf@29/bin" >> "$GITHUB_PATH"
+
+      - name: Download iOS/tvOS toolchain
+        working-directory: tvos
+        run: |
+          if [ ! -f ios.toolchain.cmake ]; then
+            curl -sL -o ios.toolchain.cmake \
+              https://raw.githubusercontent.com/leetal/ios-cmake/master/ios.toolchain.cmake
+          fi
+
+      - name: Build chiaki-lib (Apple TV device)
+        working-directory: tvos
+        run: |
+          cmake -S . -B build-appletvos -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE=ios.toolchain.cmake \
+            -DPLATFORM=TVOS \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DUSE_LIBIDN2=OFF \
+            -DCURL_USE_LIBPSL=OFF \
+            -DUSE_NGHTTP2=OFF \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+          cmake --build build-appletvos --config Release --target chiaki-lib
+
+      - name: Create combined static library
+        working-directory: tvos
+        run: |
+          find build-appletvos -name "*.a" -print0 | \
+            xargs -0 libtool -static -o build-appletvos/libchiaki_complete.a
+
+      - name: Compile PyluxTV (unsigned)
+        working-directory: tvos
+        run: |
+          xcodebuild -project PyluxTV.xcodeproj \
+            -scheme PyluxTV \
+            -sdk appletvos \
+            -configuration Release \
+            -destination 'generic/platform=tvOS' \
+            -derivedDataPath build-derived \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            MARKETING_VERSION="${{ steps.extract_version.outputs.version }}" \
+            CURRENT_PROJECT_VERSION="${{ steps.extract_version.outputs.semver_build_id }}" \
+            build

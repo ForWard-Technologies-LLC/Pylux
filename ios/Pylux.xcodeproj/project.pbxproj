@@ -25,6 +25,7 @@
 		A10001C0 /* CloudCatalogBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = A10001C2 /* CloudCatalogBridge.m */; };
 		A10001D0 /* CloudProvisionBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = A10001D2 /* CloudProvisionBridge.m */; };
 		A1000112 /* HostModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000104 /* HostModels.swift */; };
+		A1000211 /* StreamPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000210 /* StreamPreferences.swift */; };
 		A1000113 /* HostCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000105 /* HostCardView.swift */; };
 		A1000114 /* RemotePlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000106 /* RemotePlayView.swift */; };
 		A1000115 /* RegistrationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000107 /* RegistrationView.swift */; };
@@ -94,6 +95,7 @@
 		A10001D1 /* CloudProvisionBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CloudProvisionBridge.h; sourceTree = "<group>"; };
 		A10001D2 /* CloudProvisionBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = CloudProvisionBridge.m; sourceTree = "<group>"; };
 		A1000104 /* HostModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostModels.swift; sourceTree = "<group>"; };
+		A1000210 /* StreamPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamPreferences.swift; sourceTree = "<group>"; };
 		A1000105 /* HostCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostCardView.swift; sourceTree = "<group>"; };
 		A1000106 /* RemotePlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemotePlayView.swift; sourceTree = "<group>"; };
 		A1000107 /* RegistrationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegistrationView.swift; sourceTree = "<group>"; };
@@ -227,6 +229,7 @@
 			children = (
 				A3000001 /* CloudModels.swift */,
 				A1000104 /* HostModels.swift */,
+				A1000210 /* StreamPreferences.swift */,
 				A1000026 /* StreamState.swift */,
 			);
 			path = Models;
@@ -391,6 +394,7 @@
 				A10001C0 /* CloudCatalogBridge.m in Sources */,
 				A10001D0 /* CloudProvisionBridge.m in Sources */,
 				A1000112 /* HostModels.swift in Sources */,
+				A1000211 /* StreamPreferences.swift in Sources */,
 				A1000113 /* HostCardView.swift in Sources */,
 				A1000114 /* RemotePlayView.swift in Sources */,
 				A1000115 /* RegistrationView.swift in Sources */,

@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: LicenseRef-AGPL-3.0-only-OpenSSL
 // Merges physical `GameController` input with on-screen touch controls into `ChiakiControllerState` (Android `StreamInput`).
 
+#if !os(tvOS)
 import CoreMotion
+#endif
 import Foundation
 import GameController
 
@@ -34,7 +36,9 @@ class StreamInput {
     private var motionSource: MotionSource
     private var orientationTracker = ChiakiOrientationTracker()
     private var accelZero = ChiakiAccelNewZero()
+    #if !os(tvOS)
     private let deviceMotion = CMMotionManager()
+    #endif
     private var prefsObserver: NSObjectProtocol?
 
     /// The currently attached physical controller (if any). Used by `StreamRumbleFeedback` to route haptics.
@@ -84,7 +88,9 @@ class StreamInput {
         if let obs = prefsObserver {
             NotificationCenter.default.removeObserver(obs)
         }
+        #if !os(tvOS)
         deviceMotion.stopDeviceMotionUpdates()
+        #endif
         // Power down the controller's sensors too (they were manually activated);
         // leaving them on drains a Bluetooth DualSense after the stream ends.
         if let motion = (attachedController ?? GCController.controllers().first)?.motion {
@@ -137,9 +143,11 @@ class StreamInput {
         // physical controller. Claim these buttons for the stream: SHARE/OPTIONS
         // must reach the console, and Home is the PS button.
         if let pad = controller.extendedGamepad {
+            #if !os(tvOS)
             for button in [pad.buttonOptions, pad.buttonMenu, pad.buttonHome].compactMap({ $0 }) {
                 button.preferredSystemGestureState = .disabled
             }
+            #endif
         }
         controller.extendedGamepad?.valueChangedHandler = { [weak self] _, _ in
             self?.mergeGamepadWithTouchAndNotify()
@@ -172,11 +180,15 @@ class StreamInput {
 
     /// True when the current MotionSource resolves to this device's sensors.
     private var usesPhoneMotion: Bool {
+        #if os(tvOS)
+        return false
+        #else
         switch motionSource {
         case .phone: return true
         case .auto: return currentController?.motion == nil
         case .controller, .off: return false
         }
+        #endif
     }
 
     /// Start/stop the controller's and the phone's motion sensors to match the
@@ -200,6 +212,7 @@ class StreamInput {
             }
         }
 
+        #if !os(tvOS)
         // Phone sensors via CoreMotion, at the controller-sensor-comparable 60Hz.
         if usesPhoneMotion {
             if !deviceMotion.isDeviceMotionActive && deviceMotion.isDeviceMotionAvailable {
@@ -212,6 +225,7 @@ class StreamInput {
         } else if deviceMotion.isDeviceMotionActive {
             deviceMotion.stopDeviceMotionUpdates()
         }
+        #endif
     }
 
     // MARK: - Merge + notify
@@ -354,7 +368,9 @@ class StreamInput {
                 accel: (Float(aX), Float(aZ), Float(-aY))
             )
             chiaki_orientation_tracker_apply_to_controller_state(&orientationTracker, &state)
-        } else if usesPhoneMotion, let motion = deviceMotion.deviceMotion {
+        } else {
+            #if !os(tvOS)
+            if usesPhoneMotion, let motion = deviceMotion.deviceMotion {
             // This device's sensors (CoreMotion), Android-parity mapping for a phone
             // held landscape: PS(x,y,z) = device(y, z, x). CoreMotion's portrait device
             // frame is X right / Y toward earpiece / Z out of the screen, and its
@@ -369,6 +385,8 @@ class StreamInput {
                 accel: (Float(aY), Float(aZ), Float(aX))
             )
             chiaki_orientation_tracker_apply_to_controller_state(&orientationTracker, &state)
+            }
+            #endif
         }
     }
 

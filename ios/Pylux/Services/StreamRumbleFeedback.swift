@@ -7,7 +7,9 @@
 //
 // No-haptics devices: `supportsHaptics == false` uses `kSystemSoundID_Vibrate` (no-op on many iPads; harmless).
 
+#if !os(tvOS)
 import AudioToolbox
+#endif
 import CoreHaptics
 import Foundation
 import GameController
@@ -53,6 +55,9 @@ final class StreamRumbleFeedback {
         }
 
         controllerWithEngine = nil
+        #if os(tvOS)
+        return
+        #else
         guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else { return }
         do {
             let eng = try CHHapticEngine()
@@ -65,6 +70,7 @@ final class StreamRumbleFeedback {
             os_log(.error, log: rumbleLog, "CHHapticEngine start failed: %{public}@", String(describing: error))
             engine = nil
         }
+        #endif
     }
 
     private func handleEngineReset() {
@@ -144,6 +150,10 @@ final class StreamRumbleFeedback {
     }
 
     private func legacyVibrate() {
+        #if os(tvOS)
+        return
+        #else
         AudioServicesPlaySystemSound(SystemSoundID(kSystemSoundID_Vibrate))
+        #endif
     }
 }

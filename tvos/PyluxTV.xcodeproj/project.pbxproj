@@ -1,0 +1,533 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		B0000000000000000000001D /* ChiakiBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001C /* ChiakiBridge.m */; };
+		B0000000000000000000001F /* ChiakiSessionBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000001E /* ChiakiSessionBridge.m */; };
+		B00000000000000000000021 /* SessionEventReceiver.m in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000020 /* SessionEventReceiver.m */; };
+		B00000000000000000000023 /* VideoDecoder.m in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000022 /* VideoDecoder.m */; };
+		B00000000000000000000025 /* DiscoveryBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000024 /* DiscoveryBridge.m */; };
+		B00000000000000000000027 /* RegistBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000026 /* RegistBridge.m */; };
+		B00000000000000000000029 /* HolepunchBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000028 /* HolepunchBridge.m */; };
+		B0000000000000000000002B /* CloudCatalogBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000002A /* CloudCatalogBridge.m */; };
+		B0000000000000000000002D /* CloudProvisionBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000002C /* CloudProvisionBridge.m */; };
+		B0000000000000000000002F /* ChiakiAudioOutputIOS.m in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000002E /* ChiakiAudioOutputIOS.m */; };
+		B00000000000000000000031 /* PyluxChiakiLog.m in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000030 /* PyluxChiakiLog.m */; };
+		B0000000000000000000003E /* StreamSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000003D /* StreamSession.swift */; };
+		B00000000000000000000040 /* StreamInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000003F /* StreamInput.swift */; };
+		B00000000000000000000042 /* SecureStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000041 /* SecureStore.swift */; };
+		B00000000000000000000044 /* PsnTokenManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000043 /* PsnTokenManager.swift */; };
+		B00000000000000000000046 /* PyluxLoginService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000045 /* PyluxLoginService.swift */; };
+		B00000000000000000000048 /* StreamRumbleFeedback.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000047 /* StreamRumbleFeedback.swift */; };
+		B0000000000000000000004A /* StreamTriggerFeedback.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000049 /* StreamTriggerFeedback.swift */; };
+		B0000000000000000000004C /* HostModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000004B /* HostModels.swift */; };
+		B0000000000000000000004E /* StreamState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000004D /* StreamState.swift */; };
+		B00000000000000000000050 /* StreamPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000004F /* StreamPreferences.swift */; };
+		B00000000000000000000052 /* StreamVideoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000051 /* StreamVideoView.swift */; };
+		B00000000000000000000054 /* LicenseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000053 /* LicenseView.swift */; };
+		B00000000000000000000056 /* PyluxTVApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000055 /* PyluxTVApp.swift */; };
+		B00000000000000000000058 /* TVHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000057 /* TVHomeView.swift */; };
+		B0000000000000000000005A /* TVLoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000059 /* TVLoginView.swift */; };
+		B0000000000000000000005C /* TVRegistrationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000005B /* TVRegistrationView.swift */; };
+		B0000000000000000000005E /* TVDigitPad.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000005D /* TVDigitPad.swift */; };
+		B00000000000000000000060 /* TVStreamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0000000000000000000005F /* TVStreamView.swift */; };
+		B00000000000000000000062 /* TVSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000061 /* TVSettingsView.swift */; };
+		B00000000000000000000064 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000063 /* Assets.xcassets */; };
+		B00000000000000000000066 /* agpl_license.txt in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000065 /* agpl_license.txt */; };
+		B00000000000000000000068 /* disclaimer.txt in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000067 /* disclaimer.txt */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		B0000000000000000000001C /* ChiakiBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = ChiakiBridge.m; path = ../ios/Pylux/Bridge/ChiakiBridge.m; sourceTree = SOURCE_ROOT; };
+		B0000000000000000000001E /* ChiakiSessionBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = ChiakiSessionBridge.m; path = ../ios/Pylux/Bridge/ChiakiSessionBridge.m; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000020 /* SessionEventReceiver.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = SessionEventReceiver.m; path = ../ios/Pylux/Bridge/SessionEventReceiver.m; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000022 /* VideoDecoder.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = VideoDecoder.m; path = ../ios/Pylux/Bridge/VideoDecoder.m; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000024 /* DiscoveryBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = DiscoveryBridge.m; path = ../ios/Pylux/Bridge/DiscoveryBridge.m; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000026 /* RegistBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = RegistBridge.m; path = ../ios/Pylux/Bridge/RegistBridge.m; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000028 /* HolepunchBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = HolepunchBridge.m; path = ../ios/Pylux/Bridge/HolepunchBridge.m; sourceTree = SOURCE_ROOT; };
+		B0000000000000000000002A /* CloudCatalogBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CloudCatalogBridge.m; path = ../ios/Pylux/Bridge/CloudCatalogBridge.m; sourceTree = SOURCE_ROOT; };
+		B0000000000000000000002C /* CloudProvisionBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CloudProvisionBridge.m; path = ../ios/Pylux/Bridge/CloudProvisionBridge.m; sourceTree = SOURCE_ROOT; };
+		B0000000000000000000002E /* ChiakiAudioOutputIOS.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = ChiakiAudioOutputIOS.m; path = ../ios/Pylux/Bridge/ChiakiAudioOutputIOS.m; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000030 /* PyluxChiakiLog.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = PyluxChiakiLog.m; path = ../ios/Pylux/Bridge/PyluxChiakiLog.m; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000032 /* ChiakiBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = ChiakiBridge.h; path = ../ios/Pylux/Bridge/ChiakiBridge.h; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000033 /* ChiakiSessionBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = ChiakiSessionBridge.h; path = ../ios/Pylux/Bridge/ChiakiSessionBridge.h; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000034 /* SessionEventReceiver.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = SessionEventReceiver.h; path = ../ios/Pylux/Bridge/SessionEventReceiver.h; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000035 /* VideoDecoder.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = VideoDecoder.h; path = ../ios/Pylux/Bridge/VideoDecoder.h; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000036 /* DiscoveryBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = DiscoveryBridge.h; path = ../ios/Pylux/Bridge/DiscoveryBridge.h; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000037 /* RegistBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = RegistBridge.h; path = ../ios/Pylux/Bridge/RegistBridge.h; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000038 /* HolepunchBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = HolepunchBridge.h; path = ../ios/Pylux/Bridge/HolepunchBridge.h; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000039 /* CloudCatalogBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = CloudCatalogBridge.h; path = ../ios/Pylux/Bridge/CloudCatalogBridge.h; sourceTree = SOURCE_ROOT; };
+		B0000000000000000000003A /* CloudProvisionBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = CloudProvisionBridge.h; path = ../ios/Pylux/Bridge/CloudProvisionBridge.h; sourceTree = SOURCE_ROOT; };
+		B0000000000000000000003B /* ChiakiAudioOutputIOS.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = ChiakiAudioOutputIOS.h; path = ../ios/Pylux/Bridge/ChiakiAudioOutputIOS.h; sourceTree = SOURCE_ROOT; };
+		B0000000000000000000003C /* PyluxChiakiLog.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = PyluxChiakiLog.h; path = ../ios/Pylux/Bridge/PyluxChiakiLog.h; sourceTree = SOURCE_ROOT; };
+		B0000000000000000000003D /* StreamSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = StreamSession.swift; path = ../ios/Pylux/Services/StreamSession.swift; sourceTree = SOURCE_ROOT; };
+		B0000000000000000000003F /* StreamInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = StreamInput.swift; path = ../ios/Pylux/Services/StreamInput.swift; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000041 /* SecureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SecureStore.swift; path = ../ios/Pylux/Services/SecureStore.swift; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000043 /* PsnTokenManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PsnTokenManager.swift; path = ../ios/Pylux/Services/PsnTokenManager.swift; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000045 /* PyluxLoginService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PyluxLoginService.swift; path = ../ios/Pylux/Services/PyluxLoginService.swift; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000047 /* StreamRumbleFeedback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = StreamRumbleFeedback.swift; path = ../ios/Pylux/Services/StreamRumbleFeedback.swift; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000049 /* StreamTriggerFeedback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = StreamTriggerFeedback.swift; path = ../ios/Pylux/Services/StreamTriggerFeedback.swift; sourceTree = SOURCE_ROOT; };
+		B0000000000000000000004B /* HostModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = HostModels.swift; path = ../ios/Pylux/Models/HostModels.swift; sourceTree = SOURCE_ROOT; };
+		B0000000000000000000004D /* StreamState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = StreamState.swift; path = ../ios/Pylux/Models/StreamState.swift; sourceTree = SOURCE_ROOT; };
+		B0000000000000000000004F /* StreamPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = StreamPreferences.swift; path = ../ios/Pylux/Models/StreamPreferences.swift; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000051 /* StreamVideoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = StreamVideoView.swift; path = ../ios/Pylux/Views/StreamVideoView.swift; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000053 /* LicenseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LicenseView.swift; path = ../ios/Pylux/Views/LicenseView.swift; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000055 /* PyluxTVApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PyluxTVApp.swift; path = PyluxTV/App/PyluxTVApp.swift; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000057 /* TVHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = TVHomeView.swift; path = PyluxTV/Views/TVHomeView.swift; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000059 /* TVLoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = TVLoginView.swift; path = PyluxTV/Views/TVLoginView.swift; sourceTree = SOURCE_ROOT; };
+		B0000000000000000000005B /* TVRegistrationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = TVRegistrationView.swift; path = PyluxTV/Views/TVRegistrationView.swift; sourceTree = SOURCE_ROOT; };
+		B0000000000000000000005D /* TVDigitPad.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = TVDigitPad.swift; path = PyluxTV/Views/TVDigitPad.swift; sourceTree = SOURCE_ROOT; };
+		B0000000000000000000005F /* TVStreamView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = TVStreamView.swift; path = PyluxTV/Views/TVStreamView.swift; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000061 /* TVSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = TVSettingsView.swift; path = PyluxTV/Views/TVSettingsView.swift; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000063 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Assets.xcassets; path = PyluxTV/Assets.xcassets; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000065 /* agpl_license.txt */ = {isa = PBXFileReference; lastKnownFileType = text; name = agpl_license.txt; path = ../gui/res/license/agpl_license.txt; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000067 /* disclaimer.txt */ = {isa = PBXFileReference; lastKnownFileType = text; name = disclaimer.txt; path = ../gui/res/license/disclaimer.txt; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000069 /* PyluxTV.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; name = PyluxTV.entitlements; path = PyluxTV/PyluxTV.entitlements; sourceTree = SOURCE_ROOT; };
+		B0000000000000000000006A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = Info.plist; path = PyluxTV/Info.plist; sourceTree = SOURCE_ROOT; };
+		B00000000000000000000001 /* PyluxTV.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PyluxTV.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		B00000000000000000000006 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		B00000000000000000000007 = {
+			isa = PBXGroup;
+			children = (
+				B00000000000000000000009 /* PyluxTV */,
+				B0000000000000000000000C /* SharediOS */,
+				B00000000000000000000008 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		B00000000000000000000008 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				B00000000000000000000001 /* PyluxTV.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		B00000000000000000000009 /* PyluxTV */ = {
+			isa = PBXGroup;
+			children = (
+				B0000000000000000000000A /* App */,
+				B0000000000000000000000B /* Views */,
+				B00000000000000000000063 /* Assets.xcassets */,
+				B0000000000000000000006A /* Info.plist */,
+				B00000000000000000000069 /* PyluxTV.entitlements */,
+			);
+			name = PyluxTV;
+			sourceTree = "<group>";
+		};
+		B0000000000000000000000A /* App */ = {
+			isa = PBXGroup;
+			children = (
+				B00000000000000000000055 /* PyluxTVApp.swift */,
+			);
+			name = App;
+			sourceTree = "<group>";
+		};
+		B0000000000000000000000B /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				B00000000000000000000057 /* TVHomeView.swift */,
+				B00000000000000000000059 /* TVLoginView.swift */,
+				B0000000000000000000005B /* TVRegistrationView.swift */,
+				B0000000000000000000005D /* TVDigitPad.swift */,
+				B0000000000000000000005F /* TVStreamView.swift */,
+				B00000000000000000000061 /* TVSettingsView.swift */,
+			);
+			name = Views;
+			sourceTree = "<group>";
+		};
+		B0000000000000000000000C /* SharediOS */ = {
+			isa = PBXGroup;
+			children = (
+				B0000000000000000000000D /* Bridge */,
+				B0000000000000000000003D /* StreamSession.swift */,
+				B0000000000000000000003F /* StreamInput.swift */,
+				B00000000000000000000041 /* SecureStore.swift */,
+				B00000000000000000000043 /* PsnTokenManager.swift */,
+				B00000000000000000000045 /* PyluxLoginService.swift */,
+				B00000000000000000000047 /* StreamRumbleFeedback.swift */,
+				B00000000000000000000049 /* StreamTriggerFeedback.swift */,
+				B0000000000000000000004B /* HostModels.swift */,
+				B0000000000000000000004D /* StreamState.swift */,
+				B0000000000000000000004F /* StreamPreferences.swift */,
+				B00000000000000000000051 /* StreamVideoView.swift */,
+				B00000000000000000000053 /* LicenseView.swift */,
+				B00000000000000000000065 /* agpl_license.txt */,
+				B00000000000000000000067 /* disclaimer.txt */,
+			);
+			name = SharediOS;
+			sourceTree = "<group>";
+		};
+		B0000000000000000000000D /* Bridge */ = {
+			isa = PBXGroup;
+			children = (
+				B0000000000000000000001C /* ChiakiBridge.m */,
+				B0000000000000000000001E /* ChiakiSessionBridge.m */,
+				B00000000000000000000020 /* SessionEventReceiver.m */,
+				B00000000000000000000022 /* VideoDecoder.m */,
+				B00000000000000000000024 /* DiscoveryBridge.m */,
+				B00000000000000000000026 /* RegistBridge.m */,
+				B00000000000000000000028 /* HolepunchBridge.m */,
+				B0000000000000000000002A /* CloudCatalogBridge.m */,
+				B0000000000000000000002C /* CloudProvisionBridge.m */,
+				B0000000000000000000002E /* ChiakiAudioOutputIOS.m */,
+				B00000000000000000000030 /* PyluxChiakiLog.m */,
+				B00000000000000000000032 /* ChiakiBridge.h */,
+				B00000000000000000000033 /* ChiakiSessionBridge.h */,
+				B00000000000000000000034 /* SessionEventReceiver.h */,
+				B00000000000000000000035 /* VideoDecoder.h */,
+				B00000000000000000000036 /* DiscoveryBridge.h */,
+				B00000000000000000000037 /* RegistBridge.h */,
+				B00000000000000000000038 /* HolepunchBridge.h */,
+				B00000000000000000000039 /* CloudCatalogBridge.h */,
+				B0000000000000000000003A /* CloudProvisionBridge.h */,
+				B0000000000000000000003B /* ChiakiAudioOutputIOS.h */,
+				B0000000000000000000003C /* PyluxChiakiLog.h */,
+			);
+			name = Bridge;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		B00000000000000000000002 /* PyluxTV */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B00000000000000000000013 /* Build configuration list for PBXNativeTarget "PyluxTV" */;
+			buildPhases = (
+				B00000000000000000000004 /* Sources */,
+				B00000000000000000000006 /* Frameworks */,
+				B00000000000000000000005 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = PyluxTV;
+			productName = PyluxTV;
+			productReference = B00000000000000000000001 /* PyluxTV.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		B00000000000000000000003 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1500;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					B00000000000000000000002 = {
+						CreatedOnToolsVersion = 15.0;
+					};
+				};
+			};
+			buildConfigurationList = B00000000000000000000012 /* Build configuration list for PBXProject "PyluxTV" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = B00000000000000000000007;
+			productRefGroup = B00000000000000000000008 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				B00000000000000000000002 /* PyluxTV */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		B00000000000000000000005 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B00000000000000000000064 /* Assets.xcassets in Resources */,
+				B00000000000000000000066 /* agpl_license.txt in Resources */,
+				B00000000000000000000068 /* disclaimer.txt in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		B00000000000000000000004 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B0000000000000000000001D /* ChiakiBridge.m in Sources */,
+				B0000000000000000000001F /* ChiakiSessionBridge.m in Sources */,
+				B00000000000000000000021 /* SessionEventReceiver.m in Sources */,
+				B00000000000000000000023 /* VideoDecoder.m in Sources */,
+				B00000000000000000000025 /* DiscoveryBridge.m in Sources */,
+				B00000000000000000000027 /* RegistBridge.m in Sources */,
+				B00000000000000000000029 /* HolepunchBridge.m in Sources */,
+				B0000000000000000000002B /* CloudCatalogBridge.m in Sources */,
+				B0000000000000000000002D /* CloudProvisionBridge.m in Sources */,
+				B0000000000000000000002F /* ChiakiAudioOutputIOS.m in Sources */,
+				B00000000000000000000031 /* PyluxChiakiLog.m in Sources */,
+				B0000000000000000000003E /* StreamSession.swift in Sources */,
+				B00000000000000000000040 /* StreamInput.swift in Sources */,
+				B00000000000000000000042 /* SecureStore.swift in Sources */,
+				B00000000000000000000044 /* PsnTokenManager.swift in Sources */,
+				B00000000000000000000046 /* PyluxLoginService.swift in Sources */,
+				B00000000000000000000048 /* StreamRumbleFeedback.swift in Sources */,
+				B0000000000000000000004A /* StreamTriggerFeedback.swift in Sources */,
+				B0000000000000000000004C /* HostModels.swift in Sources */,
+				B0000000000000000000004E /* StreamState.swift in Sources */,
+				B00000000000000000000050 /* StreamPreferences.swift in Sources */,
+				B00000000000000000000052 /* StreamVideoView.swift in Sources */,
+				B00000000000000000000054 /* LicenseView.swift in Sources */,
+				B00000000000000000000056 /* PyluxTVApp.swift in Sources */,
+				B00000000000000000000058 /* TVHomeView.swift in Sources */,
+				B0000000000000000000005A /* TVLoginView.swift in Sources */,
+				B0000000000000000000005C /* TVRegistrationView.swift in Sources */,
+				B0000000000000000000005E /* TVDigitPad.swift in Sources */,
+				B00000000000000000000060 /* TVStreamView.swift in Sources */,
+				B00000000000000000000062 /* TVSettingsView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		B0000000000000000000000E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_NO_COMMON_BLOCKS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SDKROOT = appletvos;
+				TVOS_DEPLOYMENT_TARGET = 17.0;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+			};
+			name = Debug;
+		};
+		B0000000000000000000000F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_NO_COMMON_BLOCKS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SDKROOT = appletvos;
+				TVOS_DEPLOYMENT_TARGET = 17.0;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		B00000000000000000000010 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "App Icon";
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = PyluxTV/PyluxTV.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 0;
+				DEVELOPMENT_TEAM = KG7LUU8FX7;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/../lib/include",
+					"$(SRCROOT)/../ios/Pylux/Bridge",
+					"$(SRCROOT)/build-appletvsimulator/parent/lib/include",
+					"$(SRCROOT)/build-appletvos/parent/lib/include",
+				);
+				"HEADER_SEARCH_PATHS[sdk=appletvos*]" = (
+					"$(SRCROOT)/../lib/include",
+					"$(SRCROOT)/../ios/Pylux/Bridge",
+					"$(SRCROOT)/build-appletvos/parent/lib/include",
+				);
+				"HEADER_SEARCH_PATHS[sdk=appletvsimulator*]" = (
+					"$(SRCROOT)/../lib/include",
+					"$(SRCROOT)/../ios/Pylux/Bridge",
+					"$(SRCROOT)/build-appletvsimulator/parent/lib/include",
+				);
+				INFOPLIST_FILE = PyluxTV/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Pylux;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Pylux needs local network access to discover and connect to consoles on your home network.";
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/build-appletvsimulator",
+					"$(SRCROOT)/build-appletvos",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=appletvos*]" = "$(SRCROOT)/build-appletvos";
+				"LIBRARY_SEARCH_PATHS[sdk=appletvsimulator*]" = "$(SRCROOT)/build-appletvsimulator";
+				MARKETING_VERSION = 0.0.0;
+				OTHER_LDFLAGS = (
+					"-lchiaki_complete",
+					"-lz",
+					"-framework",
+					Security,
+					"-framework",
+					Foundation,
+					"-framework",
+					VideoToolbox,
+					"-framework",
+					AVFoundation,
+					"-framework",
+					AudioToolbox,
+					"-framework",
+					CoreMedia,
+					"-framework",
+					CoreVideo,
+					"-framework",
+					GameController,
+					"-framework",
+					CoreHaptics,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.pylux.stream.tv;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = appletvos;
+				SUPPORTED_PLATFORMS = "appletvos appletvsimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = ../ios/Pylux/Bridge/ChiakiBridge.h;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 3;
+				TVOS_DEPLOYMENT_TARGET = 17.0;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		B00000000000000000000011 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "App Icon";
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = PyluxTV/PyluxTV.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 0;
+				DEVELOPMENT_TEAM = KG7LUU8FX7;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/../lib/include",
+					"$(SRCROOT)/../ios/Pylux/Bridge",
+					"$(SRCROOT)/build-appletvsimulator/parent/lib/include",
+					"$(SRCROOT)/build-appletvos/parent/lib/include",
+				);
+				"HEADER_SEARCH_PATHS[sdk=appletvos*]" = (
+					"$(SRCROOT)/../lib/include",
+					"$(SRCROOT)/../ios/Pylux/Bridge",
+					"$(SRCROOT)/build-appletvos/parent/lib/include",
+				);
+				"HEADER_SEARCH_PATHS[sdk=appletvsimulator*]" = (
+					"$(SRCROOT)/../lib/include",
+					"$(SRCROOT)/../ios/Pylux/Bridge",
+					"$(SRCROOT)/build-appletvsimulator/parent/lib/include",
+				);
+				INFOPLIST_FILE = PyluxTV/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Pylux;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Pylux needs local network access to discover and connect to consoles on your home network.";
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/build-appletvsimulator",
+					"$(SRCROOT)/build-appletvos",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=appletvos*]" = "$(SRCROOT)/build-appletvos";
+				"LIBRARY_SEARCH_PATHS[sdk=appletvsimulator*]" = "$(SRCROOT)/build-appletvsimulator";
+				MARKETING_VERSION = 0.0.0;
+				OTHER_LDFLAGS = (
+					"-lchiaki_complete",
+					"-lz",
+					"-framework",
+					Security,
+					"-framework",
+					Foundation,
+					"-framework",
+					VideoToolbox,
+					"-framework",
+					AVFoundation,
+					"-framework",
+					AudioToolbox,
+					"-framework",
+					CoreMedia,
+					"-framework",
+					CoreVideo,
+					"-framework",
+					GameController,
+					"-framework",
+					CoreHaptics,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.pylux.stream.tv;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = appletvos;
+				SUPPORTED_PLATFORMS = "appletvos appletvsimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = ../ios/Pylux/Bridge/ChiakiBridge.h;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 3;
+				TVOS_DEPLOYMENT_TARGET = 17.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		B00000000000000000000013 /* Build configuration list for PBXNativeTarget "PyluxTV" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B00000000000000000000010 /* Debug */,
+				B00000000000000000000011 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B00000000000000000000012 /* Build configuration list for PBXProject "PyluxTV" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B0000000000000000000000E /* Debug */,
+				B0000000000000000000000F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = B00000000000000000000003 /* Project object */;
+}

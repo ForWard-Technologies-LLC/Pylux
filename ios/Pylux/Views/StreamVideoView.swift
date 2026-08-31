@@ -3,7 +3,14 @@
 
 import SwiftUI
 import AVFoundation
+import UIKit
 import os.log
+
+enum DisplayMode: String, CaseIterable {
+    case fit = "Fit"
+    case zoom = "Zoom"
+    case stretch = "Stretch"
+}
 
 private let videoViewLog = OSLog(subsystem: "com.pylux.stream", category: "StreamVideoView")
 
