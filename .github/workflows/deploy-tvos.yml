@@ -61,11 +61,18 @@ jobs:
 
       - name: Download iOS/tvOS toolchain
         working-directory: tvos
+        env:
+          # Pinned commit + checksum (not `master`) so a compromise of leetal/ios-cmake
+          # can't inject code into the chiaki-lib build that ends up in a signed IPA.
+          # Bump deliberately: update both the commit and the sha256 together.
+          TOOLCHAIN_COMMIT: b055a0320feccc168dca13b381ae7097c4771585
+          TOOLCHAIN_SHA256: 9fd1a972bde81738485901b5bd9ce31a020dfe3ab2488cdbe443cbc0bc094dfe
         run: |
           if [ ! -f ios.toolchain.cmake ]; then
             curl -sL -o ios.toolchain.cmake \
-              https://raw.githubusercontent.com/leetal/ios-cmake/master/ios.toolchain.cmake
+              "https://raw.githubusercontent.com/leetal/ios-cmake/${TOOLCHAIN_COMMIT}/ios.toolchain.cmake"
           fi
+          echo "${TOOLCHAIN_SHA256}  ios.toolchain.cmake" | shasum -a 256 -c -
 
       - name: Build chiaki-lib (Apple TV device)
         working-directory: tvos

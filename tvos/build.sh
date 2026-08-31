@@ -50,7 +50,11 @@ set -e
 
 MODE="${1:-dev}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TOOLCHAIN_URL="https://raw.githubusercontent.com/leetal/ios-cmake/master/ios.toolchain.cmake"
+# Pinned commit + checksum (not `master`) so a compromise of leetal/ios-cmake can't
+# inject code into the chiaki-lib build. Bump deliberately: update both together.
+TOOLCHAIN_COMMIT="b055a0320feccc168dca13b381ae7097c4771585"
+TOOLCHAIN_SHA256="9fd1a972bde81738485901b5bd9ce31a020dfe3ab2488cdbe443cbc0bc094dfe"
+TOOLCHAIN_URL="https://raw.githubusercontent.com/leetal/ios-cmake/${TOOLCHAIN_COMMIT}/ios.toolchain.cmake"
 TOOLCHAIN_FILE="$SCRIPT_DIR/ios.toolchain.cmake"
 SCHEME="PyluxTV"
 BUNDLE_ID="com.pylux.stream.tv"
@@ -176,6 +180,7 @@ if [ ! -f "$TOOLCHAIN_FILE" ]; then
     echo "Downloading ios.toolchain.cmake..."
     curl -sL -o "$TOOLCHAIN_FILE" "$TOOLCHAIN_URL"
 fi
+echo "${TOOLCHAIN_SHA256}  ${TOOLCHAIN_FILE}" | shasum -a 256 -c -
 
 if [ "$(uname -m)" = "arm64" ]; then
     SIMULATOR_PLATFORM="SIMULATORARM64_TVOS"
