@@ -53,7 +53,11 @@ private enum KC {
         ]
         let attrs: [CFString: Any] = [
             kSecValueData:      value,
+            #if os(tvOS)
+            kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+            #else
             kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlock,
+            #endif
         ]
         let updateStatus = SecItemUpdate(query as CFDictionary, attrs as CFDictionary)
         if updateStatus == errSecItemNotFound {

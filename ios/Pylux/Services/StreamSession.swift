@@ -72,7 +72,9 @@ final class StreamSession: ObservableObject {
 
     let connectInfo: StreamConnectInfo
     let input: StreamInput
+    #if !os(tvOS)
     let pipManager = PictureInPictureManager()
+    #endif
     private var sessionRef: ChiakiSessionRef?
     private var videoDecoder: PyluxVideoDecoder?
     /// Stored view so we can attach when decoder becomes available (matches Android's stored surface).
@@ -197,7 +199,9 @@ final class StreamSession: ObservableObject {
     func shutdown() {
         os_log(.default, log: sessionLog, "%{public}s", "[StreamSession] shutdown: session=\(sessionRef != nil)")
         isShutDown = true
+        #if !os(tvOS)
         pipManager.tearDown()
+        #endif
         rumbleFeedback?.shutdown()
         rumbleFeedback = nil
         if let ref = sessionRef {
@@ -259,9 +263,11 @@ final class StreamSession: ObservableObject {
         os_log(.default, log: sessionLog, "[StreamSession] attachToView decoder=%{public}@ layer=%{public}@ view.bounds=%.0fx%.0f",
                videoDecoder != nil ? "set" : "nil", layer != nil ? "ok" : "nil", bounds.width, bounds.height)
         videoDecoder?.setDisplayLayer(layer)
+        #if !os(tvOS)
         if let layer = layer {
             pipManager.configure(with: layer)
         }
+        #endif
     }
 
     // MARK: - PSN Holepunch connection on single dedicated thread (matches Android exactly)

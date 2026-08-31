@@ -1,0 +1,7 @@
+logs/pylux.log
+fastlane/report.xml
+build-appletvos/
+build-appletvsimulator/
+build-derived/
+PyluxTV.xcframework/
+ios.toolchain.cmake
