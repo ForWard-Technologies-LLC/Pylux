@@ -36,7 +36,8 @@ add_library(chiaki-jni SHARED
         src/main/cpp/opus-decoder.c
         src/main/cpp/audio-output.h
         src/main/cpp/audio-output.cpp
-        src/main/cpp/circular-fifo.hpp)
+        src/main/cpp/circular-fifo.hpp
+        src/main/cpp/adreno-ext.c)
 
 # Apply 16 KB page size alignment fix to chiaki-jni library
 # With NDK r28+ and ANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON, this should be automatic,
@@ -52,6 +53,10 @@ find_library(ANDROID_LIB_LOG log)
 find_library(ANDROID_LIB_MEDIANDK mediandk)
 find_library(ANDROID_LIB_ANDROID android)
 target_link_libraries(chiaki-jni "${ANDROID_LIB_LOG}" "${ANDROID_LIB_MEDIANDK}" "${ANDROID_LIB_ANDROID}")
+
+find_library(ANDROID_LIB_GLESV3 GLESv3)
+find_library(ANDROID_LIB_EGL EGL)
+target_link_libraries(chiaki-jni "${ANDROID_LIB_GLESV3}" "${ANDROID_LIB_EGL}")
 
 add_subdirectory(src/main/cpp/oboe)
 target_link_libraries(chiaki-jni oboe)

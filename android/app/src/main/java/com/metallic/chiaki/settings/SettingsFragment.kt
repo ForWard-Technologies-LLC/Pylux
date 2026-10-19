@@ -26,6 +26,7 @@ import com.metallic.chiaki.common.ext.viewModelFactory
 import com.metallic.chiaki.common.getDatabase
 import com.metallic.chiaki.common.importSettingsFromUri
 import com.metallic.chiaki.discovery.PsnDiscoveryManager
+import com.metallic.chiaki.stream.gpu.AdrenoExt
 import io.reactivex.disposables.CompositeDisposable
 import io.reactivex.rxkotlin.addTo
 import kotlinx.coroutines.launch
@@ -41,6 +42,11 @@ class DataStore(val preferences: Preferences): PreferenceDataStore()
 		preferences.dpadTouchEnabledKey -> preferences.dpadTouchEnabled
 		preferences.rumbleEnabledKey -> preferences.rumbleEnabled
 		preferences.buttonHapticEnabledKey -> preferences.buttonHapticEnabled
+		preferences.gpuUpscalingEnabledKey -> preferences.gpuUpscalingEnabled
+		preferences.frameGenerationEnabledKey -> preferences.frameGenerationEnabled
+		preferences.preferHighRefreshKey -> preferences.preferHighRefresh
+		preferences.sgsrEdgeDirectionKey -> preferences.sgsrEdgeDirection
+		preferences.pipEnabledKey -> preferences.pipEnabled
 		else -> defValue
 	}
 
@@ -54,6 +60,11 @@ class DataStore(val preferences: Preferences): PreferenceDataStore()
 			preferences.dpadTouchEnabledKey -> preferences.dpadTouchEnabled = value
 			preferences.rumbleEnabledKey -> preferences.rumbleEnabled = value
 			preferences.buttonHapticEnabledKey -> preferences.buttonHapticEnabled = value
+			preferences.gpuUpscalingEnabledKey -> preferences.gpuUpscalingEnabled = value
+			preferences.frameGenerationEnabledKey -> preferences.frameGenerationEnabled = value
+			preferences.preferHighRefreshKey -> preferences.preferHighRefresh = value
+			preferences.sgsrEdgeDirectionKey -> preferences.sgsrEdgeDirection = value
+			preferences.pipEnabledKey -> preferences.pipEnabled = value
 		}
 	}
 
@@ -64,6 +75,7 @@ class DataStore(val preferences: Preferences): PreferenceDataStore()
 		preferences.fpsKey -> preferences.fps.value
 		preferences.bitrateKey -> preferences.bitrate?.toString() ?: ""
 		preferences.codecKey -> preferences.codec.value
+		preferences.frameGenerationModeKey -> preferences.frameGenerationMode.value
 		preferences.cloudDatacenterPsnowKey -> preferences.getCloudDatacenterPsnow()
 		preferences.cloudDatacenterPscloudKey -> preferences.getCloudDatacenterPscloud()
 		preferences.cloudLanguageKey -> preferences.getCloudGameLanguage()
@@ -101,6 +113,11 @@ class DataStore(val preferences: Preferences): PreferenceDataStore()
 				val codec = Preferences.Codec.values().firstOrNull { it.value == value } ?: return
 				preferences.codec = codec
 			}
+			preferences.frameGenerationModeKey ->
+			{
+				val mode = Preferences.FrameGenerationMode.values().firstOrNull { it.value == value } ?: return
+				preferences.frameGenerationMode = mode
+			}
 			preferences.cloudDatacenterPsnowKey -> preferences.setCloudDatacenterPsnow(value ?: "Auto")
 			preferences.cloudDatacenterPscloudKey -> preferences.setCloudDatacenterPscloud(value ?: "Auto")
 			// Manual streaming-language override. Stored separately from the
@@ -122,6 +139,9 @@ class DataStore(val preferences: Preferences): PreferenceDataStore()
 		preferences.cloudBitratePsnowKey -> preferences.getCloudBitratePsnow() / 1000
 		preferences.dpadTouchIncrementKey -> preferences.dpadTouchIncrement
 		preferences.rumbleIntensityKey -> preferences.rumbleIntensity
+		preferences.sgsrSharpnessKey -> preferences.sgsrSharpness
+		preferences.sgsrEdgeThresholdKey -> preferences.sgsrEdgeThreshold
+		preferences.frameGenerationScaleKey -> preferences.frameGenerationScale
 		else -> defValue
 	}
 
@@ -133,6 +153,9 @@ class DataStore(val preferences: Preferences): PreferenceDataStore()
 			preferences.cloudBitratePsnowKey -> preferences.setCloudBitratePsnow(value * 1000)
 			preferences.dpadTouchIncrementKey -> preferences.dpadTouchIncrement = value
 			preferences.rumbleIntensityKey -> preferences.rumbleIntensity = value
+			preferences.sgsrSharpnessKey -> preferences.sgsrSharpness = value
+			preferences.sgsrEdgeThresholdKey -> preferences.sgsrEdgeThreshold = value
+			preferences.frameGenerationScaleKey -> preferences.frameGenerationScale = value
 		}
 	}
 
@@ -210,6 +233,26 @@ class SettingsFragment: PreferenceFragmentCompat(), TitleFragment
 			it.entryValues = Preferences.fpsAll.map { fps -> fps.value }.toTypedArray()
 			it.entries = Preferences.fpsAll.map { fps -> getString(fps.title) }.toTypedArray()
 		}
+
+		preferenceScreen.findPreference<SwitchPreference>(getString(R.string.preferences_frame_generation_enabled_key))?.let {
+			if(!AdrenoExt.isFrameExtrapolationSupported())
+			{
+				it.isEnabled = false
+				it.summary = getString(R.string.preferences_frame_generation_unsupported_summary)
+				preferenceScreen.findPreference<SeekBarPreference>(getString(R.string.preferences_frame_generation_scale_key))?.isEnabled = false
+			}
+		}
+		preferenceScreen.findPreference<ListPreference>(getString(R.string.preferences_frame_generation_mode_key))?.let {
+			it.entryValues = Preferences.frameGenerationModeAll.map { mode -> mode.value }.toTypedArray()
+			it.entries = Preferences.frameGenerationModeAll.map { mode -> getString(mode.title) }.toTypedArray()
+			if(!AdrenoExt.isMotionEstimationSupported())
+			{
+				it.isEnabled = false
+				it.summaryProvider = null
+				it.summary = getString(R.string.preferences_frame_generation_mode_unsupported_summary)
+			}
+		}
+		bindGpuTuningPreferences()
 
 		// Populate cloud datacenter dropdowns dynamically from saved ping results
 		populateCloudDatacenterPreference(
@@ -433,6 +476,35 @@ class SettingsFragment: PreferenceFragmentCompat(), TitleFragment
 		}
 		preference.summaryProvider = Preference.SummaryProvider<SeekBarPreference> { pref ->
 			getString(summaryRes, pref.value)
+		}
+	}
+
+	/**
+	 * Summaries for the GPU tuning sliders show the real value the renderer will use, not the stored
+	 * integer. SeekBarPreference stores a dragged value without notifying, so a SummaryProvider would
+	 * go stale until the screen is rebuilt; instead the summary is set directly, once from the stored
+	 * value and again from each change listener (which runs before the new value is stored).
+	 */
+	private fun bindGpuTuningPreferences()
+	{
+		bindGpuSlider(R.string.preferences_sgsr_sharpness_key) { value ->
+			getString(R.string.preferences_sgsr_sharpness_summary, String.format(Locale.US, "%.1f", value / 10f))
+		}
+		bindGpuSlider(R.string.preferences_sgsr_edge_threshold_key) { value ->
+			getString(R.string.preferences_sgsr_edge_threshold_summary, value)
+		}
+		bindGpuSlider(R.string.preferences_frame_generation_scale_key) { value ->
+			getString(R.string.preferences_frame_generation_scale_summary, String.format(Locale.US, "%.2f", value / 100f))
+		}
+	}
+
+	private fun bindGpuSlider(keyRes: Int, format: (Int) -> String)
+	{
+		val pref = preferenceScreen.findPreference<SeekBarPreference>(getString(keyRes)) ?: return
+		pref.summary = format(pref.value)
+		pref.setOnPreferenceChangeListener { _, newValue ->
+			pref.summary = format(newValue as Int)
+			true
 		}
 	}
 

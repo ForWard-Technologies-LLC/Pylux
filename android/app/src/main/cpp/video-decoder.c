@@ -9,6 +9,21 @@
 #include <android/native_window_jni.h>
 
 #include <string.h>
+#include <stdio.h>
+#include <time.h>
+
+/**
+ * Presentation timestamp for input buffers: CLOCK_MONOTONIC in microseconds, the same clock as
+ * System.nanoTime() and Choreographer on the Java side. MediaCodec carries it to the output
+ * buffer (SurfaceTexture.getTimestamp() returns it in nanoseconds), so a consumer can measure
+ * decoder-input-to-present latency. Monotonic, hence always non-decreasing as MediaCodec requires.
+ */
+static int64_t monotonic_us(void)
+{
+	struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (int64_t)ts.tv_sec * 1000000 + ts.tv_nsec / 1000;
+}
 
 #define INPUT_BUFFER_TIMEOUT_MS 10
 
@@ -18,7 +33,6 @@ ChiakiErrorCode android_chiaki_video_decoder_init(AndroidChiakiVideoDecoder *dec
 {
 	decoder->log = log;
 	decoder->codec = NULL;
-	decoder->timestamp_cur = 0;
 	decoder->target_width = target_width;
 	decoder->target_height = target_height;
 	decoder->target_codec = codec;
@@ -26,18 +40,23 @@ ChiakiErrorCode android_chiaki_video_decoder_init(AndroidChiakiVideoDecoder *dec
 	return chiaki_mutex_init(&decoder->codec_mutex, false);
 }
 
+// Must be called WITHOUT codec_mutex held: it takes the (non-recursive) mutex itself.
 static void kill_decoder(AndroidChiakiVideoDecoder *decoder)
 {
 	chiaki_mutex_lock(&decoder->codec_mutex);
+	if(!decoder->codec)
+	{
+		chiaki_mutex_unlock(&decoder->codec_mutex);
+		return;
+	}
 	decoder->shutdown_output = true;
 	ssize_t codec_buf_index = AMediaCodec_dequeueInputBuffer(decoder->codec, 1000);
 	if(codec_buf_index >= 0)
 	{
 		CHIAKI_LOGI(decoder->log, "Video Decoder sending EOS buffer");
-		AMediaCodec_queueInputBuffer(decoder->codec, (size_t)codec_buf_index, 0, 0, decoder->timestamp_cur++, AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM);
+		AMediaCodec_queueInputBuffer(decoder->codec, (size_t)codec_buf_index, 0, 0, monotonic_us(), AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM);
 		AMediaCodec_stop(decoder->codec);
 		chiaki_mutex_unlock(&decoder->codec_mutex);
-		chiaki_thread_join(&decoder->output_thread, NULL);
 	}
 	else
 	{
@@ -45,9 +64,30 @@ static void kill_decoder(AndroidChiakiVideoDecoder *decoder)
 		AMediaCodec_stop(decoder->codec);
 		chiaki_mutex_unlock(&decoder->codec_mutex);
 	}
+	// Always join: AMediaCodec_stop() makes a pending dequeueOutputBuffer(-1) return an
+	// error, the output thread then sees shutdown_output under the mutex and exits. Deleting
+	// the codec (or resetting shutdown_output) while that thread still runs would let it
+	// dequeue from a NULL codec.
+	chiaki_thread_join(&decoder->output_thread, NULL);
+	// The session thread may still be feeding video_sample(); clear the codec under the
+	// mutex so it cannot observe a deleted AMediaCodec.
+	chiaki_mutex_lock(&decoder->codec_mutex);
 	AMediaCodec_delete(decoder->codec);
 	decoder->codec = NULL;
 	decoder->shutdown_output = false;
+	chiaki_mutex_unlock(&decoder->codec_mutex);
+}
+
+size_t android_chiaki_video_decoder_hdr_static_info(AndroidChiakiVideoDecoder *decoder, uint8_t *out, size_t out_size)
+{
+	chiaki_mutex_lock(&decoder->codec_mutex);
+	size_t n = decoder->hdr_static_info_size;
+	if(n > out_size)
+		n = out_size;
+	if(n)
+		memcpy(out, decoder->hdr_static_info, n);
+	chiaki_mutex_unlock(&decoder->codec_mutex);
+	return n;
 }
 
 void android_chiaki_video_decoder_fini(AndroidChiakiVideoDecoder *decoder)
@@ -63,7 +103,11 @@ void android_chiaki_video_decoder_set_surface(AndroidChiakiVideoDecoder *decoder
 
 	if(!surface)
 	{
-		if(decoder->codec)
+		// kill_decoder() locks codec_mutex itself and the mutex is not recursive, so it
+		// must not be held here (and must not be leaked when there is no codec).
+		bool had_codec = decoder->codec != NULL;
+		chiaki_mutex_unlock(&decoder->codec_mutex);
+		if(had_codec)
 		{
 			kill_decoder(decoder);
 			CHIAKI_LOGI(decoder->log, "Decoder shut down after surface was removed");
@@ -101,6 +145,13 @@ void android_chiaki_video_decoder_set_surface(AndroidChiakiVideoDecoder *decoder
 	AMediaFormat_setString(format, AMEDIAFORMAT_KEY_MIME, mime);
 	AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_WIDTH, decoder->target_width);
 	AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_HEIGHT, decoder->target_height);
+	// Remote Play has no B-frames, so ask the decoder to output every frame as soon as it is
+	// decoded instead of holding frames for reordering. "low-latency" is MediaFormat.KEY_LOW_LATENCY
+	// (Android 11+); the vendor key is honoured by older Qualcomm decoders. Unknown keys are ignored.
+	AMediaFormat_setInt32(format, "low-latency", 1);
+	AMediaFormat_setInt32(format, "vendor.qti-ext-dec-low-latency.enable", 1);
+	// MediaFormat.KEY_PRIORITY 0 = realtime.
+	AMediaFormat_setInt32(format, "priority", 0);
 
 	media_status_t r = AMediaCodec_configure(decoder->codec, format, decoder->window, NULL, 0);
 	if(r != AMEDIA_OK)
@@ -180,7 +231,7 @@ bool android_chiaki_video_decoder_video_sample(uint8_t *buf, size_t buf_size, in
 			codec_sample_size = codec_buf_size;
 		}
 		memcpy(codec_buf, buf, codec_sample_size);
-		media_status_t status = AMediaCodec_queueInputBuffer(decoder->codec, (size_t)codec_buf_index, 0, codec_sample_size, decoder->timestamp_cur++, 0); // timestamp just raised by 1 for maximum realtime
+		media_status_t status = AMediaCodec_queueInputBuffer(decoder->codec, (size_t)codec_buf_index, 0, codec_sample_size, monotonic_us(), 0);
 		if(status != AMEDIA_OK)
 		{
 			CHIAKI_LOGE(decoder->log, "AMediaCodec_queueInputBuffer() failed: %d", (int)status);
@@ -209,6 +260,38 @@ static void *android_chiaki_video_decoder_output_thread_func(void *user)
 			{
 				CHIAKI_LOGI(decoder->log, "AMediaCodec reported EOS");
 				break;
+			}
+		}
+		else if(status == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED)
+		{
+			// Diagnostic for HDR: shows what the decoder parsed from the stream's VUI.
+			// MediaFormat constants: color-standard 1=BT.709 6=BT.2020; color-transfer 3=SDR video
+			// 6=ST 2084 (PQ) 7=HLG; color-range 1=full 2=limited.
+			AMediaFormat *format = AMediaCodec_getOutputFormat(decoder->codec);
+			if(format)
+			{
+				int32_t standard = -1, transfer = -1, range = -1;
+				AMediaFormat_getInt32(format, "color-standard", &standard);
+				AMediaFormat_getInt32(format, "color-transfer", &transfer);
+				AMediaFormat_getInt32(format, "color-range", &range);
+				CHIAKI_LOGI(decoder->log, "Video decoder output format: color-standard=%d color-transfer=%d color-range=%d",
+						(int)standard, (int)transfer, (int)range);
+				// Mastering display / content light level metadata from the HEVC SEI, as Android's
+				// HDRStaticInfo Type 1 struct. The GPU path attaches it to its EGL surface.
+				void *info = NULL;
+				size_t info_size = 0;
+				if(AMediaFormat_getBuffer(format, "hdr-static-info", &info, &info_size) && info && info_size > 0)
+				{
+					chiaki_mutex_lock(&decoder->codec_mutex);
+					decoder->hdr_static_info_size = info_size < sizeof(decoder->hdr_static_info) ? info_size : sizeof(decoder->hdr_static_info);
+					memcpy(decoder->hdr_static_info, info, decoder->hdr_static_info_size);
+					chiaki_mutex_unlock(&decoder->codec_mutex);
+					char hex[3 * 32 + 1] = { 0 };
+					for(size_t i = 0; i < decoder->hdr_static_info_size; i++)
+						snprintf(hex + 3 * i, 4, "%02x ", decoder->hdr_static_info[i]);
+					CHIAKI_LOGI(decoder->log, "Video decoder HDR static info: %u bytes: %s", (unsigned)info_size, hex);
+				}
+				AMediaFormat_delete(format);
 			}
 		}
 		else

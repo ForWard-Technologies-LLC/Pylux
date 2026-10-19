@@ -116,6 +116,70 @@
             app:title="@string/preferences_codec_title"
             app:summary="%s"
             app:icon="@drawable/ic_codec"/>
+
+        <SwitchPreference
+            app:key="@string/preferences_gpu_upscaling_enabled_key"
+            app:title="@string/preferences_gpu_upscaling_enabled_title"
+            app:summary="@string/preferences_gpu_upscaling_enabled_summary"
+            app:defaultValue="true"
+            app:icon="@drawable/ic_resolution"/>
+
+        <SeekBarPreference
+            app:key="@string/preferences_sgsr_sharpness_key"
+            app:title="@string/preferences_sgsr_sharpness_title"
+            app:min="5"
+            android:max="50"
+            app:seekBarIncrement="1"
+            app:defaultValue="20"
+            app:showSeekBarValue="false"
+            app:icon="@drawable/ic_resolution"/>
+
+        <SeekBarPreference
+            app:key="@string/preferences_sgsr_edge_threshold_key"
+            app:title="@string/preferences_sgsr_edge_threshold_title"
+            app:min="1"
+            android:max="32"
+            app:seekBarIncrement="1"
+            app:defaultValue="8"
+            app:showSeekBarValue="false"
+            app:icon="@drawable/ic_resolution"/>
+
+        <SwitchPreference
+            app:key="@string/preferences_sgsr_edge_direction_key"
+            app:title="@string/preferences_sgsr_edge_direction_title"
+            app:summary="@string/preferences_sgsr_edge_direction_summary"
+            app:defaultValue="true"
+            app:icon="@drawable/ic_resolution"/>
+
+        <SwitchPreference
+            app:key="@string/preferences_frame_generation_enabled_key"
+            app:title="@string/preferences_frame_generation_enabled_title"
+            app:summary="@string/preferences_frame_generation_enabled_summary"
+            app:defaultValue="true"
+            app:icon="@drawable/ic_fps"/>
+
+        <ListPreference
+            app:key="@string/preferences_frame_generation_mode_key"
+            app:title="@string/preferences_frame_generation_mode_title"
+            app:useSimpleSummaryProvider="true"
+            app:icon="@drawable/ic_fps"/>
+
+        <SeekBarPreference
+            app:key="@string/preferences_frame_generation_scale_key"
+            app:title="@string/preferences_frame_generation_scale_title"
+            app:min="10"
+            android:max="100"
+            app:seekBarIncrement="5"
+            app:defaultValue="50"
+            app:showSeekBarValue="false"
+            app:icon="@drawable/ic_fps"/>
+
+        <SwitchPreference
+            app:key="@string/preferences_prefer_high_refresh_key"
+            app:title="@string/preferences_prefer_high_refresh_title"
+            app:summary="@string/preferences_prefer_high_refresh_summary"
+            app:defaultValue="true"
+            app:icon="@drawable/ic_fps"/>
     </PreferenceCategory>
 
     <PreferenceCategory

@@ -840,6 +840,21 @@ JNIEXPORT void JNICALL JNI_FCN(sessionSetSurface)(JNIEnv *env, jobject obj, jlon
 	android_chiaki_video_decoder_set_surface(&session->video_decoder, env, surface);
 }
 
+JNIEXPORT jbyteArray JNICALL JNI_FCN(sessionGetVideoHdrStaticInfo)(JNIEnv *env, jobject obj, jlong ptr)
+{
+	AndroidChiakiSession *session = (AndroidChiakiSession *)ptr;
+	if(!session)
+		return NULL;
+	uint8_t buf[32];
+	size_t n = android_chiaki_video_decoder_hdr_static_info(&session->video_decoder, buf, sizeof(buf));
+	if(!n)
+		return NULL;
+	jbyteArray arr = E->NewByteArray(env, (jsize)n);
+	if(arr)
+		E->SetByteArrayRegion(env, arr, 0, (jsize)n, (const jbyte *)buf);
+	return arr;
+}
+
 // Live stream metrics for the optional on-screen stats overlay. All values are
 // owned/computed by libchiaki (shared with Qt/iOS) so the client just renders
 // them. Returns a double[7]:

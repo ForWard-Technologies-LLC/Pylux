@@ -26,6 +26,8 @@ import com.metallic.chiaki.common.DonationPromptCoordinator
 import com.metallic.chiaki.common.Preferences
 import com.metallic.chiaki.common.ext.viewModelFactory
 import com.pylux.stream.databinding.ActivityStreamBinding
+import com.metallic.chiaki.lib.Codec
+import com.metallic.chiaki.stream.gpu.AdrenoExt
 import com.metallic.chiaki.lib.ConnectInfo
 import com.metallic.chiaki.lib.ConnectVideoProfile
 import com.metallic.chiaki.lib.StreamMetrics
@@ -94,6 +96,18 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 	/** [SystemClock.elapsedRealtime] when this session entered [StreamStateConnected]; 0 if not connected. */
 	private var connectedAtElapsedRealtime: Long = 0L
 
+	/** Refresh rate the surface hint targets: the mode requested for the window, or the active rate
+	 *  when no higher mode exists (the switch is asynchronous and may be refused). */
+	private var requestedRefreshRate = 60f
+
+	private fun wantsHighRefresh() = !isTv() && (viewModel.preferences.preferHighRefresh || viewModel.preferences.frameGenerationEnabled)
+
+	private fun applyDisplayModePreference()
+	{
+		if(!wantsHighRefresh()) return
+		requestedRefreshRate = DisplayModeHelper.applyHighestRefresh(this)
+	}
+
 	override fun onCreate(savedInstanceState: Bundle?)
 	{
 		super.onCreate(savedInstanceState)
@@ -115,6 +129,16 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 
 		binding = ActivityStreamBinding.inflate(layoutInflater)
 		setContentView(binding.root)
+		applyDisplayModePreference()
+		binding.surfaceView.holder.addCallback(object: SurfaceHolder.Callback {
+			override fun surfaceCreated(holder: SurfaceHolder) {}
+			override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int)
+			{
+				if(wantsHighRefresh())
+					DisplayModeHelper.hintSurfaceFrameRate(holder.surface, requestedRefreshRate)
+			}
+			override fun surfaceDestroyed(holder: SurfaceHolder) {}
+		})
 		window.decorView.setOnSystemUiVisibilityChangeListener(this)
 
 		viewModel.onScreenControlsEnabled.observe(this, Observer {
@@ -156,6 +180,22 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 			updateStatsVisibility()
 			showOverlay()
 		}
+
+		// Live GPU toggles: persisted like the settings screen and applied to the running renderer.
+		// They only do something while the GPU path is attached (see updateGpuSwitches).
+		binding.upscalingSwitch.isChecked = viewModel.preferences.gpuUpscalingEnabled
+		binding.upscalingSwitch.setOnCheckedChangeListener { _, isChecked ->
+			viewModel.preferences.gpuUpscalingEnabled = isChecked
+			viewModel.session.setGpuUpscaling(isChecked)
+			showOverlay()
+		}
+		binding.frameGenSwitch.isChecked = viewModel.preferences.frameGenerationEnabled
+		binding.frameGenSwitch.setOnCheckedChangeListener { _, isChecked ->
+			viewModel.preferences.frameGenerationEnabled = isChecked
+			viewModel.session.setGpuFrameGeneration(isChecked)
+			showOverlay()
+		}
+		updateGpuSwitches()
 
 		// Handle back button — on TV show a disconnect confirmation dialog; on touch show the overlay
 		onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
@@ -264,6 +304,7 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 		activityStopped = false
 		Log.i("StreamActivity", "onResume: pip=$isInPictureInPictureMode session=${viewModel.session.session != null}")
 		hideSystemUI()
+		applyDisplayModePreference()
 		// resume() is safe to call even if session is already running -
 		// it returns immediately when session != null
 		viewModel.session.resume()
@@ -442,8 +483,17 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 			hideOverlay()
 	}
 
+	/** The GPU toggles are greyed out when the session runs on the direct path (both were off at stream start). */
+	private fun updateGpuSwitches()
+	{
+		val live = viewModel.session.gpuPathActive
+		binding.upscalingSwitch.isEnabled = live
+		binding.frameGenSwitch.isEnabled = live && AdrenoExt.isFrameExtrapolationSupported()
+	}
+
 	private fun showOverlay()
 	{
+		updateGpuSwitches()
 		if (isTv()) return  // No touch overlay on TV
 		binding.overlay.isVisible = true
 		binding.overlay.animate()
@@ -515,7 +565,7 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 	}
 
 	/** Single compact top row with short labels, e.g.
-	 *  "4.7 Mbps • PL 1.1% • DF/s 0 • 60 FPS • 90 ms • 1280×720". */
+	 *  "4.7 Mbps • PL 1.1% • DF/s 0 • 60 FPS • 90 ms • 1920×1080 HDR → 2560×1440 • out 120 FPS (gen 60, SGSR) • lat 12 ms • 120 Hz". */
 	private fun formatStats(m: StreamMetrics, dropsPerTick: Long): String
 	{
 		val sep = "   •   "
@@ -526,7 +576,20 @@ class StreamActivity : AppCompatActivity(), View.OnSystemUiVisibilityChangeListe
 		parts.add(String.format(Locale.US, "%.0f FPS", m.fps))
 		if (m.rttMs > 0)
 			parts.add(String.format(Locale.US, "%.0f ms", m.rttMs))
-		parts.add("${m.width}×${m.height}")
+		val g = viewModel.session.gpuStats
+		val ci = viewModel.session.connectInfo
+		val hdr = if(ci.ps5 && ci.videoProfile.codec == Codec.CODEC_H265_HDR) " HDR" else ""
+		if(g != null && g.outputWidth > 0 && g.outputHeight > 0)
+			parts.add("${m.width}×${m.height}$hdr → ${g.outputWidth}×${g.outputHeight}")
+		else
+			parts.add("${m.width}×${m.height}$hdr")
+		g?.let { g ->
+			parts.add(String.format(Locale.US, "out %.0f FPS (gen %.0f%s, %s)", g.presentedFps, g.generatedFps,
+				if(g.interpolating) " interp" else "", if(g.upscalingActive) "SGSR" else "bilinear"))
+			if(g.latencyMs > 0)
+				parts.add(String.format(Locale.US, "lat %.0f ms", g.latencyMs))
+			parts.add(String.format(Locale.US, "%.0f Hz", DisplayModeHelper.currentRefreshRate(this)))
+		}
 		return parts.joinToString(sep)
 	}
 

@@ -36,10 +36,17 @@ class Preferences(context: Context)
 		FPS_60("60", R.string.preferences_fps_title_60, VideoFPSPreset.FPS_60)
 	}
 
+	enum class FrameGenerationMode(val value: String, @StringRes val title: Int, val mode: com.metallic.chiaki.stream.gpu.GenerationMode)
+	{
+		EXTRAPOLATE("extrapolate", R.string.preferences_frame_generation_mode_title_extrapolate, com.metallic.chiaki.stream.gpu.GenerationMode.EXTRAPOLATE),
+		INTERPOLATE("interpolate", R.string.preferences_frame_generation_mode_title_interpolate, com.metallic.chiaki.stream.gpu.GenerationMode.INTERPOLATE)
+	}
+
 	enum class Codec(val value: String, @StringRes val title: Int, val codec: com.metallic.chiaki.lib.Codec)
 	{
 		CODEC_H264("h264", R.string.preferences_codec_title_h264, com.metallic.chiaki.lib.Codec.CODEC_H264),
-		CODEC_H265("h265", R.string.preferences_codec_title_h265, com.metallic.chiaki.lib.Codec.CODEC_H265)
+		CODEC_H265("h265", R.string.preferences_codec_title_h265, com.metallic.chiaki.lib.Codec.CODEC_H265),
+		CODEC_H265_HDR("h265_hdr", R.string.preferences_codec_title_h265_hdr, com.metallic.chiaki.lib.Codec.CODEC_H265_HDR)
 	}
 
 	companion object
@@ -50,10 +57,24 @@ class Preferences(context: Context)
 		val fpsAll = FPS.values()
 		val codecDefault = Codec.CODEC_H265
 		val codecAll = Codec.values()
+		val frameGenerationModeDefault = FrameGenerationMode.EXTRAPOLATE
+		val frameGenerationModeAll = FrameGenerationMode.values()
 
 		const val CLOUD_BITRATE_MIN_KBPS = 2000
 		const val CLOUD_BITRATE_MAX_KBPS = 200000
 		const val CLOUD_BITRATE_DEFAULT_KBPS = 20000
+
+		// GPU tuning, stored as integers for SeekBarPreference: sharpness in tenths, edge threshold in
+		// 1/255 units (both SGSR1 shader defaults), extrapolation distance in percent of a frame interval.
+		const val SGSR_SHARPNESS_MIN = 5
+		const val SGSR_SHARPNESS_MAX = 50
+		const val SGSR_SHARPNESS_DEFAULT = 20
+		const val SGSR_EDGE_THRESHOLD_MIN = 1
+		const val SGSR_EDGE_THRESHOLD_MAX = 32
+		const val SGSR_EDGE_THRESHOLD_DEFAULT = 8
+		const val FRAME_GENERATION_SCALE_MIN = 10
+		const val FRAME_GENERATION_SCALE_MAX = 100
+		const val FRAME_GENERATION_SCALE_DEFAULT = 50
 
 		const val DPAD_TOUCH_INCREMENT_MIN = 1
 		const val DPAD_TOUCH_INCREMENT_MAX = 1079
@@ -154,6 +175,48 @@ class Preferences(context: Context)
 	var pipEnabled
 		get() = sharedPreferences.getBoolean(pipEnabledKey, true)
 		set(value) { sharedPreferences.edit().putBoolean(pipEnabledKey, value).apply() }
+
+	val gpuUpscalingEnabledKey get() = resources.getString(R.string.preferences_gpu_upscaling_enabled_key)
+	var gpuUpscalingEnabled
+		get() = sharedPreferences.getBoolean(gpuUpscalingEnabledKey, true)
+		set(value) { sharedPreferences.edit().putBoolean(gpuUpscalingEnabledKey, value).apply() }
+
+	val frameGenerationEnabledKey get() = resources.getString(R.string.preferences_frame_generation_enabled_key)
+	var frameGenerationEnabled
+		get() = sharedPreferences.getBoolean(frameGenerationEnabledKey, true)
+		set(value) { sharedPreferences.edit().putBoolean(frameGenerationEnabledKey, value).apply() }
+
+	val preferHighRefreshKey get() = resources.getString(R.string.preferences_prefer_high_refresh_key)
+	var preferHighRefresh
+		get() = sharedPreferences.getBoolean(preferHighRefreshKey, true)
+		set(value) { sharedPreferences.edit().putBoolean(preferHighRefreshKey, value).apply() }
+
+	val sgsrSharpnessKey get() = resources.getString(R.string.preferences_sgsr_sharpness_key)
+	var sgsrSharpness
+		get() = sharedPreferences.getInt(sgsrSharpnessKey, SGSR_SHARPNESS_DEFAULT).coerceIn(SGSR_SHARPNESS_MIN, SGSR_SHARPNESS_MAX)
+		set(value) { sharedPreferences.edit().putInt(sgsrSharpnessKey, value.coerceIn(SGSR_SHARPNESS_MIN, SGSR_SHARPNESS_MAX)).apply() }
+
+	val sgsrEdgeThresholdKey get() = resources.getString(R.string.preferences_sgsr_edge_threshold_key)
+	var sgsrEdgeThreshold
+		get() = sharedPreferences.getInt(sgsrEdgeThresholdKey, SGSR_EDGE_THRESHOLD_DEFAULT).coerceIn(SGSR_EDGE_THRESHOLD_MIN, SGSR_EDGE_THRESHOLD_MAX)
+		set(value) { sharedPreferences.edit().putInt(sgsrEdgeThresholdKey, value.coerceIn(SGSR_EDGE_THRESHOLD_MIN, SGSR_EDGE_THRESHOLD_MAX)).apply() }
+
+	val frameGenerationModeKey get() = resources.getString(R.string.preferences_frame_generation_mode_key)
+	var frameGenerationMode
+		get() = sharedPreferences.getString(frameGenerationModeKey, frameGenerationModeDefault.value)?.let { value ->
+			FrameGenerationMode.values().firstOrNull { it.value == value }
+		} ?: frameGenerationModeDefault
+		set(value) { sharedPreferences.edit().putString(frameGenerationModeKey, value.value).apply() }
+
+	val sgsrEdgeDirectionKey get() = resources.getString(R.string.preferences_sgsr_edge_direction_key)
+	var sgsrEdgeDirection
+		get() = sharedPreferences.getBoolean(sgsrEdgeDirectionKey, true)
+		set(value) { sharedPreferences.edit().putBoolean(sgsrEdgeDirectionKey, value).apply() }
+
+	val frameGenerationScaleKey get() = resources.getString(R.string.preferences_frame_generation_scale_key)
+	var frameGenerationScale
+		get() = sharedPreferences.getInt(frameGenerationScaleKey, FRAME_GENERATION_SCALE_DEFAULT).coerceIn(FRAME_GENERATION_SCALE_MIN, FRAME_GENERATION_SCALE_MAX)
+		set(value) { sharedPreferences.edit().putInt(frameGenerationScaleKey, value.coerceIn(FRAME_GENERATION_SCALE_MIN, FRAME_GENERATION_SCALE_MAX)).apply() }
 
 	/** Whether the in-stream performance stats overlay is toggled on (per-session UI state). */
 	private val STREAM_STATS_OVERLAY_KEY = "stream_stats_overlay_enabled"

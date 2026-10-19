@@ -213,6 +213,7 @@ dependencies {
     // Play Billing 8.x Java API (no billing-ktx: that artifact targets Kotlin 2.2+ and forces a full Kotlin/Room/Moshi upgrade chain)
     implementation 'com.android.billingclient:billing:8.1.0'
     implementation 'com.google.zxing:core:3.5.3'
+    testImplementation 'junit:junit:4.13.2'
 }
 
 // Single source of truth: shared/donation_prompt_phrases.json → generated res/raw for R.raw.donation_prompt_phrases

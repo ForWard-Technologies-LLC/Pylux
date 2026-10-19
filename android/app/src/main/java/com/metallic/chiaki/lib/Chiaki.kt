@@ -150,6 +150,7 @@ private class ChiakiNative
 		@JvmStatic external fun sessionJoin(ptr: Long): Int
 		@JvmStatic external fun sessionSetSurface(ptr: Long, surface: Surface?)
 		@JvmStatic external fun sessionGetMetrics(ptr: Long): DoubleArray
+		@JvmStatic external fun sessionGetVideoHdrStaticInfo(ptr: Long): ByteArray?
 		@JvmStatic external fun sessionSetControllerState(ptr: Long, controllerState: ControllerState)
 		@JvmStatic external fun sessionSetPsChord(ptr: Long, enabled: Boolean, holdMs: Int)
 		@JvmStatic external fun sessionSetLoginPin(ptr: Long, pin: String)
@@ -735,6 +736,10 @@ class Session(connectInfo: ConnectInfo, logFile: String?, logVerbose: Boolean)
 	/** Latest live stream metrics for the stats overlay, or null if the session is gone. */
 	fun getMetrics(): StreamMetrics? =
 		if(nativePtr == 0L) null else StreamMetrics.fromArray(ChiakiNative.sessionGetMetrics(nativePtr))
+
+	/** Raw MediaFormat "hdr-static-info" bytes once the decoder has parsed them from an HDR stream, else null. */
+	fun getVideoHdrStaticInfo(): ByteArray? =
+		if(nativePtr == 0L) null else ChiakiNative.sessionGetVideoHdrStaticInfo(nativePtr)
 
 	fun setControllerState(controllerState: ControllerState)
 	{
