@@ -29,6 +29,8 @@ set(SOURCE_FILES
 	src/discoverymanager.cpp
 	include/streamsession.h
 	src/streamsession.cpp
+	include/mousestick.h
+	src/mousestick.cpp
 	include/sessionlog.h
 	src/sessionlog.cpp
 	include/settings.h

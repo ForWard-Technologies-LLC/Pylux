@@ -2714,6 +2714,43 @@ void Settings::ClearKeyMapping()
 		if(settings.contains("keymap/" + button_name))
 			settings.remove("keymap/" + button_name);
 	}
+	settings.remove("mousemap");
+}
+
+static QString MouseButtonSettingsKey(int mouse_button)
+{
+	switch(mouse_button)
+	{
+		case Qt::LeftButton: return "mousemap/left";
+		case Qt::RightButton: return "mousemap/right";
+		case Qt::MiddleButton: return "mousemap/middle";
+		case Qt::BackButton: return "mousemap/back";
+		case Qt::ForwardButton: return "mousemap/forward";
+		default: return QString();
+	}
+}
+
+QMap<int, int> Settings::GetMouseButtonMapping()
+{
+	QMap<int, int> result;
+	for(int mouse_button : {Qt::LeftButton, Qt::RightButton, Qt::MiddleButton, Qt::BackButton, Qt::ForwardButton})
+	{
+		int chiaki_button = settings.value(MouseButtonSettingsKey(mouse_button), 0).toInt();
+		if(chiaki_button)
+			result[mouse_button] = chiaki_button;
+	}
+	return result;
+}
+
+void Settings::SetMouseButtonMapping(int mouse_button, int chiaki_button)
+{
+	QString key = MouseButtonSettingsKey(mouse_button);
+	if(key.isEmpty())
+		return;
+	if(chiaki_button)
+		settings.setValue(key, chiaki_button);
+	else
+		settings.remove(key);
 }
 
 QMap<Qt::Key, int> Settings::GetControllerMappingForDecoding()

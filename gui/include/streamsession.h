@@ -28,6 +28,7 @@
 #endif
 
 #include "exception.h"
+#include "mousestick.h"
 #include "sessionlog.h"
 #include "controllermanager.h"
 #include "settings.h"
@@ -90,6 +91,10 @@ struct StreamSessionConnectInfo
 	bool enable_keyboard;
 	bool keyboard_controller_enabled;
 	bool mouse_touch_enabled;
+	bool mouse_stick_enabled;
+	float mouse_stick_sensitivity;
+	float mouse_stick_deadzone;
+	QMap<int, int> mouse_button_map;
 	bool enable_dualsense;
 	bool auto_regist;
 	float haptic_override;
@@ -246,6 +251,12 @@ class StreamSession : public QObject
 		float haptic_override;
 		bool keyboard_controller_enabled;
 		bool mouse_touch_enabled;
+		bool mouse_stick_enabled;
+		MouseStick mouse_stick;
+		QTimer *mouse_stick_timer;
+		QElapsedTimer mouse_stick_clock;
+		ChiakiControllerState mouse_state;
+		QMap<int, int> mouse_button_map;
 		bool dpad_regular;
 		bool dpad_regular_touch_switched;
 		uint dpad_touch_shortcut1;
@@ -308,6 +319,7 @@ class StreamSession : public QObject
 		void HandleSDeckEvent(SDeckEvent *event);
 #endif
 		void AdjustAdaptiveTriggerPacket(uint8_t *buf, uint8_t type);
+		void HandleMouseButton(Qt::MouseButton button, bool press);
 		void WaitHaptics();
 
 	private slots:
@@ -428,6 +440,7 @@ class StreamSession : public QObject
 		void UpdateGamepads();
 		void DpadSendFeedbackState();
 		void SendFeedbackState();
+		void UpdateMouseStick();
 		void OnGameLauncherCompleted();
 };
 

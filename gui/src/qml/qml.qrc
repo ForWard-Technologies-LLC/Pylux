@@ -19,6 +19,7 @@
     <file>DisplaySettingsDialog.qml</file>
     <file>PlaceboSettingsDialog.qml</file>
     <file>PlaceboColorMappingDialog.qml</file>
+    <file>MouseStickSettings.qml</file>
     <file>ProfileDialog.qml</file>
     <file>ConsolePinDialog.qml</file>
     <file>PSNLoginDialog.qml</file>

@@ -221,6 +221,27 @@ Unmute microphone with either ++ctrl+m++ or the mic button on the PlayStation co
 | `switch between dpad modes` | `L1+R1+dpad up`      |
 | `stream menu`    | `L1+R1+L3+R3`           |
 
+## Playing with Keyboard and Mouse
+
+Keys are bound to PlayStation controller buttons in `Settings` -> `Keys`. Below the key bindings, the `Mouse` section controls what the mouse does during a stream.
+
+### Mouse Look (Mouse as Right Stick)
+
+Enable `Mouse controls right stick` to steer the camera with the mouse like in a PC game. While the stream window is focused, the cursor is hidden and kept inside the window, and mouse movement tilts the right stick proportionally to how fast you move the mouse. This replaces the mouse touchpad emulation, so enabling one disables the other.
+
+- `Sensitivity` sets how fast the mouse has to move to tilt the stick fully.
+- `Dead zone compensation` is the smallest tilt sent while the mouse moves. Raise it if slow mouse movements don't move the camera, lower it if the camera drifts too fast when you move the mouse slowly.
+
+The cursor is released while the stream menu is open and when the window loses focus.
+
+!!! Note "Wayland"
+
+    Keeping the cursor inside the window relies on moving the cursor, which Wayland doesn't allow, so mouse look stops when the cursor reaches the window edge there.
+
+### Mouse Buttons
+
+Each mouse button (left, right, middle, back, forward) can be bound to a controller button in the same `Mouse` section. Bindings are active whenever the mouse touchpad emulation is off, with or without mouse look, and are cleared by `Reset All Keys`.
+
 ## Using a DualSense and/or DualShock4 Controller with Pylux
 
 While most users will want to just use Pylux with the Steam Deck controller, you can also attach a DualShock 4 or DualSense controller via bluetooth or usbc. The controls will map automatically and there is even native touchpad (including gestures), gyro, haptics (DualSense via usb/usbc only), and adaptive triggers (DualSense only) support. This can be especially useful if you're playing Pylux when connected to a dock using an external monitor or TV or if you just really like the feel of the traditional PlayStation controllers.

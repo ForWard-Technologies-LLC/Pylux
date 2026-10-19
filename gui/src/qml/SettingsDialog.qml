@@ -2177,6 +2177,11 @@ DialogView {
                             }
                         }
                     }
+
+                    MouseStickSettings {
+                        Layout.columnSpan: 3
+                        Layout.alignment: Qt.AlignHCenter
+                    }
                 }
                 }
             }

@@ -12,6 +12,7 @@
 #include <chiaki/time.h>
 #include "../../lib/src/utils.h"
 
+#include <QGuiApplication>
 #include <QKeyEvent>
 #include <QtMath>
 
@@ -22,6 +23,7 @@
 #define STEAMDECK_HAPTIC_INTERVAL_MS 10 // check every interval
 #define NEW_DPAD_TOUCH_INTERVAL_MS 500
 #define DPAD_TOUCH_UPDATE_INTERVAL_MS 10
+#define MOUSE_STICK_UPDATE_INTERVAL_MS 16 // about once per game frame
 #define STEAMDECK_HAPTIC_PACKETS_PER_ANALYSIS 4 // send packets every interval * packets per analysis
 #define RUMBLE_HAPTICS_PACKETS_PER_RUMBLE 3
 #define STEAMDECK_HAPTIC_SAMPLING_RATE 3000
@@ -110,6 +112,10 @@ StreamSessionConnectInfo::StreamSessionConnectInfo(
 	this->stretch = stretch;
 	this->keyboard_controller_enabled = settings->GetKeyboardEnabled();
 	this->mouse_touch_enabled = settings->GetMouseTouchEnabled();
+	this->mouse_stick_enabled = settings->GetMouseStickEnabled();
+	this->mouse_stick_sensitivity = settings->GetMouseStickSensitivity();
+	this->mouse_stick_deadzone = settings->GetMouseStickDeadzone();
+	this->mouse_button_map = settings->GetMouseButtonMapping();
 	this->enable_keyboard = false;  // Will be set based on game_name when creating session
 	this->enable_dualsense = true;
 	this->rumble_haptics_intensity = settings->GetRumbleHapticsIntensity();
@@ -274,6 +280,12 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 #endif
 	audio_buffer_size = connect_info.audio_buffer_size;
 	mouse_touch_enabled = connect_info.mouse_touch_enabled;
+	mouse_stick_enabled = connect_info.mouse_stick_enabled;
+	// Mouse motion drives either the touchpad or the right stick, never both
+	if(mouse_stick_enabled)
+		mouse_touch_enabled = false;
+	mouse_stick.SetParameters(connect_info.mouse_stick_sensitivity, connect_info.mouse_stick_deadzone);
+	mouse_button_map = connect_info.mouse_button_map;
 	keyboard_controller_enabled = connect_info.keyboard_controller_enabled;
 	host = connect_info.host;
 	title_id = connect_info.title_id;
@@ -349,6 +361,12 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 
 	chiaki_controller_state_set_idle(&keyboard_state);
 	chiaki_controller_state_set_idle(&touch_state);
+	chiaki_controller_state_set_idle(&mouse_state);
+	mouse_stick_clock.start();
+	mouse_stick_timer = new QTimer(this);
+	mouse_stick_timer->setTimerType(Qt::PreciseTimer);
+	mouse_stick_timer->setInterval(MOUSE_STICK_UPDATE_INTERVAL_MS);
+	connect(mouse_stick_timer, &QTimer::timeout, this, &StreamSession::UpdateMouseStick);
 	touch_tracker=QMap<int, uint8_t>();
 	mouse_touch_id=-1;
 	dpad_touch_id =-1;
@@ -793,10 +811,56 @@ void StreamSession::GoHome()
 	chiaki_session_go_home(&session);
 }
 
+static void ApplyMappedButton(ChiakiControllerState *state, int button, bool press)
+{
+	switch(button)
+	{
+		case CHIAKI_CONTROLLER_ANALOG_BUTTON_L2:
+			state->l2_state = press ? 0xff : 0;
+			break;
+		case CHIAKI_CONTROLLER_ANALOG_BUTTON_R2:
+			state->r2_state = press ? 0xff : 0;
+			break;
+		case static_cast<int>(ControllerButtonExt::ANALOG_STICK_RIGHT_Y_UP):
+			state->right_y = press ? -0x7fff : 0;
+			break;
+		case static_cast<int>(ControllerButtonExt::ANALOG_STICK_RIGHT_Y_DOWN):
+			state->right_y = press ? 0x7fff : 0;
+			break;
+		case static_cast<int>(ControllerButtonExt::ANALOG_STICK_RIGHT_X_UP):
+			state->right_x = press ? 0x7fff : 0;
+			break;
+		case static_cast<int>(ControllerButtonExt::ANALOG_STICK_RIGHT_X_DOWN):
+			state->right_x = press ? -0x7fff : 0;
+			break;
+		case static_cast<int>(ControllerButtonExt::ANALOG_STICK_LEFT_Y_UP):
+			state->left_y = press ? -0x7fff : 0;
+			break;
+		case static_cast<int>(ControllerButtonExt::ANALOG_STICK_LEFT_Y_DOWN):
+			state->left_y = press ? 0x7fff : 0;
+			break;
+		case static_cast<int>(ControllerButtonExt::ANALOG_STICK_LEFT_X_UP):
+			state->left_x = press ? 0x7fff : 0;
+			break;
+		case static_cast<int>(ControllerButtonExt::ANALOG_STICK_LEFT_X_DOWN):
+			state->left_x = press ? -0x7fff : 0;
+			break;
+		default:
+			if(press)
+				state->buttons |= button;
+			else
+				state->buttons &= ~button;
+			break;
+	}
+}
+
 void StreamSession::HandleMousePressEvent(QMouseEvent *event)
 {
 	if(!mouse_touch_enabled)
+	{
+		HandleMouseButton(event->button(), true);
 		return;
+	}
 	// left button for touchpad gestures, others => touchpad click
 	if (event->button() != Qt::MouseButton::LeftButton)
 		keyboard_state.buttons |= CHIAKI_CONTROLLER_BUTTON_TOUCHPAD;
@@ -806,7 +870,10 @@ void StreamSession::HandleMousePressEvent(QMouseEvent *event)
 void StreamSession::HandleMouseReleaseEvent(QMouseEvent *event)
 {
 	if(!mouse_touch_enabled)
+	{
+		HandleMouseButton(event->button(), false);
 		return;
+	}
 	// left button => end of touchpad gesture
 	if (event->button() == Qt::LeftButton)
 	{
@@ -822,6 +889,18 @@ void StreamSession::HandleMouseReleaseEvent(QMouseEvent *event)
 
 void StreamSession::HandleMouseMoveEvent(QMouseEvent *event, qreal width, qreal height)
 {
+	if(mouse_stick_enabled)
+	{
+		if(!connected)
+			return;
+		if(mouse_stick.Move(QGuiApplication::focusWindow(), event->globalPosition(), mouse_stick_clock.nsecsElapsed())
+				&& !mouse_stick_timer->isActive())
+		{
+			UpdateMouseStick();
+			mouse_stick_timer->start();
+		}
+		return;
+	}
 	if(!mouse_touch_enabled)
 		return;
 	// left button with move => touchpad gesture, otherwise ignore
@@ -852,47 +931,28 @@ void StreamSession::HandleKeyboardEvent(QKeyEvent *event)
 
 	int button = key_map[Qt::Key(event->key())];
 	bool press_event = event->type() == QEvent::Type::KeyPress;
+	ApplyMappedButton(&keyboard_state, button, press_event);
+	SendFeedbackState();
+}
 
-	switch(button)
-	{
-		case CHIAKI_CONTROLLER_ANALOG_BUTTON_L2:
-			keyboard_state.l2_state = press_event ? 0xff : 0;
-			break;
-		case CHIAKI_CONTROLLER_ANALOG_BUTTON_R2:
-			keyboard_state.r2_state = press_event ? 0xff : 0;
-			break;
-		case static_cast<int>(ControllerButtonExt::ANALOG_STICK_RIGHT_Y_UP):
-			keyboard_state.right_y = press_event ? -0x7fff : 0;
-			break;
-		case static_cast<int>(ControllerButtonExt::ANALOG_STICK_RIGHT_Y_DOWN):
-			keyboard_state.right_y = press_event ? 0x7fff : 0;
-			break;
-		case static_cast<int>(ControllerButtonExt::ANALOG_STICK_RIGHT_X_UP):
-			keyboard_state.right_x = press_event ? 0x7fff : 0;
-			break;
-		case static_cast<int>(ControllerButtonExt::ANALOG_STICK_RIGHT_X_DOWN):
-			keyboard_state.right_x = press_event ? -0x7fff : 0;
-			break;
-		case static_cast<int>(ControllerButtonExt::ANALOG_STICK_LEFT_Y_UP):
-			keyboard_state.left_y = press_event ? -0x7fff : 0;
-			break;
-		case static_cast<int>(ControllerButtonExt::ANALOG_STICK_LEFT_Y_DOWN):
-			keyboard_state.left_y = press_event ? 0x7fff : 0;
-			break;
-		case static_cast<int>(ControllerButtonExt::ANALOG_STICK_LEFT_X_UP):
-			keyboard_state.left_x = press_event ? 0x7fff : 0;
-			break;
-		case static_cast<int>(ControllerButtonExt::ANALOG_STICK_LEFT_X_DOWN):
-			keyboard_state.left_x = press_event ? -0x7fff : 0;
-			break;
-		default:
-			if(press_event)
-				keyboard_state.buttons |= button;
-			else
-				keyboard_state.buttons &= ~button;
-			break;
-	}
+void StreamSession::HandleMouseButton(Qt::MouseButton mouse_button, bool press)
+{
+	auto it = mouse_button_map.constFind(mouse_button);
+	if(it == mouse_button_map.constEnd())
+		return;
+	ApplyMappedButton(&mouse_state, it.value(), press);
+	SendFeedbackState();
+}
 
+void StreamSession::UpdateMouseStick()
+{
+	int16_t x, y;
+	if(!mouse_stick.Update(mouse_stick_clock.nsecsElapsed(), &x, &y))
+		mouse_stick_timer->stop();
+	if(x == mouse_state.right_x && y == mouse_state.right_y)
+		return;
+	mouse_state.right_x = x;
+	mouse_state.right_y = y;
 	SendFeedbackState();
 }
 
@@ -1150,6 +1210,7 @@ void StreamSession::DpadSendFeedbackState()
 	chiaki_controller_state_or(&state, &state, &sdeck_state);
 #endif
 	chiaki_controller_state_or(&state, &state, &keyboard_state);
+	chiaki_controller_state_or(&state, &state, &mouse_state);
 	chiaki_controller_state_or(&state, &state, &touch_state);
 
 	if(input_block)
@@ -1161,6 +1222,7 @@ void StreamSession::DpadSendFeedbackState()
 		{
 			chiaki_controller_state_set_idle(&state);
 			chiaki_controller_state_set_idle(&keyboard_state);
+			chiaki_controller_state_set_idle(&mouse_state);
 		}
 	}
 	if((dpad_touch_shortcut1 || dpad_touch_shortcut2 || dpad_touch_shortcut3 || dpad_touch_shortcut4) && (!dpad_touch_shortcut1 || (state.buttons & dpad_touch_shortcut1)) && (!dpad_touch_shortcut2 || (state.buttons & dpad_touch_shortcut2)) && (!dpad_touch_shortcut3 || (state.buttons & dpad_touch_shortcut3)) && (!dpad_touch_shortcut4 || (state.buttons & dpad_touch_shortcut4)))
@@ -1206,6 +1268,7 @@ void StreamSession::SendFeedbackState()
 	chiaki_controller_state_or(&state, &state, &sdeck_state);
 #endif
 	chiaki_controller_state_or(&state, &state, &keyboard_state);
+	chiaki_controller_state_or(&state, &state, &mouse_state);
 	chiaki_controller_state_or(&state, &state, &touch_state);
 
 	if(input_block)
@@ -1217,6 +1280,7 @@ void StreamSession::SendFeedbackState()
 		{
 			chiaki_controller_state_set_idle(&state);
 			chiaki_controller_state_set_idle(&keyboard_state);
+			chiaki_controller_state_set_idle(&mouse_state);
 		}
 	}
 	if((dpad_touch_shortcut1 || dpad_touch_shortcut2 || dpad_touch_shortcut3 || dpad_touch_shortcut4) && (!dpad_touch_shortcut1 || (state.buttons & dpad_touch_shortcut1)) && (!dpad_touch_shortcut2 || (state.buttons & dpad_touch_shortcut2)) && (!dpad_touch_shortcut3 || (state.buttons & dpad_touch_shortcut3)) && (!dpad_touch_shortcut4 || (state.buttons & dpad_touch_shortcut4)))

@@ -479,6 +479,13 @@ class Settings : public QObject
 		bool GetMouseTouchEnabled() const;
 		void SetMouseTouchEnabled(bool enabled);
 
+		bool GetMouseStickEnabled() const					{ return settings.value("settings/mouse_stick_enabled", false).toBool(); }
+		void SetMouseStickEnabled(bool enabled)				{ settings.setValue("settings/mouse_stick_enabled", enabled); }
+		float GetMouseStickSensitivity() const				{ return settings.value("settings/mouse_stick_sensitivity", 1.0).toFloat(); }
+		void SetMouseStickSensitivity(float sensitivity)	{ settings.setValue("settings/mouse_stick_sensitivity", sensitivity); }
+		float GetMouseStickDeadzone() const					{ return settings.value("settings/mouse_stick_deadzone", 0.15).toFloat(); }
+		void SetMouseStickDeadzone(float deadzone)			{ settings.setValue("settings/mouse_stick_deadzone", deadzone); }
+
 		bool GetDpadTouchEnabled() const;
 		void SetDpadTouchEnabled(bool enabled);
 
@@ -771,6 +778,14 @@ class Settings : public QObject
 		void SetControllerButtonMapping(int, Qt::Key);
 		QMap<int, Qt::Key> GetControllerMapping();
 		QMap<Qt::Key, int> GetControllerMappingForDecoding();
+		/**
+		 * @return Qt::MouseButton -> controller button (same values as the key mapping)
+		 */
+		QMap<int, int> GetMouseButtonMapping();
+		/**
+		 * @param chiaki_button 0 removes the binding
+		 */
+		void SetMouseButtonMapping(int mouse_button, int chiaki_button);
 
 		// Donation
 		QString GetDonationPsnOnlineId() const              { return settings.value("settings/donation_psn_online_id").toString(); }

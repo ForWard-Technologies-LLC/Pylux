@@ -935,6 +935,48 @@ void QmlSettings::setMouseTouchEnabled(bool enabled)
 {
     settings->SetMouseTouchEnabled(enabled);
     emit mouseTouchEnabledChanged();
+    if (enabled && settings->GetMouseStickEnabled()) {
+        settings->SetMouseStickEnabled(false);
+        emit mouseStickEnabledChanged();
+    }
+}
+
+bool QmlSettings::mouseStickEnabled() const
+{
+    return settings->GetMouseStickEnabled();
+}
+
+void QmlSettings::setMouseStickEnabled(bool enabled)
+{
+    settings->SetMouseStickEnabled(enabled);
+    emit mouseStickEnabledChanged();
+    // Mouse motion can drive either the touchpad or the stick, not both
+    if (enabled && settings->GetMouseTouchEnabled()) {
+        settings->SetMouseTouchEnabled(false);
+        emit mouseTouchEnabledChanged();
+    }
+}
+
+float QmlSettings::mouseStickSensitivity() const
+{
+    return settings->GetMouseStickSensitivity();
+}
+
+void QmlSettings::setMouseStickSensitivity(float sensitivity)
+{
+    settings->SetMouseStickSensitivity(sensitivity);
+    emit mouseStickSensitivityChanged();
+}
+
+float QmlSettings::mouseStickDeadzone() const
+{
+    return settings->GetMouseStickDeadzone();
+}
+
+void QmlSettings::setMouseStickDeadzone(float deadzone)
+{
+    settings->SetMouseStickDeadzone(deadzone);
+    emit mouseStickDeadzoneChanged();
 }
 
 bool QmlSettings::keyboardEnabled() const
@@ -1747,6 +1789,7 @@ void QmlSettings::clearKeyMapping()
 {
     settings->ClearKeyMapping();
     emit controllerMappingChanged();
+    emit mouseButtonMappingChanged();
 }
 
 QStringList QmlSettings::availableDecoders() const
@@ -1942,6 +1985,42 @@ QString QmlSettings::changeControllerKey(int button, int key)
     return QKeySequence(qt_key).toString();
 }
 
+QVariantList QmlSettings::mouseButtonMapping() const
+{
+    static const QList<QPair<int, const char *>> mouse_buttons = {
+        { Qt::LeftButton, QT_TR_NOOP("Left Button") },
+        { Qt::RightButton, QT_TR_NOOP("Right Button") },
+        { Qt::MiddleButton, QT_TR_NOOP("Middle Button") },
+        { Qt::BackButton, QT_TR_NOOP("Back Button") },
+        { Qt::ForwardButton, QT_TR_NOOP("Forward Button") },
+    };
+    QVariantList out;
+    auto mapping = settings->GetMouseButtonMapping();
+    for (const auto &mouse_button : mouse_buttons) {
+        QVariantMap m;
+        m["mouseButton"] = mouse_button.first;
+        m["name"] = tr(mouse_button.second);
+        m["target"] = mapping.value(mouse_button.first, 0);
+        out.append(m);
+    }
+    return out;
+}
+
+QVariantList QmlSettings::mouseButtonTargets() const
+{
+    QVariantList out;
+    out.append(QVariantMap{{"name", tr("None")}, {"value", 0}});
+    for (int button : settings->GetControllerMapping().keys())
+        out.append(QVariantMap{{"name", Settings::GetChiakiControllerButtonName(button)}, {"value", button}});
+    return out;
+}
+
+void QmlSettings::setMouseButtonMapping(int mouse_button, int chiaki_button)
+{
+    settings->SetMouseButtonMapping(mouse_button, chiaki_button);
+    emit mouseButtonMappingChanged();
+}
+
 void QmlSettings::setSettings(Settings *new_settings)
 {
     settings = new_settings;
@@ -2023,6 +2102,10 @@ void QmlSettings::refreshAllKeys()
     emit streamMenuShortcut3Changed();
     emit streamMenuShortcut4Changed();
     emit controllerMappingChanged();
+    emit mouseStickEnabledChanged();
+    emit mouseStickSensitivityChanged();
+    emit mouseStickDeadzoneChanged();
+    emit mouseButtonMappingChanged();
     emit packetLossMaxChanged();
     emit currentProfileChanged();
     emit profilesChanged();

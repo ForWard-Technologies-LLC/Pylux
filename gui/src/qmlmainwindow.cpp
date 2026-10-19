@@ -1232,6 +1232,10 @@ bool QmlMainWindow::event(QEvent *event)
     case QEvent::MouseButtonDblClick:
         if(!settings->GetFullscreenDoubleClickEnabled())
             break;
+        // Clicks that are game input (mouse look, bound buttons) must not toggle fullscreen
+        if(!settings->GetMouseTouchEnabled() && (settings->GetMouseStickEnabled()
+                || settings->GetMouseButtonMapping().contains(static_cast<QMouseEvent*>(event)->button())))
+            break;
         if (session && !grab_input) {
             if (windowState() != Qt::WindowFullScreen)
                 fullscreenTime();
